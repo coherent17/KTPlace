@@ -1,0 +1,646 @@
+/**
+ * @file bookshelfToKTAdaptor.cc
+ * @brief Implementation of Bookshelf format adapter
+ *
+ * - Boosts Iostreams (gzip_decompressor) transparently decompresses .gz inputs
+ * - oneTBB (parallel_for / blocked_range) parallelizes the node and net parsing
+ */
+
+#include "adaptor/bookshelfToKTAdaptor.h"
+#include <fstream>
+#include <sstream>
+#include <iostream>
+#include <algorithm>
+#include <cstring>
+#include <unordered_map>
+
+// Boost.Iostreams - transparent gzip input
+#include <boost/iostreams/filtering_stream.hpp>
+#include <boost/iostreams/filter/gzip.hpp>
+#include <boost/iostreams/device/file.hpp>
+
+// oneTBB - parallel parsing
+#include <oneapi/tbb/parallel_for.h>
+#include <oneapi/tbb/blocked_range.h>
+
+#ifdef _WIN32
+#include <io.h>
+#define access _access
+#define F_OK 0
+#else
+#include <unistd.h>
+#endif
+
+namespace ktplace {
+namespace io {
+
+namespace {
+
+// Gzip-aware text file. If the path ends in ".gz" the stream is decompressed
+// on the fly with Boost.Iostreams; otherwise it is read as plain text.
+class InputTextFile {
+public:
+    explicit InputTextFile(const std::string &path) {
+        if (path.size() > 3 && path.compare(path.size() - 3, 3, ".gz") == 0) {
+            in.push(boost::iostreams::gzip_decompressor());
+            in.push(boost::iostreams::file_source(path, std::ios::binary));
+        } else {
+            in.push(boost::iostreams::file_source(path));
+        }
+    }
+
+    std::istream &stream() {
+        return in;
+    }
+    explicit operator bool() const {
+        return static_cast<bool>(in);
+    }
+
+private:
+    boost::iostreams::filtering_istream in;
+};
+
+// Parsed node record produced by the parallel parsing phase.
+struct NodeRec {
+    std::string name;
+    double width = 0.0;
+    double height = 0.0;
+    bool terminal = false;
+    bool valid = false;
+};
+
+// Parsed pin record produced by the parallel parsing phase.
+struct PinRec {
+    std::string cellName;
+    double offsetX = 0.0;
+    double offsetY = 0.0;
+    bool isInput = false;
+};
+
+// Net header information gathered during the serial pre-scan.
+struct NetStub {
+    std::string name;
+    std::size_t degree = 0;
+};
+
+}  // namespace
+
+// Helper to strip comments and whitespace
+std::string BookshelfInputAdapter::stripComments(const std::string &line) {
+    std::string result = line;
+    size_t commentPos = result.find('#');
+    if (commentPos != std::string::npos) {
+        result = result.substr(0, commentPos);
+    }
+    // Trim whitespace
+    result.erase(0, result.find_first_not_of(" \t\r\n"));
+    result.erase(result.find_last_not_of(" \t\r\n") + 1);
+    return result;
+}
+
+// Tokenize a line
+std::vector<std::string> BookshelfInputAdapter::tokenize(const std::string &line) {
+    std::vector<std::string> tokens;
+    std::istringstream iss(line);
+    std::string token;
+    while (iss >> token) {
+        tokens.push_back(token);
+    }
+    return tokens;
+}
+
+BookshelfInputAdapter::BookshelfInputAdapter(std::unique_ptr<core::PlacementDB> database)
+    : db(database ? std::move(database) : std::make_unique<core::PlacementDB>()) {}
+
+BookshelfInputAdapter::~BookshelfInputAdapter() = default;
+
+BookshelfInputAdapter::BookshelfInputAdapter(BookshelfInputAdapter &&) noexcept = default;
+BookshelfInputAdapter &BookshelfInputAdapter::operator=(BookshelfInputAdapter &&) noexcept =
+    default;
+
+bool BookshelfInputAdapter::readFromDirectory(const std::string &baseName,
+                                              const std::string &dirPath) {
+    std::string nodesFile = dirPath + "/" + baseName + ".nodes";
+    std::string netsFile = dirPath + "/" + baseName + ".nets";
+    std::string plFile = dirPath + "/" + baseName + ".pl";
+    std::string sclFile = dirPath + "/" + baseName + ".scl";
+    std::string wtsFile = dirPath + "/" + baseName + ".wts";
+
+    // Check for gzipped versions
+    if (access((nodesFile + ".gz").c_str(), F_OK) == 0) {
+        nodesFile += ".gz";
+    }
+    if (access((netsFile + ".gz").c_str(), F_OK) == 0) {
+        netsFile += ".gz";
+    }
+    if (access((plFile + ".gz").c_str(), F_OK) == 0) {
+        plFile += ".gz";
+    }
+    if (access((sclFile + ".gz").c_str(), F_OK) == 0) {
+        sclFile += ".gz";
+    }
+    if (access((wtsFile + ".gz").c_str(), F_OK) == 0) {
+        wtsFile += ".gz";
+    }
+
+    return readFromFiles(nodesFile, netsFile, plFile, sclFile, wtsFile);
+}
+
+bool BookshelfInputAdapter::readFromFiles(const std::string &nodesFile, const std::string &netsFile,
+                                          const std::string &plFile, const std::string &sclFile,
+                                          const std::string &wtsFile) {
+    // Clear existing data
+    db->clear();
+
+    // Parse nodes file (required)
+    if (!parseNodesFile(nodesFile)) {
+        std::cerr << "Error: Failed to parse nodes file: " << nodesFile << std::endl;
+        return false;
+    }
+
+    // Parse weights file (optional) BEFORE nets so net weights are honored
+    if (!wtsFile.empty()) {
+        parseWtsFile(wtsFile);
+    }
+
+    // Parse nets file (required)
+    if (!parseNetsFile(netsFile)) {
+        std::cerr << "Error: Failed to parse nets file: " << netsFile << std::endl;
+        return false;
+    }
+
+    // Parse placement file (optional)
+    if (!plFile.empty()) {
+        parsePlacementFile(plFile);
+    }
+
+    // Parse scl file (optional)
+    if (!sclFile.empty()) {
+        parseSclFile(sclFile);
+    }
+
+    return true;
+}
+
+bool BookshelfInputAdapter::parseNodesFile(const std::string &filePath) {
+    InputTextFile file(filePath);
+    if (!file) {
+        std::cerr << "Error: Cannot open nodes file: " << filePath << std::endl;
+        return false;
+    }
+
+    // Read all lines once
+    std::vector<std::string> lines;
+    lines.reserve(1u << 18);
+    std::string line;
+    while (std::getline(file.stream(), line)) {
+        lines.push_back(std::move(line));
+    }
+
+    // Serial pre-scan: locate the end of the header ("NumTerminals" line).
+    std::size_t bodyStart = 0;
+    while (bodyStart < lines.size()) {
+        std::string stripped = stripComments(lines[bodyStart]);
+        if (stripped.find("NumTerminals") != std::string::npos) {
+            ++bodyStart;
+            break;
+        }
+        ++bodyStart;
+    }
+
+    const std::size_t nNodes = lines.size() - bodyStart;
+    if (nNodes == 0) {
+        return true;
+    }
+
+    // Parallel phase: tokenize + validate every node line independently.
+    std::vector<NodeRec> recs(nNodes);
+    tbb::parallel_for(
+        tbb::blocked_range<std::size_t>(0, nNodes), [&](const tbb::blocked_range<std::size_t> &r) {
+            for (std::size_t i = r.begin(); i != r.end(); ++i) {
+                std::string stripped = stripComments(lines[bodyStart + i]);
+                if (stripped.empty())
+                    continue;
+
+                std::vector<std::string> tokens = tokenize(stripped);
+                if (tokens.size() < 3) {
+                    std::cerr << "Warning: Failed to parse node line " << (bodyStart + i + 1)
+                              << ": " << stripped << std::endl;
+                    continue;
+                }
+
+                NodeRec &rec = recs[i];
+                try {
+                    rec.width = std::stod(tokens[1]);
+                    rec.height = std::stod(tokens[2]);
+                    rec.terminal = (tokens.size() >= 4 && tokens[3] == "terminal");
+                    rec.name = std::move(tokens[0]);
+                    rec.valid = true;
+                } catch (const std::exception &e) {
+                    std::cerr << "Warning: Failed to parse node line " << (bodyStart + i + 1)
+                              << ": " << stripped << " (" << e.what() << ")" << std::endl;
+                }
+            }
+        });
+
+    // Serial merge phase: insert records into the DB (Graph is not thread-safe).
+    for (NodeRec &rec : recs) {
+        if (!rec.valid)
+            continue;
+        try {
+            db->addCell(rec.name, rec.width, rec.height, rec.terminal);
+        } catch (const std::exception &e) {
+            std::cerr << "Error adding cell " << rec.name << ": " << e.what() << std::endl;
+        }
+    }
+
+    return true;
+}
+
+bool BookshelfInputAdapter::parseNodeLine(const std::string &line, std::size_t lineNum) {
+    std::vector<std::string> tokens = tokenize(line);
+    if (tokens.size() < 3) {
+        return false;
+    }
+
+    std::string name = tokens[0];
+    double width = std::stod(tokens[1]);
+    double height = std::stod(tokens[2]);
+
+    // Check if terminal (optional keyword after dimensions)
+    bool isTerminal = (tokens.size() >= 4 && tokens[3] == "terminal");
+
+    try {
+        db->addCell(name, width, height, isTerminal);
+    } catch (const std::exception &e) {
+        std::cerr << "Error adding cell " << name << ": " << e.what() << std::endl;
+        return false;
+    }
+
+    return true;
+}
+
+bool BookshelfInputAdapter::parseNetsFile(const std::string &filePath) {
+    InputTextFile file(filePath);
+    if (!file) {
+        std::cerr << "Error: Cannot open nets file: " << filePath << std::endl;
+        return false;
+    }
+
+    // Read all lines once
+    std::vector<std::string> lines;
+    std::string line;
+    while (std::getline(file.stream(), line)) {
+        lines.push_back(std::move(line));
+    }
+
+    // Serial pre-scan: pull out "NetDegree" headers, count pins per net, and
+    // record the global index of every pin line.
+    std::vector<NetStub> netStubs;
+    std::vector<std::size_t> pinsInNet;     // pins observed per net (serial order)
+    std::vector<std::size_t> pinLineIndex;  // global line index of each pin
+    bool inHeader = true;
+
+    for (std::size_t i = 0; i < lines.size(); ++i) {
+        std::string stripped = stripComments(lines[i]);
+        if (stripped.empty())
+            continue;
+
+        if (inHeader) {
+            // Skip header lines: "UCLA nets 1.0", "NumNets : N", "NumPins : N"
+            if (stripped.compare(0, 5, "UCLA") == 0 || stripped.compare(0, 7, "NumNets") == 0 ||
+                stripped.compare(0, 7, "NumPins") == 0) {
+                continue;
+            }
+            inHeader = false;
+        }
+
+        if (stripped.compare(0, 9, "NetDegree") == 0) {
+            // Formats: "NetDegree <degree> <name>", "NetDegree : <degree> <name>",
+            // or "NetDegree : <degree>" (name-less IBM style).
+            const std::vector<std::string> tokens = tokenize(stripped);
+            std::size_t nameIdx = 1;
+            for (; nameIdx < tokens.size(); ++nameIdx) {
+                if (tokens[nameIdx] != ":")
+                    break;
+            }
+            if (tokens.size() < nameIdx + 1) {
+                std::cerr << "Warning: Malformed NetDegree line " << (i + 1) << ": " << stripped
+                          << std::endl;
+                continue;
+            }
+            NetStub stub;
+            stub.degree = std::stoull(tokens[nameIdx]);
+            stub.name = (nameIdx + 1 < tokens.size()) ? tokens[nameIdx + 1] : "";
+            netStubs.push_back(std::move(stub));
+            pinsInNet.push_back(0);
+            continue;
+        }
+
+        // Everything else after the header is a pin line belonging to the
+        // current (last) net.
+        if (!netStubs.empty()) {
+            pinLineIndex.push_back(i);
+            pinsInNet.back() += 1;
+        }
+    }
+
+    // Prefix offsets: global pin ranges [pinStart[i], pinStart[i] + count)
+    std::vector<std::size_t> pinStart(netStubs.size());
+    std::size_t totalPins = 0;
+    for (std::size_t i = 0; i < netStubs.size(); ++i) {
+        pinStart[i] = totalPins;
+        totalPins += std::min(pinsInNet[i], netStubs[i].degree);
+    }
+
+    // Parallel phase: parse each net's pins independently into disjoint
+    // per-net buffers.
+    std::vector<std::vector<PinRec>> netPins(netStubs.size());
+    tbb::parallel_for(tbb::blocked_range<std::size_t>(0, netStubs.size()),
+                      [&](const tbb::blocked_range<std::size_t> &r) {
+                          for (std::size_t i = r.begin(); i != r.end(); ++i) {
+                              auto &pins = netPins[i];
+                              pins.reserve(std::min(pinsInNet[i], netStubs[i].degree));
+                              const std::size_t beginIdx = pinStart[i];
+                              const std::size_t count = std::min(pinsInNet[i], netStubs[i].degree);
+                              for (std::size_t p = 0; p < count; ++p) {
+                                  const std::size_t lineIdx = pinLineIndex[beginIdx + p];
+                                  std::string stripped = stripComments(lines[lineIdx]);
+                                  if (stripped.empty())
+                                      continue;
+
+                                  std::vector<std::string> tokens = tokenize(stripped);
+                                  if (tokens.size() < 2)
+                                      continue;
+
+                                  PinRec rec;
+                                  try {
+                                      rec.cellName = std::move(tokens[0]);
+                                      rec.isInput = (tokens[1] == "I");
+                                      if (tokens.size() >= 5 && tokens[2] == ":") {
+                                          rec.offsetX = std::stod(tokens[3]);
+                                          rec.offsetY = std::stod(tokens[4]);
+                                      }
+                                  } catch (const std::exception &e) {
+                                      std::cerr << "Warning: Failed to parse pin line "
+                                                << (lineIdx + 1) << ": " << stripped << " ("
+                                                << e.what() << ")" << std::endl;
+                                      continue;
+                                  }
+                                  pins.push_back(std::move(rec));
+                              }
+                          }
+                      });
+
+    // Serial merge phase: create nets and pins in the DB.
+    for (std::size_t i = 0; i < netStubs.size(); ++i) {
+        // IBM-style net lists omit net names; synthesize a unique one so
+        // name-less nets do not all collapse onto a single shared key.
+        const std::string baseNetName = netStubs[i].name;
+        std::string netName = baseNetName.empty() ? ("n" + std::to_string(i)) : baseNetName;
+        double weight = 1.0;
+        auto it = netWeights.find(baseNetName);
+        if (it != netWeights.end()) {
+            weight = it->second;
+        }
+        if (!db->hasNet(netName)) {
+            db->addNet(netName, weight);
+        }
+        for (const PinRec &pin : netPins[i]) {
+            try {
+                db->addPin(pin.cellName, netName, pin.offsetX, pin.offsetY, pin.isInput);
+            } catch (const std::exception &e) {
+                std::cerr << "Warning: Error adding pin: " << e.what() << std::endl;
+            }
+        }
+    }
+
+    return true;
+}
+
+bool BookshelfInputAdapter::parsePinLine(const std::string &line, std::size_t &netDegree,
+                                         std::string &netName) {
+    // Format: "<cell_name> <I|O> : <offset_x> <offset_y>"
+    // Or: "<cell_name> <I|O>"
+    std::vector<std::string> tokens = tokenize(line);
+    if (tokens.size() < 2) {
+        return false;
+    }
+
+    std::string cellName = tokens[0];
+    bool isInput = (tokens[1] == "I");
+    double offsetX = 0.0;
+    double offsetY = 0.0;
+
+    // Parse offsets if present
+    if (tokens.size() >= 5 && tokens[2] == ":") {
+        offsetX = std::stod(tokens[3]);
+        offsetY = std::stod(tokens[4]);
+    }
+
+    try {
+        db->addPin(cellName, netName, offsetX, offsetY, isInput);
+    } catch (const std::exception &e) {
+        std::cerr << "Error adding pin: " << e.what() << std::endl;
+        return false;
+    }
+
+    return true;
+}
+
+bool BookshelfInputAdapter::parsePlacementFile(const std::string &filePath) {
+    InputTextFile file(filePath);
+    if (!file) {
+        // Placement file is optional
+        return true;
+    }
+
+    bool inHeader = true;
+    std::string line;
+    while (std::getline(file.stream(), line)) {
+        std::string stripped = stripComments(line);
+        if (stripped.empty())
+            continue;
+
+        if (inHeader) {
+            // Skip "UCLA pl 1.0" style header lines
+            if (stripped.find("UCLA") != std::string::npos) {
+                continue;
+            }
+            inHeader = false;
+        }
+
+        parsePlacementLine(stripped);
+    }
+
+    return true;
+}
+
+bool BookshelfInputAdapter::parsePlacementLine(const std::string &line) {
+    // Format: "<cell_name> <x> <y> : <N|S|E|W|FN|FS|FE|FW>"
+    // Or: "<cell_name> <x> <y>"
+    std::vector<std::string> tokens = tokenize(line);
+    if (tokens.size() < 3) {
+        return false;
+    }
+
+    std::string cellName = tokens[0];
+    double x = std::stod(tokens[1]);
+    double y = std::stod(tokens[2]);
+
+    bool fixed = false;
+    if (tokens.size() >= 5 && tokens[3] == ":") {
+        std::string orient = tokens[4];
+        // Check if fixed (starts with 'F')
+        fixed = (orient.size() > 0 && orient[0] == 'F');
+    }
+
+    try {
+        db->setCellPosition(cellName, x, y);
+        if (fixed) {
+            db->setCellFixed(cellName, true);
+        }
+    } catch (const std::exception &e) {
+        // Cell might not exist yet, skip
+        return false;
+    }
+
+    return true;
+}
+
+bool BookshelfInputAdapter::parseSclFile(const std::string &filePath) {
+    InputTextFile file(filePath);
+    if (!file) {
+        // SCL file is optional
+        return true;
+    }
+
+    std::string line;
+    std::vector<std::string> currentRowTokens;
+    bool inRow = false;
+
+    while (std::getline(file.stream(), line)) {
+        std::string stripped = stripComments(line);
+        if (stripped.empty())
+            continue;
+
+        if (stripped.find("CoreRow") != std::string::npos) {
+            inRow = true;
+            currentRowTokens.clear();
+            continue;
+        }
+
+        if (stripped == "End") {
+            if (inRow) {
+                parseSclRow(currentRowTokens);
+                inRow = false;
+            }
+            continue;
+        }
+
+        if (inRow) {
+            currentRowTokens.push_back(stripped);
+        }
+    }
+
+    return true;
+}
+
+bool BookshelfInputAdapter::parseSclRow(const std::vector<std::string> &tokens) {
+    double coordinate = 0.0;
+    double height = 0.0;
+    double sitewidth = 1.0;
+    double sitespacing = 1.0;
+    double numSites = 0.0;
+
+    // Parse row parameters from tokens (each token is one "key : value" line)
+    for (const std::string &token : tokens) {
+        const std::vector<std::string> parts = tokenize(token);
+        if (parts.size() < 2)
+            continue;
+
+        const std::string &key = parts[0];
+        // Skip an optional ":" separator to reach the value token
+        std::size_t valIdx = 1;
+        while (valIdx < parts.size() && parts[valIdx] == ":") {
+            ++valIdx;
+        }
+        if (valIdx >= parts.size())
+            continue;
+
+        try {
+            if (key == "Coordinate") {
+                coordinate = std::stod(parts[valIdx]);
+            } else if (key == "Height") {
+                height = std::stod(parts[valIdx]);
+            } else if (key == "Sitewidth") {
+                sitewidth = std::stod(parts[valIdx]);
+            } else if (key == "Sitespacing") {
+                sitespacing = std::stod(parts[valIdx]);
+            } else if (key == "SubrowOrigin") {
+                // Format: "SubrowOrigin : <value> NumSites : <count>"
+                for (std::size_t p = 0; p + 1 < parts.size(); ++p) {
+                    if (parts[p] == "NumSites") {
+                        std::size_t m = p + 1;
+                        while (m < parts.size() && parts[m] == ":") {
+                            ++m;
+                        }
+                        if (m < parts.size()) {
+                            numSites = std::stod(parts[m]);
+                        }
+                        break;
+                    }
+                }
+            }
+        } catch (const std::exception &) {
+            // Malformed row field; keep defaults
+        }
+    }
+
+    if (numSites > 0) {
+        db->addRow(coordinate, height, sitewidth, sitespacing, numSites);
+    }
+
+    return true;
+}
+
+bool BookshelfInputAdapter::parseWtsFile(const std::string &filePath) {
+    InputTextFile file(filePath);
+    if (!file) {
+        // Weights file is optional
+        return true;
+    }
+
+    std::string line;
+    bool inHeader = true;
+    while (std::getline(file.stream(), line)) {
+        std::string stripped = stripComments(line);
+        if (stripped.empty())
+            continue;
+
+        if (inHeader) {
+            // Skip "UCLA wts 1.0" style header lines
+            if (stripped.find("UCLA") != std::string::npos) {
+                continue;
+            }
+            inHeader = false;
+        }
+
+        std::vector<std::string> tokens = tokenize(stripped);
+        if (tokens.size() < 2)
+            continue;
+
+        try {
+            std::string netName = tokens[0];
+            double weight = std::stod(tokens[1]);
+            netWeights[netName] = weight;
+        } catch (const std::exception &) {
+            // Not a "netname weight" line; skip
+        }
+    }
+
+    return true;
+}
+
+}  // namespace io
+}  // namespace ktplace

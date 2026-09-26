@@ -1,0 +1,69 @@
+/**
+ * @file kt_flowMgr.h
+ * @brief Flow manager to orchestrate the overall placement flow
+ */
+
+#ifndef KT_FLOW_MGR_H
+#define KT_FLOW_MGR_H
+
+#include <memory>
+#include <string>
+#include "datamodel/kt_dm.h"
+
+namespace ktplace {
+namespace core {
+
+// Forward declarations
+class BookshelfInputAdapter;
+
+/**
+ * @brief Flow manager to coordinate the overall placement flow
+ * 
+ * Manages the complete flow from input loading through placement execution
+ * to output generation. Coordinates between adapters, PlacementDB, and
+ * placement algorithms.
+ */
+class FlowMgr {
+public:
+    /// Constructor
+    FlowMgr();
+
+    /// Destructor
+    ~FlowMgr();
+
+    // Copy semantics (deleted)
+    FlowMgr(const FlowMgr &) = delete;
+    FlowMgr &operator=(const FlowMgr &) = delete;
+
+    // Move semantics
+    FlowMgr(FlowMgr &&) noexcept;
+    FlowMgr &operator=(FlowMgr &&) noexcept;
+
+    /**
+     * @brief Run the complete placement flow
+     * 
+     * Executes the full placement flow: load input, run placement algorithm, write output.
+     * All other operations are handled internally via the PIMPL implementation.
+     * 
+     * @param inputBaseName Base name of input files (e.g., "adaptec2")
+     * @param inputDirPath Directory path containing input files
+     * @param outputPath Output file path for placement results
+     * @param algorithm Placement algorithm name ("quadratic", etc.)
+     * @param outputFormat Output format ("bookshelf", etc.)
+     * @param plotDir If non-empty, directory for SVG/CSV/HTML placement
+     *                visualization snapshots (see QuadraticPlacer::place).
+     * @throws std::runtime_error if any step fails
+     */
+    void run(const std::string &inputBaseName, const std::string &inputDirPath,
+             const std::string &outputPath, const std::string &algorithm = "quadratic",
+             const std::string &outputFormat = "bookshelf", const std::string &plotDir = "");
+
+private:
+    class Impl;
+    std::unique_ptr<Impl> pImpl;
+};
+
+}  // namespace core
+}  // namespace ktplace
+
+#endif  // KT_FLOW_MGR_H

@@ -1,0 +1,252 @@
+/**
+ * @file kt_flowMgr.cc
+ * @brief Implementation of FlowMgr
+ */
+
+#include "kt_flowMgr.h"
+#include "util/kt_timer.h"
+#include "util/kt_log.h"
+#include "placer/kt_quadPlacer.h"
+#include "datamodel/kt_graph.h"
+#include "adaptor/bookshelfToKTAdaptor.h"
+#include "adaptor/lefdefToKTAdaptor.h"
+#include <memory>
+#include <fstream>
+#include <string>
+#include <algorithm>
+#include <stdexcept>
+#include <chrono>
+#include <filesystem>
+
+namespace ktplace {
+namespace core {
+
+// PIMPL implementation
+class FlowMgr::Impl {
+public:
+    std::unique_ptr<PlacementDB> db;
+    std::unique_ptr<io::BookshelfInputAdapter> bookshelfAdapter;
+    std::unique_ptr<io::LefDefInputAdapter> lefdefAdapter;
+    bool loaded = false;
+    bool placed = false;
+
+    // Internal methods
+    bool loadInput(const std::string &baseName, const std::string &dirPath);
+    bool loadBookshelf(const std::string &baseName, const std::string &dirPath);
+    bool loadBookshelfFromFiles(const std::string &nodesFile, const std::string &netsFile,
+                                const std::string &plFile = "", const std::string &sclFile = "",
+                                const std::string &wtsFile = "");
+    bool runPlacement(const std::string &algorithm = "quadratic", const std::string &plotDir = "");
+    bool writePlacement(const std::string &outputPath, const std::string &format = "bookshelf");
+    PlacementDB &getPlacementDB();
+    const PlacementDB &getPlacementDB() const;
+    bool isLoaded() const;
+    void clear();
+};
+
+// FlowMgr implementation
+
+FlowMgr::FlowMgr() : pImpl(std::make_unique<Impl>()) {
+    pImpl->db = std::make_unique<PlacementDB>();
+    pImpl->bookshelfAdapter = std::make_unique<io::BookshelfInputAdapter>();
+}
+
+FlowMgr::~FlowMgr() = default;
+
+FlowMgr::FlowMgr(FlowMgr &&) noexcept = default;
+FlowMgr &FlowMgr::operator=(FlowMgr &&) noexcept = default;
+
+void FlowMgr::run(const std::string &inputBaseName, const std::string &inputDirPath,
+                  const std::string &outputPath, const std::string &algorithm,
+                  const std::string &outputFormat, const std::string &plotDir) {
+    // Phase timers accumulate into the registry; the summary is reported once
+    // at the end of the run.
+    {
+        ScopedTimer timer("load");
+        if (!pImpl->loadInput(inputBaseName, inputDirPath)) {
+            throw std::runtime_error("Failed to load input files");
+        }
+    }
+
+    // Report loaded statistics
+    {
+        PlacementDB &db = pImpl->getPlacementDB();
+        auto [numCells, numNets] = db.getStats();
+        ktlog.echo("Loaded: {} cells ({} terminals), {} nets, {} pins, {} rows", numCells,
+                   db.getNumTerminals(), numNets, db.getNumPins(), db.getNumRows());
+    }
+
+    // Run placement
+    {
+        ScopedTimer timer("place");
+        if (!pImpl->runPlacement(algorithm, plotDir)) {
+            throw std::runtime_error("Placement algorithm failed");
+        }
+    }
+
+    // Write output
+    {
+        ScopedTimer timer("write");
+        if (!pImpl->writePlacement(outputPath, outputFormat)) {
+            throw std::runtime_error("Failed to write output");
+        }
+    }
+
+    TimerRegistry::instance().report();
+}
+
+// Implementation of Impl methods
+
+bool FlowMgr::Impl::loadInput(const std::string &baseName, const std::string &dirPath) {
+    // Auto-detect the input format: a directory containing LEF/DEF files is
+    // loaded through the LEF/DEF adapter; otherwise Bookshelf is assumed.
+    namespace fs = std::filesystem;
+    bool hasDef = false;
+    std::error_code ec;
+    fs::directory_iterator it(dirPath, fs::directory_options::skip_permission_denied, ec);
+    const fs::directory_iterator end;
+    for (; !ec && it != end; it.increment(ec)) {
+        const std::string name = it->path().filename().string();
+        if ((name.size() >= 4 && name.rfind(".def") == name.size() - 4) ||
+            (name.size() >= 7 && name.rfind(".def.gz") == name.size() - 7)) {
+            hasDef = true;
+            break;
+        }
+    }
+    if (ec) {
+        ktlog.fatal("cannot scan input directory: {}", dirPath);
+    }
+    if (hasDef) {
+        ktlog.echo("Detected LEF/DEF input in {}", dirPath);
+        clear();
+        lefdefAdapter = std::make_unique<io::LefDefInputAdapter>(std::make_unique<PlacementDB>());
+        if (!lefdefAdapter->readFromDirectory(dirPath)) {
+            ktlog.fatal("Failed to load LEF/DEF format from {}", dirPath);
+        }
+        db = lefdefAdapter->releasePlacementDB();
+        loaded = true;
+        placed = false;
+        return true;
+    }
+    return loadBookshelf(baseName, dirPath);
+}
+
+bool FlowMgr::Impl::loadBookshelf(const std::string &baseName, const std::string &dirPath) {
+    clear();
+
+    // Create adapter with the database
+    bookshelfAdapter = std::make_unique<io::BookshelfInputAdapter>(std::make_unique<PlacementDB>());
+
+    // Read from directory
+    if (!bookshelfAdapter->readFromDirectory(baseName, dirPath)) {
+        ktlog.fatal("Failed to load Bookshelf format from {}", dirPath);
+    }
+
+    // Transfer ownership of database
+    db = bookshelfAdapter->releasePlacementDB();
+    loaded = true;
+    placed = false;
+
+    return true;
+}
+
+bool FlowMgr::Impl::loadBookshelfFromFiles(const std::string &nodesFile,
+                                           const std::string &netsFile, const std::string &plFile,
+                                           const std::string &sclFile, const std::string &wtsFile) {
+    clear();
+
+    // Create adapter with the database
+    bookshelfAdapter = std::make_unique<io::BookshelfInputAdapter>(std::make_unique<PlacementDB>());
+
+    // Read from files
+    if (!bookshelfAdapter->readFromFiles(nodesFile, netsFile, plFile, sclFile, wtsFile)) {
+        ktlog.fatal("Failed to load Bookshelf format files");
+    }
+
+    // Transfer ownership of database
+    db = bookshelfAdapter->releasePlacementDB();
+    loaded = true;
+    placed = false;
+
+    return true;
+}
+
+bool FlowMgr::Impl::runPlacement(const std::string &algorithm, const std::string &plotDir) {
+    if (!loaded) {
+        ktlog.fatal("No placement database loaded");
+    }
+
+    if (algorithm == "quadratic") {
+        ktlog.echo("Running global placement (clique/star net model, WL + density, PCG)...");
+        QuadraticPlacer placer(*db);
+        const PlacerResult res = placer.place(200, 0.10, plotDir);
+        ktlog.echo("  movable cells : {}  star nodes : {}", res.numMovable, res.numStars);
+        ktlog.echo("  matrix build  : {:.6}s  global place  : {:.6}s  ({} outer iters)",
+                   res.buildSeconds, res.solveSeconds, res.numIterations);
+        ktlog.echo("  density overf.: {:.6}  ->  {:.6}", res.densityOverflowInitial,
+                   res.densityOverflowFinal);
+        ktlog.echo("  HPWL          : {:.6}  ->  {:.6}  ({:.6}% better)", res.hpwlInitial,
+                   res.hpwlFinal,
+                   100.0 * (1.0 - res.hpwlFinal / std::max(res.hpwlInitial, 1e-300)));
+        placed = true;
+        return true;
+    } else {
+        ktlog.fatal("Unknown placement algorithm: {}", algorithm);
+    }
+}
+
+bool FlowMgr::Impl::writePlacement(const std::string &outputPath, const std::string &format) {
+    if (!placed) {
+        ktlog.fatal("No placement result available");
+    }
+
+    if (format == "bookshelf") {
+        std::ofstream out(outputPath);
+        if (!out.is_open()) {
+            ktlog.fatal("Cannot open output file: {}", outputPath);
+        }
+        const Graph &g = db->getGraph();
+        const std::size_t nv = g.getNumVertices();
+        for (std::size_t v = 0; v < nv; ++v) {
+            const Vertex &vert = g.getVertex(v);
+            if (vert.type != VertexType::Cell)
+                continue;
+            // Bookshelf .pl: "<name> <x> <y> : <orientation>"
+            out << vert.name << '\t' << vert.x << '\t' << vert.y
+                << "\t: " << (vert.isFixed ? "N /FIXED" : "N") << '\n';
+        }
+        out.close();
+        return true;
+    } else {
+        ktlog.fatal("Unknown output format: {}", format);
+    }
+}
+
+PlacementDB &FlowMgr::Impl::getPlacementDB() {
+    if (!db) {
+        throw std::runtime_error("PlacementDB not initialized");
+    }
+    return *db;
+}
+
+const PlacementDB &FlowMgr::Impl::getPlacementDB() const {
+    if (!db) {
+        throw std::runtime_error("PlacementDB not initialized");
+    }
+    return *db;
+}
+
+bool FlowMgr::Impl::isLoaded() const {
+    return loaded;
+}
+
+void FlowMgr::Impl::clear() {
+    db.reset();
+    bookshelfAdapter.reset();
+    lefdefAdapter.reset();
+    loaded = false;
+    placed = false;
+}
+
+}  // namespace core
+}  // namespace ktplace

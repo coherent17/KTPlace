@@ -1,0 +1,27 @@
+# Build artifacts
+build/
+src/build/
+*.o
+*.d
+
+# Generated placements and plots
+output/
+out.pl
+
+# Run transcript
+ktplace.log
+*.log
+
+# Benchmark data is downloaded, not committed: keep the directory itself
+# visible so the fetch script and its docs can be tracked.
+benchmark/*
+!benchmark/fetch_benchmarks.py
+!benchmark/README.md
+
+# Editor / OS noise
+*.swp
+.DS_Store
+
+# Local editor tooling (kept out of the repo)
+.cursorrules
+docs/
