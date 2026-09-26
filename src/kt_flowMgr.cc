@@ -37,7 +37,8 @@ public:
     bool loadBookshelfFromFiles(const std::string &nodesFile, const std::string &netsFile,
                                 const std::string &plFile = "", const std::string &sclFile = "",
                                 const std::string &wtsFile = "");
-    bool runPlacement(const std::string &algorithm = "quadratic", const std::string &plotDir = "");
+    bool runPlacement(const std::string &algorithm = "quadratic", const std::string &plotDir = "",
+                      const std::string &snapshotDir = "");
     bool writePlacement(const std::string &outputPath, const std::string &format = "bookshelf");
     PlacementDB &getPlacementDB();
     const PlacementDB &getPlacementDB() const;
@@ -80,7 +81,15 @@ void FlowMgr::run(const std::string &inputBaseName, const std::string &inputDirP
     // Run placement
     {
         ScopedTimer timer("place");
-        if (!pImpl->runPlacement(algorithm, plotDir)) {
+        const std::string snapshotDir = outputPath.find_last_of('/') == std::string::npos
+                                            ? std::string(".")
+                                            : outputPath.substr(0, outputPath.find_last_of('/'));
+        // By default every run records a per-iteration SVG frame + HPWL/galley
+        // report next to the result, so an iteration can be inspected without
+        // remembering the -p flag.  An explicit -p directory still wins.
+        const std::string effectivePlotDir =
+            !plotDir.empty() ? plotDir : snapshotDir + "/" + inputBaseName + "_plots";
+        if (!pImpl->runPlacement(algorithm, effectivePlotDir, snapshotDir)) {
             throw std::runtime_error("Placement algorithm failed");
         }
     }
@@ -172,7 +181,8 @@ bool FlowMgr::Impl::loadBookshelfFromFiles(const std::string &nodesFile,
     return true;
 }
 
-bool FlowMgr::Impl::runPlacement(const std::string &algorithm, const std::string &plotDir) {
+bool FlowMgr::Impl::runPlacement(const std::string &algorithm, const std::string &plotDir,
+                                 const std::string &snapshotDir) {
     if (!loaded) {
         ktlog.fatal("No placement database loaded");
     }
@@ -186,7 +196,7 @@ bool FlowMgr::Impl::runPlacement(const std::string &algorithm, const std::string
         if (lefdefAdapter) {
             regions = &lefdefAdapter->getConstraints();
         }
-        const PlacerResult res = placer.place(200, 0.10, plotDir, regions);
+        const PlacerResult res = placer.place(200, 0.10, plotDir, regions, snapshotDir);
         // Units live in the metric name so the value columns stay purely
         // numeric and get right-aligned by the table.
         ktReportTable summary("Solver results");

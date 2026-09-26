@@ -54,9 +54,13 @@ public:
      * @param plotDir if non-empty, emit an SVG snapshot per outer iteration, an
      *                HPWL/summary curve (CSV+SVG), and an HTML gallery into
      *                this directory (see kt_plotter).
+     * @param snapshotDir if non-empty, always emit three density SVG snapshots
+     *                (initial, end of the global loop, final) into this
+     *                directory, regardless of plotDir / -v.
      */
     PlacerResult place(int maxIter = 200, double tol = 0.10, const std::string &plotDir = "",
-                       const constraintMgr *constraints = nullptr);
+                       const constraintMgr *constraints = nullptr,
+                       const std::string &snapshotDir = "");
 
 private:
     PlacementDB &db;

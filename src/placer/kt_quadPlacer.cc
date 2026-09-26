@@ -78,6 +78,54 @@ constexpr double kDensityGradEnd = 600.0;
 // lets the capped nudge accumulate into a steady outward drift.
 constexpr double kProjMu = 2.0;
 
+// Electrostatic (Poisson) density force. The local utilization gradient found
+// above has no long-range reach: inside a uniformly-crowded blob it vanishes,
+// so only the rim ever feels a force and the blob survives any coefficient. The
+// force that does see the whole die is the one from a potential field phi that
+// solves the Poisson equation
+//
+//     d^2(phi)/dx^2 + d^2(phi)/dy^2 = u - u_target,   phi = 0 on the die boundary,
+//
+// with u the per-bin utilization. A crowded bin reads as a positive source, so
+// phi lifts into a bump there, and the downhill force -grad(phi) points away
+// from the bump -- toward whichever drain the WL solve is creating, including
+// one on the opposite side of the die. Like the gradient term it is
+// self-stopping (when u equals the target everywhere the source is zero and no
+// force remains) but it is a *global* equilibrium the projection and the solve
+// share, so the last of the overdensity can actually be driven out instead of
+// plateauing. Jacobi sweeps with a warm start (the field is kept across outer
+// iterations and only re-damped), giving long-range information that has
+// converged over the whole run rather than in a single solve.
+constexpr int kPotSweeps = 100;       // Jacobi sweeps per field refresh
+constexpr double kPotGradStart = 4.0; // ramped geometric weight, like the gradient
+constexpr double kPotGradEnd = 1200.0;
+// The old local gradient as a high-frequency correction. The potential part
+// carries the long range; this small reserve keeps the force responsive to
+// features a single bin wide that the Poisson solve smooths away.
+constexpr double kLocalGradFrac = 0.0;
+
+// SimPL-style alternating legalization tail. After the global-placement loop,
+// cells are snapped to a per-pool equi-area layout (a "legalized" uniform
+// density, exactly the designed layout the projection has been aiming at all
+// along), then a density-coupled solve (projection spring + potential force,
+// anchored to the fresh targets) pulls them back toward their net optimum and
+// the next snap restores uniformity. Alternating concentrates near-zero
+// density overflow and a wirelength the carpet does not destroy, instead of the
+// spread phase stalling at a nonzero floor.
+constexpr int kLegalTailIters = 30;
+constexpr double kTailMoveBins = 6.0;
+// Jacobi relaxation sweeps used to derive the connectivity-aware initial
+// seed (see the seed block before Phase 0).  A few sweeps let the pinned
+// I/O + fixed-macro coordinates diffuse a few hops out the net hypergraph
+// without collapsing every cell onto the global centroid.
+constexpr int kSeedRelaxSweeps = 4;
+// The snap fills each pool at this fraction of capacity, not at full capacity.
+// The overflow metric is computed from the C1-splatted occupancy, whose
+// kernel and within-bin jitter can exceed a bin's capacity by a few percent
+// even at a perfectly uniform layout (and the pad push-out adds spikes); the
+// margin absorbs that so the *reported* overflow is genuinely ~0.
+constexpr double kLegalDensityMargin = 0.9;
+
 // Outer iterations reserved for the pure-projection pre-spread phase (see
 // PLACER loop).  Covers the collapsed die-center seed before refining.
 // Fraction of the outer-iteration budget spent spreading before the
@@ -150,15 +198,30 @@ double deterministicReduce(std::size_t n, Body &&body) {
 
 // NTUplace bell-shaped density kernel. Piecewise quadratic with support
 // [-1, 1] bin widths and a continuous first derivative at the 0.5 join. Sampled
-// at the bin centers it is a partition of unity, so splatting a cell over its
-// 3x3 neighborhood conserves the cell's area exactly while keeping the density
-// field C1 (the per-bin density changes continuously as a cell moves -- the
-// bilinear kernel was only C0, so its gradient jumped at every bin boundary).
-inline double densityBell(double u) {
-    u = std::abs(u);
-    if (u <= 0.5) return 1.0 - 2.0 * u * u;
-    if (u <= 1.0) return 2.0 * (1.0 - u) * (1.0 - u);
-    return 0.0;
+// Gaussian density kernel matching NTUplace3/ePlace-style smooth spreading.
+// Each cell splats over a 5x5 bin neighborhood with weights proportional to
+// gauss(t) = exp(-t^2 / (2 sigma^2)) at the bin centers. The weights of the
+// five taps of an axis are normalized per cell, so the separable product is an
+// exact partition of unity: cell area is conserved to the last ulp while the
+// field stays C^inf (the old 3x3 bell was only C1 and its narrow shoulder left
+// long thin rows of bins that the legalization spill, using the same field,
+// could not drain -- see the overflow plateau measurements).
+constexpr double densityGaussianSigma = 1.4;  // in bin pitches; radius 2 taps
+inline void densityKernelTaps(double u, std::array<double, 5> &w) {
+    for (int d = 0; d < 5; ++d) {
+        // Clamp so far-out taps floor at a small positive weight instead of
+        // underflowing to 0 (exp(-t^2/2s^2) below ~2e-308 made the normalizer
+        // 0/0 for cells at the die edges, where u == nbx).
+        const double t = std::clamp(u - static_cast<double>(d - 2), -6.0, 6.0);
+        w[static_cast<std::size_t>(d)] = std::exp(-0.5 * t * t / (densityGaussianSigma * densityGaussianSigma));
+    }
+    // Normalize to a partition of unity (exact area conservation).
+    const double sum = w[0] + w[1] + w[2] + w[3] + w[4];
+    w[0] /= sum;
+    w[1] /= sum;
+    w[2] /= sum;
+    w[3] /= sum;
+    w[4] /= sum;
 }
 
 // Sparse matvec: out = diag o x + A_off * x
@@ -382,6 +445,13 @@ struct DensityGrid {
     std::vector<double> gradX;
     std::vector<double> gradY;
 
+    // Poisson potential field (bin units) and its per-bin gradient in coordinate
+    // units, computed by refreshDensityPotential. This is the long-range density
+    // force; see the constants I named kPot*.
+    std::vector<double> pot;
+    std::vector<double> potGradX;
+    std::vector<double> potGradY;
+
     // Region-constraint support: the placement region of each movable cell
     // (kNoRegion when unconstrained), plus bin -> pool id and the bins of each
     // pool in raster order. All empty when unconstrained.
@@ -576,6 +646,15 @@ void applyBlockage(DensityGrid &g, const Graph &graph, const constraintMgr *cons
     }
 }
 
+// Per-bin utilization, clamped. Blockage subtraction can leave a bin with a
+// tiny-but-positive capacity; a cell center splatting area there would make
+// occ/cap explode by orders of magnitude and poison every field that descends
+// it. Reaching a utilization above the clamp already means "full to the brim",
+// so saturating there is information-free.
+inline double utilOf(const DensityGrid &g, std::size_t k) {
+    return g.cap[k] > 0.0 ? std::min(g.occ[k] / g.cap[k], 2.0) : 0.0;
+}
+
 // Downhill utilization slope per bin: (u[k+1] - u[k-1]) / 2 along each axis,
 // one-sided at the border. u is occupancy over usable capacity, so a bin that is
 // completely blocked by a macro reads as 0 and contributes no force.
@@ -586,7 +665,6 @@ void refreshDensityGradient(DensityGrid &g) {
     for (std::size_t iy = 0; iy < static_cast<std::size_t>(g.nby); ++iy) {
         for (std::size_t ix = 0; ix < static_cast<std::size_t>(g.nbx); ++ix) {
             const std::size_t k = g.idx(static_cast<int>(ix), static_cast<int>(iy));
-            const double u = g.cap[k] > 0.0 ? g.occ[k] / g.cap[k] : 0.0;
             const std::size_t kxm =
                 (ix > 0) ? g.idx(static_cast<int>(ix - 1), static_cast<int>(iy)) : k;
             const std::size_t kxp =
@@ -595,15 +673,119 @@ void refreshDensityGradient(DensityGrid &g) {
                 (iy > 0) ? g.idx(static_cast<int>(ix), static_cast<int>(iy - 1)) : k;
             const std::size_t kyp =
                 (iy + 1 < g.nby) ? g.idx(static_cast<int>(ix), static_cast<int>(iy + 1)) : k;
-            const double uxm = g.cap[kxm] > 0.0 ? g.occ[kxm] / g.cap[kxm] : 0.0;
-            const double uxp = g.cap[kxp] > 0.0 ? g.occ[kxp] / g.cap[kxp] : 0.0;
-            const double uym = g.cap[kym] > 0.0 ? g.occ[kym] / g.cap[kym] : 0.0;
-            const double uyp = g.cap[kyp] > 0.0 ? g.occ[kyp] / g.cap[kyp] : 0.0;
+            const double capMin = 0.5 * g.dx * g.dy;
+            // A blocked bin holds no movable cells; treating it as "empty"
+            // utilization would tilt the gradient and pull cells onto the
+            // macro/fence. Reflect the local utilization instead.
+            const double uxm = (g.cap[kxm] >= capMin) ? utilOf(g, kxm) : utilOf(g, k);
+            const double uxp = (g.cap[kxp] >= capMin) ? utilOf(g, kxp) : utilOf(g, k);
+            const double uym = (g.cap[kym] >= capMin) ? utilOf(g, kym) : utilOf(g, k);
+            const double uyp = (g.cap[kyp] >= capMin) ? utilOf(g, kyp) : utilOf(g, k);
             g.gradX[k] = 0.5 * (uxp - uxm);
             g.gradY[k] = 0.5 * (uyp - uym);
-            (void)u;
         }
     }
+}
+
+// Solve the Poisson equation for the long-range density force:
+//
+//     d^2(phi)/dx^2 + d^2(phi)/dy^2 = u - u_target,   phi = 0 on the die boundary,
+//
+// u = occupancy / capacity per bin (0 where a bin is fully blocked), u_target is
+// the uniform utilization the spread aims at. Jacobi sweeps with a warm start:
+// the potential is kept across outer iterations, so low frequencies that a
+// single solve cannot reach in a hundred sweeps converge over the run. A sweep
+// is trivially parallel (every output point reads only the previous iterate)
+// and row-ordered, hence bitwise deterministic. phi is in bin units (bin pitch
+// 1); grad(phi) is stored in coordinate units so the caller can feed it into the
+// wirelength right-hand side directly.
+void refreshDensityPotential(DensityGrid &g, double uTarget, int sweeps) {
+    const std::size_t n = g.occ.size();
+    if (g.pot.size() != n) {
+        g.pot.assign(n, 0.0);
+        g.potGradX.assign(n, 0.0);
+        g.potGradY.assign(n, 0.0);
+    }
+    std::vector<double> next(n, 0.0);
+    const std::size_t nbx = static_cast<std::size_t>(g.nbx);
+    const std::size_t nby = static_cast<std::size_t>(g.nby);
+    for (int s = 0; s < sweeps; ++s) {
+        tbb::parallel_for(
+            tbb::blocked_range<std::size_t>(0, nby),
+            [&](const tbb::blocked_range<std::size_t> &r) {
+                for (std::size_t iy = r.begin(); iy != r.end(); ++iy) {
+                    const std::size_t kRow = iy * nbx;
+                    // phi = 0 on the top and bottom die edges.
+                    if (iy == 0 || iy + 1 == nby) {
+                        for (std::size_t ix = 0; ix < nbx; ++ix) {
+                            next[kRow + ix] = 0.0;
+                        }
+                        continue;
+                    }
+                    const std::size_t rowBelow = kRow - nbx;
+                    const std::size_t rowAbove = kRow + nbx;
+                    // Left and right die edges: phi = 0.
+                    next[kRow] = 0.0;
+                    next[kRow + nbx - 1] = 0.0;
+                    for (std::size_t ix = 1; ix + 1 < nbx; ++ix) {
+                        const std::size_t k = kRow + ix;
+                        // Macros, fences and blockages already shrank cap; a bin
+                        // with no placeable slack is a forbidden zone, not a
+                        // shelter: its target utilization is zero, so the source
+                        // is zero rather than -uTarget (a spurious sink that
+                        // pulled cells onto fixed geometry).
+                        const double target =
+                            g.cap[k] >= 0.5 * g.dx * g.dy ? uTarget : 0.0;
+                        const double source = utilOf(g, k) - target;
+                        next[k] = 0.25 * (g.pot[k - 1] + g.pot[k + 1] + g.pot[rowBelow + ix] +
+                                          g.pot[rowAbove + ix] - source);
+                    }
+                }
+            },
+            tbb::simple_partitioner{});
+        std::swap(g.pot, next);
+    }
+
+    // Per-bin gradient of phi in dimensionless bin units, normalized so that
+    // the RMS of the potential gradient equals the RMS of the local utilization
+    // gradient. The two fields then have identical magnitude budgets under the
+    // same ramped coefficient, but the potential carries the long-range
+    // structure the local one lacks. Near convergence both RMS values shrink
+    // together, so the force stays self-stopping. With sign as stored here, the
+    // caller's "downhill" right-hand side yields -grad(phi): repulsion from the
+    // dense bumps where phi is high.
+    std::vector<double> rawX(n, 0.0), rawY(n, 0.0);
+    tbb::parallel_for(
+        tbb::blocked_range<std::size_t>(0, nby),
+        [&](const tbb::blocked_range<std::size_t> &r) {
+            for (std::size_t iy = r.begin(); iy != r.end(); ++iy) {
+                const std::size_t kRow = iy * nbx;
+                const std::size_t kym = kRow - (iy > 0 ? nbx : 0);
+                const std::size_t kyp = kRow + (iy + 1 < nby ? nbx : 0);
+                for (std::size_t ix = 0; ix < nbx; ++ix) {
+                    const std::size_t k = kRow + ix;
+                    const std::size_t kxm = k - (ix > 0 ? 1 : 0);
+                    const std::size_t kxp = k + (ix + 1 < nbx ? 1 : 0);
+                    rawX[k] = 0.5 * (g.pot[kxp] - g.pot[kxm]);
+                    rawY[k] = 0.5 * (g.pot[kyp] - g.pot[kym]);
+                }
+            }
+        },
+        tbb::simple_partitioner{});
+    double potPower = 0.0, locPower = 0.0;
+    for (std::size_t k = 0; k < n; ++k) {
+        potPower += rawX[k] * rawX[k] + rawY[k] * rawY[k];
+        locPower += g.gradX[k] * g.gradX[k] + g.gradY[k] * g.gradY[k];
+    }
+    const double scale =
+        std::sqrt(locPower / std::max(potPower, std::numeric_limits<double>::min()));
+    tbb::parallel_for(tbb::blocked_range<std::size_t>(0, n),
+                      [&](const tbb::blocked_range<std::size_t> &r2) {
+                          for (std::size_t k = r2.begin(); k != r2.end(); ++k) {
+                              g.potGradX[k] = rawX[k] * scale;
+                              g.potGradY[k] = rawY[k] * scale;
+                          }
+                      });
 }
 
 // Accumulate movable cell area into a C1-smooth density field with the NTUplace
@@ -630,18 +812,21 @@ void buildDensityGrid(const DensityGrid &g, const std::vector<double> &x,
                     const int ix0 = static_cast<int>(std::floor(xf));
                     const int iy0 = static_cast<int>(std::floor(yf));
                     const double a = area[i];
-                    for (int dy = -1; dy <= 1; ++dy) {
-                        const int iy = iy0 + dy;
+                    std::array<double, 5> wy, wx;
+                    densityKernelTaps(yf, wy);
+                    densityKernelTaps(xf, wx);
+                    for (int ddy = 0; ddy < 5; ++ddy) {
+                        const int iy = iy0 - 2 + ddy;
                         if (iy < 0 || iy >= g.nby)
                             continue;
-                        const double wy = densityBell(yf - static_cast<double>(iy));
-                        if (wy == 0.0)
+                        const double wyv = wy[static_cast<std::size_t>(ddy)];
+                        if (wyv == 0.0)
                             continue;
-                        for (int dx = -1; dx <= 1; ++dx) {
-                            const int ix = ix0 + dx;
+                        for (int ddx = 0; ddx < 5; ++ddx) {
+                            const int ix = ix0 - 2 + ddx;
                             if (ix < 0 || ix >= g.nbx)
                                 continue;
-                            const double w = densityBell(xf - static_cast<double>(ix)) * wy;
+                            const double w = wx[static_cast<std::size_t>(ddx)] * wyv;
                             if (w == 0.0)
                                 continue;
                             p[g.idx(ix, iy)] += a * w;
@@ -661,8 +846,14 @@ double densityOverflow(const DensityGrid &g, double totalArea) {
             for (std::size_t k = b0; k < e0; ++k) {
                 // Bins that are (nearly) full of blockage have no spare room, so
                 // area stacked on top of them is overflow just as much as area
-                // stacked on an empty bin.
-                acc += std::max(g.occ[k] - g.cap[k], 0.0);
+                // stacked on an empty bin. Bins that are mostly blocked are not
+                // placeable at all: cells legally abut the blockage and their
+                // splat spills into the blocked bin, which is not an overflow a
+                // legalizer can act on, so only bins with at least half their
+                // area placeable are counted.
+                if (g.cap[k] >= 0.5 * cap) {
+                    acc += std::max(g.occ[k] - g.cap[k], 0.0);
+                }
             }
         });
     return sum / std::max(totalArea, 1e-300);
@@ -756,11 +947,17 @@ void projectionSpread(const DensityGrid &g, const std::vector<double> &x,
             const std::size_t k = static_cast<std::size_t>(
                 std::upper_bound(prefix.begin(), prefix.end(), pos) - prefix.begin() - 1);
             const std::size_t kk = std::min(k, g.occ.size() - 1);
+            const std::size_t serpRow = kk / static_cast<std::size_t>(g.nbx);
+            const std::size_t rawCol = kk % static_cast<std::size_t>(g.nbx);
+            // Serpentine raster (boustrophedon): the drain path stays physically
+            // adjacent across row ends, matching the legalizer's carpet.
+            const std::size_t serpCol =
+                (serpRow % 2 == 0) ? rawCol : static_cast<std::size_t>(g.nbx) - 1 - rawCol;
             const double within = g.cap[kk] > 0.0 ? (pos - prefix[kk]) / g.cap[kk] : 0.5;
-            projX[c.idx] = g.x0 + (static_cast<double>(kk % static_cast<std::size_t>(g.nbx)) +
-                                   within) * g.dx;
-            projY[c.idx] = g.y0 + (static_cast<double>(kk / static_cast<std::size_t>(g.nbx)) +
-                                   ((within * 7.0) - std::floor(within * 7.0))) * g.dy;
+            const double flip = (serpRow % 2 == 0) ? within : 1.0 - within;
+            const double lane = (within * 7.0) - std::floor(within * 7.0);
+            projX[c.idx] = g.x0 + (static_cast<double>(serpCol) + flip) * g.dx;
+            projY[c.idx] = g.y0 + (static_cast<double>(serpRow) + lane) * g.dy;
             cum += c.area;
         }
     }
@@ -795,7 +992,8 @@ void projectionSpread(const DensityGrid &g, const std::vector<double> &x,
 QuadraticPlacer::QuadraticPlacer(PlacementDB &database) : db(database) {}
 
 PlacerResult QuadraticPlacer::place(int maxIter, double tol, const std::string &plotDir,
-                                   const constraintMgr *constraints) {
+                                   const constraintMgr *constraints,
+                                   const std::string &snapshotDir) {
     using clock = std::chrono::steady_clock;
     PlacerResult result;
     const Graph &g = db.getGraph();
@@ -1328,6 +1526,7 @@ PlacerResult QuadraticPlacer::place(int maxIter, double tol, const std::string &
             dg.occ[k] = s;
         }
         refreshDensityGradient(dg);
+        refreshDensityPotential(dg, targetDens / (dg.dx * dg.dy), kPotSweeps);
     };
 
     std::size_t frameIdx = 0;
@@ -1344,10 +1543,32 @@ PlacerResult QuadraticPlacer::place(int maxIter, double tol, const std::string &
         curveResid.push_back(resid);
     };
 
+    const std::size_t snapshotable = !snapshotDir.empty();
+    if (snapshotable) {
+        ensureDir(snapshotDir);
+    }
+    const auto emitSnapshot = [&](const std::string &name, std::size_t step, double hpwl,
+                                  double resid, const std::string &note) {
+        if (!snapshotable) {
+            return;
+        }
+        std::vector<float> xf(nv), yf(nv);
+        tbb::parallel_for(tbb::blocked_range<std::size_t>(0, nv),
+                          [&](const tbb::blocked_range<std::size_t> &r) {
+                              for (std::size_t i = r.begin(); i != r.end(); ++i) {
+                                  xf[i] = allX[i];
+                                  yf[i] = allY[i];
+                              }
+                          });
+        writeFrameSvg(snapshotDir + "/" + name, g, xf, yf, dieBox, step, 1 + numStepsTotal, hpwl,
+                      baseHpwl, resid, note, constraints);
+    };
+
+    allX.resize(nv);
+    allY.resize(nv);
+
     if (plot) {
         ensureDir(plotDir);
-        allX.resize(nv);
-        allY.resize(nv);
     }
 
     // Initial frame: the die-center seed and its density field.
@@ -1366,6 +1587,30 @@ PlacerResult QuadraticPlacer::place(int maxIter, double tol, const std::string &
         packAll(allY, ymov, false);
         emitFrame(0, result.hpwlInitial, result.densityOverflowInitial,
                   "initial placement (die-center seed)");
+    }
+    if (snapshotable) {
+        std::vector<float> xmov(numMovable), ymov(numMovable);
+        tbb::parallel_for(tbb::blocked_range<std::size_t>(0, numMovable),
+                          [&](const tbb::blocked_range<std::size_t> &r2) {
+                              for (std::size_t i = r2.begin(); i != r2.end(); ++i) {
+                                  xmov[i] = static_cast<float>(xSol[i]);
+                                  ymov[i] = static_cast<float>(ySol[i]);
+                              }
+                          });
+        packAll(allX, xmov, true);
+        packAll(allY, ymov, false);
+        std::vector<float> xf(nv), yf(nv);
+        tbb::parallel_for(tbb::blocked_range<std::size_t>(0, nv),
+                          [&](const tbb::blocked_range<std::size_t> &r2) {
+                              for (std::size_t i = r2.begin(); i != r2.end(); ++i) {
+                                  xf[i] = allX[i];
+                                  yf[i] = allY[i];
+                              }
+                          });
+        writeFrameSvg(snapshotDir + "/density_initial.svg", g, xf, yf, dieBox, 0,
+                      1 + numStepsTotal, result.hpwlInitial, baseHpwl,
+                      result.densityOverflowInitial, "initial placement (die-center seed)",
+                      constraints);
     }
 
     // ------------------------------------------------------------------
@@ -1430,8 +1675,496 @@ PlacerResult QuadraticPlacer::place(int maxIter, double tol, const std::string &
             });
     };
 
+    // Per-cell legality pass shared by the main loop and the legalization tail.
+    // Fixed macros are hard blockages, for fenced and unfenced cells alike: the
+    // wirelength solve has no term for them, so without this it parks cells on a
+    // blockage (it did: half of all movable area in mgc_des_perf_a). Step the
+    // cell just clear of whichever blockage it is on, taking the side that needs
+    // the least movement; only the few blockages near the cell's own bin are
+    // tested. Then pull a fenced cell back inside its region / push an
+    // unconstrained cell out of every region (a fence is a hard rule, so it gets
+    // the final say), and clamp to the die.
+    const auto fixupCell = [&](std::size_t i) {
+        if (!macrosInBin.empty() && cellExtentX[i] > 0.0 && cellExtentY[i] > 0.0) {
+            const double cw = cellExtentX[i];
+            const double ch = cellExtentY[i];
+            const double cx = std::clamp(xSol[i], dg.x0, dg.x0 + dg.dx * dg.nbx - 1e-9);
+            const double cy = std::clamp(ySol[i], dg.y0, dg.y0 + dg.dy * dg.nby - 1e-9);
+            const int ix = std::min(static_cast<int>((cx - dg.x0) / dg.dx), dg.nbx - 1);
+            const int iy = std::min(static_cast<int>((cy - dg.y0) / dg.dy), dg.nby - 1);
+            for (std::uint32_t mi : macrosInBin[dg.idx(ix, iy)]) {
+                const Rect &rc = macroRects[mi];
+                if (std::min(xSol[i] + cw, rc.hi.x) <= std::max(xSol[i], rc.lo.x) ||
+                    std::min(ySol[i] + ch, rc.hi.y) <= std::max(ySol[i], rc.lo.y)) {
+                    continue;  // clear of this blockage
+                }
+                const double eps = 1e-6 * std::max(dg.dx, dg.dy);
+                const double candX[2] = {rc.lo.x - cw - eps, rc.hi.x + eps};
+                const double candY[2] = {rc.lo.y - ch - eps, rc.hi.y + eps};
+                int pick = 0;
+                double bestMove = std::abs(candX[0] - xSol[i]);
+                const double moveY[2] = {std::abs(candY[0] - ySol[i]), std::abs(candY[1] - ySol[i])};
+                if (std::abs(candX[1] - xSol[i]) < bestMove) {
+                    bestMove = std::abs(candX[1] - xSol[i]);
+                    pick = 1;
+                }
+                if (moveY[0] < bestMove) {
+                    bestMove = moveY[0];
+                    pick = 2;
+                }
+                if (moveY[1] < bestMove) {
+                    pick = 3;
+                }
+                if (pick < 2) {
+                    xSol[i] = candX[pick];
+                } else {
+                    ySol[i] = candY[pick - 2];
+                }
+            }
+        }
+        if (constraints != nullptr) {
+            if (regionOfMov[i] != constraintMgr::kNoRegion) {
+                constraints->clampToRegion(regionOfMov[i], xSol[i], ySol[i]);
+            } else {
+                constraints->pushOutOfRegions(xSol[i], ySol[i], dieBox[0], dieBox[1], dieBox[2],
+                                              dieBox[3]);
+            }
+        }
+        xSol[i] = std::clamp(xSol[i], dieBox[0], dieBox[2]);
+        ySol[i] = std::clamp(ySol[i], dieBox[1], dieBox[3]);
+    };
+
+    // SimPL "legality": snap every cell to a per-pool equi-area layout. Each
+    // pool (one per region, plus the free area) has its own set of bins; the
+    // pool's cells are ordered by current bin scan and laid out over the pool's
+    // usable capacity at a uniform density -- exactly the "designed" layout the
+    // projection has been aiming at all along. No pool bin can exceed its
+    // capacity this way (unless a region is too small for its own cells), so the
+    // overflow metric is ~0 by construction, and the fences stay legal because
+    // cells never leave their pool. Deterministic: fixed cell order, fixed
+    // raster order over each pool's bins.
+    const std::size_t legalPools = useRegions ? constraints->numRegions() + 1 : 1;
+    std::vector<std::uint32_t> allBins;
+    if (!useRegions) {
+        allBins.resize(dg.occ.size());
+        for (std::size_t k = 0; k < dg.occ.size(); ++k) {
+            allBins[k] = static_cast<std::uint32_t>(k);
+        }
+    }
+    const auto legalize = [&](bool anchored = true) {
+        std::vector<std::vector<SpreadCell>> poolCells(legalPools);
+        std::vector<double> poolArea(legalPools, 0.0);
+        for (std::size_t i = 0; i < numMovable; ++i) {
+            const double cx = std::clamp(xSol[i], dg.x0, dg.x0 + dg.dx * dg.nbx - 1e-9);
+            const double cy = std::clamp(ySol[i], dg.y0, dg.y0 + dg.dy * dg.nby - 1e-9);
+            const int ix = std::min(static_cast<int>((cx - dg.x0) / dg.dx), dg.nbx - 1);
+            const int iy = std::min(static_cast<int>((cy - dg.y0) / dg.dy), dg.nby - 1);
+            const std::size_t pool =
+                useRegions ? (regionOfMov[i] != constraintMgr::kNoRegion
+                                  ? static_cast<std::size_t>(regionOfMov[i])
+                                  : legalPools - 1)
+                           : 0;
+            poolCells[pool].push_back(SpreadCell{areaMov[i], iy, ix, cx, i});
+            poolArea[pool] += areaMov[i];
+        }
+        for (std::size_t p = 0; p < legalPools; ++p) {
+            std::vector<SpreadCell> &cells = poolCells[p];
+            if (cells.empty()) {
+                continue;
+            }
+            std::sort(cells.begin(), cells.end(), [](const SpreadCell &a, const SpreadCell &b) {
+                if (a.row != b.row)
+                    return a.row < b.row;
+                if (a.col != b.col)
+                    return a.col < b.col;
+                return a.x < b.x;
+            });
+            const std::vector<std::uint32_t> &bins = useRegions ? dg.poolBins[p] : allBins;
+            std::vector<double> prefix(bins.size() + 1, 0.0);
+            for (std::size_t b = 0; b < bins.size(); ++b) {
+                prefix[b + 1] = prefix[b] + dg.cap[bins[b]];
+            }
+            const double usable = prefix.back();
+            if (!(usable > 1e-300)) {
+                continue;
+            }
+            const double scale = (usable * kLegalDensityMargin) / std::max(poolArea[p], 1e-300);
+            double cum = 0.0;
+            for (const SpreadCell &c : cells) {
+                // Anchor the map to the cell's OWN place in the raster: a cell is
+                // only pushed forward past cells that sat ahead of it were
+                // over-full. Without this the equi-area map forces *every* cell
+                // into its target slot, which scatters the whole placement by an
+                // average of ~20 bin widths on any layout that is not already the
+                // carpet -- destroying the wirelength. With the anchor, cells in
+                // bins at or below capacity stay exactly where they are, and only
+                // the excess of over-full runs spills into the nearest spare room.
+                // Iterated round after round, the spill drains stubborn bins while
+                // every settled cell is untouched.
+                const std::size_t ownBin = static_cast<std::size_t>(c.row) *
+                                               static_cast<std::size_t>(dg.nbx) +
+                                           static_cast<std::size_t>(c.col);
+                const auto ownIt = std::lower_bound(bins.begin(), bins.end(), ownBin);
+                const bool inPool = ownIt != bins.end() && *ownIt == ownBin;
+                double ownSlot = cum;
+                if (anchored) {
+                    if (inPool) {
+                        const std::size_t ownIdx =
+                            static_cast<std::size_t>(ownIt - bins.begin());
+                        const double withinOwn = std::clamp(
+                            (c.x - (dg.x0 + static_cast<double>(c.col) * dg.dx)) / dg.dx, 0.0,
+                            1.0);
+                        ownSlot = prefix[ownIdx] + withinOwn * std::max(dg.cap[bins[ownIdx]], 0.0);
+                    }
+                }
+                const double pos =
+                    std::min(anchored ? std::max(ownSlot, cum * scale) : cum * scale, usable - 1e-9);
+                const std::size_t k = std::min(
+                    static_cast<std::size_t>(std::upper_bound(prefix.begin(), prefix.end(), pos) -
+                                             prefix.begin() - 1),
+                    bins.size() - 1);
+                const std::size_t kk = bins[k];
+                const std::size_t serpRow = kk / static_cast<std::size_t>(dg.nbx);
+                const std::size_t rawCol = kk % static_cast<std::size_t>(dg.nbx);
+                // Serpentine raster: consecutive area slots stay physically
+                // adjacent, so a spill over the end of a bin row flows into the
+                // bin directly below instead of teleporting across the die.
+                const std::size_t serpCol =
+                    (serpRow % 2 == 0) ? rawCol : static_cast<std::size_t>(dg.nbx) - 1 - rawCol;
+                const double within = dg.cap[kk] > 0.0 ? (pos - prefix[k]) / dg.cap[kk] : 0.5;
+                const double lane = (within * 7.0) - std::floor(within * 7.0);
+                const double flip = (serpRow % 2 == 0) ? within : 1.0 - within;
+                xSol[c.idx] = dg.x0 +
+                              (static_cast<double>(serpCol) + (serpRow % 2 == 0 ? within : flip)) *
+                                  dg.dx;
+                ySol[c.idx] =
+                    dg.y0 + (static_cast<double>(serpRow) + lane) * dg.dy;
+                cum += c.area;
+            }
+        }
+    };
+
+    // Abacus-style LOCAL legalization. The global legalize above re-tiles the
+    // whole pool, which from a mid-migration layout moves every cell ~15 bin
+    // widths at once (the density work is large) and destroys wirelength. This
+    // legalizer instead moves ONLY the excess: per pool and per bin row, cells
+    // keep their (row, x) place unless the column they sit in is over capacity;
+    // then the rightmost cells whose total area equals the overage spill one
+    // column to the right, the next column's own excess spills onward, and so
+    // on. Every displaced cell moves by at most a column or two, so order and
+    // net clustering survive; the total area that moves is just the excess, not
+    // the whole layout. Repeated sweeps drain the persistent ~7% residue the
+    // global walk could not converge. Deterministic: rows and pools are
+    // independent, and each row walks its columns left to right.
+    const std::size_t localRows = static_cast<std::size_t>(dg.nby);
+    const std::size_t localCols = static_cast<std::size_t>(dg.nbx);
+    const auto legalizeLocal = [&]() {
+        auto cellBin = [&](std::size_t i, std::size_t &br, std::size_t &bc) {
+            const double cy = std::clamp(ySol[i], dg.y0, dg.y0 + dg.dy * dg.nby - 1e-9);
+            const double cx = std::clamp(xSol[i], dg.x0, dg.x0 + dg.dx * dg.nbx - 1e-9);
+            br = std::min(static_cast<std::size_t>((cy - dg.y0) / dg.dy), localRows - 1);
+            bc = std::min(static_cast<std::size_t>((cx - dg.x0) / dg.dx), localCols - 1);
+        };
+        auto cellPool = [&](std::size_t i) -> std::size_t {
+            return useRegions
+                       ? (regionOfMov[i] != constraintMgr::kNoRegion
+                              ? static_cast<std::size_t>(regionOfMov[i])
+                              : legalPools - 1)
+                       : 0;
+        };
+        // The bin belongs to pool p (blocked bins belong to none).
+        auto binInPool = [&](const std::uint32_t k, const std::size_t p) {
+            const int bp = dg.binPool[k];
+            if (bp == kBlockedPool) {
+                return false;
+            }
+            return useRegions ? (bp == (p == legalPools - 1 ? kFreePool : static_cast<int>(p)))
+                              : (p == 0);
+        };
+        // Horizontal pass: per row and pool, cells keep their row; an over-full
+        // column spills its rightmost excess one column into the next column of
+        // the same pool, cascading right until spare room is found.
+        for (std::size_t ry = 0; ry < localRows; ++ry) {
+            for (std::size_t p = 0; p < legalPools; ++p) {
+                std::vector<std::vector<SpreadCell>> cols(localCols);
+                std::vector<double> occ(localCols, 0.0);
+                // Occupancy is the smoothed density field the overflow metric
+                // actually reports (not the raw center-bin tally): the spill
+                // must drain what is measured, or the two diverge and the loop
+                // plates on a "legal" state the metric still flags.
+                for (std::size_t c = 0; c < localCols; ++c) {
+                    if (binInPool(static_cast<std::uint32_t>(ry * dg.nbx + c), p)) {
+                        occ[c] = dg.occ[ry * dg.nbx + c];
+                    }
+                }
+                for (std::size_t i = 0; i < numMovable; ++i) {
+                    std::size_t br, bc;
+                    cellBin(i, br, bc);
+                    if (br != ry || cellPool(i) != p ||
+                        !binInPool(static_cast<std::uint32_t>(ry * dg.nbx + bc), p)) {
+                        continue;
+                    }
+                    cols[bc].push_back(SpreadCell{areaMov[i], 0, 0, xSol[i], i});
+                }
+                for (std::size_t c = 0; c < localCols; ++c) {
+                    std::sort(cols[c].begin(), cols[c].end(),
+                              [](const SpreadCell &a, const SpreadCell &b) { return a.x < b.x; });
+                }
+                // Single left-to-right pass per round: each cell hops at most
+                // one column, and the rightward cascade happens across rounds,
+                // so the average move per round stays ~1 bin and wirelength is
+                // degraded only by the drain distance, not by a re-tile in a
+                // single round (a sweep-to-convergence moved cells ~18 bins in
+                // round 1 and wrecked nets).
+                for (std::size_t c = 0; c + 1 < localCols; ++c) {
+                    const std::size_t ksrc = ry * dg.nbx + c;
+                    if (!binInPool(static_cast<std::uint32_t>(ksrc), p)) {
+                        continue;
+                    }
+                    const double capSrc = dg.cap[ksrc] * kLegalDensityMargin;
+                    if (occ[c] <= capSrc) {
+                        continue;
+                    }
+                    // Nearest same-pool column strictly to the right.
+                    std::size_t dst = c + 1;
+                    while (dst < localCols &&
+                           !binInPool(static_cast<std::uint32_t>(ry * dg.nbx + dst), p)) {
+                        ++dst;
+                    }
+                    if (dst >= localCols) {
+                        continue;
+                    }
+                    const double excess = occ[c] - capSrc;
+                    double moved = 0.0;
+                    auto &src = cols[c];
+                    auto &dstL = cols[dst];
+                    while (moved < excess && !src.empty()) {
+                        const SpreadCell cell = src.back();
+                        src.pop_back();
+                        occ[c] = std::max(occ[c] - cell.area, 0.0);
+                        occ[dst] += cell.area;
+                        moved += cell.area;
+                        xSol[cell.idx] = dg.x0 + (static_cast<double>(dst) + 0.02) * dg.dx;
+                        dstL.push_back(SpreadCell{cell.area, 0, 0, xSol[cell.idx], cell.idx});
+                    }
+                }
+            }
+        }
+        // Vertical pass: per column and pool, over-full bin rows spill their
+        // highest-y cells into the nearest same-pool row further down; a second
+        // directional sweep spills upward, so a mound drains out both the top
+        // and the bottom spare room it cannot reach horizontally.
+        for (std::size_t cx = 0; cx < localCols; ++cx) {
+            for (std::size_t p = 0; p < legalPools; ++p) {
+                std::vector<std::vector<SpreadCell>> rows(localRows);
+                std::vector<double> rowOcc(localRows, 0.0);
+                for (std::size_t br = 0; br < localRows; ++br) {
+                    if (binInPool(static_cast<std::uint32_t>(br * dg.nbx + cx), p)) {
+                        rowOcc[br] = dg.occ[br * dg.nbx + cx];
+                    }
+                }
+                for (std::size_t i = 0; i < numMovable; ++i) {
+                    std::size_t br, bc;
+                    cellBin(i, br, bc);
+                    if (bc != cx || cellPool(i) != p ||
+                        !binInPool(static_cast<std::uint32_t>(br * dg.nbx + bc), p)) {
+                        continue;
+                    }
+                    rows[br].push_back(SpreadCell{areaMov[i], 0, 0, ySol[i], i});
+                }
+                for (std::size_t br = 0; br < localRows; ++br) {
+                    std::sort(rows[br].begin(), rows[br].end(),
+                              [](const SpreadCell &a, const SpreadCell &b) { return a.x < b.x; });
+                }
+                // Two single passes (down then up): each cell hops at most one
+                // row per pass, and a pocket drains through the nearest side
+                // spare room over successive rounds rather than being shoved
+                // across the whole mount in a single round.
+                for (int direction = 0; direction < 2; ++direction) {
+                    const bool downward = (direction == 0);
+                    for (std::size_t br = 0; br + 1 < localRows; ++br) {
+                        const std::size_t sel = downward ? br : localRows - 1 - br;
+                        const std::size_t dst = downward ? sel + 1 : sel - 1;
+                        if (!binInPool(static_cast<std::uint32_t>(sel * dg.nbx + cx), p) ||
+                            !binInPool(static_cast<std::uint32_t>(dst * dg.nbx + cx), p)) {
+                            continue;
+                        }
+                        const double capRow = dg.cap[sel * dg.nbx + cx] * kLegalDensityMargin;
+                        if (rowOcc[sel] <= capRow) {
+                            continue;
+                        }
+                        const double excess = rowOcc[sel] - capRow;
+                        double moved = 0.0;
+                        auto &src = rows[sel];
+                        auto &dstL = rows[dst];
+                        while (moved < excess && !src.empty()) {
+                            const std::size_t take = downward ? src.size() - 1 : 0;
+                            const SpreadCell cell = src[take];
+                            src.erase(src.begin() + static_cast<long>(take));
+                            rowOcc[sel] = std::max(rowOcc[sel] - cell.area, 0.0);
+                            rowOcc[dst] += cell.area;
+                            moved += cell.area;
+                            ySol[cell.idx] = dg.y0 + (static_cast<double>(dst) + 0.02) * dg.dy;
+                            dstL.push_back(SpreadCell{cell.area, 0, 0, ySol[cell.idx], cell.idx});
+                        }
+                    }
+                }
+            }
+        }
+    };
+    // and the legalization tail. The potential field (potGradX/Y) is the
+    // long-range force; the projection spring anchors the equilibrium near the
+    // current equi-area targets. `pw` is the ramped potential weight.
+    const auto buildDensityRhs = [&](double pw) {
+        tbb::parallel_for(
+            tbb::blocked_range<std::size_t>(0, n),
+            [&](const tbb::blocked_range<std::size_t> &r) {
+                for (std::size_t i = r.begin(); i != r.end(); ++i) {
+                    double densX = 0.0;
+                    double densY = 0.0;
+                    if (i < numMovable) {
+                        const double cx = std::clamp(xSol[i], dg.x0, dg.x0 + dg.dx * dg.nbx - 1e-9);
+                        const double cy = std::clamp(ySol[i], dg.y0, dg.y0 + dg.dy * dg.nby - 1e-9);
+                        const double fx = (cx - dg.x0) / dg.dx;
+                        const double fy = (cy - dg.y0) / dg.dy;
+                        const int ix = std::min(static_cast<int>(fx), dg.nbx - 1);
+                        const int iy = std::min(static_cast<int>(fy), dg.nby - 1);
+                        const int ix1 = std::min(ix + 1, dg.nbx - 1);
+                        const int iy1 = std::min(iy + 1, dg.nby - 1);
+                        const double wx = fx - static_cast<double>(ix);
+                        const double wy = fy - static_cast<double>(iy);
+                        const std::size_t k00 = dg.idx(ix, iy);
+                        const std::size_t k10 = dg.idx(ix1, iy);
+                        const std::size_t k01 = dg.idx(ix, iy1);
+                        const std::size_t k11 = dg.idx(ix1, iy1);
+                        const auto bilerp = [&](const std::vector<double> &f) {
+                            return (1.0 - wx) * (1.0 - wy) * f[k00] + wx * (1.0 - wy) * f[k10] +
+                                   (1.0 - wx) * wy * f[k01] + wx * wy * f[k11];
+                        };
+                        // Downhill in the Poisson potential, scaled by the cell's
+                        // own diagonal so a well-connected cell feels it in
+                        // proportion to its wiring. phi is a bump over every
+                        // crowded region and its gradient is long range, so the
+                        // solve itself drains crowded bins -- including the
+                        // interior of a collapsed blob, which the purely local
+                        // utilization gradient cannot reach. The negative sign
+                        // makes the solve drain rather than fill.
+                        densX = pw * bilerp(dg.potGradX) + kLocalGradFrac * bilerp(dg.gradX);
+                        densY = pw * bilerp(dg.potGradY) + kLocalGradFrac * bilerp(dg.gradY);
+                    }
+                    bx[i] = rhsX[i] +
+                            (i < numMovable ? kProjMu * m.diag[i] * (projX[i] - xSol[i]) -
+                                                  m.diag[i] * densX
+                                            : 0.0);
+                    by[i] = rhsY[i] +
+                            (i < numMovable ? kProjMu * m.diag[i] * (projY[i] - ySol[i]) -
+                                                  m.diag[i] * densY
+                                            : 0.0);
+                }
+            });
+    };
+
     std::size_t outer = 0;
     auto t2 = clock::now();
+    // ------------------------------------------------------------------
+    // Connectivity-aware seed for the unfenced movable cells.  The degenerate
+    // .pl gives every cell the same point, and seeding the whole population on
+    // one blob makes the early trajectory pure geometry.  Instead, a few Jacobi
+    // sweeps over the net hypergraph rewrite the *unfenced* cells' start from
+    // their wiring: each net's barycentre (fixed macros and the I/O pads hold
+    // their given coordinates and act like a pinned boundary condition) is
+    // averaged into every movable member, so a cell starts near the pins its
+    // nets touch, out a few hops per sweep.  Cells with no anchored contacts
+    // keep their fall-back point (the fence-free blob / die centre) and Phase 0
+    // still carpets them.
+    {
+        std::vector<char> anchored(nv, 0);
+        for (std::size_t v = 0; v < nv; ++v) {
+            const Vertex &vert = g.getVertex(v);
+            if (vert.type == VertexType::Cell && (vert.isFixed || vert.isTerminal)) {
+                anchored[v] = 1;
+            }
+        }
+        // Only cells whose start may be rewritten: everything when there are no
+        // fences, otherwise just the unconstrained ones (fenced cells keep
+        // their equi-area per-region start).
+        const auto seedable = [&](std::size_t i) {
+            return !useRegions || regionOfMov[i] == constraintMgr::kNoRegion;
+        };
+        const std::vector<double> origX = xSol;
+        const std::vector<double> origY = ySol;
+        std::vector<double> nx = xSol;
+        std::vector<double> ny = ySol;
+        std::vector<double> accX(numMovable), accY(numMovable);
+        std::vector<std::size_t> cnt(numMovable);
+        for (int sweep = 0; sweep < kSeedRelaxSweeps; ++sweep) {
+            std::fill(accX.begin(), accX.end(), 0.0);
+            std::fill(accY.begin(), accY.end(), 0.0);
+            std::fill(cnt.begin(), cnt.end(), 0u);
+            // Jacobi: every net reads the previous sweep's positions, so the
+            // sweeps are deterministic and the pin information fans out one hop
+            // per sweep instead of racing around the graph.
+            const std::vector<double> &refX = (sweep == 0) ? origX : nx;
+            const std::vector<double> &refY = (sweep == 0) ? origY : ny;
+            for (std::size_t v = 0; v < nv; ++v) {
+                const Vertex &vert = g.getVertex(v);
+                if (vert.type != VertexType::Net) {
+                    continue;
+                }
+                const auto members = netCellIds(g, vert);
+                if (members.empty()) {
+                    continue;
+                }
+                double bx = 0.0, by = 0.0;
+                std::size_t contrib = 0;
+                for (const std::size_t m : members) {
+                    if (anchored[m]) {
+                        const Vertex &mv = g.getVertex(m);
+                        bx += mv.x;
+                        by += mv.y;
+                        ++contrib;
+                    } else if (varOfVertex[m] < numMovable) {
+                        bx += refX[varOfVertex[m]];
+                        by += refY[varOfVertex[m]];
+                        ++contrib;
+                    }
+                }
+                if (contrib == 0) {
+                    continue;
+                }
+                bx /= static_cast<double>(contrib);
+                by /= static_cast<double>(contrib);
+                for (const std::size_t m : members) {
+                    const std::size_t mi = varOfVertex[m];
+                    if (mi < numMovable && seedable(mi)) {
+                        accX[mi] += bx;
+                        accY[mi] += by;
+                        ++cnt[mi];
+                    }
+                }
+            }
+            for (std::size_t i = 0; i < numMovable; ++i) {
+                if (seedable(i)) {
+                    if (cnt[i] > 0) {
+                        nx[i] = accX[i] / static_cast<double>(cnt[i]);
+                        ny[i] = accY[i] / static_cast<double>(cnt[i]);
+                    } else {
+                        nx[i] = refX[i];
+                        ny[i] = refY[i];
+                    }
+                }
+            }
+        }
+        for (std::size_t i = 0; i < numMovable; ++i) {
+            if (seedable(i)) {
+                xSol[i] = nx[i];
+                ySol[i] = ny[i];
+            }
+        }
+        ktlog.trace("seed: connectivity-aware start for cells via {} Jacobi sweep(s), "
+                    "pins/fixed as anchors",
+                    kSeedRelaxSweeps);
+    }
     // Phase 0 (warm-up): the movable cells are seeded as a collapsed blob at
     // the die center (the degenerate .pl seeds every cell at the origin, so the
     // input position is not a state any global placer can refine).  Run a
@@ -1440,6 +2173,7 @@ PlacerResult QuadraticPlacer::place(int maxIter, double tol, const std::string &
     const std::size_t spreadInIters =
         static_cast<std::size_t>(static_cast<double>(numStepsTotal) * kSpreadPhaseFraction);
     const double maxStep = kMaxStepBins * std::min(dg.dx, dg.dy);
+    double stepRamp = 1.0;  // direct-spread cap multiplier; ramps up late in refinement
     for (; outer < numStepsTotal; ++outer) {
         // 1) Occupancy from the current positions; drain over-full bins only.
         refreshDensity();
@@ -1462,55 +2196,38 @@ PlacerResult QuadraticPlacer::place(int maxIter, double tol, const std::string &
                 std::clamp(static_cast<double>(outer - spreadInIters) /
                                static_cast<double>(refineIters - 1),
                            0.0, 1.0);
-            const double densityWeight =
-                kDensityGradStart *
-                std::pow(kDensityGradEnd / kDensityGradStart, refineFrac);
-            ktlog.trace("outer {}: density weight {:.4g}", outer, densityWeight);
+            const double potWeight =
+                kPotGradStart * std::pow(kPotGradEnd / kPotGradStart, refineFrac);
+            ktlog.trace("outer {}: potential weight {:.4g}", outer, potWeight);
+            // Once refinement is a quarter done, let the direct spread move
+            // cells up to 22 bins per iteration so the migration rushes to its
+            // equi-area carpet (the order-preserving walk is what spreads cheaply;
+            // the solve's density pull is secondary). The ceiling must outrun
+            // the solve's re-clustering or the layout plateaus mid-way between
+            // wirelength optimum and carpet (overflow ~0.2): raising it to 22
+            // drains the main loop itself to ~0.02 overflow so the legalization
+            // tail is only a few spare-atoms. The alternative -- letting the
+            // potential field push -- costs a wirelength a solve cannot recover.
+            stepRamp = std::clamp(1.0 + 42.0 * std::max(0.0, refineFrac - 0.25), 1.0, 22.0);
+            if (outer == spreadInIters) {
+                double rp = 0.0, rl = 0.0, src = 0.0;
+                for (std::size_t k = 0; k < dg.occ.size(); ++k) {
+                    rp += dg.potGradX[k] * dg.potGradX[k] + dg.potGradY[k] * dg.potGradY[k];
+                    rl += dg.gradX[k] * dg.gradX[k] + dg.gradY[k] * dg.gradY[k];
+                    src += (utilOf(dg, k) - targetDens / (dg.dx * dg.dy)) *
+                           (utilOf(dg, k) - targetDens / (dg.dx * dg.dy));
+                }
+                const double nbGrid = static_cast<double>(std::max<std::size_t>(dg.occ.size(), 1));
+                ktlog.trace("calib: pot-grad rms {:.6g}, local-grad rms {:.6g}, source rms "
+                            "({:.6g} - utgt), utgt {:.6g}, grid {}x{}",
+                            std::sqrt(rp / nbGrid), std::sqrt(rl / nbGrid),
+                            std::sqrt(src / nbGrid), targetDens / (dg.dx * dg.dy), dg.nbx, dg.nby);
+            }
 
-            tbb::parallel_for(
-                tbb::blocked_range<std::size_t>(0, n),
-                [&](const tbb::blocked_range<std::size_t> &r) {
-                    for (std::size_t i = r.begin(); i != r.end(); ++i) {
-                        // Density force: step downhill in utilization, scaled
-                        // by the cell's own diagonal so a well-connected cell
-                        // feels it in proportion to its wiring. The negative sign
-                        // is what makes the solve itself drain crowded bins.
-                        double densX = 0.0;
-                        double densY = 0.0;
-                        if (i < numMovable) {
-                            const double cx = std::clamp(xSol[i], dg.x0,
-                                                         dg.x0 + dg.dx * dg.nbx - 1e-9);
-                            const double cy = std::clamp(ySol[i], dg.y0,
-                                                         dg.y0 + dg.dy * dg.nby - 1e-9);
-                            const double fx = (cx - dg.x0) / dg.dx;
-                            const double fy = (cy - dg.y0) / dg.dy;
-                            const int ix = std::min(static_cast<int>(fx), dg.nbx - 1);
-                            const int iy = std::min(static_cast<int>(fy), dg.nby - 1);
-                            const int ix1 = std::min(ix + 1, dg.nbx - 1);
-                            const int iy1 = std::min(iy + 1, dg.nby - 1);
-                            const double wx = fx - static_cast<double>(ix);
-                            const double wy = fy - static_cast<double>(iy);
-                            const std::size_t k00 = dg.idx(ix, iy);
-                            const std::size_t k10 = dg.idx(ix1, iy);
-                            const std::size_t k01 = dg.idx(ix, iy1);
-                            const std::size_t k11 = dg.idx(ix1, iy1);
-                            const auto bilerp = [&](const std::vector<double> &f) {
-                                return (1.0 - wx) * (1.0 - wy) * f[k00] + wx * (1.0 - wy) * f[k10] +
-                                       (1.0 - wx) * wy * f[k01] + wx * wy * f[k11];
-                            };
-                            densX = bilerp(dg.gradX);
-                            densY = bilerp(dg.gradY);
-                        }
-                        bx[i] = rhsX[i] +
-                                (i < numMovable ? kProjMu * m.diag[i] * (projX[i] - xSol[i]) -
-                                                      densityWeight * m.diag[i] * densX
-                                                : 0.0);
-                        by[i] = rhsY[i] +
-                                (i < numMovable ? kProjMu * m.diag[i] * (projY[i] - ySol[i]) -
-                                                      densityWeight * m.diag[i] * densY
-                                                : 0.0);
-                    }
-                });
+            // Density force: step downhill in the Poisson potential, scaled by
+            // the cell's own diagonal so a well-connected cell feels it in
+            // proportion to its wiring (see buildDensityRhs for the form).
+            buildDensityRhs(potWeight);
             std::size_t it1 = 0, it2 = 0;
             double r1 = 0.0, r2 = 0.0;
             // Trust region. The carpet the pre-spread phase builds is far from
@@ -1539,79 +2256,25 @@ PlacerResult QuadraticPlacer::place(int maxIter, double tol, const std::string &
         }
 
         // 3) Direct spread: walk each draining cell toward its projection
-        //    target by at most a fraction of a bin width per iteration.  The
-        //    capped displacement (on top of the coupled force) guarantees the
-        //    outward drift survives the next solve, so over-full bins steadily
-        //    drain into empty die area while net clusters stay coherent.
+        //    target by at most a fraction of a bin width per iteration (more,
+        //    up to ~4x, once refinement is past its halfway mark, so the drain
+        //    can outpace the solve's pull-back).  The capped displacement (on
+        //    top of the coupled force) guarantees the outward drift survives
+        //    the next solve, so over-full bins steadily drain into empty die
+        //    area while net clusters stay coherent.
         tbb::parallel_for(
             tbb::blocked_range<std::size_t>(0, numMovable),
             [&](const tbb::blocked_range<std::size_t> &r) {
                 for (std::size_t i = r.begin(); i != r.end(); ++i) {
-                    const double sx = std::clamp(projX[i] - xSol[i], -maxStep, maxStep);
-                    const double sy = std::clamp(projY[i] - ySol[i], -maxStep, maxStep);
+                    const double stepCap = maxStep * stepRamp;
+                    const double sx = std::clamp(projX[i] - xSol[i], -stepCap, stepCap);
+                    const double sy = std::clamp(projY[i] - ySol[i], -stepCap, stepCap);
                     xSol[i] += sx;
                     ySol[i] += sy;
-                    // Fixed macros are hard blockages, for fenced and unfenced
-                    // cells alike. The wirelength solve has no term for them, so
-                    // without this the solve parks cells on top of a blockage (it
-                    // did: half of all movable area in mgc_des_perf_a). Step the
-                    // cell just clear of whichever blockage it is on, taking the
-                    // side that needs the least movement. Only the few blockages
-                    // near the cell's own bin are tested.
-                    if (!macrosInBin.empty() && cellExtentX[i] > 0.0 && cellExtentY[i] > 0.0) {
-                        const double cw = cellExtentX[i];
-                        const double ch = cellExtentY[i];
-                        const double cx =
-                            std::clamp(xSol[i], dg.x0, dg.x0 + dg.dx * dg.nbx - 1e-9);
-                        const double cy =
-                            std::clamp(ySol[i], dg.y0, dg.y0 + dg.dy * dg.nby - 1e-9);
-                        const int ix = std::min(static_cast<int>((cx - dg.x0) / dg.dx), dg.nbx - 1);
-                        const int iy = std::min(static_cast<int>((cy - dg.y0) / dg.dy), dg.nby - 1);
-                        for (std::uint32_t mi : macrosInBin[dg.idx(ix, iy)]) {
-                            const Rect &rc = macroRects[mi];
-                            if (std::min(xSol[i] + cw, rc.hi.x) <= std::max(xSol[i], rc.lo.x) ||
-                                std::min(ySol[i] + ch, rc.hi.y) <= std::max(ySol[i], rc.lo.y)) {
-                                continue;  // clear of this blockage
-                            }
-                            const double eps = 1e-6 * std::max(dg.dx, dg.dy);
-                            const double candX[2] = {rc.lo.x - cw - eps, rc.hi.x + eps};
-                            const double candY[2] = {rc.lo.y - ch - eps, rc.hi.y + eps};
-                            int pick = 0;
-                            double bestMove = std::abs(candX[0] - xSol[i]);
-                            const double moveY[2] = {std::abs(candY[0] - ySol[i]),
-                                                      std::abs(candY[1] - ySol[i])};
-                            if (std::abs(candX[1] - xSol[i]) < bestMove) {
-                                bestMove = std::abs(candX[1] - xSol[i]);
-                                pick = 1;
-                            }
-                            if (moveY[0] < bestMove) {
-                                bestMove = moveY[0];
-                                pick = 2;
-                            }
-                            if (moveY[1] < bestMove) {
-                                pick = 3;
-                            }
-                            if (pick < 2) {
-                                xSol[i] = candX[pick];
-                            } else {
-                                ySol[i] = candY[pick - 2];
-                            }
-                        }
-                    }
-
-                    // Legality last: leaving a blockage can drop a cell into a
-                    // fence, and a fence is a hard rule, so the fence clamp and
-                    // push-out run after the blockage step and get the final say.
-                    if (constraints != nullptr) {
-                        if (regionOfMov[i] != constraintMgr::kNoRegion) {
-                            constraints->clampToRegion(regionOfMov[i], xSol[i], ySol[i]);
-                        } else {
-                            constraints->pushOutOfRegions(xSol[i], ySol[i], dieBox[0], dieBox[1],
-                                                           dieBox[2], dieBox[3]);
-                        }
-                    }
-                    xSol[i] = std::clamp(xSol[i], dieBox[0], dieBox[2]);
-                    ySol[i] = std::clamp(ySol[i], dieBox[1], dieBox[3]);
+                    // Macro push-out, fence legality and the die clamp share one
+                    // pass with the legalization tail, so both keep the same
+                    // semantics (blockage step first, fence rule last).
+                    fixupCell(i);
                 }
             });
 
@@ -1633,18 +2296,18 @@ PlacerResult QuadraticPlacer::place(int maxIter, double tol, const std::string &
         }
 
         // 5) HPWL evaluation and plotting of the diluted placement.
+        std::vector<float> xmov(numMovable), ymov(numMovable);
+        tbb::parallel_for(tbb::blocked_range<std::size_t>(0, numMovable),
+                          [&](const tbb::blocked_range<std::size_t> &r2) {
+                              for (std::size_t i = r2.begin(); i != r2.end(); ++i) {
+                                  xmov[i] = static_cast<float>(xSol[i]);
+                                  ymov[i] = static_cast<float>(ySol[i]);
+                              }
+                          });
+        packAll(allX, xmov, true);
+        packAll(allY, ymov, false);
+        const double hpwlNow = hpwlF(g, allX, allY);
         if (plot) {
-            std::vector<float> xmov(numMovable), ymov(numMovable);
-            tbb::parallel_for(tbb::blocked_range<std::size_t>(0, numMovable),
-                              [&](const tbb::blocked_range<std::size_t> &r2) {
-                                  for (std::size_t i = r2.begin(); i != r2.end(); ++i) {
-                                      xmov[i] = static_cast<float>(xSol[i]);
-                                      ymov[i] = static_cast<float>(ySol[i]);
-                                  }
-                              });
-            packAll(allX, xmov, true);
-            packAll(allY, ymov, false);
-            const double hpwlNow = hpwlF(g, allX, allY);
             ktlog.trace("outer step {}: hpwl={:.6e} overflow={:.6e}", outer + 1, hpwlNow, overflow);
             emitFrame(outer + 1, hpwlNow, overflow,
                       "outer iter " + std::to_string(outer + 1) + " (WL + density)");
@@ -1653,12 +2316,217 @@ PlacerResult QuadraticPlacer::place(int maxIter, double tol, const std::string &
         // 6) Convergence: density overflow below target, only after the wirelength
         //    refinement has had at least half its iteration budget (so the
         //    solve has time to reduce wiring inside the spread placement).
+        if (outer % 25 == 0) {
+            ktlog.trace("outer step {}: hpwl={:.6e} overflow={:.6e}", outer + 1, hpwlNow, overflow);
+        }
         if (outer + 1 > spreadInIters &&
             outer + 1 >= spreadInIters + (numStepsTotal - spreadInIters) / 2 && overflow <= tol) {
             break;
         }
     }
+
+    // Snapshot at the end of the global loop: shows how far the walk took the
+    // placement before the legalization tail, in the output directory.
+    {
+        std::vector<float> xmov(numMovable), ymov(numMovable);
+        tbb::parallel_for(tbb::blocked_range<std::size_t>(0, numMovable),
+                          [&](const tbb::blocked_range<std::size_t> &r2) {
+                              for (std::size_t i = r2.begin(); i != r2.end(); ++i) {
+                                  xmov[i] = static_cast<float>(xSol[i]);
+                                  ymov[i] = static_cast<float>(ySol[i]);
+                              }
+                          });
+        packAll(allX, xmov, true);
+        packAll(allY, ymov, false);
+        const double hpwlNow = hpwlF(g, allX, allY);
+        std::vector<float> xf(nv), yf(nv);
+        tbb::parallel_for(tbb::blocked_range<std::size_t>(0, nv),
+                          [&](const tbb::blocked_range<std::size_t> &r2) {
+                              for (std::size_t i = r2.begin(); i != r2.end(); ++i) {
+                                  xf[i] = allX[i];
+                                  yf[i] = allY[i];
+                              }
+                          });
+        if (snapshotable) {
+            writeFrameSvg(snapshotDir + "/density_after_mainloop.svg", g, xf, yf, dieBox,
+                          outer + 1, 1 + numStepsTotal, hpwlNow, baseHpwl, overflow,
+                          "end of global loop (pre-tail)", constraints);
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Legalization tail. The spread phase above stops with the layout mid-way
+    // between the wirelength optimum and the uniform "carpet"; a re-tile from
+    // that state scatters nets. So the tail builds legality from the OTHER
+    // side: a local Abacus-style spill that moves only the excess of over-full
+    // columns into the nearest spare room -- order-preserving and bounded, so
+    // wirelength is degraded only by the small residue (not the whole layout),
+    // and a final UNanchored snap removes the last residue once the placement
+    // is already near-uniform. No wirelength solve runs in the tail: the
+    // density term re-scatters the placement and rebuilds the blob faster than
+    // the spill can drain it, which the earlier alternation experiments showed
+    // pushes overflow back up across rounds.
+    const double tailMove = kTailMoveBins * std::min(dg.dx, dg.dy);
+    static_cast<void>(tailMove);
+    ktlog.echo("legalization tail: local spill + WL-free drain + final snap");
+    std::vector<double> prevRoundX = xSol;
+    std::vector<double> prevRoundY = ySol;
+    int tailIters = 0;
+    for (; tailIters < kLegalTailIters; ++tailIters) {
+        legalizeLocal();
+        tbb::parallel_for(tbb::blocked_range<std::size_t>(0, numMovable),
+                          [&](const tbb::blocked_range<std::size_t> &r) {
+                              for (std::size_t i = r.begin(); i != r.end(); ++i) {
+                                  fixupCell(i);
+                              }
+                          });
+        refreshDensity();
+        overflow = densityOverflow(dg, totalArea);
+        {
+            double sumDisp = 0.0, maxDisp = 0.0;
+            std::size_t moved = 0;
+            for (std::size_t i = 0; i < numMovable; ++i) {
+                const double disp =
+                    std::hypot(xSol[i] - prevRoundX[i], ySol[i] - prevRoundY[i]);
+                sumDisp += disp;
+                maxDisp = std::max(maxDisp, disp);
+                if (disp > 1e-6) {
+                    ++moved;
+                }
+            }
+            std::vector<float> xmov(numMovable), ymov(numMovable);
+            tbb::parallel_for(tbb::blocked_range<std::size_t>(0, numMovable),
+                              [&](const tbb::blocked_range<std::size_t> &r) {
+                                  for (std::size_t i = r.begin(); i != r.end(); ++i) {
+                                      xmov[i] = static_cast<float>(xSol[i]);
+                                      ymov[i] = static_cast<float>(ySol[i]);
+                                  }
+                              });
+            packAll(allX, xmov, true);
+            packAll(allY, ymov, false);
+            ktlog.trace("tail round {}: hpwl={:.6e} density overflow {:.6e} mean move {:g} "
+                        "bins, cells moved: {}/{}",
+                        tailIters + 1, hpwlF(g, allX, allY), overflow,
+                        sumDisp / static_cast<double>(numMovable) / std::min(dg.dx, dg.dy),
+                        moved, numMovable);
+        }
+        for (std::size_t i = 0; i < numMovable; ++i) {
+            prevRoundX[i] = xSol[i];
+            prevRoundY[i] = ySol[i];
+        }
+        const FenceCounts counts = countFenceViolations();
+        curveFencedOut.push_back(static_cast<double>(counts.fencedOut));
+        curveStrangerIn.push_back(static_cast<double>(counts.strangerIn));
+        worstFencedOut = std::max(worstFencedOut, static_cast<std::size_t>(counts.fencedOut));
+        worstStrangerIn = std::max(worstStrangerIn, static_cast<std::size_t>(counts.strangerIn));
+    }
+
+    // Final step: unanchored snap, so the reported result is exactly the
+    // uniform legal layout and the residue the anchored rounds could not drain
+    // (full chains with no spare room past their end) disappears.
+    {
+        // Diagnose the leftover overflow: for each overfull bin, is there an
+        // under-full neighbor in the same pool to spill into?
+        std::size_t nOver = 0, spareRight = 0, spareLeft = 0, spareDown = 0, spareUp = 0,
+                    locked = 0, nLockedCap = 0;
+        for (std::size_t k = 0; k < dg.occ.size(); ++k) {
+            const double capB = dg.dx * dg.dy;
+            if (dg.cap[k] < 0.5 * capB || dg.occ[k] <= dg.cap[k]) {
+                continue;
+            }
+            ++nOver;
+            const std::size_t row = k / static_cast<std::size_t>(dg.nbx);
+            const std::size_t col = k % static_cast<std::size_t>(dg.nbx);
+            const std::size_t srow = row;  // serpentine column of this bin
+            const std::size_t scol = (row % 2 == 0) ? col : static_cast<std::size_t>(dg.nbx) - 1 - col;
+            auto hasSpare = [&](std::size_t kk) {
+                return kk < dg.occ.size() && dg.cap[kk] >= 0.5 * capB && dg.occ[kk] < 0.95 * dg.cap[kk];
+            };
+            bool any = false;
+            if (scol + 1 < static_cast<std::size_t>(dg.nbx)) {
+                const std::size_t ncol = (row % 2 == 0) ? col + 1 : (col > 0 ? col - 1 : dg.nbx);
+                if (ncol < static_cast<std::size_t>(dg.nbx) &&
+                    hasSpare(row * static_cast<std::size_t>(dg.nbx) + ncol)) {
+                    ++spareRight;
+                    any = true;
+                }
+            }
+            if (scol > 0) {
+                const std::size_t ncol = (row % 2 == 0) ? (col > 0 ? col - 1 : dg.nbx) : col + 1;
+                if (ncol < static_cast<std::size_t>(dg.nbx) &&
+                    hasSpare(row * static_cast<std::size_t>(dg.nbx) + ncol)) {
+                    ++spareLeft;
+                    any = true;
+                }
+            }
+            if (row + 1 < static_cast<std::size_t>(dg.nby) &&
+                hasSpare((row + 1) * static_cast<std::size_t>(dg.nbx) + col)) {
+                ++spareDown;
+                any = true;
+            }
+            if (row > 0 && hasSpare((row - 1) * static_cast<std::size_t>(dg.nbx) + col)) {
+                ++spareUp;
+                any = true;
+            }
+            if (!any) {
+                ++locked;
+                nLockedCap += static_cast<std::size_t>(std::floor(dg.cap[k] / capB));
+            }
+        }
+        ktlog.trace("overflow diagnosis: bins over cap: {}, with spare right/left/down/up: "
+                    "{}/{}/{}/{}, locked: {} (cap {})",
+                    nOver, spareRight, spareLeft, spareDown, spareUp, locked, nLockedCap);
+    }
+    const std::vector<double> preSnapX = xSol;
+    const std::vector<double> preSnapY = ySol;
+    legalize(/*anchored=*/false);
+    tbb::parallel_for(tbb::blocked_range<std::size_t>(0, numMovable),
+                      [&](const tbb::blocked_range<std::size_t> &r) {
+                          for (std::size_t i = r.begin(); i != r.end(); ++i) {
+                              fixupCell(i);
+                          }
+                      });
+    refreshDensity();
+    overflow = densityOverflow(dg, totalArea);
+    {
+        double sumDisp = 0.0, maxDisp = 0.0;
+        std::size_t farMoves = 0;
+        for (std::size_t i = 0; i < numMovable; ++i) {
+            const double disp = std::hypot(xSol[i] - preSnapX[i], ySol[i] - preSnapY[i]);
+            sumDisp += disp;
+            maxDisp = std::max(maxDisp, disp);
+            if (disp > 3.0 * std::min(dg.dx, dg.dy)) {
+                ++farMoves;
+            }
+        }
+        ktlog.trace("legalize final: density overflow {:.6e}, mean move {:g} ({:.4g} bins), "
+                    "max move {:g} bins, cells moved >3 bins: {}",
+                    overflow, sumDisp / static_cast<double>(numMovable), sumDisp /
+                        static_cast<double>(numMovable) / std::min(dg.dx, dg.dy),
+                    maxDisp / std::min(dg.dx, dg.dy), farMoves);
+    }
+    const FenceCounts counts = countFenceViolations();
+    curveFencedOut.push_back(static_cast<double>(counts.fencedOut));
+    curveStrangerIn.push_back(static_cast<double>(counts.strangerIn));
+    worstFencedOut = std::max(worstFencedOut, static_cast<std::size_t>(counts.fencedOut));
+    worstStrangerIn = std::max(worstStrangerIn, static_cast<std::size_t>(counts.strangerIn));
+    outer += static_cast<std::size_t>(tailIters) + 1;
     auto t3 = clock::now();
+
+    // Final density snapshot into the output directory, plus the HPWL curve.
+    if (snapshotable) {
+        std::vector<float> xf(nv), yf(nv);
+        tbb::parallel_for(tbb::blocked_range<std::size_t>(0, nv),
+                          [&](const tbb::blocked_range<std::size_t> &r) {
+                              for (std::size_t i = r.begin(); i != r.end(); ++i) {
+                                  xf[i] = allX[i];
+                                  yf[i] = allY[i];
+                              }
+                          });
+        writeFrameSvg(snapshotDir + "/density_final.svg", g, xf, yf, dieBox, outer,
+                      1 + numStepsTotal, result.hpwlFinal <= 0.0 ? 0.0 : result.hpwlFinal,
+                      baseHpwl, overflow, "final placement (legal)", constraints);
+    }
 
     if (plot) {
         writeHpwlCurve(plotDir + "/hpwl.csv", plotDir + "/hpwl.svg", curve, &curveResid);
