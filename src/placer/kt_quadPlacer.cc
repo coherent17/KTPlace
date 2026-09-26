@@ -1685,23 +1685,58 @@ PlacerResult QuadraticPlacer::place(int maxIter, double tol, const std::string &
     // tested. Then pull a fenced cell back inside its region / push an
     // unconstrained cell out of every region (a fence is a hard rule, so it gets
     // the final say), and clamp to the die.
+    // Cells still stuck on fixed macro area when the direct-spread pass and the
+    // legalization tail call fixupCell, counted per iteration so a transient
+    // cold-start pile-up (the CG step that slams a population into the emptiest
+    // die corner) shows up as a number instead of a silent artifact.
+    std::atomic<std::size_t> nMacroOverlap = 0;
     const auto fixupCell = [&](std::size_t i) {
-        if (!macrosInBin.empty() && cellExtentX[i] > 0.0 && cellExtentY[i] > 0.0) {
+        if (macrosInBin.empty() || cellExtentX[i] <= 0.0 || cellExtentY[i] <= 0.0) {
+            // Nothing to push out of.
+        } else {
             const double cw = cellExtentX[i];
             const double ch = cellExtentY[i];
-            const double cx = std::clamp(xSol[i], dg.x0, dg.x0 + dg.dx * dg.nbx - 1e-9);
-            const double cy = std::clamp(ySol[i], dg.y0, dg.y0 + dg.dy * dg.nby - 1e-9);
-            const int ix = std::min(static_cast<int>((cx - dg.x0) / dg.dx), dg.nbx - 1);
-            const int iy = std::min(static_cast<int>((cy - dg.y0) / dg.dy), dg.nby - 1);
-            for (std::uint32_t mi : macrosInBin[dg.idx(ix, iy)]) {
-                const Rect &rc = macroRects[mi];
-                if (std::min(xSol[i] + cw, rc.hi.x) <= std::max(xSol[i], rc.lo.x) ||
-                    std::min(ySol[i] + ch, rc.hi.y) <= std::max(ySol[i], rc.lo.y)) {
-                    continue;  // clear of this blockage
+            // First fixed blockage the cell's whole bin footprint straddles, or
+            // nullptr. Testing the footprint (not just the centre bin) is what
+            // catches a cell that hangs half over a macro edge, which is how a
+            // cold-start pile leaves cells "on top of" a macro even though the
+            // centre-bin test called them clear.
+            const auto firstOverlapMacro = [&]() -> const Rect * {
+                const double bx0 = std::clamp(xSol[i], dg.x0, dg.x0 + dg.dx * dg.nbx - 1e-9);
+                const double by0 = std::clamp(ySol[i], dg.y0, dg.y0 + dg.dy * dg.nby - 1e-9);
+                const double bx1 = std::clamp(xSol[i] + cw, dg.x0, dg.x0 + dg.dx * dg.nbx - 1e-9);
+                const double by1 = std::clamp(ySol[i] + ch, dg.y0, dg.y0 + dg.dy * dg.nby - 1e-9);
+                const int ix0 = std::clamp(static_cast<int>((bx0 - dg.x0) / dg.dx), 0, dg.nbx - 1);
+                const int iy0 = std::clamp(static_cast<int>((by0 - dg.y0) / dg.dy), 0, dg.nby - 1);
+                const int ix1 = std::clamp(static_cast<int>((bx1 - dg.x0) / dg.dx), 0, dg.nbx - 1);
+                const int iy1 = std::clamp(static_cast<int>((by1 - dg.y0) / dg.dy), 0, dg.nby - 1);
+                for (int gy = iy0; gy <= iy1; ++gy) {
+                    for (int gx = ix0; gx <= ix1; ++gx) {
+                        for (std::uint32_t mi : macrosInBin[dg.idx(gx, gy)]) {
+                            const Rect &rc = macroRects[mi];
+                            if (std::min(xSol[i] + cw, rc.hi.x) > std::max(xSol[i], rc.lo.x) &&
+                                std::min(ySol[i] + ch, rc.hi.y) > std::max(ySol[i], rc.lo.y)) {
+                                return &rc;
+                            }
+                        }
+                    }
+                }
+                return nullptr;
+            };
+            // A single nearest-side push can still overlap a neighbouring macro
+            // (or be re-entered by the die clamp) while a pile-up runs, so keep
+            // pushing to the nearest side of the first overlap until the cell
+            // is clear. Bounded: an unfixable jam simply stays for the
+            // legalizer instead of burning the whole iteration budget.
+            constexpr int kMaxMacroPush = 8;
+            for (int attempt = 0; attempt < kMaxMacroPush; ++attempt) {
+                const Rect *rc = firstOverlapMacro();
+                if (rc == nullptr) {
+                    break;
                 }
                 const double eps = 1e-6 * std::max(dg.dx, dg.dy);
-                const double candX[2] = {rc.lo.x - cw - eps, rc.hi.x + eps};
-                const double candY[2] = {rc.lo.y - ch - eps, rc.hi.y + eps};
+                const double candX[2] = {rc->lo.x - cw - eps, rc->hi.x + eps};
+                const double candY[2] = {rc->lo.y - ch - eps, rc->hi.y + eps};
                 int pick = 0;
                 double bestMove = std::abs(candX[0] - xSol[i]);
                 const double moveY[2] = {std::abs(candY[0] - ySol[i]),
@@ -1722,6 +1757,10 @@ PlacerResult QuadraticPlacer::place(int maxIter, double tol, const std::string &
                 } else {
                     ySol[i] = candY[pick - 2];
                 }
+            }
+            // Diagnose anything that is still sitting on a macro after the pass.
+            if (firstOverlapMacro() != nullptr) {
+                nMacroOverlap.fetch_add(1, std::memory_order_relaxed);
             }
         }
         if (constraints != nullptr) {
@@ -2260,6 +2299,7 @@ PlacerResult QuadraticPlacer::place(int maxIter, double tol, const std::string &
         //    top of the coupled force) guarantees the outward drift survives
         //    the next solve, so over-full bins steadily drain into empty die
         //    area while net clusters stay coherent.
+        nMacroOverlap = 0;
         tbb::parallel_for(
             tbb::blocked_range<std::size_t>(0, numMovable),
             [&](const tbb::blocked_range<std::size_t> &r) {
@@ -2284,8 +2324,9 @@ PlacerResult QuadraticPlacer::place(int maxIter, double tol, const std::string &
             worstFencedOut = std::max(worstFencedOut, static_cast<std::size_t>(counts.fencedOut));
             worstStrangerIn =
                 std::max(worstStrangerIn, static_cast<std::size_t>(counts.strangerIn));
-            ktlog.trace("outer {}: fenced_out={} stranger_in={} overflow={:.6e}", outer,
-                        counts.fencedOut, counts.strangerIn, overflow);
+            ktlog.trace("outer {}: fenced_out={} stranger_in={} overlap={} overflow={:.6e}", outer,
+                        counts.fencedOut, counts.strangerIn,
+                        nMacroOverlap.load(std::memory_order_relaxed), overflow);
             if (counts.fencedOut != 0 || counts.strangerIn != 0) {
                 ktlog.echo(
                     "iter {}: ILLEGAL placement -- {} fenced cell(s) outside, "
