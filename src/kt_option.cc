@@ -234,7 +234,7 @@ Arguments:
   output_path      Output file path for placement results
 
 Options:
-  -a, --algorithm <name>    Placement algorithm (default: quadratic)
+  -a, --algorithm <name>    Placement algorithm: quadratic or simpl (default: quadratic)
   -f, --format <format>     Output format (default: bookshelf)
   -l, --log <file>          Transcript log file (default: ktplace.log,
                             or <work-dir>/ktplace.log with -w)

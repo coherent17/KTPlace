@@ -8,6 +8,7 @@
 #include "util/kt_scopedTimer.h"
 #include "util/kt_log.h"
 #include "placer/kt_quadPlacer.h"
+#include "placer/simpl/kt_simpl.h"
 #include "datamodel/kt_graph.h"
 #include "adaptor/bookshelfToKTAdaptor.h"
 #include "adaptor/lefdefToKTAdaptor.h"
@@ -15,6 +16,7 @@
 #include <fstream>
 #include <string>
 #include <algorithm>
+#include <cstdlib>
 #include <iomanip>
 #include <stdexcept>
 #include <chrono>
@@ -217,6 +219,39 @@ bool FlowMgr::Impl::runPlacement(const std::string &algorithm, const std::string
                         res.hpwlInitial > 0.0
                             ? fmt::format("{:.2f}x", res.hpwlFinal / res.hpwlInitial)
                             : std::string("n/a (degenerate seed)")});
+        summary.emit();
+        placed = true;
+        return true;
+    } else if (algorithm == "simpl") {
+        ktlog.echo("Running SimPL global placement (B2B net model + look-ahead legalization)...");
+        SimplePlacer placer(*db);
+        // Bookshelf carries no placement regions; the LEF/DEF reader is the only
+        // source of fences, so they are not consulted here. SimPL's own spreading
+        // comes from legalizing, not from a fence-aware field.
+        SimplParams params;
+        params.traceEvery = 10;
+        // Per-iteration frames, for watching the LSS/LAL interaction.
+        if (const char *e = std::getenv("KTPLACE_SIMPL_TRACE_EVERY")) {
+            params.traceEvery = static_cast<std::size_t>(std::atoll(e));
+        }
+        const SimplResult res = placer.place(params, plotDir, snapshotDir);
+        ktReportTable summary("Solver results");
+        summary.setHeaders({"metric", "initial", "final"});
+        summary.addRow({"movable cells", "", fmt::format("{}", res.numMovable)});
+        summary.addRow({"fixed cells", "", fmt::format("{}", res.numFixed)});
+        summary.addRow({"nets", "", fmt::format("{}", res.nets)});
+        summary.addRow({"init iterations", "", fmt::format("{}", res.initIters)});
+        summary.addRow({"global iterations", "", fmt::format("{}", res.globalIters)});
+        summary.addRow({"bin grid", "", fmt::format("{}x{}", res.binsX, res.binsY)});
+        summary.addRow({"matrix build (s)", "", fmt::format("{:.6}", res.buildSeconds)});
+        summary.addRow({"look-ahead (s)", "", fmt::format("{:.6}", res.spreadSeconds)});
+        summary.addRow({"linear solves (s)", "", fmt::format("{:.6}", res.solveSeconds)});
+        summary.addRow({"HPWL seed", fmt::format("{:.6}", res.hpwlSeed), ""});
+        summary.addRow({"HPWL lower bound", "", fmt::format("{:.6}", res.hpwlLower)});
+        summary.addRow({"HPWL final", "", fmt::format("{:.6}", res.hpwlFinal)});
+        summary.addRow({"bound gap", "", fmt::format("{:.6}", res.gap)});
+        summary.addRow({"scaled overflow (lower)", "", fmt::format("{:.6}", res.overflowLower)});
+        summary.addRow({"scaled overflow (final)", "", fmt::format("{:.6}", res.overflowFinal)});
         summary.emit();
         placed = true;
         return true;

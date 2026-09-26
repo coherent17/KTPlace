@@ -18,7 +18,7 @@ override INCLUDES := -I..
 OBJ_DIR ?= ../build/obj/placer
 
 # Source files in this directory
-SRCS := kt_quadPlacer.cc
+SRCS := kt_quadPlacer.cc simpl/kt_simpl.cc
 
 # Only include files that exist
 EXISTING_SRCS := $(foreach src,$(SRCS),$(if $(wildcard $(src)),$(src),))
@@ -35,12 +35,18 @@ DEPS := $(OBJS:.o=.d)
 
 .PHONY: all clean objlist
 
-# Default: build objects
-all: $(OBJS)
+# Default: build objects. A placer module may live in a subdirectory (e.g.
+# simpl/), so the object tree is nested; the directories are order-only
+# prerequisites, created before any compile so the generated .d files have
+# somewhere to go.
+all: $(OBJS) | $(sort $(dir $(OBJS)))
+
+$(sort $(dir $(OBJS))):
+	@mkdir -p $@
 
 # Compile source files
 $(OBJ_DIR)/%.o: %.cc
-	@mkdir -p $(OBJ_DIR)
+	@mkdir -p $(dir $@)
 	@echo "  Compiling $<..."
 	@$(CXX) $(CXXFLAGS) $(INCLUDES) -MMD -MP -c $< -o $@
 

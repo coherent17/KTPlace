@@ -31,3 +31,5 @@ benchmark/*
 # Development notes are ignored; the curated write-ups are tracked.
 docs/*
 !docs/simpl.md
+ref/
+*.whl

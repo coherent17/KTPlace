@@ -109,7 +109,11 @@ $(STATIC_LIB): $(LIB_OBJS) | dirs
 	@echo "Library created: $@"
 
 # Compile local source files
+# Object trees are nested (a module may live in a subdirectory, e.g.
+# placer/simpl/), so the target directory is created before compiling -- gcc has
+# to be able to write the generated .d file next to the .o.
 $(OBJ_DIR)/%.o: %.cc
+	@mkdir -p $(dir $@)
 	@echo "Compiling $<..."
 	@$(CXX) $(CXXFLAGS) $(INCLUDES) -MMD -MP -c $< -o $@
 

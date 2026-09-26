@@ -71,6 +71,19 @@ ViewPort makeViewPort(const Graph &g, const std::vector<float> &x, const std::ve
     return vp;
 }
 
+/// Viewport spanning exactly the die, so a series of frames shares one scale.
+ViewPort dieViewPort(const BBox &dieBox) {
+    ViewPort vp;
+    const double spanX = std::max(dieBox[2] - dieBox[0], 1.0);
+    const double spanY = std::max(dieBox[3] - dieBox[1], 1.0);
+    const double sc = (kImageW - 2.0 * kMargin) / std::max(spanX, spanY);
+    vp.minX = dieBox[0] - 0.01 * spanX;
+    vp.minY = dieBox[1] - 0.01 * spanY;
+    vp.sx = sc;
+    vp.sy = sc;
+    return vp;
+}
+
 double toPxX(const ViewPort &vp, double v) {
     return kMargin + (v - vp.minX) * vp.sx;
 }
@@ -121,9 +134,14 @@ BBox fixedCellBBox(const Graph &g) {
 void writeFrameSvg(const std::string &path, const Graph &g, const std::vector<float> &x,
                    const std::vector<float> &y, const BBox &dieBox, std::size_t step,
                    std::size_t numSteps, double hpwl, double hpwlInitial, double resid,
-                   const std::string &note, const constraintMgr *constraints) {
+                   const std::string &note, const constraintMgr *constraints, bool fixedView) {
     const std::size_t nv = g.getNumVertices();
-    const ViewPort vp = makeViewPort(g, x, y, dieBox);
+    // By default the view auto-fits the data, which is right for a single frame but
+    // makes a sequence impossible to read: a collapsed iteration 0 and a spread
+    // iteration 9 are drawn at different scales, so the eye compares zoom levels
+    // rather than placements. fixedView pins the viewport to the die so every
+    // frame in a sequence is directly comparable.
+    const ViewPort vp = fixedView ? dieViewPort(dieBox) : makeViewPort(g, x, y, dieBox);
 
     // Decimate so very large designs still produce small files.
     const std::size_t stride = (nv > kMaxPoints) ? ((nv + kMaxPoints - 1) / kMaxPoints) : 1;
