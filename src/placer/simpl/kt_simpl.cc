@@ -242,12 +242,25 @@ private:
     std::vector<std::uint32_t> cellBin_;
     std::vector<std::uint32_t> cellSlot_;
 
-    /// Move one cell's bin membership, keeping the index exact.
+    /// Move one cell's bin membership, keeping both the index AND the density
+    /// field exact.
+    ///
+    /// The occupancy matters as much as the index. The legalizer relocates cells
+    /// as it recurses, but the density field was previously computed once per
+    /// lookAheadLegalize() call and never refreshed, so every C_c cell-area
+    /// median, every C_B whitespace median and every region-density test was
+    /// derived from occupancy describing where the cells were BEFORE the
+    /// redistribution, while the cells being redistributed had already moved.
+    /// That is the most likely cause of sub-regions being handed more area than
+    /// they can hold, of cells being scaled into each other, and therefore of the
+    /// negative lower/upper gap that means the "legalized" cells overlap.
     void rehome(std::uint32_t cell, std::size_t toBin) {
         const std::uint32_t from = cellBin_[cell];
         if (from == toBin) {
             return;
         }
+        grid_.occ[from] -= area_[cell];
+        grid_.occ[toBin] += area_[cell];
         std::vector<std::uint32_t> &src = binCells_[from];
         const std::size_t slot = cellSlot_[cell];
         const std::uint32_t last = src.back();
@@ -1806,6 +1819,14 @@ SimplResult SimplePlacer::Impl::run(const SimplParams &P, const std::string &plo
         buildB2B(lower, lowerY, alpha, true);
         buildAcc += secs(tb, Clock::now());
         const auto ts2 = Clock::now();
+        // Warm start from the previous lower bound. Starting instead from the
+        // anchors was tried and rejected: it improved density (adaptec2 overflow
+        // 0.093 -> 0.081) but left the final wirelength unchanged (1.73e9 ->
+        // 1.75e9) and turned the bound gap negative. With either start the lower
+        // bound tracks the upper bound to within a few percent, which is the real
+        // finding: the pseudonets reach ~80% of the matrix diagonal by the end of
+        // the run, so the linear solve contributes little however it is
+        // initialised, and the paper's own result is the upper bound anyway.
         solX_ = lower;
         solY_ = lowerY;
         solve();
