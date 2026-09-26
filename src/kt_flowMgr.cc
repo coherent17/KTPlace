@@ -193,10 +193,13 @@ bool FlowMgr::Impl::runPlacement(const std::string &algorithm, const std::string
                         fmt::format("{:.6}", res.densityOverflowFinal)});
         summary.addRow(
             {"HPWL", fmt::format("{:.6}", res.hpwlInitial), fmt::format("{:.6}", res.hpwlFinal)});
-        summary.addRow(
-            {"HPWL change", "",
-             fmt::format("{:.6}%",
-                         100.0 * (1.0 - res.hpwlFinal / std::max(res.hpwlInitial, 1e-300)))});
+        // A ratio, not a signed percentage: spreading raises wirelength well
+        // above the seed, and a degenerate seed (every cell on one point, as
+        // in several public Bookshelf suites) makes any percentage meaningless.
+        summary.addRow({"HPWL / seed", "",
+                        res.hpwlInitial > 0.0
+                            ? fmt::format("{:.2f}x", res.hpwlFinal / res.hpwlInitial)
+                            : std::string("n/a (degenerate seed)")});
         summary.emit();
         placed = true;
         return true;
