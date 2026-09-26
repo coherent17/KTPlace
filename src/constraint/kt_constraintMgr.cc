@@ -103,8 +103,8 @@ bool constraintMgr::insideAnyRegion(double x, double y) const {
     return false;
 }
 
-bool constraintMgr::pushOutOfRegions(double &x, double &y, double dieMinX,
-                                   double dieMinY, double dieMaxX, double dieMaxY) const {
+bool constraintMgr::pushOutOfRegions(double &x, double &y, double dieMinX, double dieMinY,
+                                     double dieMaxX, double dieMaxY) const {
     // Escaping has to be planned against the *union* of the fences, not one
     // rectangle at a time. The ISPD fences are often rings or combs of
     // abutting rectangles, so stepping to the nearest edge of the rectangle that
@@ -137,8 +137,7 @@ bool constraintMgr::pushOutOfRegions(double &x, double &y, double dieMinX,
                                     {host->hi.x + eps, y},
                                     {x, host->lo.y - eps},
                                     {x, host->hi.y + eps}};
-        const double dists[4] = {x - host->lo.x, host->hi.x - x, y - host->lo.y,
-                                 host->hi.y - y};
+        const double dists[4] = {x - host->lo.x, host->hi.x - x, y - host->lo.y, host->hi.y - y};
 
         int best = -1;
         double bestDist = std::numeric_limits<double>::max();

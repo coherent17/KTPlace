@@ -329,8 +329,7 @@ BOOST_AUTO_TEST_CASE(flow_moves_movable_cells_off_the_seed_point) {
     BOOST_REQUIRE_EQUAL(positions.size(), 1U);
     // The Bookshelf seed is degenerate (every cell at the origin); after the
     // flow a movable cell must have been given a real coordinate.
-    const bool movedFromSeed =
-        positions.front().first != 0.0 || positions.front().second != 0.0;
+    const bool movedFromSeed = positions.front().first != 0.0 || positions.front().second != 0.0;
     BOOST_TEST(movedFromSeed);
     // c0 is seeded exactly where padA is, and the flow treats fixed cells as
     // blockages, so c0 has to end up clear of padA (which spans x in [0,1]).

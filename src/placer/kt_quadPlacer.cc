@@ -96,8 +96,8 @@ constexpr double kProjMu = 2.0;
 // plateauing. Jacobi sweeps with a warm start (the field is kept across outer
 // iterations and only re-damped), giving long-range information that has
 // converged over the whole run rather than in a single solve.
-constexpr int kPotSweeps = 100;       // Jacobi sweeps per field refresh
-constexpr double kPotGradStart = 4.0; // ramped geometric weight, like the gradient
+constexpr int kPotSweeps = 100;        // Jacobi sweeps per field refresh
+constexpr double kPotGradStart = 4.0;  // ramped geometric weight, like the gradient
 constexpr double kPotGradEnd = 1200.0;
 // The old local gradient as a high-frequency correction. The potential part
 // carries the long range; this small reserve keeps the force responsive to
@@ -171,8 +171,12 @@ struct DeterministicChunks {
         : n(total),
           nChunks(std::max<std::size_t>(1, tbb::this_task_arena::max_concurrency())),
           grain((n + nChunks - 1) / nChunks) {}
-    std::size_t begin(std::size_t c) const { return c * grain; }
-    std::size_t end(std::size_t c) const { return std::min((c + 1) * grain, n); }
+    std::size_t begin(std::size_t c) const {
+        return c * grain;
+    }
+    std::size_t end(std::size_t c) const {
+        return std::min((c + 1) * grain, n);
+    }
 };
 
 template <typename Body>
@@ -213,7 +217,8 @@ inline void densityKernelTaps(double u, std::array<double, 5> &w) {
         // underflowing to 0 (exp(-t^2/2s^2) below ~2e-308 made the normalizer
         // 0/0 for cells at the die edges, where u == nbx).
         const double t = std::clamp(u - static_cast<double>(d - 2), -6.0, 6.0);
-        w[static_cast<std::size_t>(d)] = std::exp(-0.5 * t * t / (densityGaussianSigma * densityGaussianSigma));
+        w[static_cast<std::size_t>(d)] =
+            std::exp(-0.5 * t * t / (densityGaussianSigma * densityGaussianSigma));
     }
     // Normalize to a partition of unity (exact area conservation).
     const double sum = w[0] + w[1] + w[2] + w[3] + w[4];
@@ -486,7 +491,8 @@ DensityGrid makeDensityGrid(const BBox &die, std::size_t numCells) {
     constexpr int kMaxBinsPerAxis = 512;
 
     // Bin edge that averages kTargetCellsPerBin cells over the whole die.
-    const double binArea = (w * h) * kTargetCellsPerBin / static_cast<double>(std::max<std::size_t>(numCells, 1));
+    const double binArea =
+        (w * h) * kTargetCellsPerBin / static_cast<double>(std::max<std::size_t>(numCells, 1));
     const double edge = std::sqrt(std::max(binArea, 1.0));
     const auto axis = [&](double extent) {
         const int n = static_cast<int>(std::lround(extent / edge));
@@ -628,14 +634,14 @@ void applyBlockage(DensityGrid &g, const Graph &graph, const constraintMgr *cons
             const int ix1 = std::clamp(static_cast<int>((rx1 - g.x0) / g.dx), 0, g.nbx - 1);
             const int iy1 = std::clamp(static_cast<int>((ry1 - g.y0) / g.dy), 0, g.nby - 1);
             for (int iy = iy0; iy <= iy1; ++iy) {
-                const double oy = std::min(g.y0 + (iy + 1) * g.dy, ry1) -
-                                  std::max(g.y0 + iy * g.dy, ry0);
+                const double oy =
+                    std::min(g.y0 + (iy + 1) * g.dy, ry1) - std::max(g.y0 + iy * g.dy, ry0);
                 if (!(oy > 0.0)) {
                     continue;
                 }
                 for (int ix = ix0; ix <= ix1; ++ix) {
-                    const double ox = std::min(g.x0 + (ix + 1) * g.dx, rx1) -
-                                      std::max(g.x0 + ix * g.dx, rx0);
+                    const double ox =
+                        std::min(g.x0 + (ix + 1) * g.dx, rx1) - std::max(g.x0 + ix * g.dx, rx0);
                     if (!(ox > 0.0)) {
                         continue;
                     }
@@ -734,8 +740,7 @@ void refreshDensityPotential(DensityGrid &g, double uTarget, int sweeps) {
                         // shelter: its target utilization is zero, so the source
                         // is zero rather than -uTarget (a spurious sink that
                         // pulled cells onto fixed geometry).
-                        const double target =
-                            g.cap[k] >= 0.5 * g.dx * g.dy ? uTarget : 0.0;
+                        const double target = g.cap[k] >= 0.5 * g.dx * g.dy ? uTarget : 0.0;
                         const double source = utilOf(g, k) - target;
                         next[k] = 0.25 * (g.pot[k - 1] + g.pot[k + 1] + g.pot[rowBelow + ix] +
                                           g.pot[rowAbove + ix] - source);
@@ -974,8 +979,7 @@ void projectionSpread(const DensityGrid &g, const std::vector<double> &x,
         const double dieMaxX = g.x0 + g.dx * static_cast<double>(g.nbx);
         const double dieMaxY = g.y0 + g.dy * static_cast<double>(g.nby);
         for (std::size_t i = 0; i < nMov; ++i) {
-            const int region = g.regionOfMov.empty() ? constraintMgr::kNoRegion
-                                                      : g.regionOfMov[i];
+            const int region = g.regionOfMov.empty() ? constraintMgr::kNoRegion : g.regionOfMov[i];
             if (region != constraintMgr::kNoRegion) {
                 constraints->clampToRegion(region, projX[i], projY[i]);
             } else {
@@ -992,8 +996,8 @@ void projectionSpread(const DensityGrid &g, const std::vector<double> &x,
 QuadraticPlacer::QuadraticPlacer(PlacementDB &database) : db(database) {}
 
 PlacerResult QuadraticPlacer::place(int maxIter, double tol, const std::string &plotDir,
-                                   const constraintMgr *constraints,
-                                   const std::string &snapshotDir) {
+                                    const constraintMgr *constraints,
+                                    const std::string &snapshotDir) {
     using clock = std::chrono::steady_clock;
     PlacerResult result;
     const Graph &g = db.getGraph();
@@ -1258,7 +1262,7 @@ PlacerResult QuadraticPlacer::place(int maxIter, double tol, const std::string &
     std::vector<double> curveResid;                      // density overflow per step
     std::vector<double> curveFencedOut;   // fenced cells outside their own region, per step
     std::vector<double> curveStrangerIn;  // unfenced cells inside some region, per step
-    std::size_t worstFencedOut = 0;      // worst value seen in any single iteration
+    std::size_t worstFencedOut = 0;       // worst value seen in any single iteration
     std::size_t worstStrangerIn = 0;
 
     const auto packAll = [&](std::vector<float> &out, const std::vector<float> &mov, bool isX) {
@@ -1422,7 +1426,8 @@ PlacerResult QuadraticPlacer::place(int maxIter, double tol, const std::string &
                 }
                 const Rect &rc = reg->rects[r];
                 const double base = (r == 0) ? 0.0 : cum[r - 1];
-                const double u = std::clamp((centre - base) / std::max(cum[r] - base, 1e-300), 0.0, 1.0);
+                const double u =
+                    std::clamp((centre - base) / std::max(cum[r] - base, 1e-300), 0.0, 1.0);
                 const double v = std::fmod(centre * 0.6180339887498949, 1.0);
                 xSol[i] = rc.lo.x + u * (rc.hi.x - rc.lo.x);
                 ySol[i] = rc.lo.y + v * (rc.hi.y - rc.lo.y);
@@ -1476,8 +1481,8 @@ PlacerResult QuadraticPlacer::place(int maxIter, double tol, const std::string &
         if (!(vert.width > 0.0) || !(vert.height > 0.0)) {
             continue;
         }
-        macroRects.push_back(Rect{Point{vert.x, vert.y},
-                                  Point{vert.x + vert.width, vert.y + vert.height}});
+        macroRects.push_back(
+            Rect{Point{vert.x, vert.y}, Point{vert.x + vert.width, vert.y + vert.height}});
     }
     std::vector<std::vector<std::uint32_t>> macrosInBin(dg.occ.size());
     for (std::size_t mi = 0; mi < macroRects.size(); ++mi) {
@@ -1499,7 +1504,6 @@ PlacerResult QuadraticPlacer::place(int maxIter, double tol, const std::string &
             }
         }
     }
-
 
 
     // Mean occupancy per bin: the target a perfectly-uniform spread approaches.
@@ -1607,10 +1611,9 @@ PlacerResult QuadraticPlacer::place(int maxIter, double tol, const std::string &
                                   yf[i] = allY[i];
                               }
                           });
-        writeFrameSvg(snapshotDir + "/density_initial.svg", g, xf, yf, dieBox, 0,
-                      1 + numStepsTotal, result.hpwlInitial, baseHpwl,
-                      result.densityOverflowInitial, "initial placement (die-center seed)",
-                      constraints);
+        writeFrameSvg(snapshotDir + "/density_initial.svg", g, xf, yf, dieBox, 0, 1 + numStepsTotal,
+                      result.hpwlInitial, baseHpwl, result.densityOverflowInitial,
+                      "initial placement (die-center seed)", constraints);
     }
 
     // ------------------------------------------------------------------
@@ -1653,10 +1656,8 @@ PlacerResult QuadraticPlacer::place(int maxIter, double tol, const std::string &
                         }
                         continue;
                     }
-                    const double cx =
-                        std::clamp(xSol[i], dg.x0, dg.x0 + dg.dx * dg.nbx - 1e-9);
-                    const double cy =
-                        std::clamp(ySol[i], dg.y0, dg.y0 + dg.dy * dg.nby - 1e-9);
+                    const double cx = std::clamp(xSol[i], dg.x0, dg.x0 + dg.dx * dg.nbx - 1e-9);
+                    const double cy = std::clamp(ySol[i], dg.y0, dg.y0 + dg.dy * dg.nby - 1e-9);
                     const int ix = std::min(static_cast<int>((cx - dg.x0) / dg.dx), dg.nbx - 1);
                     const int iy = std::min(static_cast<int>((cy - dg.y0) / dg.dy), dg.nby - 1);
                     if (dg.binPool[dg.idx(ix, iy)] == kFreePool) {
@@ -1703,7 +1704,8 @@ PlacerResult QuadraticPlacer::place(int maxIter, double tol, const std::string &
                 const double candY[2] = {rc.lo.y - ch - eps, rc.hi.y + eps};
                 int pick = 0;
                 double bestMove = std::abs(candX[0] - xSol[i]);
-                const double moveY[2] = {std::abs(candY[0] - ySol[i]), std::abs(candY[1] - ySol[i])};
+                const double moveY[2] = {std::abs(candY[0] - ySol[i]),
+                                         std::abs(candY[1] - ySol[i])};
                 if (std::abs(candX[1] - xSol[i]) < bestMove) {
                     bestMove = std::abs(candX[1] - xSol[i]);
                     pick = 1;
@@ -1759,11 +1761,10 @@ PlacerResult QuadraticPlacer::place(int maxIter, double tol, const std::string &
             const double cy = std::clamp(ySol[i], dg.y0, dg.y0 + dg.dy * dg.nby - 1e-9);
             const int ix = std::min(static_cast<int>((cx - dg.x0) / dg.dx), dg.nbx - 1);
             const int iy = std::min(static_cast<int>((cy - dg.y0) / dg.dy), dg.nby - 1);
-            const std::size_t pool =
-                useRegions ? (regionOfMov[i] != constraintMgr::kNoRegion
-                                  ? static_cast<std::size_t>(regionOfMov[i])
-                                  : legalPools - 1)
-                           : 0;
+            const std::size_t pool = useRegions ? (regionOfMov[i] != constraintMgr::kNoRegion
+                                                       ? static_cast<std::size_t>(regionOfMov[i])
+                                                       : legalPools - 1)
+                                                : 0;
             poolCells[pool].push_back(SpreadCell{areaMov[i], iy, ix, cx, i});
             poolArea[pool] += areaMov[i];
         }
@@ -1801,24 +1802,22 @@ PlacerResult QuadraticPlacer::place(int maxIter, double tol, const std::string &
                 // the excess of over-full runs spills into the nearest spare room.
                 // Iterated round after round, the spill drains stubborn bins while
                 // every settled cell is untouched.
-                const std::size_t ownBin = static_cast<std::size_t>(c.row) *
-                                               static_cast<std::size_t>(dg.nbx) +
-                                           static_cast<std::size_t>(c.col);
+                const std::size_t ownBin =
+                    static_cast<std::size_t>(c.row) * static_cast<std::size_t>(dg.nbx) +
+                    static_cast<std::size_t>(c.col);
                 const auto ownIt = std::lower_bound(bins.begin(), bins.end(), ownBin);
                 const bool inPool = ownIt != bins.end() && *ownIt == ownBin;
                 double ownSlot = cum;
                 if (anchored) {
                     if (inPool) {
-                        const std::size_t ownIdx =
-                            static_cast<std::size_t>(ownIt - bins.begin());
+                        const std::size_t ownIdx = static_cast<std::size_t>(ownIt - bins.begin());
                         const double withinOwn = std::clamp(
-                            (c.x - (dg.x0 + static_cast<double>(c.col) * dg.dx)) / dg.dx, 0.0,
-                            1.0);
+                            (c.x - (dg.x0 + static_cast<double>(c.col) * dg.dx)) / dg.dx, 0.0, 1.0);
                         ownSlot = prefix[ownIdx] + withinOwn * std::max(dg.cap[bins[ownIdx]], 0.0);
                     }
                 }
-                const double pos =
-                    std::min(anchored ? std::max(ownSlot, cum * scale) : cum * scale, usable - 1e-9);
+                const double pos = std::min(anchored ? std::max(ownSlot, cum * scale) : cum * scale,
+                                            usable - 1e-9);
                 const std::size_t k = std::min(
                     static_cast<std::size_t>(std::upper_bound(prefix.begin(), prefix.end(), pos) -
                                              prefix.begin() - 1),
@@ -1834,11 +1833,10 @@ PlacerResult QuadraticPlacer::place(int maxIter, double tol, const std::string &
                 const double within = dg.cap[kk] > 0.0 ? (pos - prefix[k]) / dg.cap[kk] : 0.5;
                 const double lane = (within * 7.0) - std::floor(within * 7.0);
                 const double flip = (serpRow % 2 == 0) ? within : 1.0 - within;
-                xSol[c.idx] = dg.x0 +
-                              (static_cast<double>(serpCol) + (serpRow % 2 == 0 ? within : flip)) *
-                                  dg.dx;
-                ySol[c.idx] =
-                    dg.y0 + (static_cast<double>(serpRow) + lane) * dg.dy;
+                xSol[c.idx] =
+                    dg.x0 +
+                    (static_cast<double>(serpCol) + (serpRow % 2 == 0 ? within : flip)) * dg.dx;
+                ySol[c.idx] = dg.y0 + (static_cast<double>(serpRow) + lane) * dg.dy;
                 cum += c.area;
             }
         }
@@ -1866,11 +1864,10 @@ PlacerResult QuadraticPlacer::place(int maxIter, double tol, const std::string &
             bc = std::min(static_cast<std::size_t>((cx - dg.x0) / dg.dx), localCols - 1);
         };
         auto cellPool = [&](std::size_t i) -> std::size_t {
-            return useRegions
-                       ? (regionOfMov[i] != constraintMgr::kNoRegion
-                              ? static_cast<std::size_t>(regionOfMov[i])
-                              : legalPools - 1)
-                       : 0;
+            return useRegions ? (regionOfMov[i] != constraintMgr::kNoRegion
+                                     ? static_cast<std::size_t>(regionOfMov[i])
+                                     : legalPools - 1)
+                              : 0;
         };
         // The bin belongs to pool p (blocked bins belong to none).
         auto binInPool = [&](const std::uint32_t k, const std::size_t p) {
@@ -1908,7 +1905,9 @@ PlacerResult QuadraticPlacer::place(int maxIter, double tol, const std::string &
                 }
                 for (std::size_t c = 0; c < localCols; ++c) {
                     std::sort(cols[c].begin(), cols[c].end(),
-                              [](const SpreadCell &a, const SpreadCell &b) { return a.x < b.x; });
+                              [](const SpreadCell &a, const SpreadCell &b) {
+                                  return a.x < b.x;
+                              });
                 }
                 // Single left-to-right pass per round: each cell hops at most
                 // one column, and the rightward cascade happens across rounds,
@@ -1974,7 +1973,9 @@ PlacerResult QuadraticPlacer::place(int maxIter, double tol, const std::string &
                 }
                 for (std::size_t br = 0; br < localRows; ++br) {
                     std::sort(rows[br].begin(), rows[br].end(),
-                              [](const SpreadCell &a, const SpreadCell &b) { return a.x < b.x; });
+                              [](const SpreadCell &a, const SpreadCell &b) {
+                                  return a.x < b.x;
+                              });
                 }
                 // Two single passes (down then up): each cell hops at most one
                 // row per pass, and a pocket drains through the nearest side
@@ -2017,8 +2018,7 @@ PlacerResult QuadraticPlacer::place(int maxIter, double tol, const std::string &
     // current equi-area targets. `pw` is the ramped potential weight.
     const auto buildDensityRhs = [&](double pw) {
         tbb::parallel_for(
-            tbb::blocked_range<std::size_t>(0, n),
-            [&](const tbb::blocked_range<std::size_t> &r) {
+            tbb::blocked_range<std::size_t>(0, n), [&](const tbb::blocked_range<std::size_t> &r) {
                 for (std::size_t i = r.begin(); i != r.end(); ++i) {
                     double densX = 0.0;
                     double densY = 0.0;
@@ -2052,14 +2052,12 @@ PlacerResult QuadraticPlacer::place(int maxIter, double tol, const std::string &
                         densX = pw * bilerp(dg.potGradX) + kLocalGradFrac * bilerp(dg.gradX);
                         densY = pw * bilerp(dg.potGradY) + kLocalGradFrac * bilerp(dg.gradY);
                     }
-                    bx[i] = rhsX[i] +
-                            (i < numMovable ? kProjMu * m.diag[i] * (projX[i] - xSol[i]) -
-                                                  m.diag[i] * densX
-                                            : 0.0);
-                    by[i] = rhsY[i] +
-                            (i < numMovable ? kProjMu * m.diag[i] * (projY[i] - ySol[i]) -
-                                                  m.diag[i] * densY
-                                            : 0.0);
+                    bx[i] = rhsX[i] + (i < numMovable ? kProjMu * m.diag[i] * (projX[i] - xSol[i]) -
+                                                            m.diag[i] * densX
+                                                      : 0.0);
+                    by[i] = rhsY[i] + (i < numMovable ? kProjMu * m.diag[i] * (projY[i] - ySol[i]) -
+                                                            m.diag[i] * densY
+                                                      : 0.0);
                 }
             });
     };
@@ -2161,9 +2159,10 @@ PlacerResult QuadraticPlacer::place(int maxIter, double tol, const std::string &
                 ySol[i] = ny[i];
             }
         }
-        ktlog.trace("seed: connectivity-aware start for cells via {} Jacobi sweep(s), "
-                    "pins/fixed as anchors",
-                    kSeedRelaxSweeps);
+        ktlog.trace(
+            "seed: connectivity-aware start for cells via {} Jacobi sweep(s), "
+            "pins/fixed as anchors",
+            kSeedRelaxSweeps);
     }
     // Phase 0 (warm-up): the movable cells are seeded as a collapsed blob at
     // the die center (the degenerate .pl seeds every cell at the origin, so the
@@ -2192,10 +2191,9 @@ PlacerResult QuadraticPlacer::place(int maxIter, double tol, const std::string &
             // Geometric ramp: gentle at the start of refinement, dominant by
             // the last iteration.
             const std::size_t refineIters = std::max<std::size_t>(numStepsTotal - spreadInIters, 1);
-            const double refineFrac =
-                std::clamp(static_cast<double>(outer - spreadInIters) /
-                               static_cast<double>(refineIters - 1),
-                           0.0, 1.0);
+            const double refineFrac = std::clamp(
+                static_cast<double>(outer - spreadInIters) / static_cast<double>(refineIters - 1),
+                0.0, 1.0);
             const double potWeight =
                 kPotGradStart * std::pow(kPotGradEnd / kPotGradStart, refineFrac);
             ktlog.trace("outer {}: potential weight {:.4g}", outer, potWeight);
@@ -2218,10 +2216,11 @@ PlacerResult QuadraticPlacer::place(int maxIter, double tol, const std::string &
                            (utilOf(dg, k) - targetDens / (dg.dx * dg.dy));
                 }
                 const double nbGrid = static_cast<double>(std::max<std::size_t>(dg.occ.size(), 1));
-                ktlog.trace("calib: pot-grad rms {:.6g}, local-grad rms {:.6g}, source rms "
-                            "({:.6g} - utgt), utgt {:.6g}, grid {}x{}",
-                            std::sqrt(rp / nbGrid), std::sqrt(rl / nbGrid),
-                            std::sqrt(src / nbGrid), targetDens / (dg.dx * dg.dy), dg.nbx, dg.nby);
+                ktlog.trace(
+                    "calib: pot-grad rms {:.6g}, local-grad rms {:.6g}, source rms "
+                    "({:.6g} - utgt), utgt {:.6g}, grid {}x{}",
+                    std::sqrt(rp / nbGrid), std::sqrt(rl / nbGrid), std::sqrt(src / nbGrid),
+                    targetDens / (dg.dx * dg.dy), dg.nbx, dg.nby);
             }
 
             // Density force: step downhill in the Poisson potential, scaled by
@@ -2244,15 +2243,14 @@ PlacerResult QuadraticPlacer::place(int maxIter, double tol, const std::string &
             conjugateGradient(mSpread, bx, xSol, kInnerMaxIter, kInnerTol, it1, r1);
             conjugateGradient(mSpread, by, ySol, kInnerMaxIter, kInnerTol, it2, r2);
             const double maxMove = kMaxMoveBins * std::min(dg.dx, dg.dy);
-            tbb::parallel_for(tbb::blocked_range<std::size_t>(0, numMovable),
-                              [&](const tbb::blocked_range<std::size_t> &r) {
-                                  for (std::size_t i = r.begin(); i != r.end(); ++i) {
-                                      xSol[i] = prevX[i] +
-                                                std::clamp(xSol[i] - prevX[i], -maxMove, maxMove);
-                                      ySol[i] = prevY[i] +
-                                                std::clamp(ySol[i] - prevY[i], -maxMove, maxMove);
-                                  }
-                              });
+            tbb::parallel_for(
+                tbb::blocked_range<std::size_t>(0, numMovable),
+                [&](const tbb::blocked_range<std::size_t> &r) {
+                    for (std::size_t i = r.begin(); i != r.end(); ++i) {
+                        xSol[i] = prevX[i] + std::clamp(xSol[i] - prevX[i], -maxMove, maxMove);
+                        ySol[i] = prevY[i] + std::clamp(ySol[i] - prevY[i], -maxMove, maxMove);
+                    }
+                });
         }
 
         // 3) Direct spread: walk each draining cell toward its projection
@@ -2289,9 +2287,10 @@ PlacerResult QuadraticPlacer::place(int maxIter, double tol, const std::string &
             ktlog.trace("outer {}: fenced_out={} stranger_in={} overflow={:.6e}", outer,
                         counts.fencedOut, counts.strangerIn, overflow);
             if (counts.fencedOut != 0 || counts.strangerIn != 0) {
-                ktlog.echo("iter {}: ILLEGAL placement -- {} fenced cell(s) outside, "
-                           "{} unfenced cell(s) inside a fence",
-                           outer, counts.fencedOut, counts.strangerIn);
+                ktlog.echo(
+                    "iter {}: ILLEGAL placement -- {} fenced cell(s) outside, "
+                    "{} unfenced cell(s) inside a fence",
+                    outer, counts.fencedOut, counts.strangerIn);
             }
         }
 
@@ -2348,8 +2347,8 @@ PlacerResult QuadraticPlacer::place(int maxIter, double tol, const std::string &
                               }
                           });
         if (snapshotable) {
-            writeFrameSvg(snapshotDir + "/density_after_mainloop.svg", g, xf, yf, dieBox,
-                          outer + 1, 1 + numStepsTotal, hpwlNow, baseHpwl, overflow,
+            writeFrameSvg(snapshotDir + "/density_after_mainloop.svg", g, xf, yf, dieBox, outer + 1,
+                          1 + numStepsTotal, hpwlNow, baseHpwl, overflow,
                           "end of global loop (pre-tail)", constraints);
         }
     }
@@ -2386,8 +2385,7 @@ PlacerResult QuadraticPlacer::place(int maxIter, double tol, const std::string &
             double sumDisp = 0.0, maxDisp = 0.0;
             std::size_t moved = 0;
             for (std::size_t i = 0; i < numMovable; ++i) {
-                const double disp =
-                    std::hypot(xSol[i] - prevRoundX[i], ySol[i] - prevRoundY[i]);
+                const double disp = std::hypot(xSol[i] - prevRoundX[i], ySol[i] - prevRoundY[i]);
                 sumDisp += disp;
                 maxDisp = std::max(maxDisp, disp);
                 if (disp > 1e-6) {
@@ -2404,11 +2402,12 @@ PlacerResult QuadraticPlacer::place(int maxIter, double tol, const std::string &
                               });
             packAll(allX, xmov, true);
             packAll(allY, ymov, false);
-            ktlog.trace("tail round {}: hpwl={:.6e} density overflow {:.6e} mean move {:g} "
-                        "bins, cells moved: {}/{}",
-                        tailIters + 1, hpwlF(g, allX, allY), overflow,
-                        sumDisp / static_cast<double>(numMovable) / std::min(dg.dx, dg.dy),
-                        moved, numMovable);
+            ktlog.trace(
+                "tail round {}: hpwl={:.6e} density overflow {:.6e} mean move {:g} "
+                "bins, cells moved: {}/{}",
+                tailIters + 1, hpwlF(g, allX, allY), overflow,
+                sumDisp / static_cast<double>(numMovable) / std::min(dg.dx, dg.dy), moved,
+                numMovable);
         }
         for (std::size_t i = 0; i < numMovable; ++i) {
             prevRoundX[i] = xSol[i];
@@ -2438,9 +2437,11 @@ PlacerResult QuadraticPlacer::place(int maxIter, double tol, const std::string &
             const std::size_t row = k / static_cast<std::size_t>(dg.nbx);
             const std::size_t col = k % static_cast<std::size_t>(dg.nbx);
             const std::size_t srow = row;  // serpentine column of this bin
-            const std::size_t scol = (row % 2 == 0) ? col : static_cast<std::size_t>(dg.nbx) - 1 - col;
+            const std::size_t scol =
+                (row % 2 == 0) ? col : static_cast<std::size_t>(dg.nbx) - 1 - col;
             auto hasSpare = [&](std::size_t kk) {
-                return kk < dg.occ.size() && dg.cap[kk] >= 0.5 * capB && dg.occ[kk] < 0.95 * dg.cap[kk];
+                return kk < dg.occ.size() && dg.cap[kk] >= 0.5 * capB &&
+                       dg.occ[kk] < 0.95 * dg.cap[kk];
             };
             bool any = false;
             if (scol + 1 < static_cast<std::size_t>(dg.nbx)) {
@@ -2473,9 +2474,10 @@ PlacerResult QuadraticPlacer::place(int maxIter, double tol, const std::string &
                 nLockedCap += static_cast<std::size_t>(std::floor(dg.cap[k] / capB));
             }
         }
-        ktlog.trace("overflow diagnosis: bins over cap: {}, with spare right/left/down/up: "
-                    "{}/{}/{}/{}, locked: {} (cap {})",
-                    nOver, spareRight, spareLeft, spareDown, spareUp, locked, nLockedCap);
+        ktlog.trace(
+            "overflow diagnosis: bins over cap: {}, with spare right/left/down/up: "
+            "{}/{}/{}/{}, locked: {} (cap {})",
+            nOver, spareRight, spareLeft, spareDown, spareUp, locked, nLockedCap);
     }
     const std::vector<double> preSnapX = xSol;
     const std::vector<double> preSnapY = ySol;
@@ -2499,11 +2501,12 @@ PlacerResult QuadraticPlacer::place(int maxIter, double tol, const std::string &
                 ++farMoves;
             }
         }
-        ktlog.trace("legalize final: density overflow {:.6e}, mean move {:g} ({:.4g} bins), "
-                    "max move {:g} bins, cells moved >3 bins: {}",
-                    overflow, sumDisp / static_cast<double>(numMovable), sumDisp /
-                        static_cast<double>(numMovable) / std::min(dg.dx, dg.dy),
-                    maxDisp / std::min(dg.dx, dg.dy), farMoves);
+        ktlog.trace(
+            "legalize final: density overflow {:.6e}, mean move {:g} ({:.4g} bins), "
+            "max move {:g} bins, cells moved >3 bins: {}",
+            overflow, sumDisp / static_cast<double>(numMovable),
+            sumDisp / static_cast<double>(numMovable) / std::min(dg.dx, dg.dy),
+            maxDisp / std::min(dg.dx, dg.dy), farMoves);
     }
     const FenceCounts counts = countFenceViolations();
     curveFencedOut.push_back(static_cast<double>(counts.fencedOut));
@@ -2524,8 +2527,8 @@ PlacerResult QuadraticPlacer::place(int maxIter, double tol, const std::string &
                               }
                           });
         writeFrameSvg(snapshotDir + "/density_final.svg", g, xf, yf, dieBox, outer,
-                      1 + numStepsTotal, result.hpwlFinal <= 0.0 ? 0.0 : result.hpwlFinal,
-                      baseHpwl, overflow, "final placement (legal)", constraints);
+                      1 + numStepsTotal, result.hpwlFinal <= 0.0 ? 0.0 : result.hpwlFinal, baseHpwl,
+                      overflow, "final placement (legal)", constraints);
     }
 
     if (plot) {
@@ -2573,12 +2576,12 @@ PlacerResult QuadraticPlacer::place(int maxIter, double tol, const std::string &
     auto t5 = clock::now();
 
     if (useRegions) {
-        ktlog.echo("Fence legality over {} iteration(s): worst fenced_out={}, "
-                   "worst stranger_in={}, final fenced_out={}, final stranger_in={}",
-                   curveFencedOut.size(), worstFencedOut, worstStrangerIn,
-                   curveFencedOut.empty() ? 0 : static_cast<std::size_t>(curveFencedOut.back()),
-                   curveStrangerIn.empty() ? 0
-                                          : static_cast<std::size_t>(curveStrangerIn.back()));
+        ktlog.echo(
+            "Fence legality over {} iteration(s): worst fenced_out={}, "
+            "worst stranger_in={}, final fenced_out={}, final stranger_in={}",
+            curveFencedOut.size(), worstFencedOut, worstStrangerIn,
+            curveFencedOut.empty() ? 0 : static_cast<std::size_t>(curveFencedOut.back()),
+            curveStrangerIn.empty() ? 0 : static_cast<std::size_t>(curveStrangerIn.back()));
     }
 
     result.numIterations = outer;

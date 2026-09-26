@@ -163,10 +163,10 @@ void writeFrameSvg(const std::string &path, const Graph &g, const std::vector<fl
             const Region &reg = *constraints->region(static_cast<int>(ri));
             const char *color = kFenceColors[ri % (sizeof(kFenceColors) / sizeof(char *))];
             for (const Rect &r : reg.rects) {
-                out << "<rect x=\"" << fmt(toPxX(vp, r.lo.x)) << "\" y=\""
-                    << fmt(toPxY(vp, r.hi.y)) << "\" width=\"" << fmt((r.hi.x - r.lo.x) * vp.sx)
-                    << "\" height=\"" << fmt((r.hi.y - r.lo.y) * vp.sy)
-                    << "\" fill=\"" << color << "\" fill-opacity=\"0.13\" stroke=\"" << color
+                out << "<rect x=\"" << fmt(toPxX(vp, r.lo.x)) << "\" y=\"" << fmt(toPxY(vp, r.hi.y))
+                    << "\" width=\"" << fmt((r.hi.x - r.lo.x) * vp.sx) << "\" height=\""
+                    << fmt((r.hi.y - r.lo.y) * vp.sy) << "\" fill=\"" << color
+                    << "\" fill-opacity=\"0.13\" stroke=\"" << color
                     << "\" stroke-width=\"1.5\" stroke-opacity=\"0.9\"/>\n";
             }
             out << "<text x=\"" << fmt(toPxX(vp, reg.minX) + 3) << "\" y=\""

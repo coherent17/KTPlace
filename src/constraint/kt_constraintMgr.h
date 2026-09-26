@@ -51,8 +51,8 @@ struct Point {
 
 /// One axis-aligned rectangle piece of a region; a region is a union of these.
 struct Rect {
-    Point lo;    ///< lower-left corner
-    Point hi;    ///< upper-right corner
+    Point lo;  ///< lower-left corner
+    Point hi;  ///< upper-right corner
 
     /// @return true when (x, y) lies inside, bounds included
     [[nodiscard]] bool contains(double x, double y) const {
@@ -60,7 +60,9 @@ struct Rect {
     }
 
     /// @return area in database units squared
-    [[nodiscard]] double area() const { return (hi.x - lo.x) * (hi.y - lo.y); }
+    [[nodiscard]] double area() const {
+        return (hi.x - lo.x) * (hi.y - lo.y);
+    }
 };
 
 /**
@@ -71,14 +73,14 @@ struct Rect {
  * fences do not overlap, so the area is their sum.
  */
 struct Region {
-    std::string name;            ///< DEF region name, e.g. "er0"
-    std::vector<Rect> rects;     ///< union of rectangles forming the region
-    double area = 0.0;           ///< total area, database units squared
-    double minX = 0.0;           ///< bounding box, used for cheap rejection
+    std::string name;         ///< DEF region name, e.g. "er0"
+    std::vector<Rect> rects;  ///< union of rectangles forming the region
+    double area = 0.0;        ///< total area, database units squared
+    double minX = 0.0;        ///< bounding box, used for cheap rejection
     double minY = 0.0;
     double maxX = 0.0;
     double maxY = 0.0;
-    std::size_t cellCount = 0;   ///< instances assigned to this region
+    std::size_t cellCount = 0;  ///< instances assigned to this region
 
     /// @return true when (x, y) is inside any of the rectangles
     [[nodiscard]] bool contains(double x, double y) const {
@@ -132,7 +134,9 @@ public:
     std::size_t assignByPrefix(int regionId, const std::string &prefix, Graph &graph);
 
     /// @return true when at least one region exists
-    [[nodiscard]] bool hasConstraints() const { return !regions_.empty(); }
+    [[nodiscard]] bool hasConstraints() const {
+        return !regions_.empty();
+    }
 
     /// @return true when (x, y) falls inside any region
     [[nodiscard]] bool insideAnyRegionPublic(double x, double y) const {
@@ -140,7 +144,9 @@ public:
     }
 
     /// @return number of regions
-    [[nodiscard]] std::size_t numRegions() const { return regions_.size(); }
+    [[nodiscard]] std::size_t numRegions() const {
+        return regions_.size();
+    }
 
     /// @return the region with the given id, or nullptr when out of range
     [[nodiscard]] const Region *region(int id) const {
@@ -149,7 +155,9 @@ public:
     }
 
     /// @return all regions
-    [[nodiscard]] const std::vector<Region> &regions() const { return regions_; }
+    [[nodiscard]] const std::vector<Region> &regions() const {
+        return regions_;
+    }
 
     /**
      * @brief Is (x, y) inside the region?
