@@ -3,8 +3,7 @@
  * @brief Graph data structure for placement netlist
  */
 
-#ifndef KT_GRAPH_H
-#define KT_GRAPH_H
+#pragma once
 
 #include <cstddef>
 #include <vector>
@@ -13,7 +12,6 @@
 #include <memory>
 
 namespace ktplace {
-namespace core {
 
 /**
  * @brief Vertex types in the placement graph
@@ -118,7 +116,4 @@ private:
     std::size_t nextEdgeId = 0;
 };
 
-}  // namespace core
 }  // namespace ktplace
-
-#endif  // KT_GRAPH_H

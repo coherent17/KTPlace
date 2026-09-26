@@ -4,7 +4,8 @@
  */
 
 #include "kt_flowMgr.h"
-#include "util/kt_timer.h"
+#include "util/kt_reportTable.h"
+#include "util/kt_scopedTimer.h"
 #include "util/kt_log.h"
 #include "placer/kt_quadPlacer.h"
 #include "datamodel/kt_graph.h"
@@ -19,14 +20,13 @@
 #include <filesystem>
 
 namespace ktplace {
-namespace core {
 
 // PIMPL implementation
 class FlowMgr::Impl {
 public:
     std::unique_ptr<PlacementDB> db;
-    std::unique_ptr<io::BookshelfInputAdapter> bookshelfAdapter;
-    std::unique_ptr<io::LefDefInputAdapter> lefdefAdapter;
+    std::unique_ptr<BookshelfInputAdapter> bookshelfAdapter;
+    std::unique_ptr<LefDefInputAdapter> lefdefAdapter;
     bool loaded = false;
     bool placed = false;
 
@@ -48,7 +48,7 @@ public:
 
 FlowMgr::FlowMgr() : pImpl(std::make_unique<Impl>()) {
     pImpl->db = std::make_unique<PlacementDB>();
-    pImpl->bookshelfAdapter = std::make_unique<io::BookshelfInputAdapter>();
+    pImpl->bookshelfAdapter = std::make_unique<BookshelfInputAdapter>();
 }
 
 FlowMgr::~FlowMgr() = default;
@@ -119,7 +119,7 @@ bool FlowMgr::Impl::loadInput(const std::string &baseName, const std::string &di
     if (hasDef) {
         ktlog.echo("Detected LEF/DEF input in {}", dirPath);
         clear();
-        lefdefAdapter = std::make_unique<io::LefDefInputAdapter>(std::make_unique<PlacementDB>());
+        lefdefAdapter = std::make_unique<LefDefInputAdapter>(std::make_unique<PlacementDB>());
         if (!lefdefAdapter->readFromDirectory(dirPath)) {
             ktlog.fatal("Failed to load LEF/DEF format from {}", dirPath);
         }
@@ -135,7 +135,7 @@ bool FlowMgr::Impl::loadBookshelf(const std::string &baseName, const std::string
     clear();
 
     // Create adapter with the database
-    bookshelfAdapter = std::make_unique<io::BookshelfInputAdapter>(std::make_unique<PlacementDB>());
+    bookshelfAdapter = std::make_unique<BookshelfInputAdapter>(std::make_unique<PlacementDB>());
 
     // Read from directory
     if (!bookshelfAdapter->readFromDirectory(baseName, dirPath)) {
@@ -156,7 +156,7 @@ bool FlowMgr::Impl::loadBookshelfFromFiles(const std::string &nodesFile,
     clear();
 
     // Create adapter with the database
-    bookshelfAdapter = std::make_unique<io::BookshelfInputAdapter>(std::make_unique<PlacementDB>());
+    bookshelfAdapter = std::make_unique<BookshelfInputAdapter>(std::make_unique<PlacementDB>());
 
     // Read from files
     if (!bookshelfAdapter->readFromFiles(nodesFile, netsFile, plFile, sclFile, wtsFile)) {
@@ -180,14 +180,24 @@ bool FlowMgr::Impl::runPlacement(const std::string &algorithm, const std::string
         ktlog.echo("Running global placement (clique/star net model, WL + density, PCG)...");
         QuadraticPlacer placer(*db);
         const PlacerResult res = placer.place(200, 0.10, plotDir);
-        ktlog.echo("  movable cells : {}  star nodes : {}", res.numMovable, res.numStars);
-        ktlog.echo("  matrix build  : {:.6}s  global place  : {:.6}s  ({} outer iters)",
-                   res.buildSeconds, res.solveSeconds, res.numIterations);
-        ktlog.echo("  density overf.: {:.6}  ->  {:.6}", res.densityOverflowInitial,
-                   res.densityOverflowFinal);
-        ktlog.echo("  HPWL          : {:.6}  ->  {:.6}  ({:.6}% better)", res.hpwlInitial,
-                   res.hpwlFinal,
-                   100.0 * (1.0 - res.hpwlFinal / std::max(res.hpwlInitial, 1e-300)));
+        // Units live in the metric name so the value columns stay purely
+        // numeric and get right-aligned by the table.
+        ktReportTable summary("Solver results");
+        summary.setHeaders({"metric", "initial", "final"});
+        summary.addRow({"movable cells", "", fmt::format("{}", res.numMovable)});
+        summary.addRow({"star nodes", "", fmt::format("{}", res.numStars)});
+        summary.addRow({"outer iterations", "", fmt::format("{}", res.numIterations)});
+        summary.addRow({"matrix build (s)", "", fmt::format("{:.6}", res.buildSeconds)});
+        summary.addRow({"global place (s)", "", fmt::format("{:.6}", res.solveSeconds)});
+        summary.addRow({"density overflow", fmt::format("{:.6}", res.densityOverflowInitial),
+                        fmt::format("{:.6}", res.densityOverflowFinal)});
+        summary.addRow(
+            {"HPWL", fmt::format("{:.6}", res.hpwlInitial), fmt::format("{:.6}", res.hpwlFinal)});
+        summary.addRow(
+            {"HPWL change", "",
+             fmt::format("{:.6}%",
+                         100.0 * (1.0 - res.hpwlFinal / std::max(res.hpwlInitial, 1e-300)))});
+        summary.emit();
         placed = true;
         return true;
     } else {
@@ -248,5 +258,4 @@ void FlowMgr::Impl::clear() {
     placed = false;
 }
 
-}  // namespace core
 }  // namespace ktplace

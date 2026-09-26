@@ -32,7 +32,6 @@
 #endif
 
 namespace ktplace {
-namespace io {
 
 namespace {
 
@@ -109,8 +108,8 @@ std::vector<std::string> BookshelfInputAdapter::tokenize(const std::string &line
     return tokens;
 }
 
-BookshelfInputAdapter::BookshelfInputAdapter(std::unique_ptr<core::PlacementDB> database)
-    : db(database ? std::move(database) : std::make_unique<core::PlacementDB>()) {}
+BookshelfInputAdapter::BookshelfInputAdapter(std::unique_ptr<PlacementDB> database)
+    : db(database ? std::move(database) : std::make_unique<PlacementDB>()) {}
 
 BookshelfInputAdapter::~BookshelfInputAdapter() = default;
 
@@ -642,5 +641,4 @@ bool BookshelfInputAdapter::parseWtsFile(const std::string &filePath) {
     return true;
 }
 
-}  // namespace io
 }  // namespace ktplace

@@ -3,8 +3,7 @@
  * @brief Command-line option parser for KTPlace
  */
 
-#ifndef KT_OPTION_H
-#define KT_OPTION_H
+#pragma once
 
 #include <string>
 #include <memory>
@@ -35,6 +34,11 @@ public:
 
     /**
      * @brief Parse command-line arguments
+     * After parsing, relative output and plot paths are resolved against the
+     * work directory, and the log path defaults to "<work-dir>/ktplace.log"
+     * (its trace companion lives next to it). Absolute paths are used as
+     * given. The work directory itself defaults to the current directory.
+     *
      * @param argc Argument count
      * @param argv Argument vector
      * @return true if parsing successful, false if help/version shown
@@ -51,6 +55,7 @@ public:
     [[nodiscard]] const std::string &getLogFile() const;
     [[nodiscard]] const std::string &getConfigFile() const;
     [[nodiscard]] const std::string &getPlotDir() const;
+    [[nodiscard]] const std::string &getWorkDir() const;
 
     /**
      * @brief Check if help was requested
@@ -82,10 +87,11 @@ public:
     static void printVersion();
 
 private:
+    /// Apply the work directory to the output, plot and log paths.
+    void resolvePaths();
+
     class Impl;
     std::unique_ptr<Impl> pImpl;
 };
 
 }  // namespace ktplace
-
-#endif  // KT_OPTION_H

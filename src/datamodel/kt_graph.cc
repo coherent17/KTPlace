@@ -8,7 +8,6 @@
 #include <algorithm>
 
 namespace ktplace {
-namespace core {
 
 Graph::Graph() = default;
 Graph::~Graph() = default;
@@ -152,5 +151,4 @@ void Graph::clear() {
     nextEdgeId = 0;
 }
 
-}  // namespace core
 }  // namespace ktplace

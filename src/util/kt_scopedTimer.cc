@@ -1,11 +1,12 @@
 /**
- * @file kt_timer.cc
+ * @file kt_scopedTimer.cc
  * @brief Implementation of the KTPlace elapsed-time measurement
  */
 
-#include "util/kt_timer.h"
+#include "util/kt_scopedTimer.h"
+#include "util/kt_reportTable.h"
 #include "util/kt_log.h"
-#include <limits>
+#include <ctime>
 
 namespace ktplace {
 
@@ -14,13 +15,23 @@ double monotonicSeconds() {
     return std::chrono::duration<double>(clock::now().time_since_epoch()).count();
 }
 
+namespace {
+/// Processor seconds consumed by this process so far, over all threads.
+/// std::clock() maps to CLOCK_PROCESS_CPUTIME_ID on glibc, which is what we
+/// want: the solve is multi-threaded, so per-thread time would only ever
+/// measure whichever worker happened to be running.
+double processCpuSeconds() {
+    return static_cast<double>(std::clock()) / static_cast<double>(CLOCKS_PER_SEC);
+}
+}  // namespace
+
 TimerRegistry &TimerRegistry::instance() {
     static TimerRegistry registry;
     return registry;
 }
 
-void TimerRegistry::record(std::string name, double seconds) {
-    if (seconds < 0.0) {
+void TimerRegistry::record(std::string name, double wallSeconds, double cpuSeconds) {
+    if (wallSeconds < 0.0) {
         return;
     }
     std::lock_guard<std::mutex> lock(mutex);
@@ -29,14 +40,8 @@ void TimerRegistry::record(std::string name, double seconds) {
         return;  // measuring continues, recording is suppressed
     }
     TimerStats &entry = stats[name];
-    if (entry.calls == 0) {
-        entry.minSeconds = seconds;
-        entry.maxSeconds = seconds;
-    } else {
-        entry.minSeconds = std::min(entry.minSeconds, seconds);
-        entry.maxSeconds = std::max(entry.maxSeconds, seconds);
-    }
-    entry.totalSeconds += seconds;
+    entry.wallSeconds += wallSeconds;
+    entry.cpuSeconds += cpuSeconds > 0.0 ? cpuSeconds : 0.0;
     ++entry.calls;
 }
 
@@ -67,11 +72,20 @@ std::vector<std::pair<std::string, TimerStats>> TimerRegistry::snapshot() const 
     return out;
 }
 
-double TimerRegistry::totalSeconds() const {
+double TimerRegistry::totalWallSeconds() const {
     std::lock_guard<std::mutex> lock(mutex);
     double sum = 0.0;
     for (const auto &[name, entry] : stats) {
-        sum += entry.totalSeconds;
+        sum += entry.wallSeconds;
+    }
+    return sum;
+}
+
+double TimerRegistry::totalCpuSeconds() const {
+    std::lock_guard<std::mutex> lock(mutex);
+    double sum = 0.0;
+    for (const auto &[name, entry] : stats) {
+        sum += entry.cpuSeconds;
     }
     return sum;
 }
@@ -86,30 +100,45 @@ void TimerRegistry::report() const {
     if (all.empty()) {
         return;
     }
-    const double grand = totalSeconds();
-    ktlog.echo("Timings (total {:.3f}s):", grand);
+    ktReportTable table(
+        fmt::format("Timings (wall {:.3f}s, cpu {:.3f}s, {:.2f}x parallelism)", totalWallSeconds(),
+                    totalCpuSeconds(),
+                    totalWallSeconds() > 0.0 ? totalCpuSeconds() / totalWallSeconds() : 0.0));
+    table.setHeaders({"phase", "wall", "cpu", "calls", "cpu/wall"});
     for (const auto &[name, entry] : all) {
-        ktlog.echo("  {:<22} {:>10.3f}s  x{:<6} min {:.3f}s  max {:.3f}s", name, entry.totalSeconds,
-                   entry.calls, entry.minSeconds, entry.maxSeconds);
+        table.addRow({name, fmt::format("{:.3f}s", entry.wallSeconds),
+                      fmt::format("{:.3f}s", entry.cpuSeconds), std::to_string(entry.calls),
+                      fmt::format("{:.2f}x", entry.parallelism())});
     }
+    table.emit();
 }
 
 ScopedTimer::ScopedTimer(std::string name)
-    : timerName(std::move(name)), start(std::chrono::steady_clock::now()) {}
+    : timerName(std::move(name)), start(std::chrono::steady_clock::now()), cpuStart(std::clock()) {}
 
 ScopedTimer::~ScopedTimer() {
-    TimerRegistry::instance().record(timerName, elapsedSeconds());
+    TimerRegistry::instance().record(timerName, elapsedSeconds(), cpuElapsedSeconds());
 }
 
 void ScopedTimer::lap() {
-    const double delta = elapsedSeconds();
+    const double wall = elapsedSeconds();
+    const double cpu = cpuElapsedSeconds();
     start = std::chrono::steady_clock::now();
-    TimerRegistry::instance().record(timerName, delta);
+    cpuStart = std::clock();
+    TimerRegistry::instance().record(timerName, wall, cpu);
 }
 
 double ScopedTimer::elapsedSeconds() const {
     using clock = std::chrono::steady_clock;
     return std::chrono::duration<double>(clock::now() - start).count();
+}
+
+double ScopedTimer::cpuElapsedSeconds() const {
+    const std::clock_t now = std::clock();
+    if (cpuStart == 0 || now == static_cast<std::clock_t>(-1)) {
+        return 0.0;
+    }
+    return static_cast<double>(now - cpuStart) / static_cast<double>(CLOCKS_PER_SEC);
 }
 
 const std::string &ScopedTimer::name() const {

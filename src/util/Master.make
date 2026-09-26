@@ -11,7 +11,7 @@ override INCLUDES := -I..
 OBJ_DIR ?= ../build/obj/util
 
 # Source files in this directory
-SRCS := kt_log.cc kt_timer.cc
+SRCS := kt_log.cc kt_reportTable.cc kt_scopedTimer.cc
 
 # Only include files that exist
 EXISTING_SRCS := $(foreach src,$(SRCS),$(if $(wildcard $(src)),$(src),))

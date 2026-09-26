@@ -1,17 +1,18 @@
 /**
  * @file kt_place.cc
  * @brief Main entry point for KTPlace placement engine
+ *
+ * The entry point has no public interface, so it deliberately has no
+ * matching header.
  */
 
-#include "kt_place.h"
 #include "kt_flowMgr.h"
 #include "kt_option.h"
+#include "util/kt_reportTable.h"
 #include "util/kt_log.h"
 #include <stdexcept>
 
 using namespace ktplace;
-using namespace ktplace::core;
-using ktplace::ktlog;
 
 // Main entry point
 int main(int argc, char *argv[]) {
@@ -32,20 +33,28 @@ int main(int argc, char *argv[]) {
         // Echo the effective configuration
         ktlog.echo("KTPlace - Know Thyself Placement Engine");
         ktlog.echo("========================================");
-        ktlog.echo("Input base name:  {}", options.getInputBaseName());
-        ktlog.echo("Input directory:  {}", options.getInputDir());
-        ktlog.echo("Output path:      {}", options.getOutputPath());
-        ktlog.echo("Algorithm:        {}", options.getAlgorithm());
-        ktlog.echo("Output format:    {}", options.getOutputFormat());
+        ktReportTable config("Configuration");
+        config.add("input base name", options.getInputBaseName());
+        config.add("input directory", options.getInputDir());
+        config.add("output path", options.getOutputPath());
+        config.add("algorithm", options.getAlgorithm());
+        config.add("output format", options.getOutputFormat());
+        if (!options.getWorkDir().empty()) {
+            config.add("work dir", options.getWorkDir());
+        }
         if (!options.getLogFile().empty()) {
-            ktlog.echo("Log file:         {}", options.getLogFile());
+            config.add("log file", options.getLogFile());
+        }
+        if (ktlog.verbose()) {
+            config.add("trace file", ktlog.traceFilePath());
         }
         if (!options.getConfigFile().empty()) {
-            ktlog.echo("Config file:      {}", options.getConfigFile());
+            config.add("config file", options.getConfigFile());
         }
         if (!options.getPlotDir().empty()) {
-            ktlog.echo("Plot directory:   {}", options.getPlotDir());
+            config.add("plot directory", options.getPlotDir());
         }
+        config.emit();
         ktlog.echo("");
 
         // Create flow manager and run placement

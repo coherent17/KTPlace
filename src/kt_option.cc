@@ -7,6 +7,7 @@
 #include "util/kt_log.h"
 #include <fmt/format.h>
 #include <string>
+#include <filesystem>
 #include <stdexcept>
 #include <cstring>
 
@@ -30,6 +31,7 @@ public:
     bool verbose = false;
     std::string configFile;
     std::string plotDir;
+    std::string workDir;
 
     // Flags
     bool helpRequested = false;
@@ -100,6 +102,12 @@ bool kt_option::parse_option(int argc, char *argv[]) {
             } else {
                 throw std::runtime_error("--log requires a value");
             }
+        } else if (arg == "-w" || arg == "--work-dir") {
+            if (i + 1 < argc) {
+                pImpl->workDir = argv[++i];
+            } else {
+                throw std::runtime_error("--work-dir requires a value");
+            }
         } else if (arg == "-v" || arg == "--verbose") {
             pImpl->verbose = true;
         } else if (arg == "-c" || arg == "--config") {
@@ -121,7 +129,51 @@ bool kt_option::parse_option(int argc, char *argv[]) {
         }
     }
 
+    resolvePaths();
     return true;  // Success
+}
+
+namespace {
+
+/// True for paths that already name their location (POSIX and Windows forms).
+bool isAbsolute(const std::string &path) {
+    return !path.empty() &&
+           (path.front() == '/' || path.front() == '\\' || (path.size() > 2 && path[1] == ':'));
+}
+
+}  // namespace
+
+void kt_option::resolvePaths() {
+    if (pImpl->workDir.empty()) {
+        // No work directory: keep whatever the user typed.
+        if (pImpl->logFile.empty()) {
+            pImpl->logFile = "ktplace.log";
+        }
+        return;
+    }
+
+    std::error_code ec;
+    std::filesystem::create_directories(pImpl->workDir, ec);
+    if (ec) {
+        throw std::runtime_error("cannot create work directory '" + pImpl->workDir +
+                                 "': " + ec.message());
+    }
+
+    // Relative artifact paths live under the work directory; absolute ones are
+    // honoured exactly as given.
+    const auto rebase = [this](std::string &path) {
+        if (!path.empty() && !isAbsolute(path)) {
+            path = (std::filesystem::path(pImpl->workDir) / path).string();
+        }
+    };
+    rebase(pImpl->outputPath);
+    rebase(pImpl->plotDir);
+
+    if (pImpl->logFile.empty()) {
+        pImpl->logFile = (std::filesystem::path(pImpl->workDir) / "ktplace.log").string();
+    } else {
+        rebase(pImpl->logFile);
+    }
 }
 
 const std::string &kt_option::getInputBaseName() const {
@@ -156,6 +208,10 @@ const std::string &kt_option::getConfigFile() const {
     return pImpl->configFile;
 }
 
+const std::string &kt_option::getWorkDir() const {
+    return pImpl->workDir;
+}
+
 const std::string &kt_option::getPlotDir() const {
     return pImpl->plotDir;
 }
@@ -180,8 +236,12 @@ Arguments:
 Options:
   -a, --algorithm <name>    Placement algorithm (default: quadratic)
   -f, --format <format>     Output format (default: bookshelf)
-  -l, --log <file>          Transcript log file (default: ktplace.log)
-  -v, --verbose             Emit trace-level diagnostics into the log file
+  -l, --log <file>          Transcript log file (default: ktplace.log,
+                            or <work-dir>/ktplace.log with -w)
+  -v, --verbose             Write trace diagnostics to a second file,
+                            <log>_trace.log
+  -w, --work-dir <dir>      Base directory for relative output, plot and log
+                            paths; created if missing
   -c, --config <file>       Configuration file path (optional)
   -p, --plot <dir>          Write SVG frames, HPWL curve and an HTML gallery
                             of the solve into this directory (optional)
@@ -189,6 +249,8 @@ Options:
   -V, --version             Show version information
 
 Logging goes to the log file and stderr; stdout is never written to.
+With -v the trace records are kept in a separate <log>_trace.log so the
+main transcript stays readable.
 
 Examples:
   {} adaptec2 ./benchmark/ISPD_2005/adaptec2 ./output/adaptec2.pl

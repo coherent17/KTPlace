@@ -3,8 +3,7 @@
  * @brief Core data model for placement database (PIMPL pattern)
  */
 
-#ifndef KT_DM_H
-#define KT_DM_H
+#pragma once
 
 #include <cstddef>
 #include <memory>
@@ -13,7 +12,6 @@
 #include <unordered_map>
 
 namespace ktplace {
-namespace core {
 
 // Forward declarations
 class Cell;
@@ -107,7 +105,4 @@ private:
     std::unique_ptr<Impl> pImpl;
 };
 
-}  // namespace core
 }  // namespace ktplace
-
-#endif  // KT_DM_H

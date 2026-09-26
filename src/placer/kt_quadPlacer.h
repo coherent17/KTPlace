@@ -3,15 +3,13 @@
  * @brief TBB-parallel quadratic placement solver
  */
 
-#ifndef KT_QUAD_PLACER_H
-#define KT_QUAD_PLACER_H
+#pragma once
 
 #include <cstddef>
 #include <string>
 #include "datamodel/kt_dm.h"
 
 namespace ktplace {
-namespace core {
 
 /**
  * @brief Results of a QuadraticPlacer run
@@ -62,7 +60,4 @@ private:
     PlacementDB &db;
 };
 
-}  // namespace core
 }  // namespace ktplace
-
-#endif  // KT_QUAD_PLACER_H

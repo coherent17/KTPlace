@@ -7,8 +7,7 @@
  * libraries required.
  */
 
-#ifndef KT_PLOTTER_H
-#define KT_PLOTTER_H
+#pragma once
 
 #include <array>
 #include <cstddef>
@@ -20,7 +19,6 @@
 #include "datamodel/kt_graph.h"
 
 namespace ktplace {
-namespace io {
 
 /// Bounding box of a region: {xmin, ymin, xmax, ymax}.
 using BBox = std::array<double, 4>;
@@ -35,7 +33,7 @@ bool ensureDir(const std::string &dir);
  * @brief Bounding box of the fixed/terminal cells (the die frame).
  *        Returns {0,0,1,1} if there are no fixed cells.
  */
-BBox fixedCellBBox(const core::Graph &g);
+BBox fixedCellBBox(const Graph &g);
 
 /**
  * @brief Render one placement snapshot as an SVG image.
@@ -52,7 +50,7 @@ BBox fixedCellBBox(const core::Graph &g);
  * @param resid     density overflow at this snapshot
  * @param note      human-readable label for the frame
  */
-void writeFrameSvg(const std::string &path, const core::Graph &g, const std::vector<float> &x,
+void writeFrameSvg(const std::string &path, const Graph &g, const std::vector<float> &x,
                    const std::vector<float> &y, const BBox &dieBox, std::size_t step,
                    std::size_t numSteps, double hpwl, double hpwlInitial, double resid,
                    const std::string &note);
@@ -74,7 +72,4 @@ void writeHpwlCurve(const std::string &csvPath, const std::string &svgPath,
 void writeGallery(const std::string &dir, const std::vector<std::string> &framePaths,
                   const std::string &csvName);
 
-}  // namespace io
 }  // namespace ktplace
-
-#endif  // KT_PLOTTER_H

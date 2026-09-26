@@ -17,7 +17,6 @@
 #include <sstream>
 
 namespace ktplace {
-namespace io {
 
 namespace {
 
@@ -43,8 +42,8 @@ struct ViewPort {
     double sx = 1.0, sy = 1.0;  // units -> px
 };
 
-ViewPort makeViewPort(const core::Graph &g, const std::vector<float> &x,
-                      const std::vector<float> &y, const BBox &dieBox) {
+ViewPort makeViewPort(const Graph &g, const std::vector<float> &x, const std::vector<float> &y,
+                      const BBox &dieBox) {
     const std::size_t nv = g.getNumVertices();
     double minX = std::numeric_limits<double>::max();
     double minY = std::numeric_limits<double>::max();
@@ -90,7 +89,7 @@ bool ensureDir(const std::string &dir) {
     return !ec;
 }
 
-BBox fixedCellBBox(const core::Graph &g) {
+BBox fixedCellBBox(const Graph &g) {
     // The "die" is taken as the bounding box of all fixed/terminal cells.
     // Vertices store their lower-left corner, so the box must also include
     // corner + (width, height): pads anchored at the right/top rim would
@@ -101,8 +100,8 @@ BBox fixedCellBBox(const core::Graph &g) {
     double maxX = -std::numeric_limits<double>::max();
     double maxY = -std::numeric_limits<double>::max();
     for (std::size_t v = 0; v < nv; ++v) {
-        const core::Vertex &vert = g.getVertex(v);
-        if (vert.type != core::VertexType::Cell) {
+        const Vertex &vert = g.getVertex(v);
+        if (vert.type != VertexType::Cell) {
             continue;
         }
         if (!vert.isFixed && !vert.isTerminal) {
@@ -119,7 +118,7 @@ BBox fixedCellBBox(const core::Graph &g) {
     return {minX, minY, maxX, maxY};
 }
 
-void writeFrameSvg(const std::string &path, const core::Graph &g, const std::vector<float> &x,
+void writeFrameSvg(const std::string &path, const Graph &g, const std::vector<float> &x,
                    const std::vector<float> &y, const BBox &dieBox, std::size_t step,
                    std::size_t numSteps, double hpwl, double hpwlInitial, double resid,
                    const std::string &note) {
@@ -162,7 +161,7 @@ void writeFrameSvg(const std::string &path, const core::Graph &g, const std::vec
         std::vector<std::size_t> netIds;
         netIds.reserve(512);
         for (std::size_t v = 0; v < nv; ++v) {
-            if (g.getVertex(v).type == core::VertexType::Net && !g.getVertex(v).inEdges.empty()) {
+            if (g.getVertex(v).type == VertexType::Net && !g.getVertex(v).inEdges.empty()) {
                 netIds.push_back(v);
             }
         }
@@ -177,7 +176,7 @@ void writeFrameSvg(const std::string &path, const core::Graph &g, const std::vec
         std::vector<double> cx(x.begin(), x.end());
         std::vector<double> cy(y.begin(), y.end());
         for (std::size_t k = 0; k < netIds.size() && shown < kMaxNets; k += stepN) {
-            const core::Vertex &net = g.getVertex(netIds[k]);
+            const Vertex &net = g.getVertex(netIds[k]);
             std::vector<std::size_t> ids;
             ids.reserve(net.inEdges.size());
             for (std::size_t eid : net.inEdges) {
@@ -217,8 +216,8 @@ void writeFrameSvg(const std::string &path, const core::Graph &g, const std::vec
     // Movable cells.
     out << "<g fill=\"#4fc3f7\" opacity=\"0.55\">\n";
     for (std::size_t v = 0; v < nv; v += stride) {
-        const core::Vertex &vert = g.getVertex(v);
-        if (vert.type != core::VertexType::Cell || vert.isFixed || vert.isTerminal) {
+        const Vertex &vert = g.getVertex(v);
+        if (vert.type != VertexType::Cell || vert.isFixed || vert.isTerminal) {
             continue;
         }
         const double w = std::max(1.0, vert.width * vp.sx);
@@ -232,8 +231,8 @@ void writeFrameSvg(const std::string &path, const core::Graph &g, const std::vec
     // Fixed macros: never decimate, so hard cells match the DEF floorplan.
     out << "<g fill=\"#ef5350\" opacity=\"0.9\">\n";
     for (std::size_t v = 0; v < nv; ++v) {
-        const core::Vertex &vert = g.getVertex(v);
-        if (vert.type != core::VertexType::Cell || !vert.isFixed) {
+        const Vertex &vert = g.getVertex(v);
+        if (vert.type != VertexType::Cell || !vert.isFixed) {
             continue;
         }
         const double w = std::max(2.0, vert.width * vp.sx);
@@ -244,8 +243,8 @@ void writeFrameSvg(const std::string &path, const core::Graph &g, const std::vec
     }
     // I/O pads / terminals: decimatable, there can be tens of thousands.
     for (std::size_t v = 0; v < nv; v += stride) {
-        const core::Vertex &vert = g.getVertex(v);
-        if (vert.type != core::VertexType::Cell || !vert.isTerminal || vert.isFixed) {
+        const Vertex &vert = g.getVertex(v);
+        if (vert.type != VertexType::Cell || !vert.isTerminal || vert.isFixed) {
             continue;
         }
         const double w = std::max(2.0, vert.width * vp.sx);
@@ -430,5 +429,4 @@ void writeGallery(const std::string &dir, const std::vector<std::string> &frameP
     out.close();
 }
 
-}  // namespace io
 }  // namespace ktplace

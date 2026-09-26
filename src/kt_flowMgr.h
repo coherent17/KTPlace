@@ -3,15 +3,13 @@
  * @brief Flow manager to orchestrate the overall placement flow
  */
 
-#ifndef KT_FLOW_MGR_H
-#define KT_FLOW_MGR_H
+#pragma once
 
 #include <memory>
 #include <string>
 #include "datamodel/kt_dm.h"
 
 namespace ktplace {
-namespace core {
 
 // Forward declarations
 class BookshelfInputAdapter;
@@ -63,7 +61,4 @@ private:
     std::unique_ptr<Impl> pImpl;
 };
 
-}  // namespace core
 }  // namespace ktplace
-
-#endif  // KT_FLOW_MGR_H

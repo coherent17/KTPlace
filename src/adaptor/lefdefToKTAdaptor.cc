@@ -28,7 +28,6 @@
 #include <boost/iostreams/device/file.hpp>
 
 namespace ktplace {
-namespace io {
 
 namespace {
 
@@ -96,8 +95,8 @@ std::string LefDefInputAdapter::sanitizeName(const std::string &name) {
     return out;
 }
 
-LefDefInputAdapter::LefDefInputAdapter(std::unique_ptr<core::PlacementDB> database)
-    : db(database ? std::move(database) : std::make_unique<core::PlacementDB>()) {}
+LefDefInputAdapter::LefDefInputAdapter(std::unique_ptr<PlacementDB> database)
+    : db(database ? std::move(database) : std::make_unique<PlacementDB>()) {}
 
 LefDefInputAdapter::~LefDefInputAdapter() = default;
 
@@ -642,5 +641,4 @@ bool LefDefInputAdapter::parseDefFile(const std::string &filePath) {
     return true;
 }
 
-}  // namespace io
 }  // namespace ktplace

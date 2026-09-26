@@ -57,7 +57,7 @@ STATIC_LIB := $(LIB_DIR)/libktplace.a
 .PHONY: all clean rebuild $(SUBDIRS) dirs help
 
 # Default target
-all: dirs $(SUBDIRS) $(TARGET)
+all: dirs $(SUBDIRS) $(TARGET) env
 
 # Static library
 lib: dirs $(SUBDIRS) $(STATIC_LIB)
@@ -77,6 +77,26 @@ $(TARGET): $(ALL_OBJS) | dirs
 	@echo "Linking $@..."
 	@$(CXX) $(CXXFLAGS) -o $@ $(ALL_OBJS) $(LIBS)
 	@echo "Build complete: $@"
+
+# Environment helper scripts.
+#
+# Copied to the repository root only after a successful link, so they never
+# appear for a build that did not produce a binary. `cmp -s` keeps the copy
+# from touching the timestamp when nothing changed, so sourcing stays cheap
+# and make does not consider the target perpetually out of date.
+TOP_DIR := $(abspath $(CURDIR)/..)
+ENV_SCRIPTS := $(TOP_DIR)/ktplace.sh $(TOP_DIR)/ktplace.csh
+ENV_SOURCES := $(TOP_DIR)/scripts/ktplace.sh $(TOP_DIR)/scripts/ktplace.csh
+
+.PHONY: env
+env: $(ENV_SCRIPTS)
+
+$(ENV_SCRIPTS): $(ENV_SOURCES) | $(TARGET)
+	@for src in $(ENV_SOURCES); do \
+	    dst="$(TOP_DIR)/`basename $$src`"; \
+	    if cmp -s "$$src" "$$dst"; then echo "  up to date: $$dst"; \
+	    else cp "$$src" "$$dst" && echo "  generated: $$dst"; fi; \
+	done
 
 # Static library
 $(STATIC_LIB): $(ALL_OBJS) | dirs

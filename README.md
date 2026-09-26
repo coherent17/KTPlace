@@ -10,6 +10,19 @@ make            # builds build/bin/ktplace
 make rebuild    # clean + rebuild
 ```
 
+A successful build also writes two environment helpers into the repository
+root. Source the one for your shell and the engine is callable by name:
+
+```sh
+source ktplace.sh     # bash / sh
+source ktplace.csh    # csh / tcsh
+ktplace ibm01 ./benchmark/ICCAD04/ibm01 ./output/ibm01.pl
+```
+
+They only appear when the link succeeds, are safe to source repeatedly, and
+export `KTPLACE_HOME` pointing at the repository. The maintained copies live in
+`scripts/`.
+
 The top-level Makefile drives a hierarchy under `src/`, where `src/Master.make`
 coordinates the components -- `datamodel`, `adaptor`, `placer`, `visualization`
 and `util` -- each of which builds through its own `Master.make`.
@@ -26,7 +39,7 @@ src/
   adaptor/             # Bookshelf and LEF/DEF readers
   placer/              # quadratic placer (clique/star, CG, density)
   visualization/       # SVG frames, HPWL curve, HTML gallery
-  util/                # kt_log, kt_timer
+  util/                # kt_log, kt_reportTable, kt_scopedTimer
 ```
 
 ## Code style
@@ -48,13 +61,26 @@ file plus stderr; **stdout is never written to**, so redirecting it stays clean.
 ./build/bin/ktplace ibm01 ./benchmark/ICCAD04/ibm01 ./output/ibm01.pl -v   # + trace
 ```
 
-| call | goes to log file | goes to stderr |
-|------|:----------------:|:--------------:|
-| `ktlog.echo(...)`  | yes | yes |
-| `ktlog.trace(...)` | yes (only with `-v`) | no |
-| `ktlog.fatal(...)` | yes | yes, then `exit(1)` |
+| call | `ktplace.log` | `<log>_trace.log` | stderr |
+|------|:--------------:|:-----------------:|:------:|
+| `ktlog.echo(...)`  | yes | no | yes |
+| `ktlog.trace(...)` | no  | yes (only with `-v`) | no |
+| `ktlog.fatal(...)` | yes | no | yes, then `exit(1)` |
 
-Messages are built with `fmt::format` and checked at compile time.
+Trace records go to a **separate** file so the main transcript stays readable,
+and that file is not created at all without `-v`. Messages are built with
+`fmt::format` and checked at compile time.
+
+`ktReportTable` (`src/util/kt_reportTable.h`) accumulates cells and renders an
+aligned table — column widths measured from content, numeric cells
+right-aligned — emitted as a single log record:
+
+```cpp
+ktReportTable table("Summary");
+table.setHeaders({"phase", "wall", "cpu"});
+table.addRow({"load", "4.75s", "7.09s"});
+table.emit();
+```
 
 ## Benchmarks
 
@@ -90,11 +116,18 @@ goes through the LEF/DEF adapter, everything else is loaded as Bookshelf.
 | --- | --- |
 | `-a, --algorithm <name>` | placement algorithm (default `quadratic`) |
 | `-f, --format <fmt>` | output format (default `bookshelf`) |
-| `-l, --log <file>` | transcript log file (default `ktplace.log`) |
-| `-v, --verbose` | trace-level diagnostics into the log |
+| `-l, --log <file>` | transcript log (default `ktplace.log`) |
+| `-v, --verbose` | also write `<log>_trace.log` |
 | `-p, --plot <dir>` | SVG frames + HPWL curve + HTML gallery |
+| `-w, --work-dir <dir>` | base for relative output/plot/log paths |
 | `-c, --config <file>` | configuration file |
 | `-h, --help` / `-V, --version` | help / version |
+
+With `-w`, relative `output_path` and plot directories are resolved under that
+directory (absolute paths are used verbatim), the logs default to
+`<work-dir>/ktplace.log` and `<work-dir>/ktplace_trace.log`, and the directory
+is created if missing. Without it, behaviour is unchanged and logs land in the
+current directory.
 
 ### Visualizing the solve
 
@@ -130,9 +163,23 @@ in a corner.
 
 ## Timing
 
-Elapsed time is measured with `src/util/kt_timer.h`: `ScopedTimer` is an RAII
+Elapsed time is measured with `src/util/kt_scopedTimer.h`: `ScopedTimer` is an RAII
 stopwatch that records on scope exit, and `TimerRegistry` accumulates named
-totals (with min/max and call counts) that are reported once per run:
+totals that are reported once per run. Every interval is recorded as both
+wall-clock and processor time, so the table shows how much parallelism a phase
+actually used:
+
+```
+Timings (wall 15.383s, cpu 53.081s, 3.45x parallelism)
++-------+---------+---------+-------+----------+
+| phase | wall    | cpu     | calls | cpu/wall |
++-------+---------+---------+-------+----------+
+| load  | 4.752s  | 7.086s  |     1 |    1.49x |
+| place | 10.338s | 45.701s |     1 |    4.42x |
+| write | 0.293s  | 0.293s  |     1 |    1.00x |
++-------+---------+---------+-------+----------+
+```
+
 
 ```cpp
 {

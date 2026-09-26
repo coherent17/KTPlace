@@ -1,5 +1,5 @@
 /**
- * @file kt_timer.h
+ * @file kt_scopedTimer.h
  * @brief Elapsed-time measurement for KTPlace
  *
  * This is a stopwatch facility only: it answers "how long did this take?".
@@ -12,11 +12,17 @@
  * Two pieces:
  *   - `ScopedTimer`  : RAII stopwatch; records on scope exit (exception safe).
  *   - `TimerRegistry`: process-wide named totals, so a loop can accumulate
- *                      many short intervals and report one summary line.
+ *                      many short intervals and report one summary table.
  *
- * All durations use `std::chrono::steady_clock`, which is monotonic and so
- * immune to wall-clock adjustments. Human-readable timestamps (in the log)
- * use the system clock instead, as the logger already does.
+ * Each interval is recorded twice: wall-clock time, which is what the user
+ * waits for, and processor time summed over all threads. The ratio is the
+ * effective parallelism, which is the number worth watching in a parallel
+ * solve. (A phase that is quietly serial shows a ratio near 1.0.)
+ *
+ * Wall durations use `std::chrono::steady_clock`, which is monotonic and so
+ * immune to wall-clock adjustments; processor time uses `std::clock()`.
+ * Human-readable timestamps in the log use the system clock, as the logger
+ * already does.
  *
  * Usage:
  * @code
@@ -33,8 +39,7 @@
  * @endcode
  */
 
-#ifndef KT_TIMER_H
-#define KT_TIMER_H
+#pragma once
 
 #include <chrono>
 #include <cstddef>
@@ -49,12 +54,23 @@ namespace ktplace {
 /// Monotonic seconds from an arbitrary epoch; only differences are meaningful.
 [[nodiscard]] double monotonicSeconds();
 
-/// Accumulated statistics for one timer name.
+/**
+ * @brief Accumulated statistics for one timer name.
+ *
+ * Wall time is what the user waits for; CPU time is the processor time the
+ * process consumed, summed over all threads. Their ratio is the effective
+ * parallelism: near 1.0 means the work was serial, and a ratio of N means it
+ * used roughly N cores on average.
+ */
 struct TimerStats {
-    double totalSeconds = 0.0;  ///< sum of all recorded intervals
-    double minSeconds = 0.0;    ///< shortest interval seen
-    double maxSeconds = 0.0;    ///< longest interval seen
-    std::size_t calls = 0;      ///< number of recorded intervals
+    double wallSeconds = 0.0;  ///< summed wall-clock intervals
+    double cpuSeconds = 0.0;   ///< summed processor time over all threads
+    std::size_t calls = 0;     ///< number of recorded intervals
+
+    /// @return cpuSeconds / wallSeconds, or 0.0 when no wall time accumulated
+    [[nodiscard]] double parallelism() const {
+        return wallSeconds > 0.0 ? cpuSeconds / wallSeconds : 0.0;
+    }
 };
 
 /// Process-wide collection of named timer totals.
@@ -67,7 +83,7 @@ public:
     TimerRegistry &operator=(const TimerRegistry &) = delete;
 
     /// Add one interval to @p name.
-    void record(std::string name, double seconds);
+    void record(std::string name, double wallSeconds, double cpuSeconds);
 
     /**
      * @brief Enable or disable recording for @p name.
@@ -87,8 +103,11 @@ public:
     /// @return a consistent copy of all statistics, ordered by name
     [[nodiscard]] std::vector<std::pair<std::string, TimerStats>> snapshot() const;
 
-    /// @return summed seconds across every timer
-    [[nodiscard]] double totalSeconds() const;
+    /// @return summed wall-clock seconds across every timer
+    [[nodiscard]] double totalWallSeconds() const;
+
+    /// @return summed processor seconds across every timer
+    [[nodiscard]] double totalCpuSeconds() const;
 
     /// Discard all statistics (enabled/disabled flags are kept).
     void reset();
@@ -125,8 +144,11 @@ public:
     /// Record the interval; called automatically on destruction.
     ~ScopedTimer();
 
-    /// @return seconds since construction or the last `lap()`
+    /// @return wall-clock seconds since construction or the last `lap()`
     [[nodiscard]] double elapsedSeconds() const;
+
+    /// @return processor seconds consumed since construction or the last `lap()`
+    [[nodiscard]] double cpuElapsedSeconds() const;
 
     /// @return the timer's registry name
     [[nodiscard]] const std::string &name() const;
@@ -134,8 +156,7 @@ public:
 private:
     std::string timerName;
     std::chrono::steady_clock::time_point start;
+    std::clock_t cpuStart = 0;
 };
 
 }  // namespace ktplace
-
-#endif  // KT_TIMER_H

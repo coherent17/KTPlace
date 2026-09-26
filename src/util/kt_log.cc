@@ -48,33 +48,59 @@ const char *Logger::levelTag(Level tag) {
     return "?";
 }
 
+Logger &Logger::instance() {
+    static Logger logger;  // constructed on first use
+    return logger;
+}
+
 Logger::~Logger() {
     shutdown();
 }
 
 void Logger::configure(std::string logFilePath, bool verbose) {
     std::lock_guard<std::mutex> lock(mutex);
-    if (file.is_open()) {
-        file.flush();
-        file.close();
-    }
+    closeFiles();
     reportedOpenFailure = false;
     path = std::move(logFilePath);
+    tracePath = verbose ? tracePathFor(path) : std::string();
     verboseEnabled = verbose;
-    if (!path.empty()) {
-        file.open(path, std::ios::out | std::ios::trunc);
-        if (!file.is_open() && !reportedOpenFailure) {
+
+    const auto openOne = [this](std::ofstream &stream, const std::string &target) {
+        if (target.empty()) {
+            return;
+        }
+        stream.open(target, std::ios::out | std::ios::trunc);
+        if (!stream.is_open() && !reportedOpenFailure) {
             reportedOpenFailure = true;
             // Report on stderr: the file sink is exactly what just failed.
-            std::cerr << "[ktlog] warning: cannot open log file '" << path
+            std::cerr << "[ktlog] warning: cannot open log file '" << target
                       << "'; continuing with stderr only\n";
         }
-    }
+    };
+    openOne(file, path);
+    openOne(traceFile, tracePath);
 }
 
 void Logger::setVerbose(bool enabled) {
     std::lock_guard<std::mutex> lock(mutex);
     verboseEnabled = enabled;
+}
+
+std::string Logger::tracePathFor(const std::string &logFilePath) {
+    if (logFilePath.empty()) {
+        return {};
+    }
+    const std::size_t dot = logFilePath.rfind('.');
+    const std::size_t slash = logFilePath.find_last_of("/\\");
+    // Only treat the dot as an extension when it is in the final path segment.
+    if (dot == std::string::npos || (slash != std::string::npos && dot < slash)) {
+        return logFilePath + "_trace";
+    }
+    return logFilePath.substr(0, dot) + "_trace" + logFilePath.substr(dot);
+}
+
+const std::string &Logger::traceFilePath() const {
+    return tracePath;
 }
 
 bool Logger::verbose() const {
@@ -106,9 +132,14 @@ void Logger::emit(Level level, const std::string &message) {
     }
     ++records;
 
-    // The transcript receives every record, so a log file is a complete
-    // history of the run even when trace output is off by default.
-    if (file.is_open()) {
+    // Diagnostics live in their own file so the main transcript stays
+    // readable; without --verbose no trace file is created at all.
+    if (isTrace) {
+        if (traceFile.is_open()) {
+            traceFile << timestamp() << " [trace] " << body << '\n';
+            traceFile.flush();
+        }
+    } else if (file.is_open()) {
         file << timestamp() << " [" << levelTag(level) << "] " << body << '\n';
         file.flush();
     }
@@ -122,9 +153,15 @@ void Logger::emit(Level level, const std::string &message) {
 
 void Logger::shutdown() {
     std::lock_guard<std::mutex> lock(mutex);
-    if (file.is_open()) {
-        file.flush();
-        file.close();
+    closeFiles();
+}
+
+void Logger::closeFiles() {
+    for (std::ofstream *stream : {&file, &traceFile}) {
+        if (stream->is_open()) {
+            stream->flush();
+            stream->close();
+        }
     }
 }
 

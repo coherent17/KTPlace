@@ -23,8 +23,7 @@
  * @endcode
  */
 
-#ifndef KT_LOG_H
-#define KT_LOG_H
+#pragma once
 
 #include <fmt/format.h>
 
@@ -33,6 +32,7 @@
 #include <fstream>
 #include <mutex>
 #include <string>
+#include <vector>
 #include <string_view>
 #include <utility>
 
@@ -50,7 +50,14 @@ public:
     /// Maximum length of one record; longer records are truncated.
     static constexpr std::size_t kMaxRecordBytes = 8000;
 
-    Logger() = default;
+    /**
+     * @brief The one and only logger.
+     *
+     * The constructor is private, so a second logger cannot be created by
+     * accident; use the global `ktlog` object below.
+     */
+    static Logger &instance();
+
     ~Logger();
 
     Logger(const Logger &) = delete;
@@ -62,8 +69,12 @@ public:
      * Idempotent; calling it again reconfigures both sinks. An empty
      * @p logFilePath disables the file sink, leaving stderr only.
      *
+     * Trace output goes to a second file next to it, named by inserting
+     * "_trace" before the extension ("ktplace.log" -> "ktplace_trace.log"),
+     * and is only created when @p verbose is true.
+     *
      * @param logFilePath  transcript path, or "" to disable the file sink
-     * @param verbose      when true, `trace` records are emitted
+     * @param verbose      when true, open the trace file and emit `trace`
      */
     void configure(std::string logFilePath, bool verbose);
 
@@ -75,6 +86,12 @@ public:
 
     /// @return active transcript path ("" when the file sink is disabled)
     [[nodiscard]] const std::string &logFilePath() const;
+
+    /// @return trace file path ("" when tracing is off)
+    [[nodiscard]] const std::string &traceFilePath() const;
+
+    /// @return the trace path @p logFilePath implies ("" for an empty input)
+    [[nodiscard]] static std::string tracePathFor(const std::string &logFilePath);
 
     /// @return number of records written so far
     [[nodiscard]] std::size_t recordCount() const;
@@ -119,20 +136,23 @@ public:
 private:
     enum class Level { Echo, Trace, Fatal };
 
+    Logger() = default;
+
     void emit(Level level, const std::string &message);
     static const char *levelTag(Level level);
+    void closeFiles();  // caller holds mutex
 
     mutable std::mutex mutex;
     std::string path;
+    std::string tracePath;
     std::ofstream file;
+    std::ofstream traceFile;
     bool verboseEnabled = false;
     bool reportedOpenFailure = false;
     std::size_t records = 0;
 };
 
 /// Global logger instance used throughout KTPlace.
-inline Logger ktlog;
+inline Logger &ktlog = Logger::instance();
 
 }  // namespace ktplace
-
-#endif  // KT_LOG_H

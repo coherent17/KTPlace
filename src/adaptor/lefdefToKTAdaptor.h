@@ -10,8 +10,7 @@
  * DEF NETS section.
  */
 
-#ifndef LEFDEF_TO_KT_ADAPTOR_H
-#define LEFDEF_TO_KT_ADAPTOR_H
+#pragma once
 
 #include <string>
 #include <memory>
@@ -20,7 +19,6 @@
 #include "datamodel/kt_dm.h"
 
 namespace ktplace {
-namespace io {
 
 /**
  * @brief Adapter for LEF/DEF format input files
@@ -36,7 +34,7 @@ namespace io {
 class LefDefInputAdapter {
 public:
     /// Constructor
-    explicit LefDefInputAdapter(std::unique_ptr<core::PlacementDB> db = nullptr);
+    explicit LefDefInputAdapter(std::unique_ptr<PlacementDB> db = nullptr);
 
     /// Destructor
     ~LefDefInputAdapter();
@@ -68,17 +66,17 @@ public:
     /**
      * @brief Get the PlacementDB object
      */
-    [[nodiscard]] core::PlacementDB &getPlacementDB() {
+    [[nodiscard]] PlacementDB &getPlacementDB() {
         return *db;
     }
-    [[nodiscard]] const core::PlacementDB &getPlacementDB() const {
+    [[nodiscard]] const PlacementDB &getPlacementDB() const {
         return *db;
     }
 
     /**
      * @brief Release ownership of the PlacementDB
      */
-    [[nodiscard]] std::unique_ptr<core::PlacementDB> releasePlacementDB() {
+    [[nodiscard]] std::unique_ptr<PlacementDB> releasePlacementDB() {
         return std::move(db);
     }
 
@@ -110,7 +108,7 @@ private:
     std::string static sanitizeName(const std::string &name);
 
     // Internal state
-    std::unique_ptr<core::PlacementDB> db;
+    std::unique_ptr<PlacementDB> db;
     std::unordered_map<std::string, MacroRec> macros;        // LEF macro -> record
     std::unordered_map<std::string, std::string> instMacro;  // DEF inst -> macro
     double unitsPerMicron = 1.0;                             // DEF UNITS DISTANCE MICRONS
@@ -118,7 +116,4 @@ private:
     double siteHeightMicrons = 0.0;
 };
 
-}  // namespace io
 }  // namespace ktplace
-
-#endif  // LEFDEF_TO_KT_ADAPTOR_H

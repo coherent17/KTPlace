@@ -3,8 +3,7 @@
  * @brief Bookshelf format adapter using Adapter pattern
  */
 
-#ifndef BOOKSHELF_TO_KT_ADAPTOR_H
-#define BOOKSHELF_TO_KT_ADAPTOR_H
+#pragma once
 
 #include <string>
 #include <memory>
@@ -13,7 +12,6 @@
 #include "datamodel/kt_dm.h"
 
 namespace ktplace {
-namespace io {
 
 // Forward declaration of base adapter interface
 class InputAdapter;
@@ -29,7 +27,7 @@ class InputAdapter;
 class BookshelfInputAdapter {
 public:
     /// Constructor
-    explicit BookshelfInputAdapter(std::unique_ptr<core::PlacementDB> db = nullptr);
+    explicit BookshelfInputAdapter(std::unique_ptr<PlacementDB> db = nullptr);
 
     /// Destructor
     ~BookshelfInputAdapter();
@@ -68,10 +66,10 @@ public:
      * @brief Get the PlacementDB object
      * @return Reference to the internal PlacementDB
      */
-    [[nodiscard]] core::PlacementDB &getPlacementDB() {
+    [[nodiscard]] PlacementDB &getPlacementDB() {
         return *db;
     }
-    [[nodiscard]] const core::PlacementDB &getPlacementDB() const {
+    [[nodiscard]] const PlacementDB &getPlacementDB() const {
         return *db;
     }
 
@@ -79,7 +77,7 @@ public:
      * @brief Release ownership of the PlacementDB
      * @return Unique pointer to the PlacementDB
      */
-    [[nodiscard]] std::unique_ptr<core::PlacementDB> releasePlacementDB() {
+    [[nodiscard]] std::unique_ptr<PlacementDB> releasePlacementDB() {
         return std::move(db);
     }
 
@@ -102,11 +100,8 @@ private:
     std::vector<std::string> tokenize(const std::string &line);
 
     // Internal state
-    std::unique_ptr<core::PlacementDB> db;
+    std::unique_ptr<PlacementDB> db;
     std::unordered_map<std::string, double> netWeights;  // From .wts file
 };
 
-}  // namespace io
 }  // namespace ktplace
-
-#endif  // BOOKSHELF_TO_KT_ADAPTOR_H

@@ -39,7 +39,6 @@
 #include <vector>
 
 namespace ktplace {
-namespace core {
 
 namespace {
 
@@ -309,7 +308,7 @@ struct DensityGrid {
 };
 
 // Uniform bin grid covering the die bounding box.
-DensityGrid makeDensityGrid(const io::BBox &die) {
+DensityGrid makeDensityGrid(const BBox &die) {
     const double w = std::max(die[2] - die[0], 1.0);
     const double h = std::max(die[3] - die[1], 1.0);
     constexpr int kBaseBins = 64;
@@ -691,7 +690,7 @@ PlacerResult QuadraticPlacer::place(int maxIter, double tol, const std::string &
     const bool plot = !plotDir.empty();
     const std::size_t numStepsTotal =
         static_cast<std::size_t>(std::max(maxIter, 1));  // outer-iteration budget
-    const io::BBox dieBox = io::fixedCellBBox(g);        // die region from fixed cells
+    const BBox dieBox = fixedCellBBox(g);                // die region from fixed cells
     std::vector<std::string> frames;                     // frame file names
     std::vector<std::pair<std::size_t, double>> curve;   // (step, hpwl)
     std::vector<float> allX, allY;                       // per-vertex, float
@@ -792,15 +791,15 @@ PlacerResult QuadraticPlacer::place(int maxIter, double tol, const std::string &
         std::ostringstream name;
         name << "frame_step_" << std::setw(3) << std::setfill('0') << frameIdx++ << ".svg";
         const std::string path = plotDir + "/" + name.str();
-        io::writeFrameSvg(path, g, allX, allY, dieBox, step, 1 + numStepsTotal, hpwl, baseHpwl,
-                          resid, note);
+        writeFrameSvg(path, g, allX, allY, dieBox, step, 1 + numStepsTotal, hpwl, baseHpwl, resid,
+                      note);
         frames.push_back(name.str());
         curve.push_back({step, hpwl});
         curveResid.push_back(resid);
     };
 
     if (plot) {
-        io::ensureDir(plotDir);
+        ensureDir(plotDir);
         allX.resize(nv);
         allY.resize(nv);
     }
@@ -919,8 +918,8 @@ PlacerResult QuadraticPlacer::place(int maxIter, double tol, const std::string &
     auto t3 = clock::now();
 
     if (plot) {
-        io::writeHpwlCurve(plotDir + "/hpwl.csv", plotDir + "/hpwl.svg", curve, &curveResid);
-        io::writeGallery(plotDir, frames, "hpwl.csv");
+        writeHpwlCurve(plotDir + "/hpwl.csv", plotDir + "/hpwl.svg", curve, &curveResid);
+        writeGallery(plotDir, frames, "hpwl.csv");
         ktlog.echo("Wrote {} frames + HPWL/overflow curve to {} (see index.html)", frames.size(),
                    plotDir);
     }
@@ -962,5 +961,4 @@ PlacerResult QuadraticPlacer::place(int maxIter, double tol, const std::string &
     return result;
 }
 
-}  // namespace core
 }  // namespace ktplace

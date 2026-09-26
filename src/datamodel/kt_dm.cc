@@ -13,7 +13,6 @@
 #include <oneapi/tbb/blocked_range.h>
 
 namespace ktplace {
-namespace core {
 
 // Forward declaration for RowData
 class RowData {
@@ -246,5 +245,4 @@ std::pair<std::size_t, std::size_t> PlacementDB::getStats() const {
     return {getNumCells(), getNumNets()};
 }
 
-}  // namespace core
 }  // namespace ktplace
