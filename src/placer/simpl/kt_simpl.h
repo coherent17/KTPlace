@@ -73,6 +73,17 @@ struct SimplParams {
     /// Bins per axis for the density grid. 0 selects automatically.
     std::size_t binsX = 0;
     std::size_t binsY = 0;
+    /// Number of look-ahead legalization passes applied to the lower bound each
+    /// outer iteration. One pass is not enough once the top-down partitioning is
+    /// given the whole die: it spreads into the space and leaves holes mid-die.
+    /// The isolated measurement (KTPLACE_SIMPL_LAL_ONLY) reached 0.026 overflow
+    /// in two passes on adaptec1, so the machinery converges -- the loop just
+    /// never gave it the rounds. Passes stop early once the overflow stops
+    /// improving.
+    std::size_t lalPasses = 4;
+    /// Stop the internal passes once the overflow improves by less than this
+    /// relative amount.
+    double lalMinGain = 0.01;
     /// Recursion cut-off from Algorithm 1 line 8: blocks at this depth stop
     /// being split.
     std::size_t maxLevel = 10;
