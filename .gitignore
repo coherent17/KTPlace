@@ -28,4 +28,6 @@ benchmark/*
 
 # Local editor tooling (kept out of the repo)
 .cursorrules
-docs/
+# Development notes are ignored; the curated write-ups are tracked.
+docs/*
+!docs/simpl.md

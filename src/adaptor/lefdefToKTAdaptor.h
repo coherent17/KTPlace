@@ -16,6 +16,7 @@
 #include <memory>
 #include <vector>
 #include <unordered_map>
+#include "constraint/kt_constraintMgr.h"
 #include "datamodel/kt_dm.h"
 
 namespace ktplace {
@@ -76,6 +77,15 @@ public:
     /**
      * @brief Release ownership of the PlacementDB
      */
+    /**
+     * @brief Placement region ("fence") constraints read from the DEF.
+     *
+     * Empty when the design declares no REGIONS/GROUPS.
+     */
+    [[nodiscard]] const constraintMgr &getConstraints() const {
+        return constraints;
+    }
+
     [[nodiscard]] std::unique_ptr<PlacementDB> releasePlacementDB() {
         return std::move(db);
     }
@@ -114,6 +124,7 @@ private:
     double unitsPerMicron = 1.0;                             // DEF UNITS DISTANCE MICRONS
     double siteWidthMicrons = 0.0;                           // LEF SITE core size (micron)
     double siteHeightMicrons = 0.0;
+    constraintMgr constraints;  ///< REGIONS/GROUPS from the DEF
 };
 
 }  // namespace ktplace

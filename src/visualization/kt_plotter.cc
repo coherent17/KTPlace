@@ -121,7 +121,7 @@ BBox fixedCellBBox(const Graph &g) {
 void writeFrameSvg(const std::string &path, const Graph &g, const std::vector<float> &x,
                    const std::vector<float> &y, const BBox &dieBox, std::size_t step,
                    std::size_t numSteps, double hpwl, double hpwlInitial, double resid,
-                   const std::string &note) {
+                   const std::string &note, const constraintMgr *constraints) {
     const std::size_t nv = g.getNumVertices();
     const ViewPort vp = makeViewPort(g, x, y, dieBox);
 
@@ -153,80 +153,51 @@ void writeFrameSvg(const std::string &path, const Graph &g, const std::vector<fl
         << fmt((dieBox[3] - dieBox[1]) * vp.sy)
         << "\" fill=\"none\" stroke=\"#bdbdbd\" stroke-width=\"1\"/>\n";
 
-    // Net overlay: a deterministic sample of nets drawn as translucent hulls
-    // plus star joins from each pin to the net centroid, so long-span signals
-    // read at a glance.  Sampled by stride so the count stays <= kMaxNets.
-    std::size_t netsShown = 0;
-    {
-        std::vector<std::size_t> netIds;
-        netIds.reserve(512);
-        for (std::size_t v = 0; v < nv; ++v) {
-            if (g.getVertex(v).type == VertexType::Net && !g.getVertex(v).inEdges.empty()) {
-                netIds.push_back(v);
+    // Fence regions, drawn under the cells so the placement stays readable.
+    // Each region is a union of rectangles, so every piece is outlined and
+    // filled; the name is labelled at the region's lower-left corner.
+    if (constraints != nullptr) {
+        static const char *kFenceColors[] = {"#ffb74d", "#ba68c8", "#4db6ac", "#f06292",
+                                             "#9575cd", "#ffd54f", "#4fc3f7", "#a1887f"};
+        for (std::size_t ri = 0; ri < constraints->numRegions(); ++ri) {
+            const Region &reg = *constraints->region(static_cast<int>(ri));
+            const char *color = kFenceColors[ri % (sizeof(kFenceColors) / sizeof(char *))];
+            for (const Rect &r : reg.rects) {
+                out << "<rect x=\"" << fmt(toPxX(vp, r.lo.x)) << "\" y=\""
+                    << fmt(toPxY(vp, r.hi.y)) << "\" width=\"" << fmt((r.hi.x - r.lo.x) * vp.sx)
+                    << "\" height=\"" << fmt((r.hi.y - r.lo.y) * vp.sy)
+                    << "\" fill=\"" << color << "\" fill-opacity=\"0.13\" stroke=\"" << color
+                    << "\" stroke-width=\"1.5\" stroke-opacity=\"0.9\"/>\n";
             }
+            out << "<text x=\"" << fmt(toPxX(vp, reg.minX) + 3) << "\" y=\""
+                << fmt(toPxY(vp, reg.minY) - 3) << "\" fill=\"" << color
+                << "\" font-family=\"monospace\" font-size=\"11\">" << reg.name << "</text>\n";
         }
-        const std::size_t kMaxNets = 350;
-        const std::size_t nShow = std::min<std::size_t>(netIds.size(), kMaxNets);
-        const std::size_t stepN =
-            netIds.empty()
-                ? 1
-                : std::max<std::size_t>(1, netIds.size() / std::max<std::size_t>(nShow, 1));
-        std::size_t shown = 0;
-        out << "<g fill=\"none\" stroke=\"#8bc34a\" stroke-width=\"1\" opacity=\"0.6\">\n";
-        std::vector<double> cx(x.begin(), x.end());
-        std::vector<double> cy(y.begin(), y.end());
-        for (std::size_t k = 0; k < netIds.size() && shown < kMaxNets; k += stepN) {
-            const Vertex &net = g.getVertex(netIds[k]);
-            std::vector<std::size_t> ids;
-            ids.reserve(net.inEdges.size());
-            for (std::size_t eid : net.inEdges) {
-                ids.push_back(g.getEdge(eid).source);
-            }
-            std::sort(ids.begin(), ids.end());
-            ids.erase(std::unique(ids.begin(), ids.end()), ids.end());
-            if (ids.size() < 2) {
-                continue;
-            }
-            double minX = std::numeric_limits<double>::max();
-            double minY = std::numeric_limits<double>::max();
-            double maxX = -std::numeric_limits<double>::max();
-            double maxY = -std::numeric_limits<double>::max();
-            for (std::size_t cid : ids) {
-                minX = std::min(minX, static_cast<double>(cx[cid]));
-                minY = std::min(minY, static_cast<double>(cy[cid]));
-                maxX = std::max(maxX, static_cast<double>(cx[cid]));
-                maxY = std::max(maxY, static_cast<double>(cy[cid]));
-            }
-            const double mxx = 0.5 * (minX + maxX);
-            const double myy = 0.5 * (minY + maxY);
-            out << "<rect x=\"" << fmt(toPxX(vp, minX)) << "\" y=\"" << fmt(toPxY(vp, maxY))
-                << "\" width=\"" << fmt((maxX - minX) * vp.sx) << "\" height=\""
-                << fmt((maxY - minY) * vp.sy) << "\"/>\n";
-            for (std::size_t cid : ids) {
-                out << "<line x1=\"" << fmt(toPxX(vp, static_cast<double>(cx[cid]))) << "\" y1=\""
-                    << fmt(toPxY(vp, static_cast<double>(cy[cid]))) << "\" x2=\""
-                    << fmt(toPxX(vp, mxx)) << "\" y2=\"" << fmt(toPxY(vp, myy)) << "\"/>\n";
-            }
-            ++shown;
-        }
-        netsShown = shown;
-        out << "</g>\n";
     }
 
-    // Movable cells.
-    out << "<g fill=\"#4fc3f7\" opacity=\"0.55\">\n";
-    for (std::size_t v = 0; v < nv; v += stride) {
-        const Vertex &vert = g.getVertex(v);
-        if (vert.type != VertexType::Cell || vert.isFixed || vert.isTerminal) {
-            continue;
+    // Movable cells, split by whether the cell is tied to a placement region.
+    // Fence-assigned cells are drawn opaque green over the ordinary blue, so a
+    // glance shows whether a group's cells actually ended up in their fence.
+    const auto drawMovable = [&](const char *color, const char *opacity, bool fenced) {
+        out << "<g fill=\"" << color << "\" opacity=\"" << opacity << "\">\n";
+        for (std::size_t v = 0; v < nv; v += stride) {
+            const Vertex &vert = g.getVertex(v);
+            if (vert.type != VertexType::Cell || vert.isFixed || vert.isTerminal) {
+                continue;
+            }
+            if ((vert.regionId != constraintMgr::kNoRegion) != fenced) {
+                continue;
+            }
+            const double w = std::max(1.0, vert.width * vp.sx);
+            const double h = std::max(1.0, vert.height * vp.sy);
+            out << "<rect x=\"" << fmt(toPxX(vp, x[v])) << "\" y=\""
+                << fmt(toPxY(vp, y[v] + vert.height)) << "\" width=\"" << fmt(w, 3)
+                << "\" height=\"" << fmt(h, 3) << "\"/>\n";
         }
-        const double w = std::max(1.0, vert.width * vp.sx);
-        const double h = std::max(1.0, vert.height * vp.sy);
-        out << "<rect x=\"" << fmt(toPxX(vp, x[v])) << "\" y=\""
-            << fmt(toPxY(vp, y[v] + vert.height)) << "\" width=\"" << fmt(w, 3) << "\" height=\""
-            << fmt(h, 3) << "\"/>\n";
-    }
-    out << "</g>\n";
+        out << "</g>\n";
+    };
+    drawMovable("#4fc3f7", "0.55", false);
+    drawMovable("#00e676", "0.9", true);
 
     // Fixed macros: never decimate, so hard cells match the DEF floorplan.
     out << "<g fill=\"#ef5350\" opacity=\"0.9\">\n";
@@ -266,9 +237,12 @@ void writeFrameSvg(const std::string &path, const Graph &g, const std::vector<fl
             << "\" y=\"62\" fill=\"#ffeb3b\" font-family=\"monospace\" font-size=\"12\">"
             << "density overflow = " << sci(resid) << "</text>\n";
     }
+    // Legend for the cell colours.
     out << "<text x=\"" << kMargin / 3 << "\" y=\"" << (resid > 0.0 ? 80 : 62)
-        << "\" fill=\"#8bc34a\" font-family=\"monospace\" font-size=\"12\">"
-        << "nets: " << netsShown << " sampled (hull + pin stars)</text>\n";
+        << "\" fill=\"#90caf9\" font-family=\"monospace\" font-size=\"12\">"
+        << "<tspan fill=\"#4fc3f7\">&#9632;</tspan> movable"
+        << "   <tspan fill=\"#00e676\">&#9632;</tspan> fence-assigned"
+        << "   <tspan fill=\"#ef5350\">&#9632;</tspan> fixed macro</text>\n";
     out << "</svg>\n";
     out.close();
 }

@@ -16,6 +16,7 @@
 #include <utility>
 #include <vector>
 
+#include "constraint/kt_constraintMgr.h"
 #include "datamodel/kt_graph.h"
 
 namespace ktplace {
@@ -49,11 +50,12 @@ BBox fixedCellBBox(const Graph &g);
  * @param hpwlInitial  HPWL of the initial placement
  * @param resid     density overflow at this snapshot
  * @param note      human-readable label for the frame
+ * @param constraints  placement regions to draw as fences; may be null
  */
 void writeFrameSvg(const std::string &path, const Graph &g, const std::vector<float> &x,
                    const std::vector<float> &y, const BBox &dieBox, std::size_t step,
                    std::size_t numSteps, double hpwl, double hpwlInitial, double resid,
-                   const std::string &note);
+                   const std::string &note, const constraintMgr *constraints = nullptr);
 
 /**
  * @brief Write the HPWL-vs-CG-step curve as CSV plus an SVG line chart.

@@ -281,7 +281,17 @@ bool LefDefInputAdapter::parseDefFile(const std::string &filePath) {
 
     std::string line;
     std::size_t lineNum = 0;
-    int section = 0;  // 0=none, 1=COMPONENTS, 2=PINS, 3=NETS
+    int section = 0;  // 0=none, 1=COMPONENTS, 2=PINS, 3=NETS, 4=REGIONS, 5=GROUPS
+
+    // REGIONS/GROUPS entries wrap over several lines, so tokens accumulate
+    // until the terminating ';'.
+    std::vector<std::string> regionTokens;
+    std::vector<std::string> groupTokens;
+    std::size_t numRegions = 0;
+    std::size_t numGroupedCells = 0;
+    // (region name, instance prefix) pairs, applied once the netlist is loaded
+    // because GROUPS comes before COMPONENTS in the file.
+    std::vector<std::pair<std::string, std::string>> pendingGroups;
 
     // Component entry under construction ("- inst macro" + continuation lines).
     std::string compName;
@@ -404,7 +414,86 @@ bool LefDefInputAdapter::parseDefFile(const std::string &filePath) {
             continue;
         }
 
+        // ---- REGIONS: "- name ( x y ) ( x y ) ... + TYPE FENCE ;" ----
+        if (section == 4) {
+            for (const std::string &tok : tokens) {
+                if (tok != ";") {
+                    regionTokens.push_back(tok);
+                    continue;
+                }
+                // Entry complete: "- <name> ( x y ) ( x y ) ... + TYPE FENCE".
+                // Taking the numeric tokens in order yields the vertices; the
+                // name is the first token after the leading '-'.
+                if (regionTokens.size() >= 2) {
+                    const std::string name = regionTokens[1];
+                    std::vector<double> coords;
+                    coords.reserve(regionTokens.size());
+                    for (std::size_t i = 1; i < regionTokens.size(); ++i) {
+                        double value = 0.0;
+                        if (tryDouble(regionTokens[i], value)) {
+                            coords.push_back(value);
+                        }
+                    }
+                    std::vector<Point> polygon;
+                    polygon.reserve(coords.size() / 2);
+                    for (std::size_t i = 0; i + 1 < coords.size(); i += 2) {
+                        polygon.push_back(Point{coords[i], coords[i + 1]});
+                    }
+                    if (constraints.addRegion(name, std::move(polygon)) !=
+                        constraintMgr::kNoRegion) {
+                        ++numRegions;
+                    }
+                }
+                regionTokens.clear();
+            }
+            if (tokens[0] == "END" && tokens.size() >= 2 && tokens[1] == "REGIONS") {
+                regionTokens.clear();
+                section = 0;
+            }
+            continue;
+        }
+
+        // ---- GROUPS: "- regionName instancePattern" then "+ REGION region ;" ----
+        if (section == 5) {
+            for (const std::string &tok : tokens) {
+                if (tok == ";") {
+                    // "- <region> <pattern>... + REGION <region>" -- a group may
+                    // list several name patterns, e.g. "- er0 h0c/* h0a/* h0/*".
+                    if (groupTokens.size() >= 2) {
+                        const std::string regionName = sanitizeName(groupTokens[0]);
+                        for (std::size_t i = 1; i < groupTokens.size(); ++i) {
+                            std::string pattern = groupTokens[i];
+                            if (!pattern.empty() && pattern.back() == '*') {
+                                pattern.pop_back();
+                            }
+                            if (!pattern.empty()) {
+                                pendingGroups.emplace_back(regionName, sanitizeName(pattern));
+                            }
+                        }
+                    }
+                    groupTokens.clear();
+                } else if (tok != "-" && tok != "+" && tok != "REGION") {
+                    groupTokens.push_back(tok);
+                }
+            }
+            if (tokens[0] == "END" && tokens.size() >= 2 && tokens[1] == "GROUPS") {
+                groupTokens.clear();
+                section = 0;
+            }
+            continue;
+        }
+
         // ---- Section transitions ----
+        if (tokens[0] == "REGIONS") {
+            section = 4;
+            regionTokens.clear();
+            continue;
+        }
+        if (tokens[0] == "GROUPS") {
+            section = 5;
+            groupTokens.clear();
+            continue;
+        }
         if (tokens[0] == "COMPONENTS") {
             section = 1;
             continue;
@@ -644,6 +733,28 @@ bool LefDefInputAdapter::parseDefFile(const std::string &filePath) {
         }
     }
     flushNet();
+
+    // GROUPS is written before COMPONENTS, so the instance -> region mapping
+    // can only be applied now that every cell vertex exists.
+    for (const auto &[regionName, pattern] : pendingGroups) {
+        int regionId = constraintMgr::kNoRegion;
+        for (std::size_t i = 0; i < constraints.numRegions(); ++i) {
+            if (constraints.region(static_cast<int>(i))->name == regionName) {
+                regionId = static_cast<int>(i);
+                break;
+            }
+        }
+        if (regionId == constraintMgr::kNoRegion) {
+            continue;
+        }
+        const std::size_t assigned = constraints.assignByPrefix(regionId, pattern, db->getGraph());
+        numGroupedCells += assigned;
+    }
+
+    if (numRegions > 0) {
+        std::cerr << "Regions: " << numRegions << " fence(s), " << numGroupedCells
+                  << " instance(s) constrained" << std::endl;
+    }
 
     return true;
 }

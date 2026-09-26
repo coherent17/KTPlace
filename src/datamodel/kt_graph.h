@@ -43,6 +43,9 @@ public:
     // Net-specific properties
     double weight = 1.0;
 
+    // Placement region this cell is fenced into (constraintMgr), or -1.
+    int regionId = -1;
+
     // Connected edges
     std::vector<std::size_t> outEdges;
     std::vector<std::size_t> inEdges;

@@ -15,6 +15,7 @@
 #include <fstream>
 #include <string>
 #include <algorithm>
+#include <iomanip>
 #include <stdexcept>
 #include <chrono>
 #include <filesystem>
@@ -179,7 +180,13 @@ bool FlowMgr::Impl::runPlacement(const std::string &algorithm, const std::string
     if (algorithm == "quadratic") {
         ktlog.echo("Running global placement (clique/star net model, WL + density, PCG)...");
         QuadraticPlacer placer(*db);
-        const PlacerResult res = placer.place(200, 0.10, plotDir);
+        // Region ("fence") constraints come from the LEF/DEF reader; the
+        // Bookshelf format has no equivalent, so this is null there.
+        const constraintMgr *regions = nullptr;
+        if (lefdefAdapter) {
+            regions = &lefdefAdapter->getConstraints();
+        }
+        const PlacerResult res = placer.place(200, 0.10, plotDir, regions);
         // Units live in the metric name so the value columns stay purely
         // numeric and get right-aligned by the table.
         ktReportTable summary("Solver results");
@@ -218,6 +225,10 @@ bool FlowMgr::Impl::writePlacement(const std::string &outputPath, const std::str
         if (!out.is_open()) {
             ktlog.fatal("Cannot open output file: {}", outputPath);
         }
+        // Database coordinates reach ~1.5e6, so the default 6 significant
+        // digits would round positions by several units and can move a cell
+        // across a placement-region boundary. Keep enough digits to round-trip.
+        out << std::setprecision(10);
         const Graph &g = db->getGraph();
         const std::size_t nv = g.getNumVertices();
         for (std::size_t v = 0; v < nv; ++v) {

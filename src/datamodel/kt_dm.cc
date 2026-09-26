@@ -204,6 +204,10 @@ std::size_t PlacementDB::getNumRows() const {
     return pImpl->rows.size();
 }
 
+Graph &PlacementDB::getGraphImpl() {
+    return pImpl->graph;
+}
+
 const Graph &PlacementDB::getGraphImpl() const {
     return pImpl->graph;
 }

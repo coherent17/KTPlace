@@ -87,7 +87,12 @@ public:
     [[nodiscard]] const std::vector<std::size_t> &getNetPins(std::size_t netId) const;
     [[nodiscard]] const std::vector<std::size_t> &getCellPins(std::size_t cellId) const;
 
-    // Access to the underlying netlist graph (read-only)
+    // Access to the underlying netlist graph. The mutable overload exists for
+    // the readers, which annotate cells while building the database (for
+    // example stamping a placement region onto each cell).
+    [[nodiscard]] Graph &getGraph() {
+        return getGraphImpl();
+    }
     [[nodiscard]] const Graph &getGraph() const {
         return getGraphImpl();
     }
@@ -99,6 +104,7 @@ public:
     [[nodiscard]] std::pair<std::size_t, std::size_t> getStats() const;  // (numCells, numNets)
 
 private:
+    Graph &getGraphImpl();
     const Graph &getGraphImpl() const;
 
     class Impl;

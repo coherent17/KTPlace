@@ -7,6 +7,7 @@
 
 #include <cstddef>
 #include <string>
+#include "constraint/kt_constraintMgr.h"
 #include "datamodel/kt_dm.h"
 
 namespace ktplace {
@@ -54,7 +55,8 @@ public:
      *                HPWL/summary curve (CSV+SVG), and an HTML gallery into
      *                this directory (see kt_plotter).
      */
-    PlacerResult place(int maxIter = 200, double tol = 0.10, const std::string &plotDir = "");
+    PlacerResult place(int maxIter = 200, double tol = 0.10, const std::string &plotDir = "",
+                       const constraintMgr *constraints = nullptr);
 
 private:
     PlacementDB &db;

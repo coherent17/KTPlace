@@ -219,20 +219,23 @@ which can use `ScopedTimer` to report its own cost.
 ## Documentation
 
 - [Benchmarks](benchmark/README.md) - suites, sources and layout
+- [SimPL and this placer](docs/simpl.md) - what SimPL does, what we do differently, and a known defect in the phase schedule
 
 ## Notes
 
 Pure quadratic placement minimizes *squared* wirelength; without a spreading
 step every cell slides to a single point (the netlist's force-balance point),
 so KTPlace couples the wirelength solve to a density-aware projection-spreading
-pass. The consequence is visible in the reported `HPWL / seed` ratio: spreading
-necessarily *raises* wirelength well above the seed, and there is no
+pass, followed by a refinement phase that pulls the spread placement back toward
+wirelength optimum. The consequence is visible in the reported `HPWL / seed`
+ratio: spreading raises wirelength well above the seed, and there is no
 legalization stage yet to bring it back down.
 
 | design | cells | seed HPWL | after spreading | ratio |
 | --- | ---: | ---: | ---: | ---: |
-| `adaptec2` (ISPD 2005) | 255,023 | 7.27e7 | 2.33e9 | 32.1x |
-| `mgc_superblue11_a` (ISPD 2015) | 954,445 | 6.96e10 | 1.32e12 | 18.9x |
+| `adaptec2` (ISPD 2005) | 255,023 | 7.27e7 | 1.32e9 | 18.2x |
+| `adaptec5` (ISPD 2006) | 843,128 | 2.17e8 | 6.71e9 | 31.0x |
+| `mgc_superblue16_a` (ISPD 2015) | 698,367 | 3.59e10 | 3.35e11 | 9.3x |
 | `dma` (ICCAD 2004) | 11,734 | 0 | 6.6e3 | degenerate seed |
 
 Two different things are being compared in that table, and it matters when
