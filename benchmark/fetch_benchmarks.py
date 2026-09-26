@@ -4,18 +4,15 @@
 Every archive is downloaded from the site that originally published the suite
 (the University of Michigan VLSI CAD lab "GSRC Bookshelf" archive, or the ISPD
 contest site) -- no third-party mirror or personal repository is involved.
-Each suite is unpacked into the layout the ktplace adapters expect, i.e. one
-directory per design holding plain Bookshelf files named after the design:
+Each suite is unpacked into the layout the ktplace adapters expect: one
+directory per design. The ISPD 2015 suite stays in its contest LEF/DEF form,
+while the Bookshelf archives are normalized so every design directory holds
+plain, uncompressed files named after the design:
 
-    benchmark/ISPD_2015_raw/mgc_des_perf_a/{floorplan.def,cells.lef,tech.lef,...}
+    benchmark/ISPD_2015/mgc_des_perf_a/{floorplan.def,cells.lef,tech.lef,...}
     benchmark/ICCAD04/ibm01/{ibm01.nodes,ibm01.nets,ibm01.pl,ibm01.scl,...}
     benchmark/ICCAD04/dma/{dma.nodes,dma.nets,dma.pl,dma.scl,...}
     benchmark/ISPD02/ibm01/{ibm01.nodes,ibm01.nets,ibm01.pl,ibm01.scl,...}
-
-Suites whose archives are no longer published anywhere (notably the ISPD 2006
-*placement* suite adaptec*/bigblue*/newblue*, whose contest pages are gone) are
-reported as unavailable rather than guessed at: drop an existing copy into
-benchmark/ISPD06/<design>/ yourself.
 
 Only the standard library is used; archives are unpacked with `tarfile` and any
 `.gz` members are inflated so the readers see plain text. Design directories
@@ -48,7 +45,7 @@ UMICH = "https://vlsicad.eecs.umich.edu/BK"
 
 # --- ISPD 2015 placement contest (LEF/DEF), published by the contest site -----
 ISPD15_URL = "https://www.ispd.cc/contests/15/web/benchmarks/ispd_2015_contest_benchmark.tgz"
-ISPD15_DIR = "ISPD_2015_raw"
+ISPD15_DIR = "ISPD_2015"
 ISPD15_DESIGNS = [
     "mgc_des_perf_1", "mgc_des_perf_a", "mgc_des_perf_b",
     "mgc_edit_dist_a",
@@ -84,14 +81,6 @@ BOOKSHELF = {
             "designs": [f"ibm{i:02d}" for i in range(1, 19)],
         },
     ],
-}
-
-# --- Suites with no surviving official download --------------------------------
-UNAVAILABLE = {
-    "ISPD06": "adaptec1-5, bigblue1-4, newblue1-7 -- the ISPD 2006 placement "
-              "contest pages (ispd.cc/contests/06) are no longer served, and the "
-              "UMich 'ISPD06bench' entry is a different (floorplacement) suite. "
-              "Copy an existing copy into benchmark/ISPD06/<design>/.",
 }
 
 USER_AGENT = "KTPlace-benchmark-fetcher/1.0"
@@ -235,10 +224,22 @@ def fetch_bookshelf(suite: str, dest_root: pathlib.Path, only: str | None,
         archive.unlink(missing_ok=True)
 
 
-def fetch_ispd15(dest_root: pathlib.Path, force: bool) -> None:
+def fetch_ispd15(dest_root: pathlib.Path, force: bool, only: str | None = None) -> None:
+    """Fetch the ISPD 2015 suite, or just one design from it.
+
+    The suite ships as a single contest tarball, so the download covers every
+    design either way; @p only limits what gets unpacked into the tree, which
+    matters because the full suite extracts to roughly 900 MiB.
+    """
     dest = dest_root / ISPD15_DIR
-    if not force and all((dest / d).is_dir() for d in ISPD15_DESIGNS):
-        print(f"{ISPD15_DIR}: all {len(ISPD15_DESIGNS)} designs present, nothing to do.")
+    wanted = [only] if only else ISPD15_DESIGNS
+    if only and only not in ISPD15_DESIGNS:
+        print(f"{ISPD15_DIR}: unknown design '{only}'; known designs: "
+              f"{', '.join(ISPD15_DESIGNS)}")
+        return
+    if not force and all((dest / d).is_dir() for d in wanted):
+        scope = only if only else f"all {len(ISPD15_DESIGNS)} designs"
+        print(f"{ISPD15_DIR}: {scope} present, nothing to do.")
         return
     dest.mkdir(parents=True, exist_ok=True)
     CACHE.mkdir(parents=True, exist_ok=True)
@@ -253,6 +254,8 @@ def fetch_ispd15(dest_root: pathlib.Path, force: bool) -> None:
         for child in sorted(staging.iterdir()):
             if not (child.is_dir() and child.name.startswith("mgc_")):
                 continue
+            if only and child.name != only:
+                continue  # leave the rest in the temporary directory
             target = dest / child.name
             if target.is_dir() and not force:
                 continue
@@ -271,9 +274,6 @@ def show_sources() -> None:
         print(f"\n{suite}  (Bookshelf)")
         for spec in specs:
             print(f"  {spec['label']}\n    {spec['url']}")
-    for suite, note in UNAVAILABLE.items():
-        print(f"\n{suite}  (Bookshelf) -- NO OFFICIAL DOWNLOAD")
-        print(f"  {note}")
 
 
 def main() -> int:
@@ -295,14 +295,10 @@ def main() -> int:
     dest_root.mkdir(parents=True, exist_ok=True)
 
     if args.suite in (None, ISPD15_DIR):
-        fetch_ispd15(dest_root, args.force)
+        fetch_ispd15(dest_root, args.force, args.design)
     for suite in BOOKSHELF:
         if args.suite in (None, suite):
             fetch_bookshelf(suite, dest_root, args.design, args.force)
-
-    for suite, note in UNAVAILABLE.items():
-        if args.suite in (None, suite):
-            print(f"\n{suite}: skipped -- {note}")
     return 0
 
 

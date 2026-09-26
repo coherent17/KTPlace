@@ -17,24 +17,16 @@ already present, so it is safe to re-run.
 
 | suite | format | designs | source |
 |-------|--------|---------|--------|
-| `ISPD_2015_raw` | LEF/DEF | `mgc_*` (16) | [ispd.cc contest site](https://www.ispd.cc/contests/15/web/benchmarks/ispd_2015_contest_benchmark.tgz) |
+| `ISPD_2015` | LEF/DEF | `mgc_*` (16) | [ispd.cc contest site](https://www.ispd.cc/contests/15/web/benchmarks/ispd_2015_contest_benchmark.tgz) |
 | `ICCAD04` | Bookshelf | `ibm01`–`ibm18` | [UMich ICCAD04bench](https://vlsicad.eecs.umich.edu/BK/ICCAD04bench/ibmMSWpinsICCAD04Bench_BOOKSHELF.tar.gz) (IBM-MSwPins) |
 | `ICCAD04` | Bookshelf | `dma`, `dsp1`, `dsp2`, `risc1`, `risc2` | [UMich ICCAD04bench](https://vlsicad.eecs.umich.edu/BK/ICCAD04bench/FARADAY_ICCAD04Bench.tar.gz) (Faraday) |
 | `ISPD02` | Bookshelf | `ibm01`–`ibm18` | [UMich ISPD02bench](https://vlsicad.eecs.umich.edu/BK/ISPD02bench/ibmISPD02Bench_Bookshelf.tar.gz) (IBM-MS) |
-| `ISPD06` | Bookshelf | `adaptec*`, `bigblue*`, `newblue*` | **no official download** — see below |
-
-The ISPD 2006 *placement* contest suite is no longer published: the contest
-pages under `ispd.cc/contests/06` are gone, and the UMich `ISPD06bench` entry
-is a different (floorplacement: Calypto / IBM-HB+) suite. If you have a copy,
-drop it in as `benchmark/ISPD06/<design>/` with plain Bookshelf files; the
-reader needs nothing else.
-
 ## Resulting layout
 
 One directory per design, holding plain text files named after the design:
 
 ```
-benchmark/ISPD_2015_raw/mgc_des_perf_a/{floorplan.def, cells.lef, tech.lef, design.v, ...}
+benchmark/ISPD_2015/mgc_des_perf_a/{floorplan.def, cells.lef, tech.lef, design.v, ...}
 benchmark/ICCAD04/ibm01/{ibm01.nodes, ibm01.nets, ibm01.pl, ibm01.scl, ibm01.wts, ibm01.aux}
 benchmark/ICCAD04/dma/{dma.nodes, dma.nets, dma.pl, dma.scl, dma.wts, dma.aux}
 benchmark/ISPD02/ibm01/{ibm01.nodes, ibm01.nets, ibm01.pl, ibm01.scl, ibm01.wts, ibm01.aux}
@@ -47,7 +39,7 @@ the script normalises all of that away. You do not need to do it by hand.
 ## Running
 
 ```sh
-./build/bin/ktplace mgc_des_perf_a ./benchmark/ISPD_2015_raw/mgc_des_perf_a \
+./build/bin/ktplace mgc_des_perf_a ./benchmark/ISPD_2015/mgc_des_perf_a \
     ./output/mgc_des_perf_a.pl
 ./build/bin/ktplace ibm01 ./benchmark/ICCAD04/ibm01 ./output/ibm01.pl
 ```
@@ -58,7 +50,7 @@ is read as LEF/DEF, anything else as Bookshelf.
 Add `-p <dir>` to write SVG frames of the solve plus an HTML gallery:
 
 ```sh
-./build/bin/ktplace mgc_des_perf_a ./benchmark/ISPD_2015_raw/mgc_des_perf_a \
+./build/bin/ktplace mgc_des_perf_a ./benchmark/ISPD_2015/mgc_des_perf_a \
     ./output/mgc_des_perf_a.pl -p ./output/plots
 ```
 

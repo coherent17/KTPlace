@@ -50,11 +50,15 @@ DEPS := $(ALL_OBJS:.o=.d)
 TARGET := $(BIN_DIR)/ktplace
 STATIC_LIB := $(LIB_DIR)/libktplace.a
 
+# Engine objects without the entry point, so the library and the unit tests
+# can link against them (kt_place.cc owns main()).
+LIB_OBJS := $(filter-out $(OBJ_DIR)/kt_place.o,$(ALL_OBJS))
+
 # ============================================================================
 # Phony targets
 # ============================================================================
 
-.PHONY: all clean rebuild $(SUBDIRS) dirs help
+.PHONY: all clean rebuild lib test check $(SUBDIRS) dirs help
 
 # Default target
 all: dirs $(SUBDIRS) $(TARGET) env
@@ -99,9 +103,9 @@ $(ENV_SCRIPTS): $(ENV_SOURCES) | $(TARGET)
 	done
 
 # Static library
-$(STATIC_LIB): $(ALL_OBJS) | dirs
+$(STATIC_LIB): $(LIB_OBJS) | dirs
 	@echo "Creating static library $@..."
-	@ar rcs $@ $(ALL_OBJS)
+	@ar rcs $@ $(LIB_OBJS)
 	@echo "Library created: $@"
 
 # Compile local source files
@@ -111,6 +115,45 @@ $(OBJ_DIR)/%.o: %.cc
 
 # Include dependency files
 -include $(DEPS)
+
+# ============================================================================
+# Unit tests (Boost.Test)
+#
+# One binary per component; each is a single translation unit that pulls in the
+# Boost.Test runner, linked against the engine objects. Run with `make test`
+# (alias: `make check`) from the repository root.
+# ============================================================================
+
+TEST_LIBS := -lboost_unit_test_framework
+
+TEST_datamodel := datamodel/test/test_datamodel.cc
+TEST_adaptor := adaptor/test/test_adaptor.cc
+TEST_flow := test/test_flow.cc
+
+TEST_BINS := $(BIN_DIR)/test_datamodel $(BIN_DIR)/test_adaptor $(BIN_DIR)/test_flow
+
+.PHONY: test check
+test check: $(TEST_BINS)
+	@fail=0; \
+	for t in $(TEST_BINS); do \
+	    echo "--- $$(basename $$t) ---"; \
+	    $$t --log_level=test_suite || fail=1; \
+	done; \
+	if [ $$fail -ne 0 ]; then echo "TESTS FAILED"; exit 1; fi; \
+	echo "All unit tests passed."
+
+# Each test binary: its own source plus the engine objects (no main()).
+$(BIN_DIR)/test_datamodel: $(TEST_datamodel) $(LIB_OBJS) | dirs
+	@echo "  Building test_datamodel..."
+	@$(CXX) $(CXXFLAGS) $(INCLUDES) -o $@ $(TEST_datamodel) $(LIB_OBJS) $(LIBS) $(TEST_LIBS)
+
+$(BIN_DIR)/test_adaptor: $(TEST_adaptor) $(LIB_OBJS) | dirs
+	@echo "  Building test_adaptor..."
+	@$(CXX) $(CXXFLAGS) $(INCLUDES) -o $@ $(TEST_adaptor) $(LIB_OBJS) $(LIBS) $(TEST_LIBS)
+
+$(BIN_DIR)/test_flow: $(TEST_flow) $(LIB_OBJS) | dirs
+	@echo "  Building test_flow..."
+	@$(CXX) $(CXXFLAGS) $(INCLUDES) -o $@ $(TEST_flow) $(LIB_OBJS) $(LIBS) $(TEST_LIBS)
 
 # Clean
 clean:
@@ -127,6 +170,8 @@ help:
 	@echo "===================="
 	@echo "Targets:"
 	@echo "  all      - Build executable (default)"
+	@echo "  lib      - Build static library"
+	@echo "  test     - Build and run the unit tests (alias: check)"
 	@echo "  lib      - Build static library"
 	@echo "  clean    - Remove build artifacts"
 	@echo "  rebuild  - Clean and rebuild"

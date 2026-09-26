@@ -1,0 +1,103 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    name: Build, unit tests and smoke placement
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            g++ \
+            libtbb-dev \
+            libboost-iostreams-dev \
+            libboost-test-dev \
+            zlib1g-dev \
+            libfmt-dev \
+            clang-format
+
+      - name: Show toolchain
+        run: |
+          g++ --version | head -1
+          clang-format --version
+          dpkg -l | grep -E 'libtbb|libboost-test|libfmt' | awk '{print $2, $3}'
+
+      - name: Check formatting
+        run: |
+          # Every tracked source must already match .clang-format.
+          status=0
+          for f in $(git ls-files 'src/*.cc' 'src/*.h'); do
+            if ! clang-format --dry-run --Werror "$f" > /dev/null 2>&1; then
+              echo "::error file=$f::not clang-format clean; run clang-format -i $f"
+              status=1
+            fi
+          done
+          exit $status
+
+      - name: Build
+        run: make
+
+      - name: Unit tests
+        run: make test
+
+      - name: Cache the smoke benchmark
+        # The ISPD 2015 suite ships as one 123 MiB contest tarball, so the
+        # download is cached; only the requested design is unpacked.
+        uses: actions/cache@v4
+        with:
+          path: benchmark/ISPD_2015/mgc_superblue16_a
+          key: ispd2015-superblue16a
+
+      - name: Fetch the smoke benchmark
+        run: |
+          python3 benchmark/fetch_benchmarks.py --suite ISPD_2015 \
+            --design mgc_superblue16_a
+          ls -l benchmark/ISPD_2015/mgc_superblue16_a
+
+      - name: Smoke placement
+        # mgc_superblue16_a: 698,367 cells / 697,303 nets, LEF/DEF input, and
+        # about 15 s of solve. Exercises the LEF/DEF reader, the solver and the
+        # .pl writer at a realistic scale.
+        run: |
+          set -euo pipefail
+          ./build/bin/ktplace mgc_superblue16_a \
+            ./benchmark/ISPD_2015/mgc_superblue16_a ./out.pl 2>&1 | tee smoke.log
+
+          # The netlist must match the benchmark exactly.
+          grep -q "Loaded: 698367 cells (17498 terminals), 697303 nets, 2279647 pins, 1788 rows" \
+            smoke.log
+
+          # The run must finish cleanly and write one record per cell.
+          test "$(grep -c 'Placement completed successfully' smoke.log)" -eq 1
+          test "$(wc -l < out.pl)" -eq 698367
+
+          # Coarse quality gate: spreading must actually reduce the overflow.
+          # The threshold is deliberately loose because the CG solve is
+          # parallel, so the last digits move between machines.
+          final=$(awk -F'|' '/density overflow/ {gsub(/ /, "", $4); print $4}' smoke.log)
+          echo "final density overflow: $final"
+          awk -v v="$final" 'BEGIN { exit !(v < 0.5) }'
+
+      - name: Upload the smoke placement
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-placement
+          path: |
+            out.pl
+            smoke.log
+          if-no-files-found: ignore

@@ -42,6 +42,30 @@ src/
   util/                # kt_log, kt_reportTable, kt_scopedTimer
 ```
 
+## Tests
+
+Unit tests use Boost.Test and live next to the code they cover:
+
+```
+src/datamodel/test/test_datamodel.cc   PlacementDB and the placement graph
+src/adaptor/test/test_adaptor.cc      Bookshelf and LEF/DEF readers
+src/test/test_flow.cc                 end-to-end load -> place -> write
+```
+
+```sh
+make test        # build and run every suite (alias: make check)
+```
+
+Each test writes its own tiny synthetic design into a scratch directory, so the
+suites need no benchmark data. Error paths that end the process through
+`ktlog::fatal` are checked with `fork(2)`, since Boost.Test 1.83 has no
+death-test macros.
+
+CI (`.github/workflows/ci.yml`) runs on every push and pull request: it
+installs the dependencies, rejects any source that is not `clang-format` clean,
+builds, runs the unit tests, then fetches one small benchmark (ICCAD04 `dma`,
+~8 MiB) and asserts the placement completes and writes one record per cell.
+
 ## Code style
 
 All C++ sources are formatted with `clang-format` (configuration in
@@ -95,10 +119,9 @@ python3 benchmark/fetch_benchmarks.py --suite ICCAD04 --design ibm01
 
 | Directory | Designs | Source |
 | --- | --- | --- |
-| `ISPD_2015_raw/` | 16 `mgc_*` LEF/DEF designs | ispd.cc contest site |
+| `ISPD_2015/` | 16 `mgc_*` LEF/DEF designs | ispd.cc contest site |
 | `ICCAD04/` | ibm01-18 (IBM-MSwPins), dma, dsp1/2, risc1/2 (Faraday) | vlsicad.eecs.umich.edu |
 | `ISPD02/` | ibm01-18 (IBM-MS) | vlsicad.eecs.umich.edu |
-| `ISPD06/` | adaptec*, bigblue*, newblue* | no official download remains |
 
 See [benchmark/README.md](benchmark/README.md) for details.
 
@@ -202,7 +225,27 @@ which can use `ScopedTimer` to report its own cost.
 Pure quadratic placement minimizes *squared* wirelength; without a spreading
 step every cell slides to a single point (the netlist's force-balance point),
 so KTPlace couples the wirelength solve to a density-aware projection-spreading
-pass. Many Bookshelf `.pl` seeds are degenerate (every cell
-at the origin), so movable cells are re-seeded at the center of the die before
-spreading; the spread HPWL is not comparable to the seed value — legalization
-is the standard next stage to compress wirelength again.
+pass. The consequence is visible in the reported `HPWL / seed` ratio: spreading
+necessarily *raises* wirelength well above the seed, and there is no
+legalization stage yet to bring it back down.
+
+| design | cells | seed HPWL | after spreading | ratio |
+| --- | ---: | ---: | ---: | ---: |
+| `adaptec2` (ISPD 2005) | 255,023 | 7.27e7 | 2.33e9 | 32.1x |
+| `mgc_superblue11_a` (ISPD 2015) | 954,445 | 6.96e10 | 1.32e12 | 18.9x |
+| `dma` (ICCAD 2004) | 11,734 | 0 | 6.6e3 | degenerate seed |
+
+Two different things are being compared in that table, and it matters when
+reading it:
+
+- **A real seed.** ISPD 2005/2006 and ISPD 2002 ship a legal placement in
+  `.pl`; the ratio is then a meaningful "how much did spreading cost" figure.
+  Published placers are normally within 1.05-1.3x of such a seed because they
+  finish with legalization and detail placement, so a 20-50x ratio means this
+  is a post-spread, pre-legalization snapshot rather than a competitive result.
+- **Our own seed.** ISPD 2015 LEF/DEF leaves standard cells `UNPLACED`, so the
+  seed HPWL is measured from the die-center seed KTPlace invents, not from the
+  input. Comparing against it says nothing about input quality.
+- **A degenerate seed.** Some Bookshelf suites place every cell on the origin
+  (ICCAD 2004 `dma` above), where any percentage is meaningless and is reported
+  as `n/a`.
