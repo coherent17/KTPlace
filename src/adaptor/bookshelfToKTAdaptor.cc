@@ -7,6 +7,7 @@
  */
 
 #include "adaptor/bookshelfToKTAdaptor.h"
+#include <filesystem>
 #include <fstream>
 #include <sstream>
 #include <iostream>
@@ -40,23 +41,28 @@ namespace {
 class InputTextFile {
 public:
     explicit InputTextFile(const std::string &path) {
+        // A file_source on a missing path still reports a "good" stream until
+        // the first read, so the existence check has to happen here: otherwise
+        // a missing input file looks like an empty one and parses as success.
+        exists_ = std::filesystem::exists(path);
         if (path.size() > 3 && path.compare(path.size() - 3, 3, ".gz") == 0) {
-            in.push(boost::iostreams::gzip_decompressor());
-            in.push(boost::iostreams::file_source(path, std::ios::binary));
+            in_.push(boost::iostreams::gzip_decompressor());
+            in_.push(boost::iostreams::file_source(path, std::ios::binary));
         } else {
-            in.push(boost::iostreams::file_source(path));
+            in_.push(boost::iostreams::file_source(path));
         }
     }
 
     std::istream &stream() {
-        return in;
+        return in_;
     }
     explicit operator bool() const {
-        return static_cast<bool>(in);
+        return exists_ && static_cast<bool>(in_);
     }
 
 private:
-    boost::iostreams::filtering_istream in;
+    boost::iostreams::filtering_istream in_;
+    bool exists_ = false;
 };
 
 // Parsed node record produced by the parallel parsing phase.
@@ -247,7 +253,12 @@ bool BookshelfInputAdapter::parseNodesFile(const std::string &filePath) {
         if (!rec.valid)
             continue;
         try {
-            db->addCell(rec.name, rec.width, rec.height, rec.terminal);
+            const std::size_t id = db->addCell(rec.name, rec.width, rec.height, rec.terminal);
+            // Terminals are die I/O pads: they are anchored on the die edge and
+            // must never take part in spreading.
+            if (rec.terminal) {
+                db->setCellFixed(id, true);
+            }
         } catch (const std::exception &e) {
             std::cerr << "Error adding cell " << rec.name << ": " << e.what() << std::endl;
         }
@@ -270,7 +281,10 @@ bool BookshelfInputAdapter::parseNodeLine(const std::string &line, std::size_t l
     bool isTerminal = (tokens.size() >= 4 && tokens[3] == "terminal");
 
     try {
-        db->addCell(name, width, height, isTerminal);
+        const std::size_t id = db->addCell(name, width, height, isTerminal);
+        if (isTerminal) {
+            db->setCellFixed(id, true);
+        }
     } catch (const std::exception &e) {
         std::cerr << "Error adding cell " << name << ": " << e.what() << std::endl;
         return false;
@@ -492,6 +506,13 @@ bool BookshelfInputAdapter::parsePlacementLine(const std::string &line) {
         std::string orient = tokens[4];
         // Check if fixed (starts with 'F')
         fixed = (orient.size() > 0 && orient[0] == 'F');
+    }
+    // Bookshelf also spells immobility as a trailing "/FIXED" marker, which is
+    // how most published .pl files mark the die pads.
+    for (const std::string &token : tokens) {
+        if (token == "/FIXED") {
+            fixed = true;
+        }
     }
 
     try {

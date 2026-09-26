@@ -378,17 +378,24 @@ bool LefDefInputAdapter::parseDefFile(const std::string &filePath) {
             db->addRow(y, rowH, siteW, siteW, numX);
             continue;
         }
-        if (tokens[0] == "DIEAREA" && tokens.size() >= 9) {
-            double x0 = 0.0, y0 = 0.0, x1 = 1.0, y1 = 1.0;
-            // DIEAREA ( x0 y0 ) ( x1 y1 ) ;
-            if (tokens.size() >= 5) {
-                tryDouble(tokens[1], x0);
-                tryDouble(tokens[2], y0);
+        if (tokens[0] == "DIEAREA") {
+            // DIEAREA ( x0 y0 ) ( x1 y1 ) ;  -- collect the coordinates in
+            // order rather than indexing blindly, since the parentheses are
+            // separate tokens.
+            std::vector<double> box;
+            for (std::size_t i = 1; i < tokens.size() && box.size() < 4; ++i) {
+                double value = 0.0;
+                if (tryDouble(tokens[i], value)) {
+                    box.push_back(value);
+                }
             }
-            if (tokens.size() >= 7) {
-                tryDouble(tokens[4], x1);
-                tryDouble(tokens[5], y1);
+            if (box.size() < 4) {
+                continue;  // malformed; keep whatever die area we had
             }
+            double x0 = box[0];
+            double y0 = box[1];
+            double x1 = box[2];
+            double y1 = box[3];
             if (x1 <= x0 || y1 <= y0) {
                 x1 = std::max(x1, x0 + 1.0);
                 y1 = std::max(y1, y0 + 1.0);
