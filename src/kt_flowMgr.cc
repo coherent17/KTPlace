@@ -8,6 +8,7 @@
 #include "util/kt_scopedTimer.h"
 #include "util/kt_log.h"
 #include "placer/kt_quadPlacer.h"
+#include "legalizer/kt_abacus.h"
 #include "placer/simpl/kt_simpl.h"
 #include "datamodel/kt_graph.h"
 #include "adaptor/bookshelfToKTAdaptor.h"
@@ -253,6 +254,44 @@ bool FlowMgr::Impl::runPlacement(const std::string &algorithm, const std::string
         summary.addRow({"scaled overflow (lower)", "", fmt::format("{:.6}", res.overflowLower)});
         summary.addRow({"scaled overflow (final)", "", fmt::format("{:.6}", res.overflowFinal)});
         summary.emit();
+
+        // Global placement leaves the cells overlapping and off-row. Abacus
+        // removes the overlap with the least movement it can, and self-checks
+        // the result so a legalization bug shows up as a count, not as a
+        // silently bad placement.
+        ktlog.echo("Running Abacus legalization...");
+        AbacusLegalizer legalizer(*db);
+        LegalizeParams lparams;
+        if (const char *e = std::getenv("KTPLACE_ABACUS_MAX_ROW_DIST")) {
+            lparams.maxRowDistance = static_cast<std::size_t>(std::atoll(e));
+        }
+        if (!plotDir.empty()) {
+            lparams.plotDir = plotDir + "/legalize";
+            lparams.frameEvery = std::getenv("KTPLACE_ABACUS_FRAME_EVERY")
+                                     ? static_cast<std::size_t>(
+                                           std::atoll(std::getenv("KTPLACE_ABACUS_FRAME_EVERY")))
+                                     : 20000;
+        }
+        const LegalizeResult lres = legalizer.legalize(lparams);
+        ktReportTable lsummary("Legalization (Abacus)");
+        lsummary.setHeaders({"metric", "value"});
+        lsummary.addRow({"cells placed", fmt::format("{}", lres.cellsPlaced)});
+        lsummary.addRow({"cells unplaced", fmt::format("{}", lres.unplaced)});
+        lsummary.addRow({"squared displacement", fmt::format("{:.6}", lres.totalSquaredDisplacement)});
+        lsummary.addRow({"max displacement", fmt::format("{:.6}", lres.maxDisplacement)});
+        lsummary.addRow({"HPWL before", fmt::format("{:.6}", lres.hpwlBefore)});
+        lsummary.addRow({"HPWL after", fmt::format("{:.6}", lres.hpwlAfter)});
+        lsummary.addRow({"time (s)", fmt::format("{:.6}", lres.seconds)});
+        lsummary.addRow({"overlapping pairs", fmt::format("{}", lres.overlappingPairs)});
+        lsummary.addRow({"cells off row", fmt::format("{}", lres.offRow)});
+        lsummary.addRow({"cells off site", fmt::format("{}", lres.offSite)});
+        lsummary.addRow({"cells over macro", fmt::format("{}", lres.overFixed)});
+        lsummary.addRow({"cells out of rows", fmt::format("{}", lres.outOfRows)});
+        lsummary.emit();
+        if (lres.overlappingPairs != 0 || lres.offRow != 0 || lres.overFixed != 0) {
+            ktlog.echo("WARNING: legalization is not legal; see counts above");
+        }
+
         placed = true;
         return true;
     } else {

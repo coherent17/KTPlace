@@ -25,7 +25,7 @@ BIN_DIR := $(BUILD_DIR)/bin
 LIB_DIR := $(BUILD_DIR)/lib
 
 # Subdirectories
-SUBDIRS := datamodel adaptor constraint placer visualization util
+SUBDIRS := datamodel adaptor constraint placer legalizer visualization util
 
 # Source files in current directory
 LOCAL_SRCS := kt_flowMgr.cc kt_place.cc kt_option.cc
