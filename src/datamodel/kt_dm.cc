@@ -204,6 +204,15 @@ std::size_t PlacementDB::getNumRows() const {
     return pImpl->rows.size();
 }
 
+std::vector<PlacementDB::RowInfo> PlacementDB::getRows() const {
+    std::vector<RowInfo> out;
+    out.reserve(pImpl->rows.size());
+    for (const RowData &r : pImpl->rows) {
+        out.push_back(RowInfo{r.coordinate, r.height, r.sitewidth, r.sitespacing, r.numSites});
+    }
+    return out;
+}
+
 Graph &PlacementDB::getGraphImpl() {
     return pImpl->graph;
 }

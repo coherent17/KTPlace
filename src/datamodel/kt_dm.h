@@ -78,6 +78,18 @@ public:
                                      double sitespacing, double numSites);
     [[nodiscard]] std::size_t getNumRows() const;
 
+    /// Row geometry as parsed from the Bookshelf .scl. Legalization and detailed
+    /// placement both need the row pitch and the site width; the row list was
+    /// previously write-only, so nothing downstream could align a cell to a row.
+    struct RowInfo {
+        double coordinate = 0.0;  ///< y of the row's bottom edge
+        double height = 0.0;
+        double sitewidth = 0.0;
+        double sitespacing = 0.0;
+        double numSites = 0.0;
+    };
+    [[nodiscard]] std::vector<RowInfo> getRows() const;
+
     // Bounding box
     void setDieArea(double xMin, double yMin, double xMax, double yMax);
     [[nodiscard]] std::pair<std::pair<double, double>, std::pair<double, double>> getDieArea()
