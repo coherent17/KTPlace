@@ -772,7 +772,7 @@ void refreshDensityPotential(DensityGrid &g, double uTarget, int sweeps) {
                     const std::size_t kxm = k - (ix > 0 ? 1 : 0);
                     const std::size_t kxp = k + (ix + 1 < nbx ? 1 : 0);
                     rawX[k] = 0.5 * (g.pot[kxp] - g.pot[kxm]);
-                    rawY[k] = 0.5 * (g.pot[kyp] - g.pot[kym]);
+                    rawY[k] = 0.5 * (g.pot[kyp + ix] - g.pot[kym + ix]);
                 }
             }
         },
