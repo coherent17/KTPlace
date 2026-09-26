@@ -35,6 +35,20 @@
 namespace ktplace {
 
 namespace {
+/// Case-insensitive token comparison, for .scl field names.
+bool lowerEq(const std::string &a, const char *b) {
+    if (a.size() != std::strlen(b)) {
+        return false;
+    }
+    for (std::size_t i = 0; i < a.size(); ++i) {
+        if (std::tolower(static_cast<unsigned char>(a[i])) !=
+            std::tolower(static_cast<unsigned char>(b[i]))) {
+            return false;
+        }
+    }
+    return true;
+}
+
 
 // Gzip-aware text file. If the path ends in ".gz" the stream is decompressed
 // on the fly with Boost.Iostreams; otherwise it is read as plain text.
@@ -572,6 +586,7 @@ bool BookshelfInputAdapter::parseSclRow(const std::vector<std::string> &tokens) 
     double sitewidth = 1.0;
     double sitespacing = 1.0;
     double numSites = 0.0;
+    double originX = 0.0;
 
     // Parse row parameters from tokens (each token is one "key : value" line)
     for (const std::string &token : tokens) {
@@ -579,7 +594,16 @@ bool BookshelfInputAdapter::parseSclRow(const std::vector<std::string> &tokens) 
         if (parts.size() < 2)
             continue;
 
-        const std::string &key = parts[0];
+        // Field names are matched case-insensitively: the ISPD 2005 .scl files
+        // write "NumSites" but the ICCAD 2004 ones write "Numsites", and a
+        // case-sensitive match silently dropped every row of the latter.
+        const std::string key = [&] {
+            std::string k = parts[0];
+            for (char &ch : k) {
+                ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+            }
+            return k;
+        }();
         // Skip an optional ":" separator to reach the value token
         std::size_t valIdx = 1;
         while (valIdx < parts.size() && parts[valIdx] == ":") {
@@ -589,18 +613,22 @@ bool BookshelfInputAdapter::parseSclRow(const std::vector<std::string> &tokens) 
             continue;
 
         try {
-            if (key == "Coordinate") {
+            if (key == "coordinate") {
                 coordinate = std::stod(parts[valIdx]);
-            } else if (key == "Height") {
+            } else if (key == "height") {
                 height = std::stod(parts[valIdx]);
-            } else if (key == "Sitewidth") {
+            } else if (key == "sitewidth") {
                 sitewidth = std::stod(parts[valIdx]);
-            } else if (key == "Sitespacing") {
+            } else if (key == "sitespacing") {
                 sitespacing = std::stod(parts[valIdx]);
-            } else if (key == "SubrowOrigin") {
+            } else if (key == "subroworigin") {
+                // Format: "SubrowOrigin : <x> NumSites : <count>". The x is the
+                // row's first site and anchors the site grid; dropping it left
+                // rows with no origin and no capacity.
+                originX = std::stod(parts[valIdx]);
                 // Format: "SubrowOrigin : <value> NumSites : <count>"
                 for (std::size_t p = 0; p + 1 < parts.size(); ++p) {
-                    if (parts[p] == "NumSites") {
+                    if (lowerEq(parts[p], "numsites")) {
                         std::size_t m = p + 1;
                         while (m < parts.size() && parts[m] == ":") {
                             ++m;
@@ -618,7 +646,7 @@ bool BookshelfInputAdapter::parseSclRow(const std::vector<std::string> &tokens) 
     }
 
     if (numSites > 0) {
-        db->addRow(coordinate, height, sitewidth, sitespacing, numSites);
+        db->addRow(coordinate, height, sitewidth, sitespacing, numSites, originX);
     }
 
     return true;

@@ -75,7 +75,7 @@ public:
 
     // Row management
     [[nodiscard]] std::size_t addRow(double coordinate, double height, double sitewidth,
-                                     double sitespacing, double numSites);
+                                     double sitespacing, double numSites, double originX = 0.0);
     [[nodiscard]] std::size_t getNumRows() const;
 
     /// Row geometry as parsed from the Bookshelf .scl. Legalization and detailed
@@ -87,6 +87,15 @@ public:
         double sitewidth = 0.0;
         double sitespacing = 0.0;
         double numSites = 0.0;
+        /// .scl SubrowOrigin: x of the row's first site. The site grid is
+        /// originX + k * sitespacing, not a grid anchored at x = 0, and the row
+        /// ends at originX + numSites * sitespacing.
+        double originX = 0.0;
+
+        [[nodiscard]] double xlo() const { return originX; }
+        [[nodiscard]] double xhi() const {
+            return originX + numSites * ((sitespacing > 0.0) ? sitespacing : sitewidth);
+        }
     };
     [[nodiscard]] std::vector<RowInfo> getRows() const;
 

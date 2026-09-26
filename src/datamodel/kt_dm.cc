@@ -22,6 +22,7 @@ public:
     double sitewidth = 0.0;
     double sitespacing = 0.0;
     double numSites = 0.0;
+    double originX = 0.0;
 };
 
 // PIMPL implementation
@@ -187,13 +188,14 @@ bool PlacementDB::isCellFixed(const std::string &cellName) const {
 }
 
 std::size_t PlacementDB::addRow(double coordinate, double height, double sitewidth,
-                                double sitespacing, double numSites) {
+                                double sitespacing, double numSites, double originX) {
     RowData row;
     row.coordinate = coordinate;
     row.height = height;
     row.sitewidth = sitewidth;
     row.sitespacing = sitespacing;
     row.numSites = numSites;
+    row.originX = originX;
 
     std::size_t id = pImpl->rows.size();
     pImpl->rows.push_back(row);
@@ -208,7 +210,8 @@ std::vector<PlacementDB::RowInfo> PlacementDB::getRows() const {
     std::vector<RowInfo> out;
     out.reserve(pImpl->rows.size());
     for (const RowData &r : pImpl->rows) {
-        out.push_back(RowInfo{r.coordinate, r.height, r.sitewidth, r.sitespacing, r.numSites});
+        out.push_back(
+            RowInfo{r.coordinate, r.height, r.sitewidth, r.sitespacing, r.numSites, r.originX});
     }
     return out;
 }
