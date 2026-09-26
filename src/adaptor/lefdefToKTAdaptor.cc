@@ -385,7 +385,45 @@ bool LefDefInputAdapter::parseDefFile(const std::string &filePath) {
             if (siteW <= 0.0) {
                 siteW = 1.0;
             }
-            db->addRow(y, rowH, siteW, siteW, numX);
+            // A DEF ROW may carry several "DO n BY m STEP dx dy" segments, and
+            // each is a separate contiguous run of sites, i.e. a subrow. Only
+            // reading the first one modelled a row that is interrupted as one
+            // unbroken span.
+            struct Seg {
+                double numX, dx, dy;
+            };
+            std::vector<Seg> segs;
+            for (std::size_t i = 6; i + 1 < tokens.size(); ++i) {
+                if (tokens[i] != "DO") {
+                    continue;
+                }
+                Seg seg{0.0, dx, dy};
+                tryDouble(tokens[i + 1], seg.numX);
+                for (std::size_t j = i; j + 1 < tokens.size(); ++j) {
+                    if (tokens[j] != "STEP") {
+                        continue;
+                    }
+                    tryDouble(tokens[j + 1], seg.dx);
+                    if (j + 2 < tokens.size()) {
+                        tryDouble(tokens[j + 2], seg.dy);
+                    }
+                    i = j;
+                    break;
+                }
+                segs.push_back(seg);
+            }
+            if (segs.empty()) {
+                segs.push_back(Seg{numX, dx, dy});
+            }
+            const double h = segs.front().dy > 0.0 ? segs.front().dy : rowH;
+            const std::size_t rowId = db->addRow(y, h, siteW, siteW);
+            double ox = x;
+            for (const Seg &sg : segs) {
+                if (sg.numX > 0.0) {
+                    db->addSubrow(rowId, ox, sg.numX);
+                    ox += sg.numX * siteW;
+                }
+            }
             continue;
         }
         if (tokens[0] == "DIEAREA") {

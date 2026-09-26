@@ -585,8 +585,18 @@ bool BookshelfInputAdapter::parseSclRow(const std::vector<std::string> &tokens) 
     double height = 0.0;
     double sitewidth = 1.0;
     double sitespacing = 1.0;
-    double numSites = 0.0;
-    double originX = 0.0;
+    // A CoreRow block may carry several SubrowOrigin/NumSites pairs, one per
+    // contiguous run of sites. Keeping only the last one silently discarded the
+    // rest of the row, so a row interrupted by a macro was modelled as one span
+    // and cells were placed across the blockage.
+    struct Subrow {
+        double originX;
+        double numSites;
+    };
+    std::vector<Subrow> subrows;
+    double pendingOrigin = 0.0;
+    double pendingNumSites = 0.0;
+    bool haveOrigin = false;
 
     // Parse row parameters from tokens (each token is one "key : value" line)
     for (const std::string &token : tokens) {
@@ -623,9 +633,14 @@ bool BookshelfInputAdapter::parseSclRow(const std::vector<std::string> &tokens) 
                 sitespacing = std::stod(parts[valIdx]);
             } else if (key == "subroworigin") {
                 // Format: "SubrowOrigin : <x> NumSites : <count>". The x is the
-                // row's first site and anchors the site grid; dropping it left
-                // rows with no origin and no capacity.
-                originX = std::stod(parts[valIdx]);
+                // subrow's first site and anchors the site grid; dropping it
+                // left rows with no origin and no capacity.
+                if (haveOrigin && pendingNumSites > 0.0) {
+                    subrows.push_back(Subrow{pendingOrigin, pendingNumSites});
+                }
+                pendingOrigin = std::stod(parts[valIdx]);
+                haveOrigin = true;
+                pendingNumSites = 0.0;
                 // Format: "SubrowOrigin : <value> NumSites : <count>"
                 for (std::size_t p = 0; p + 1 < parts.size(); ++p) {
                     if (lowerEq(parts[p], "numsites")) {
@@ -634,7 +649,7 @@ bool BookshelfInputAdapter::parseSclRow(const std::vector<std::string> &tokens) 
                             ++m;
                         }
                         if (m < parts.size()) {
-                            numSites = std::stod(parts[m]);
+                            pendingNumSites = std::stod(parts[m]);
                         }
                         break;
                     }
@@ -645,8 +660,15 @@ bool BookshelfInputAdapter::parseSclRow(const std::vector<std::string> &tokens) 
         }
     }
 
-    if (numSites > 0) {
-        db->addRow(coordinate, height, sitewidth, sitespacing, numSites, originX);
+    if (haveOrigin && pendingNumSites > 0.0) {
+        subrows.push_back(Subrow{pendingOrigin, pendingNumSites});
+    }
+    if (subrows.empty()) {
+        return true;  // a row with no subrow has no placeable sites
+    }
+    const std::size_t rowId = db->addRow(coordinate, height, sitewidth, sitespacing);
+    for (const Subrow &sr : subrows) {
+        db->addSubrow(rowId, sr.originX, sr.numSites);
     }
 
     return true;

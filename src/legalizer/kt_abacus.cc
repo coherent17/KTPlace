@@ -30,13 +30,31 @@ using Clock = std::chrono::steady_clock;
 /// O(1) in the number of clusters it touched.
 struct RowUndo {
     std::size_t savedSize = 0;
+    /// The cell went into a brand new cluster, which was inserted at insertIdx.
+    /// Erasing by resize would drop the *last* cluster instead, since the insert
+    /// index is usually in the middle of the list.
+    bool inserted = false;
+    std::size_t insertIdx = 0;
     bool merged = false;
     std::size_t mergeIdx = 0;
     std::size_t mergePos = 0;
     double savedW = 0.0, savedN = 0.0, savedA = 0.0, savedB = 0.0, savedX = 0.0;
-    double savedCost = 0.0;
+    double savedCost = 0.0, savedUsed = 0.0;
     std::vector<std::pair<std::size_t, double>> moved;
 };
+
+/// Axis-aligned box of a fixed cell (a macro or a pin), used to carve subrows.
+struct FixedBox {
+    double y0, y1, x0, x1;
+};
+
+/// Subrows narrower than this many sites are dropped. A sliver narrower than a
+/// cell can never hold it, and keeping them only makes the row search walk
+/// candidates that cannot win.
+double minSubrowSites() {
+    const char *e = std::getenv("KTPLACE_ABACUS_MIN_SUBROW_SITES");
+    return e ? std::atof(e) : 1.0;
+}
 
 /// Cost of a candidate that does not fit; no real cost reaches this.
 constexpr double kInfeasible = std::numeric_limits<double>::infinity();
@@ -74,48 +92,41 @@ struct Cluster {
     [[nodiscard]] double ideal() const { return (n > 0.0) ? (-a / n) : 0.0; }
 };
 
-/// One placement row, cut into the x-intervals that fixed cells leave free.
-/// Named RowTrack because datamodel/kt_dm.h forward-declares a stale `class Row`.
+/// One contiguous run of placeable sites within a row.
+///
+/// A row is not one span of x. Macros cut it into subrows of very different
+/// widths, so placing into a row means choosing a subrow first, and a subrow
+/// narrower than a cell cannot hold it at all. Modelling a row as a single span
+/// (as an earlier version did) made the placer slide cells along x straight
+/// across a blockage, which is what destroyed the wirelength: a cell that only
+/// needed to change rows was instead dragged to the far end of its own row.
+struct Subrow {
+    double xlo = 0.0;
+    double xhi = 0.0;
+    /// Clusters assigned here, in increasing left edge.
+    std::vector<Cluster> clusters;
+    double cost = 0.0;
+    /// Committed right edge of the last cluster, i.e. the used extent.
+    double used = 0.0;
+
+    [[nodiscard]] double width() const { return xhi - xlo; }
+    [[nodiscard]] double free() const { return xhi - used; }
+};
+
+/// One placement row: a y band plus the subrows inside it.
 struct RowTrack {
     double y = 0.0;
     double height = 0.0;
     double siteWidth = 1.0;
-    double xlo = 0.0;
-    double xhi = 0.0;
-    std::vector<std::pair<double, double>> free;  ///< disjoint, sorted
-    std::vector<Cluster> clusters;
-    /// Committed sum of squared displacement over every cluster in the row.
-    double cost = 0.0;
+    std::vector<Subrow> subrows;
 
-    [[nodiscard]] double widestFree() const {
-        double best = 0.0;
-        for (const auto &iv : free) {
-            best = std::max(best, iv.second - iv.first);
+    /// Total placeable width left in the row.
+    [[nodiscard]] double capacity() const {
+        double t = 0.0;
+        for (const Subrow &sr : subrows) {
+            t += sr.free();
         }
-        return best;
-    }
-
-    /// Smallest site-aligned x >= `from` with [x, x + w] inside one free
-    /// interval. Snapped forward, because a free interval usually starts at a
-    /// macro edge, which is generally not a site. NaN if the cell does not fit.
-    [[nodiscard]] double firstFitAtLeast(double from, double w) const {
-        for (const auto &iv : free) {
-            if (iv.second <= from) {
-                continue;
-            }
-            double enter = std::max(from, iv.first);
-            if (!(siteWidth > 0.0)) {
-                if (iv.second - enter >= w - 1e-9) {
-                    return enter;
-                }
-                continue;
-            }
-            enter = xlo + std::ceil((enter - xlo) / siteWidth - 1e-9) * siteWidth;
-            if (enter + w <= iv.second + 1e-9) {
-                return enter;
-            }
-        }
-        return std::numeric_limits<double>::quiet_NaN();
+        return t;
     }
 };
 
@@ -139,8 +150,8 @@ private:
     /// list and cost are touched; cell positions are not written here, so an
     /// unused candidate leaves nothing behind. `undo` records enough to roll
     /// the row back in time proportional to what actually moved.
-    double place(RowTrack &r, std::size_t i, RowUndo &undo);
-    void rollback(RowTrack &r, const RowUndo &undo);
+    double place(Subrow &sr, double grid, std::size_t i, RowUndo &undo);
+    void rollback(Subrow &sr, RowUndo undo);
     [[nodiscard]] double hpwlOf(const std::vector<double> &x, const std::vector<double> &y) const;
     void writeFrame(const std::string &path, const std::string &note, std::size_t step,
                     std::size_t total) const;
@@ -156,6 +167,7 @@ private:
     std::vector<double> x0_, y0_;       ///< pre-legalization position (the target)
     std::vector<double> xs_, ys_;       ///< live position
     std::unordered_map<std::size_t, std::size_t> slotOf_;
+    std::vector<FixedBox> fixed_;
     BBox die_ = {0.0, 0.0, 0.0, 0.0};
 };
 
@@ -165,109 +177,118 @@ void AbacusLegalizer::Impl::buildRows() {
         RowTrack r;
         r.y = ri.coordinate;
         r.height = ri.height;
-        r.siteWidth = (ri.sitespacing > 0.0) ? ri.sitespacing : ri.sitewidth;
+        r.siteWidth = ri.pitch();
         if (!(r.siteWidth > 0.0)) {
             r.siteWidth = 1.0;
         }
-        r.xlo = ri.xlo();
-        r.xhi = ri.xhi();
-        if (!(r.xhi > r.xlo)) {
+        // Each .scl subrow becomes a Subrow, trimmed by any fixed cell that
+        // crosses the row's band, so a macro crossing a subrow shortens it
+        // instead of being ignored.
+        for (const PlacementDB::SubrowInfo &si : ri.subrows) {
+            if (!(si.xhi(r.siteWidth) > si.xlo())) {
+                continue;
+            }
+            Subrow sr;
+            sr.xlo = si.xlo();
+            sr.xhi = si.xhi(r.siteWidth);
+            sr.used = sr.xlo;
+            r.subrows.push_back(sr);
+        }
+        if (r.subrows.empty()) {
             continue;
         }
+        std::sort(r.subrows.begin(), r.subrows.end(),
+                  [](const Subrow &a, const Subrow &b) { return a.xlo < b.xlo; });
         rows_.push_back(r);
     }
     std::sort(rows_.begin(), rows_.end(),
               [](const RowTrack &a, const RowTrack &b) { return a.y < b.y; });
-    if (rows_.empty()) {
-        return;
-    }
 
-    // Fixed cells (macros) cut each row into free intervals.
-    struct FixedBox {
-        double y0, y1, x0, x1;
-    };
-    std::vector<FixedBox> fixed;
-    for (std::size_t v = 0; v < graph_.getNumVertices(); ++v) {
-        const Vertex &vert = graph_.getVertex(v);
-        if (vert.type != VertexType::Cell || !vert.isFixed) {
-            continue;
-        }
-        fixed.push_back(FixedBox{vert.y, vert.y + vert.height, vert.x, vert.x + vert.width});
-    }
-    std::sort(fixed.begin(), fixed.end(),
-              [](const FixedBox &a, const FixedBox &b) { return a.x0 < b.x0; });
-
+    // Trim each subrow against the fixed cells crossing its row band. A macro
+    // that lands inside a .scl subrow splits it into two placeable subrows, so
+    // the trimmed pieces are what the search actually chooses between.
     for (RowTrack &r : rows_) {
-        std::vector<std::pair<double, double>> hit;
-        for (const FixedBox &f : fixed) {
-            if (f.y1 <= r.y + 1e-9 || f.y0 >= r.y + r.height - 1e-9) {
-                continue;
+        std::vector<Subrow> pieces;
+        for (const Subrow &sr : r.subrows) {
+            std::vector<std::pair<double, double>> hit;
+            for (const FixedBox &f : fixed_) {
+                if (f.y1 <= r.y + 1e-9 || f.y0 >= r.y + r.height - 1e-9) {
+                    continue;
+                }
+                const double a = std::max(f.x0, sr.xlo);
+                const double b = std::min(f.x1, sr.xhi);
+                if (b > a) {
+                    hit.emplace_back(a, b);
+                }
             }
-            const double a = std::max(f.x0, r.xlo);
-            const double b = std::min(f.x1, r.xhi);
-            if (b > a) {
-                hit.emplace_back(a, b);
+            std::sort(hit.begin(), hit.end());
+            double cur = sr.xlo;
+            for (const auto &iv : hit) {
+                if (iv.first > cur) {
+                    Subrow piece = sr;
+                    piece.xlo = cur;
+                    piece.xhi = iv.first;
+                    piece.used = cur;
+                    pieces.push_back(piece);
+                }
+                cur = std::max(cur, iv.second);
+            }
+            if (cur < sr.xhi) {
+                Subrow piece = sr;
+                piece.xlo = cur;
+                piece.used = cur;
+                pieces.push_back(piece);
             }
         }
-        r.free.clear();
-        double cur = r.xlo;
-        for (const auto &iv : hit) {
-            if (iv.second <= cur) {
-                continue;
+        // Subrows too narrow to be worth searching are dropped: a sliver a cell
+        // cannot fit into only makes the search slower and can never be chosen.
+        std::vector<Subrow> kept;
+        for (Subrow &piece : pieces) {
+            if (piece.width() >= r.siteWidth * minSubrowSites()) {
+                kept.push_back(std::move(piece));
             }
-            if (iv.first > cur) {
-                r.free.emplace_back(cur, iv.first);
-            }
-            cur = std::max(cur, iv.second);
         }
-        if (cur < r.xhi) {
-            r.free.emplace_back(cur, r.xhi);
-        }
+        r.subrows = std::move(kept);
     }
 }
 
-double AbacusLegalizer::Impl::place(RowTrack &r, std::size_t i, RowUndo &undo) {
-    // Candidate rows are scored by running this and then rolling back, so the
-    // row is snapshotted first. Clusters are whole rows' worth of groups, and
-    // the early stop below keeps the mutated suffix short, so a snapshot is a
-    // bounded cost; it is far cheaper than the alternative, which is letting a
-    // rejected candidate's mutations leak into the next candidate.
+double AbacusLegalizer::Impl::place(Subrow &sr, double grid, std::size_t i, RowUndo &undo) {
     undo = RowUndo{};
-    undo.savedSize = r.clusters.size();
-    undo.savedCost = r.cost;
+    undo.savedSize = sr.clusters.size();
+    undo.savedCost = sr.cost;
+    undo.savedUsed = sr.used;
 
     const double target = x0_[i];
 
-    // 1. Where the cell lands in the row's cluster order, and whether it can
-    //    join a neighbour. Groups are within kClusterGapSites of each other in
-    //    the target placement, so a new cell almost always joins one and the
-    //    number of placeable items per row stays small.
+    // Where the cell lands in the subrow's cluster order, and whether it can
+    // join a neighbour. Groups that are already touching in the target
+    // placement become one placeable item, which is what keeps the number of
+    // items per subrow small and stops cells being nudged apart one at a time.
     std::size_t at = 0;
-    while (at < r.clusters.size() && r.clusters[at].x <= target) {
+    while (at < sr.clusters.size() && sr.clusters[at].x <= target) {
         ++at;
     }
-    const double gap = clusterGapSites() * r.siteWidth;
-    std::size_t merge = r.clusters.size();
+    const double gap = clusterGapSites() * grid;
+    std::size_t merge = sr.clusters.size();
     double bestGap = std::numeric_limits<double>::max();
-    if (at < r.clusters.size()) {
-        const double g = r.clusters[at].x - target;
+    if (at < sr.clusters.size()) {
+        const double g = sr.clusters[at].x - target;
         if (g <= gap && g < bestGap) {
             bestGap = g;
-            merge = at;  // join the cluster on the right
+            merge = at;
         }
     }
     if (at > 0) {
-        const double g = target - (r.clusters[at - 1].x + r.clusters[at - 1].w);
+        const double g = target - (sr.clusters[at - 1].x + sr.clusters[at - 1].w);
         if (g <= gap && g < bestGap) {
             bestGap = g;
-            merge = at - 1;  // join the cluster on the left
+            merge = at - 1;
         }
     }
 
-    if (merge < r.clusters.size()) {
-        // 2a. Absorb into the neighbouring cluster and re-place from there.
+    if (merge < sr.clusters.size()) {
         at = merge;
-        Cluster &c = r.clusters[merge];
+        Cluster &c = sr.clusters[merge];
         const auto pos = static_cast<std::size_t>(
             std::lower_bound(c.members.begin(), c.members.end(), i,
                              [&](std::size_t p, std::size_t q) {
@@ -284,16 +305,18 @@ double AbacusLegalizer::Impl::place(RowTrack &r, std::size_t i, RowUndo &undo) {
         undo.savedX = c.x;
         c.members.insert(c.members.begin() + static_cast<long>(pos), i);
     } else {
-        // 2b. Standalone cluster.
         Cluster c;
         c.members.push_back(i);
-        r.clusters.insert(r.clusters.begin() + static_cast<long>(at), std::move(c));
+        sr.clusters.insert(sr.clusters.begin() + static_cast<long>(at), std::move(c));
+        undo.inserted = true;
+        undo.insertIdx = at;
     }
 
-    // Recompute the touched cluster's sums for its new membership. The other
-    // clusters keep the sums they were built with.
+    // Recompute the touched cluster's sums for its new membership, laying its
+    // members out contiguously: after global placement the original offsets are
+    // often negative, and keeping them would leave the cells overlapping.
     {
-        Cluster &c = r.clusters[at];
+        Cluster &c = sr.clusters[at];
         c.n = static_cast<double>(c.members.size());
         c.w = 0.0;
         c.a = 0.0;
@@ -308,54 +331,63 @@ double AbacusLegalizer::Impl::place(RowTrack &r, std::size_t i, RowUndo &undo) {
         c.w = off;
     }
 
-    // 3. Re-place clusters from the touched one rightwards. The greedy is
-    //    monotone, so the first cluster that holds its position proves every
-    //    cluster to its right is unchanged too, and the loop stops there. That
-    //    early stop is what makes the pass near-linear instead of O(row length)
-    //    for every cell.
-    double cursor = (at > 0) ? (r.clusters[at - 1].x + r.clusters[at - 1].w) : r.xlo;
+    // Re-place clusters from the touched one rightwards. The greedy is monotone,
+    // so the first cluster that holds its position proves every cluster to its
+    // right is unchanged too and the loop stops there. That early stop is what
+    // makes the pass near-linear instead of O(subrow length) for every cell.
+    double cursor = (at > 0) ? (sr.clusters[at - 1].x + sr.clusters[at - 1].w) : sr.xlo;
     double delta = 0.0;
-    std::vector<std::size_t> moved;
-    for (std::size_t k = at; k < r.clusters.size(); ++k) {
-        Cluster &c = r.clusters[k];
+    for (std::size_t k = at; k < sr.clusters.size(); ++k) {
+        Cluster &c = sr.clusters[k];
         const double oldX = c.x;
         const double oldCost = c.costAt(oldX);
 
-        double ideal = std::max(c.ideal(), cursor);
-        const double hi = r.xhi - c.w;  // clamp: a target can sit outside
-        if (hi >= r.xlo) {                 // the core after global placement
+        // Ideal left edge: the cluster's own best position, pulled inside the
+        // subrow, and then pushed right past the previous cluster. The order
+        // matters. Clamping to the subrow's right edge *after* the cursor has
+        // been applied would drag a cluster leftwards on top of its predecessor
+        // when the subrow overflows, which silently reintroduced overlaps; if it
+        // does not fit past the cursor, the subrow is simply full.
+        double ideal = c.ideal();
+        const double hi = sr.xhi - c.w;
+        if (hi >= sr.xlo) {
             ideal = std::min(ideal, hi);
         }
-        ideal = std::max(ideal, r.xlo);
-        if (r.siteWidth > 0.0) {
-            ideal = r.xlo + std::round((ideal - r.xlo) / r.siteWidth) * r.siteWidth;
+        ideal = std::max(ideal, sr.xlo);
+        if (grid > 0.0) {
+            ideal = std::round(ideal / grid) * grid;
         }
-        const double nx = r.firstFitAtLeast(ideal, c.w);
-        if (std::isnan(nx)) {
-            rollback(r, undo);  // the row cannot hold this group
+        ideal = std::max(ideal, cursor);
+        if (ideal < sr.xlo) {
+            ideal = sr.xlo;
+        }
+        // A cluster that would not fit the subrow's right edge cannot go here.
+        if (ideal + c.w > sr.xhi + 1e-9) {
+            rollback(sr, undo);
             return kInfeasible;
         }
-        if (k > at && std::fabs(nx - oldX) < 1e-12) {
+        if (k > at && std::fabs(ideal - oldX) < 1e-12) {
             break;  // nothing further right can move either
         }
-        delta += c.costAt(nx) - oldCost;
-        undo.moved.emplace_back(k, oldX);  // the greedy is monotone, so a
-        c.x = nx;                          // cluster that holds also pins the
-        cursor = nx + c.w;                 // ones to its right
-        moved.push_back(k);
+        delta += c.costAt(ideal) - oldCost;
+        undo.moved.emplace_back(k, oldX);
+        c.x = ideal;
+        cursor = ideal + c.w;
+        sr.used = std::max(sr.used, cursor);
     }
     if (!std::isfinite(delta)) {
-        rollback(r, undo);
+        rollback(sr, undo);
         return kInfeasible;
     }
-    r.cost += delta;
+    sr.cost += delta;
     return delta;
 }
 
-void AbacusLegalizer::Impl::rollback(RowTrack &r, const RowUndo &undo) {
-    r.cost = undo.savedCost;
+void AbacusLegalizer::Impl::rollback(Subrow &sr, RowUndo undo) {
+    sr.cost = undo.savedCost;
+    sr.used = undo.savedUsed;
     if (undo.merged) {
-        Cluster &c = r.clusters[undo.mergeIdx];
+        Cluster &c = sr.clusters[undo.mergeIdx];
         if (undo.mergePos < c.members.size()) {
             c.members.erase(c.members.begin() + static_cast<long>(undo.mergePos));
         }
@@ -364,11 +396,26 @@ void AbacusLegalizer::Impl::rollback(RowTrack &r, const RowUndo &undo) {
         c.a = undo.savedA;
         c.b = undo.savedB;
         c.x = undo.savedX;
-    } else if (r.clusters.size() > undo.savedSize) {
-        r.clusters.resize(undo.savedSize);
+    } else if (undo.inserted && undo.insertIdx < sr.clusters.size()) {
+        // Erasing the inserted cluster shifts every later index down by one, so
+        // the recorded positions have to be shifted with it. Without this the
+        // restore wrote each old x into the *next* cluster over, which left most
+        // clusters sitting at x = 0 and produced a badly overlapping placement.
+        sr.clusters.erase(sr.clusters.begin() + static_cast<long>(undo.insertIdx));
+        std::vector<std::pair<std::size_t, double>> fixed;
+        fixed.reserve(undo.moved.size());
+        for (const auto &mv : undo.moved) {
+            if (mv.first == undo.insertIdx) {
+                continue;  // the cluster that was just removed
+            }
+            fixed.emplace_back(mv.first > undo.insertIdx ? mv.first - 1 : mv.first, mv.second);
+        }
+        undo.moved = std::move(fixed);
+    } else if (sr.clusters.size() > undo.savedSize) {
+        sr.clusters.resize(undo.savedSize);
     }
     for (const auto &mv : undo.moved) {
-        r.clusters[mv.first].x = mv.second;
+        sr.clusters[mv.first].x = mv.second;
     }
 }
 
@@ -424,31 +471,47 @@ void AbacusLegalizer::Impl::writeFrame(const std::string &path, const std::strin
 void AbacusLegalizer::Impl::selfCheck(LegalizeResult &res) const {
     const double eps = 1e-6;
     res.overlappingPairs = 0;
+    res.commitFailures = 0;
     res.offRow = 0;
     res.offSite = 0;
     res.overFixed = 0;
     res.outOfRows = 0;
-
-    for (std::size_t i = 0; i < mov_.size(); ++i) {
-        const RowTrack *inRow = nullptr;
-        for (const RowTrack &R : rows_) {
-            if (ys_[i] >= R.y - eps && ys_[i] <= R.y + R.height + eps) {
-                inRow = &R;
-                break;
+    // Row of each cell, read off the cluster structure rather than by scanning
+    // every row for every cell.
+    std::vector<std::size_t> rowOf(mov_.size(), kNoRow);
+    std::vector<std::size_t> subOf(mov_.size(), 0);
+    for (std::size_t r = 0; r < rows_.size(); ++r) {
+        for (std::size_t si = 0; si < rows_[r].subrows.size(); ++si) {
+            for (const Cluster &c : rows_[r].subrows[si].clusters) {
+                for (const std::size_t m : c.members) {
+                    rowOf[m] = r;
+                    subOf[m] = si;
+                }
             }
         }
+    }
+    for (std::size_t i = 0; i < mov_.size(); ++i) {
+        const RowTrack *inRow = (rowOf[i] == kNoRow) ? nullptr : &rows_[rowOf[i]];
         if (inRow == nullptr) {
             ++res.offRow;
             ++res.outOfRows;
             continue;
         }
-        const double rel = xs_[i] - inRow->xlo;
-        const double q = rel / inRow->siteWidth;
+
+        const double q = xs_[i] / inRow->siteWidth;
         const double off = std::fabs(q - std::round(q)) * inRow->siteWidth;
-        if (off > 1e-6 * std::max(1.0, std::fabs(rel))) {
+        if (off > 1e-6 * std::max(1.0, std::fabs(xs_[i]))) {
             ++res.offSite;
         }
-        if (xs_[i] < inRow->xlo - eps || xs_[i] + w_[i] > inRow->xhi + eps) {
+        // Inside some subrow of this row, with the cell on a site?
+        bool inside = false;
+        for (const Subrow &sr : inRow->subrows) {
+            if (xs_[i] >= sr.xlo - eps && xs_[i] + w_[i] <= sr.xhi + eps) {
+                inside = true;
+                break;
+            }
+        }
+        if (!inside) {
             ++res.outOfRows;
         }
     }
@@ -458,18 +521,6 @@ void AbacusLegalizer::Impl::selfCheck(LegalizeResult &res) const {
     // before the early-stop fix, a source of phantom overlaps.
     std::vector<std::uint64_t> order(mov_.size());
     std::iota(order.begin(), order.end(), 0u);
-    // Attribute each cell to the row whose band contains it, so a cell left
-    // unplaced (still at its global-placement y) is grouped with the row it
-    // happens to sit in rather than being lumped into row 0.
-    std::vector<std::size_t> rowOf(mov_.size(), 0);
-    for (std::size_t i = 0; i < mov_.size(); ++i) {
-        for (std::size_t r = 0; r < rows_.size(); ++r) {
-            if (ys_[i] >= rows_[r].y - eps && ys_[i] <= rows_[r].y + rows_[r].height + eps) {
-                rowOf[i] = r;
-                break;
-            }
-        }
-    }
     std::sort(order.begin(), order.end(), [&](std::size_t a, std::size_t b) {
         if (rowOf[a] != rowOf[b]) {
             return rowOf[a] < rowOf[b];
@@ -484,19 +535,7 @@ void AbacusLegalizer::Impl::selfCheck(LegalizeResult &res) const {
     }
 
     // Movable-vs-fixed, x-sorted sweep.
-    struct FixedBox {
-        double y0, y1, x0, x1;
-    };
-    std::vector<FixedBox> fixed;
-    for (std::size_t v = 0; v < graph_.getNumVertices(); ++v) {
-        const Vertex &vert = graph_.getVertex(v);
-        if (vert.type != VertexType::Cell || !vert.isFixed) {
-            continue;
-        }
-        fixed.push_back(FixedBox{vert.y, vert.y + vert.height, vert.x, vert.x + vert.width});
-    }
-    std::sort(fixed.begin(), fixed.end(),
-              [](const FixedBox &a, const FixedBox &b) { return a.x0 < b.x0; });
+    const std::vector<FixedBox> &fixed = fixed_;
     std::vector<std::size_t> byX(mov_.size());
     std::iota(byX.begin(), byX.end(), 0u);
     std::sort(byX.begin(), byX.end(),
@@ -542,6 +581,14 @@ LegalizeResult AbacusLegalizer::Impl::run(const LegalizeParams &params) {
     }
     res.hpwlBefore = hpwlOf(xs_, ys_);
 
+    for (std::size_t v = 0; v < graph_.getNumVertices(); ++v) {
+        const Vertex &vert = graph_.getVertex(v);
+        if (vert.type != VertexType::Cell || !vert.isFixed) {
+            continue;
+        }
+        fixed_.push_back(FixedBox{vert.y, vert.y + vert.height, vert.x, vert.x + vert.width});
+    }
+
     buildRows();
     if (rows_.empty()) {
         res.unplaced = mov_.size();
@@ -564,8 +611,10 @@ LegalizeResult AbacusLegalizer::Impl::run(const LegalizeParams &params) {
                      [&](std::size_t a, std::size_t b) { return y0_[a] < y0_[b]; });
 
     std::size_t placed = 0;
+    std::size_t commitFail = 0;
 
     for (const std::size_t i : order) {
+        // Home row: the band containing the cell's target y, else the nearest.
         std::size_t home = 0;
         double bestD = std::numeric_limits<double>::max();
         for (std::size_t r = 0; r < rows_.size(); ++r) {
@@ -579,43 +628,73 @@ LegalizeResult AbacusLegalizer::Impl::run(const LegalizeParams &params) {
             }
         }
 
-        // Abacus scores a candidate row by the *incremental* cost of the
-        // insertion, plus the cell's vertical displacement. That quantity is
-        // small and local, which is what makes the search cheap and what keeps
-        // cells near their target row: the vertical term is a true lower bound,
-        // so once it exceeds the incumbent no farther row can win.
-        std::size_t bestRow = kNoRow;
+        // A candidate is a (row, subrow) pair. Scoring uses the *incremental*
+        // cost of the insertion plus the cell's squared distance to that
+        // subrow in both axes. Charging the horizontal distance is what lets a
+        // cell blocked in x pick a different subrow instead of being pushed to
+        // the far end of its own row, and it is also a true lower bound on the
+        // cost, so it prunes the outward scan.
+        std::size_t bestRow = kNoRow, bestSub = 0;
         double bestCost = std::numeric_limits<double>::max();
 
-        const auto tryRow = [&](std::size_t ri) {
-            if (ri >= rows_.size() || ri == bestRow) {
+        const auto trySub = [&](std::size_t ri, std::size_t si) {
+            if (ri >= rows_.size() || si >= rows_[ri].subrows.size()) {
                 return;
             }
             RowTrack &R = rows_[ri];
-            if (h_[i] > R.height + 1e-9 || w_[i] > R.widestFree() + 1e-9) {
+            Subrow &sr = R.subrows[si];
+            if (h_[i] > R.height + 1e-9) {
                 return;
             }
-            const double vy = (ys_[i] > R.y + R.height) ? (ys_[i] - (R.y + R.height))
-                           : (ys_[i] < R.y)            ? (R.y - ys_[i])
-                                                        : 0.0;
-            const double vFloor = vy * vy;
-            if (vFloor >= bestCost) {
+            // Only the geometric width is pre-filtered. Whether there is room is
+            // left to place(), which places at max(target, previous end) and so
+            // can drop a cell into an interior gap. Pre-filtering on remaining
+            // room at the right edge used to reject subrows that still had a
+            // gap big enough, which left 16833 adaptec2 cells unplaced.
+            if (w_[i] > sr.width() + 1e-9) {
+                return;
+            }
+            const double dy = (y0_[i] < R.y)              ? (R.y - y0_[i])
+                              : (y0_[i] > R.y + R.height) ? (y0_[i] - (R.y + R.height))
+                                                           : 0.0;
+            // Horizontal distance to the nearest point of the subrow: zero when
+            // the cell's target x already lies inside it.
+            const double dx = (x0_[i] < sr.xlo)  ? (sr.xlo - x0_[i])
+                              : (x0_[i] > sr.xhi - w_[i]) ? (x0_[i] - (sr.xhi - w_[i]))
+                                                           : 0.0;
+            // dx and dy are both true lower bounds on this cell's movement: it
+            // cannot reach the subrow without moving at least that far.
+            const double floorCost = dx * dx + dy * dy;
+            if (floorCost >= bestCost) {
                 return;  // lower bound already loses
             }
             RowUndo undo;
-            const double delta = place(R, i, undo);
+            const double delta = place(sr, R.siteWidth, i, undo);
             if (!std::isfinite(delta)) {
                 return;
             }
-            // Score non-destructively: the row is restored either way, and the
-            // winner is re-placed once at the end. One extra place() per cell is
-            // far cheaper than a snapshot per candidate.
-            const double total = delta + vFloor;
+            // Cost = the subrow's marginal squared-displacement change plus the
+            // cell's distance to the subrow in both axes. The horizontal term was
+            // tried without the vertical-only variant: dropping it in favour of
+            // delta + dy^2 alone made HPWL worse (1.01e9 vs 9.61e8), because a
+            // cell can sit near its target inside a subrow that is itself far to
+            // the left, and only the horizontal term notices that.
+            const double total = delta + floorCost;
             if (total < bestCost) {
                 bestCost = total;
                 bestRow = ri;
+                bestSub = si;
             }
-            rollback(R, undo);
+            rollback(sr, undo);
+        };
+
+        const auto tryRow = [&](std::size_t ri) {
+            if (ri >= rows_.size()) {
+                return;
+            }
+            for (std::size_t si = 0; si < rows_[ri].subrows.size(); ++si) {
+                trySub(ri, si);
+            }
         };
 
         tryRow(home);
@@ -623,9 +702,11 @@ LegalizeResult AbacusLegalizer::Impl::run(const LegalizeParams &params) {
             if (params.maxRowDistance > 0 && step > params.maxRowDistance) {
                 break;
             }
-            // Once the cheapest possible remaining row already costs more than
-            // the incumbent, stop. This is the paper's bounding rule and is the
-            // difference between scanning 890 rows per cell and scanning a few.
+            // Every row at distance `step` is at least this far away vertically,
+            // and the horizontal term is never negative, so once that vertical
+            // bound exceeds the incumbent no farther row can win. This is the
+            // paper's bounding rule and is the difference between scanning every
+            // row per cell and scanning a handful.
             const double bound = [&] {
                 const double a = (home + step < rows_.size())
                                      ? std::fabs(rows_[home + step].y - rows_[home].y)
@@ -647,9 +728,17 @@ LegalizeResult AbacusLegalizer::Impl::run(const LegalizeParams &params) {
             ++res.unplaced;
             continue;
         }
-        // Commit: place the cell in the winning row for real.
+        // Commit: place the cell in the winning subrow for real. The commit can
+        // still fail even though the candidate scored, because a merged cluster
+        // reserves more width than the cell alone. A failure leaves the subrow
+        // rolled back and the cell in no cluster at all, so it must be counted
+        // rather than assumed placed.
         RowUndo commitUndo;
-        place(rows_[bestRow], i, commitUndo);
+        if (!std::isfinite(place(rows_[bestRow].subrows[bestSub], rows_[bestRow].siteWidth, i,
+                                 commitUndo))) {
+            ++commitFail;
+            continue;
+        }
         ++placed;
 
         if (!params.plotDir.empty() && params.frameEvery > 0 && placed % params.frameEvery == 0) {
@@ -663,12 +752,14 @@ LegalizeResult AbacusLegalizer::Impl::run(const LegalizeParams &params) {
     // the end, rather than inside place(), keeps the inner loop free of any
     // per-member work and is what lets a rejected candidate cost nothing.
     for (const RowTrack &R : rows_) {
-        for (const Cluster &c : R.clusters) {
-            double off = 0.0;
-            for (const std::size_t m : c.members) {
-                xs_[m] = c.x + off;
-                ys_[m] = R.y;
-                off += w_[m];
+        for (const Subrow &sr : R.subrows) {
+            for (const Cluster &c : sr.clusters) {
+                double off = 0.0;
+                for (const std::size_t m : c.members) {
+                    xs_[m] = c.x + off;
+                    ys_[m] = R.y;
+                    off += w_[m];
+                }
             }
         }
     }
@@ -682,6 +773,7 @@ LegalizeResult AbacusLegalizer::Impl::run(const LegalizeParams &params) {
     }
     res.hpwlAfter = hpwlOf(xs_, ys_);
     res.unplaced = mov_.size() - placed;
+    res.commitFailures = commitFail;
     if (!params.plotDir.empty()) {
         char name[64];
         std::snprintf(name, sizeof(name), "/legalize_%06zu.svg", placed);

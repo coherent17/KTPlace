@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include <algorithm>
 #include <cstddef>
 #include <memory>
 #include <string>
@@ -75,26 +76,44 @@ public:
 
     // Row management
     [[nodiscard]] std::size_t addRow(double coordinate, double height, double sitewidth,
-                                     double sitespacing, double numSites, double originX = 0.0);
+                                     double sitespacing);
+    /// Append a subrow to a row. A row with no subrow has no placeable sites, so
+    /// addRow alone is not enough to describe a placeable row.
+    [[nodiscard]] std::size_t addSubrow(std::size_t rowId, double originX, double numSites);
     [[nodiscard]] std::size_t getNumRows() const;
 
     /// Row geometry as parsed from the Bookshelf .scl. Legalization and detailed
     /// placement both need the row pitch and the site width; the row list was
     /// previously write-only, so nothing downstream could align a cell to a row.
+    /// One contiguous run of sites within a row. A row is split into subrows by
+    /// whatever blocks it (macros, and in some formats extra SubrowOrigin
+    /// lines), so a row is not one span of x and placing into it means choosing
+    /// a subrow first.
+    struct SubrowInfo {
+        double originX = 0.0;
+        double numSites = 0.0;
+
+        [[nodiscard]] double xlo() const { return originX; }
+        [[nodiscard]] double xhi(double spacing) const { return originX + numSites * spacing; }
+    };
+
     struct RowInfo {
         double coordinate = 0.0;  ///< y of the row's bottom edge
         double height = 0.0;
         double sitewidth = 0.0;
         double sitespacing = 0.0;
-        double numSites = 0.0;
-        /// .scl SubrowOrigin: x of the row's first site. The site grid is
-        /// originX + k * sitespacing, not a grid anchored at x = 0, and the row
-        /// ends at originX + numSites * sitespacing.
-        double originX = 0.0;
+        /// Site pitch; the subrow's sites sit at originX + k * sitePitch.
+        [[nodiscard]] double pitch() const { return (sitespacing > 0.0) ? sitespacing : sitewidth; }
+        /// One entry per SubrowOrigin/NumSites pair in the .scl, in file order.
+        std::vector<SubrowInfo> subrows;
 
-        [[nodiscard]] double xlo() const { return originX; }
+        [[nodiscard]] double xlo() const { return subrows.empty() ? 0.0 : subrows.front().xlo(); }
         [[nodiscard]] double xhi() const {
-            return originX + numSites * ((sitespacing > 0.0) ? sitespacing : sitewidth);
+            double hi = 0.0;
+            for (const SubrowInfo &sr : subrows) {
+                hi = std::max(hi, sr.xhi(pitch()));
+            }
+            return hi;
         }
     };
     [[nodiscard]] std::vector<RowInfo> getRows() const;

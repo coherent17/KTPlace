@@ -71,7 +71,11 @@ struct LegalizeResult {
     std::size_t offRow = 0;        ///< cells not aligned to a row band
     std::size_t offSite = 0;       ///< cells not aligned to the site grid
     std::size_t overFixed = 0;     ///< cells overlapping a macro / fixed cell
-    std::size_t outOfRows = 0;     ///< cells not inside any row's x-range
+    std::size_t outOfRows = 0;     ///< cells not inside any subrow of their row
+    /// Cells whose chosen subrow turned out not to fit on commit, so they were
+    /// never actually placed. A non-zero value here with `unplaced == 0` means
+    /// the commit path silently dropped cells.
+    std::size_t commitFailures = 0;
 };
 
 class AbacusLegalizer {

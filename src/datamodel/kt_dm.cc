@@ -15,14 +15,18 @@
 namespace ktplace {
 
 // Forward declaration for RowData
+struct SubrowData {
+    double originX = 0.0;
+    double numSites = 0.0;
+};
+
 class RowData {
 public:
     double coordinate = 0.0;
     double height = 0.0;
     double sitewidth = 0.0;
     double sitespacing = 0.0;
-    double numSites = 0.0;
-    double originX = 0.0;
+    std::vector<SubrowData> subrows;
 };
 
 // PIMPL implementation
@@ -188,18 +192,24 @@ bool PlacementDB::isCellFixed(const std::string &cellName) const {
 }
 
 std::size_t PlacementDB::addRow(double coordinate, double height, double sitewidth,
-                                double sitespacing, double numSites, double originX) {
+                                double sitespacing) {
     RowData row;
     row.coordinate = coordinate;
     row.height = height;
     row.sitewidth = sitewidth;
     row.sitespacing = sitespacing;
-    row.numSites = numSites;
-    row.originX = originX;
 
-    std::size_t id = pImpl->rows.size();
+    const std::size_t id = pImpl->rows.size();
     pImpl->rows.push_back(row);
     return id;
+}
+
+std::size_t PlacementDB::addSubrow(std::size_t rowId, double originX, double numSites) {
+    if (rowId >= pImpl->rows.size()) {
+        return static_cast<std::size_t>(-1);
+    }
+    pImpl->rows[rowId].subrows.push_back(SubrowData{originX, numSites});
+    return pImpl->rows[rowId].subrows.size() - 1;
 }
 
 std::size_t PlacementDB::getNumRows() const {
@@ -210,8 +220,16 @@ std::vector<PlacementDB::RowInfo> PlacementDB::getRows() const {
     std::vector<RowInfo> out;
     out.reserve(pImpl->rows.size());
     for (const RowData &r : pImpl->rows) {
-        out.push_back(
-            RowInfo{r.coordinate, r.height, r.sitewidth, r.sitespacing, r.numSites, r.originX});
+        RowInfo ri;
+        ri.coordinate = r.coordinate;
+        ri.height = r.height;
+        ri.sitewidth = r.sitewidth;
+        ri.sitespacing = r.sitespacing;
+        ri.subrows.reserve(r.subrows.size());
+        for (const SubrowData &sr : r.subrows) {
+            ri.subrows.push_back(SubrowInfo{sr.originX, sr.numSites});
+        }
+        out.push_back(std::move(ri));
     }
     return out;
 }
