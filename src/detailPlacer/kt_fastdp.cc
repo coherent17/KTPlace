@@ -6,7 +6,6 @@
 #include "detailPlacer/kt_fastdp.h"
 
 #include <algorithm>
-#include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -16,13 +15,13 @@
 #include <numeric>
 
 #include "datamodel/kt_graph.h"
+#include "util/kt_log.h"
+#include "util/kt_scopedTimer.h"
 #include "visualization/kt_plotter.h"
 
 namespace ktplace {
 
 namespace {
-
-using Clock = std::chrono::steady_clock;
 
 constexpr std::size_t kNoSlot = std::numeric_limits<std::size_t>::max();
 
@@ -36,7 +35,7 @@ struct Span {
     /// against this; comparing against the site width (1 on adaptec1, whose row
     /// pitch is 12) made every pair look non-adjacent and the technique never ran.
     double pitch = 1.0;
-    std::size_t row = 0;  ///< index of the row this span belongs to
+    std::size_t row = 0;             ///< index of the row this span belongs to
     std::vector<std::size_t> cells;  ///< ascending x
 
     [[nodiscard]] bool contains(double px, double pw) const {
@@ -46,9 +45,9 @@ struct Span {
 
 /// A pin on a net. Fixed pins carry their absolute x and never move.
 struct NetPin {
-    std::size_t slot;  ///< kNoSlot for a fixed pin
-    double offX = 0.0; ///< offset from the cell's origin
-    double absX = 0.0; ///< used when slot == kNoSlot
+    std::size_t slot;   ///< kNoSlot for a fixed pin
+    double offX = 0.0;  ///< offset from the cell's origin
+    double absX = 0.0;  ///< used when slot == kNoSlot
 };
 
 struct FixedBox {
@@ -73,8 +72,7 @@ private:
     /// affected positions.
     [[nodiscard]] double deltaMove(std::size_t c, double nx) const;
     /// Exact HPWL change from exchanging two cells.
-    [[nodiscard]] double deltaSwap(std::size_t a, double na, std::size_t b,
-                                   double nb) const;
+    [[nodiscard]] double deltaSwap(std::size_t a, double na, std::size_t b, double nb) const;
     /// Can c sit at nx without overlapping a neighbour, a macro, or leaving its
     /// span? The span bounds and the site grid are checked; the neighbour check
     /// is done against the cells sorted by x in the span.
@@ -108,7 +106,7 @@ private:
 
     PlacementDB &db_;
     Graph &graph_;
-    std::vector<std::size_t> mov_;    ///< graph vertex per movable slot
+    std::vector<std::size_t> mov_;     ///< graph vertex per movable slot
     std::vector<double> w_, h_;        ///< per movable slot
     std::vector<double> x_, y_;        ///< current position
     std::vector<std::size_t> spanOf_;  ///< span index per movable slot
@@ -156,8 +154,9 @@ void FastDetailedPlacer::Impl::buildSpans() {
         }
     }
     for (Span &sp : spans_) {
-        std::sort(sp.cells.begin(), sp.cells.end(),
-                  [&](std::size_t a, std::size_t b) { return x_[a] < x_[b]; });
+        std::sort(sp.cells.begin(), sp.cells.end(), [&](std::size_t a, std::size_t b) {
+            return x_[a] < x_[b];
+        });
     }
 
     // Index of the spans in the rows immediately above and below each row, so a
@@ -183,8 +182,7 @@ void FastDetailedPlacer::Impl::buildSpans() {
 }
 
 bool FastDetailedPlacer::Impl::fitsIgnoring(std::size_t c, double nx, std::size_t s,
-                                            const std::size_t *ignore,
-                                            std::size_t nIgnore) const {
+                                            const std::size_t *ignore, std::size_t nIgnore) const {
     const Span &sp = spans_[s];
     if (!sp.contains(nx, w_[c])) {
         return false;
@@ -196,8 +194,9 @@ bool FastDetailedPlacer::Impl::fitsIgnoring(std::size_t c, double nx, std::size_
         }
     }
     const std::vector<std::size_t> &cells = sp.cells;
-    const auto it = std::lower_bound(cells.begin(), cells.end(), nx,
-                                     [&](std::size_t a, double v) { return x_[a] < v; });
+    const auto it = std::lower_bound(cells.begin(), cells.end(), nx, [&](std::size_t a, double v) {
+        return x_[a] < v;
+    });
     for (auto k = it; k != cells.end() && x_[*k] < nx + w_[c] - 1e-6; ++k) {
         if (std::find(ignore, ignore + nIgnore, *k) == ignore + nIgnore) {
             return false;
@@ -383,13 +382,11 @@ double FastDetailedPlacer::Impl::medianX(std::size_t c) const {
     for (const std::size_t n : cellNets_[c]) {
         double ax = std::numeric_limits<double>::max();
         double bx = -std::numeric_limits<double>::max();
-        double mine = std::numeric_limits<double>::max();
         double moff = 0.0;
         bool has = false;
         for (const NetPin &p : netPins_[n]) {
             const double px = (p.slot == kNoSlot) ? p.absX : (x_[p.slot] + p.offX);
             if (p.slot == c) {
-                mine = px;
                 moff = p.offX;
                 has = true;
             }
@@ -412,8 +409,7 @@ double FastDetailedPlacer::Impl::medianX(std::size_t c) const {
     for (std::size_t i = 0; i < los.size(); ++i) {
         mids.push_back(0.5 * (los[i] + his[i]));
     }
-    std::nth_element(mids.begin(), mids.begin() + static_cast<long>(mids.size() / 2),
-                     mids.end());
+    std::nth_element(mids.begin(), mids.begin() + static_cast<long>(mids.size() / 2), mids.end());
     return mids[mids.size() / 2];
 }
 
@@ -435,8 +431,9 @@ bool FastDetailedPlacer::Impl::canPlace(std::size_t c, double nx) const {
     // Neighbours: the span's cells are sorted by x, so only the ones bracketing
     // nx can overlap it. Scanning the whole span would be quadratic overall.
     const std::vector<std::size_t> &cells = sp.cells;
-    const auto it = std::lower_bound(cells.begin(), cells.end(), nx,
-                                     [&](std::size_t a, double v) { return x_[a] < v; });
+    const auto it = std::lower_bound(cells.begin(), cells.end(), nx, [&](std::size_t a, double v) {
+        return x_[a] < v;
+    });
     if (it != cells.end() && *it != c && x_[*it] < nx + w_[c] - 1e-6) {
         return false;
     }
@@ -458,7 +455,9 @@ bool FastDetailedPlacer::Impl::canPlace(std::size_t c, double nx) const {
     return true;
 }
 
-void FastDetailedPlacer::Impl::commit(std::size_t c, double nx) { x_[c] = nx; }
+void FastDetailedPlacer::Impl::commit(std::size_t c, double nx) {
+    x_[c] = nx;
+}
 
 bool FastDetailedPlacer::Impl::locate(std::size_t c) {
     spanOf_[c] = kNoSlot;
@@ -491,8 +490,10 @@ bool FastDetailedPlacer::Impl::locate(std::size_t c) {
         // overlapping pairs. The span's cells are sorted by x, so only the ones
         // bracketing this position can overlap it.
         const std::vector<std::size_t> &others = spans_[s].cells;
-        const auto it = std::lower_bound(others.begin(), others.end(), x_[c],
-                                         [&](std::size_t a, double v) { return x_[a] < v; });
+        const auto it =
+            std::lower_bound(others.begin(), others.end(), x_[c], [&](std::size_t a, double v) {
+                return x_[a] < v;
+            });
         if (it != others.end() && x_[*it] < x_[c] + w_[c] - 1e-6) {
             continue;
         }
@@ -511,8 +512,9 @@ bool FastDetailedPlacer::Impl::locate(std::size_t c) {
 
 void FastDetailedPlacer::Impl::resort(std::size_t s) {
     std::vector<std::size_t> &cells = spans_[s].cells;
-    std::sort(cells.begin(), cells.end(),
-              [&](std::size_t a, std::size_t b) { return x_[a] < x_[b]; });
+    std::sort(cells.begin(), cells.end(), [&](std::size_t a, std::size_t b) {
+        return x_[a] < x_[b];
+    });
 }
 
 std::size_t FastDetailedPlacer::Impl::globalSwap() {
@@ -561,10 +563,10 @@ std::size_t FastDetailedPlacer::Impl::verticalSwap() {
             if (oc.empty()) {
                 continue;
             }
-            const auto at = std::lower_bound(oc.begin(), oc.end(), x_[c],
-                                             [&](std::size_t a, double v) {
-                                                 return x_[a] < v;
-                                             });
+            const auto at =
+                std::lower_bound(oc.begin(), oc.end(), x_[c], [&](std::size_t a, double v) {
+                    return x_[a] < v;
+                });
             const std::size_t cands[2] = {
                 (at == oc.end()) ? kNoSlot : *at,
                 (at == oc.begin()) ? kNoSlot : *std::prev(at),
@@ -576,8 +578,7 @@ std::size_t FastDetailedPlacer::Impl::verticalSwap() {
                 // Validate the whole exchange before touching anything.
                 const std::size_t ignore[2] = {c, d};
                 const double ocx = x_[c], odx = x_[d];
-                if (!fitsIgnoring(c, odx, s2, ignore, 2) ||
-                    !fitsIgnoring(d, ocx, sc, ignore, 2)) {
+                if (!fitsIgnoring(c, odx, s2, ignore, 2) || !fitsIgnoring(d, ocx, sc, ignore, 2)) {
                     continue;
                 }
                 if (deltaSwap(c, odx, d, ocx) >= -1e-9) {
@@ -587,8 +588,7 @@ std::size_t FastDetailedPlacer::Impl::verticalSwap() {
                 // y each one lands at.
                 y_[c] = spans_[s2].ylo;
                 y_[d] = spans_[sc].ylo;
-                if (!fitsIgnoring(c, odx, s2, ignore, 2) ||
-                    !fitsIgnoring(d, ocx, sc, ignore, 2)) {
+                if (!fitsIgnoring(c, odx, s2, ignore, 2) || !fitsIgnoring(d, ocx, sc, ignore, 2)) {
                     y_[c] = spans_[sc].ylo;
                     y_[d] = spans_[s2].ylo;
                     continue;
@@ -808,7 +808,7 @@ void FastDetailedPlacer::Impl::selfCheck(DetailPlaceResult &res) const {
 
 DetailPlaceResult FastDetailedPlacer::Impl::place(const DetailPlaceParams &params) {
     DetailPlaceResult res;
-    const auto t0 = Clock::now();
+    ScopedTimer timer("detail-place");
     localWindow_ = params.localReorderWindow;
 
     for (std::size_t v = 0; v < graph_.getNumVertices(); ++v) {
@@ -819,7 +819,6 @@ DetailPlaceResult FastDetailedPlacer::Impl::place(const DetailPlaceParams &param
         if (vert.type != VertexType::Cell || vert.isFixed || vert.isTerminal) {
             continue;
         }
-        const std::size_t slot = mov_.size();
         mov_.push_back(v);
         w_.push_back(vert.width);
         h_.push_back(vert.height);
@@ -883,7 +882,13 @@ DetailPlaceResult FastDetailedPlacer::Impl::place(const DetailPlaceParams &param
         db_.setCellPosition(mov_[i], x_[i], y_[i]);
     }
     selfCheck(res);
-    res.seconds = std::chrono::duration<double>(Clock::now() - t0).count();
+    res.seconds = timer.elapsedSeconds();
+    ktlog.echo(
+        "FastDP: {:.3f}s, HPWL {:.6e} -> {:.6e} ({:+.2f}%), swaps {} global / {} vertical, "
+        "reorder {}, cluster {}",
+        res.seconds, res.hpwlBefore, res.hpwlAfter,
+        (res.hpwlBefore > 0.0) ? 100.0 * (res.hpwlAfter - res.hpwlBefore) / res.hpwlBefore : 0.0,
+        res.globalSwaps, res.verticalSwaps, res.reorderMoves, res.clusterMoves);
     return res;
 }
 

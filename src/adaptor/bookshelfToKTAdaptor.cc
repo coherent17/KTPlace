@@ -281,32 +281,6 @@ bool BookshelfInputAdapter::parseNodesFile(const std::string &filePath) {
     return true;
 }
 
-bool BookshelfInputAdapter::parseNodeLine(const std::string &line, std::size_t lineNum) {
-    std::vector<std::string> tokens = tokenize(line);
-    if (tokens.size() < 3) {
-        return false;
-    }
-
-    std::string name = tokens[0];
-    double width = std::stod(tokens[1]);
-    double height = std::stod(tokens[2]);
-
-    // Check if terminal (optional keyword after dimensions)
-    bool isTerminal = (tokens.size() >= 4 && tokens[3] == "terminal");
-
-    try {
-        const std::size_t id = db->addCell(name, width, height, isTerminal);
-        if (isTerminal) {
-            db->setCellFixed(id, true);
-        }
-    } catch (const std::exception &e) {
-        std::cerr << "Error adding cell " << name << ": " << e.what() << std::endl;
-        return false;
-    }
-
-    return true;
-}
-
 bool BookshelfInputAdapter::parseNetsFile(const std::string &filePath) {
     InputTextFile file(filePath);
     if (!file) {
@@ -431,45 +405,16 @@ bool BookshelfInputAdapter::parseNetsFile(const std::string &filePath) {
             weight = it->second;
         }
         if (!db->hasNet(netName)) {
-            db->addNet(netName, weight);
+            (void)db->addNet(netName, weight);
         }
         for (const PinRec &pin : netPins[i]) {
             try {
-                db->addPin(pin.cellName, netName, pin.offsetX, pin.offsetY, pin.isInput);
+                (void)db->addPin(pin.cellName, netName, pin.offsetX, pin.offsetY,
+                                 pin.isInput);
             } catch (const std::exception &e) {
                 std::cerr << "Warning: Error adding pin: " << e.what() << std::endl;
             }
         }
-    }
-
-    return true;
-}
-
-bool BookshelfInputAdapter::parsePinLine(const std::string &line, std::size_t &netDegree,
-                                         std::string &netName) {
-    // Format: "<cell_name> <I|O> : <offset_x> <offset_y>"
-    // Or: "<cell_name> <I|O>"
-    std::vector<std::string> tokens = tokenize(line);
-    if (tokens.size() < 2) {
-        return false;
-    }
-
-    std::string cellName = tokens[0];
-    bool isInput = (tokens[1] == "I");
-    double offsetX = 0.0;
-    double offsetY = 0.0;
-
-    // Parse offsets if present
-    if (tokens.size() >= 5 && tokens[2] == ":") {
-        offsetX = std::stod(tokens[3]);
-        offsetY = std::stod(tokens[4]);
-    }
-
-    try {
-        db->addPin(cellName, netName, offsetX, offsetY, isInput);
-    } catch (const std::exception &e) {
-        std::cerr << "Error adding pin: " << e.what() << std::endl;
-        return false;
     }
 
     return true;
@@ -668,7 +613,7 @@ bool BookshelfInputAdapter::parseSclRow(const std::vector<std::string> &tokens) 
     }
     const std::size_t rowId = db->addRow(coordinate, height, sitewidth, sitespacing);
     for (const Subrow &sr : subrows) {
-        db->addSubrow(rowId, sr.originX, sr.numSites);
+        (void)db->addSubrow(rowId, sr.originX, sr.numSites);
     }
 
     return true;

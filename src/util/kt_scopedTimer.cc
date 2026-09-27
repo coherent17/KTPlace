@@ -17,12 +17,6 @@ double monotonicSeconds() {
 
 namespace {
 /// Processor seconds consumed by this process so far, over all threads.
-/// std::clock() maps to CLOCK_PROCESS_CPUTIME_ID on glibc, which is what we
-/// want: the solve is multi-threaded, so per-thread time would only ever
-/// measure whichever worker happened to be running.
-double processCpuSeconds() {
-    return static_cast<double>(std::clock()) / static_cast<double>(CLOCKS_PER_SEC);
-}
 }  // namespace
 
 TimerRegistry &TimerRegistry::instance() {

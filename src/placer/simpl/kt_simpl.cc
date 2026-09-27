@@ -6,9 +6,10 @@
 
 #include "placer/simpl/kt_simpl.h"
 
+#include "util/kt_scopedTimer.h"
+
 #include <algorithm>
 #include <cassert>
-#include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <deque>
@@ -30,12 +31,6 @@ namespace {
 
 /// Sentinel for "this vertex has no variable" (it is fixed, or it is a net).
 constexpr std::uint32_t kNoVar = 0xFFFFFFFFu;
-
-using Clock = std::chrono::steady_clock;
-
-double secs(Clock::time_point a, Clock::time_point b) {
-    return std::chrono::duration<double>(b - a).count();
-}
 
 /// A net's distinct pins, in ascending cell order, with each pin's offset
 /// inside its cell.
@@ -82,8 +77,8 @@ struct CsrMatrix {
                 }
                 return a;
             },
-            [](double a, double b) {
-                return a + b;
+            [](double lhs, double rhs) {
+                return lhs + rhs;
             });
     }
 
@@ -98,8 +93,8 @@ struct CsrMatrix {
                 }
                 return s;
             },
-            [](double a, double b) {
-                return a + b;
+            [](double lhs, double rhs) {
+                return lhs + rhs;
             });
     }
 };
@@ -1592,13 +1587,21 @@ SimplResult SimplePlacer::Impl::run(const SimplParams &P, const std::string &plo
     if (const char *e = std::getenv("KTPLACE_SIMPL_SEED")) {
         par_.seed = static_cast<std::uint64_t>(std::atoll(e));
     }
-    g_ = std::clamp(P.densityLimit, 0.05, 1.0);
+    // The paper requires 0 < g < 1 (Section 4.2). At g = 1 every stripe is filled
+    // to 100% of its available area, so look-ahead legalization's only solution
+    // is to spread cells uniformly over the whole die -- a maximum-entropy
+    // spread that destroys the density variation wirelength optimisation wants,
+    // and the reason legalization looked so pessimistic. Expose it for sweeps.
+    if (const char *e = std::getenv("KTPLACE_SIMPL_DENSITY")) {
+        par_.densityLimit = std::atof(e);
+    }
+    g_ = std::clamp(par_.densityLimit, 0.05, 1.0);
 
-    const auto t0 = Clock::now();
+    ScopedTimer setupTimer("simpl-setup");
     collect();
     buildGrid(P);
-    const auto t1 = Clock::now();
-    res_.buildSeconds = secs(t0, t1);
+    res_.buildSeconds = setupTimer.elapsedSeconds();
+    setupTimer.lap();  // record "simpl-setup" in the shared registry
     if (numMovable_ == 0) {
         return res_;
     }
@@ -1619,7 +1622,7 @@ SimplResult SimplePlacer::Impl::run(const SimplParams &P, const std::string &plo
 
     res_.hpwlSeed = hpwl(lower, lowerY);
     double prevHpwl = std::numeric_limits<double>::max();
-    for (std::size_t it = 0; it < P.initMaxIters; ++it) {
+    for (std::size_t it = 0; it < par_.initMaxIters; ++it) {
         // The B2B model is placement-dependent, so the graph is rebuilt from the
         // current locations before every solve.
         buildB2B(lower, lowerY, 0.0, false);
@@ -1682,7 +1685,6 @@ SimplResult SimplePlacer::Impl::run(const SimplParams &P, const std::string &plo
     // legalized cells overlap, which shortens nets artificially. Refuse to report
     // such a result as progress -- this fired once with a gap of -5.8e6 and a
     // "best" wirelength that was simply overlap being scored as a win.
-    double bestLegitimateUpper = std::numeric_limits<double>::max();
     bool sawInvalidGap = false;
 
     // ---- global placement iterations --------------------------------------
@@ -1695,7 +1697,7 @@ SimplResult SimplePlacer::Impl::run(const SimplParams &P, const std::string &plo
     double spreadAcc = 0.0;
     std::vector<std::pair<double, double>> curve;  // (upper HPWL, lower HPWL)
 
-    for (std::size_t it = 0; it < P.maxIters && !converged; ++it) {
+    for (std::size_t it = 0; it < par_.maxIters && !converged; ++it) {
         res_.globalIters = it + 1;
 
         // (1) Look-ahead legalization: lower bound -> upper bound.
@@ -1707,13 +1709,13 @@ SimplResult SimplePlacer::Impl::run(const SimplParams &P, const std::string &plo
         // from 0.508 to 0.143 in one pass and on to 0.026 in two, so the
         // machinery does converge -- the outer loop was simply never giving it
         // the rounds.
-        const auto ts = Clock::now();
+        ScopedTimer lapTimer("simpl-legalize");
         upper = lower;
         upperY = lowerY;
         std::vector<double> keepX = pinX_;
         std::vector<double> keepY = pinY_;
         double prevPassOvf = std::numeric_limits<double>::max();
-        for (std::size_t pass = 0; pass < std::max<std::size_t>(P.lalPasses, 1); ++pass) {
+        for (std::size_t pass = 0; pass < std::max<std::size_t>(par_.lalPasses, 1); ++pass) {
             blocksProcessed_ = 0;
             deepestLevel_ = 0;
             maxBlockCells_ = 0;
@@ -1727,12 +1729,13 @@ SimplResult SimplePlacer::Impl::run(const SimplParams &P, const std::string &plo
             pinY_ = keepY;
             binCells(upper, upperY);
             const double ovfNow = scaledOverflow();
-            if (!(ovfNow < prevPassOvf * (1.0 - P.lalMinGain))) {
+            if (!(ovfNow < prevPassOvf * (1.0 - par_.lalMinGain))) {
                 break;  // no worthwhile progress from another pass
             }
             prevPassOvf = ovfNow;
         }
-        spreadAcc += secs(ts, Clock::now());
+        spreadAcc += lapTimer.elapsedSeconds();
+        lapTimer.lap();
 
         binCells(upper, upperY);
         const double upperOvf = scaledOverflow();
@@ -1754,7 +1757,7 @@ SimplResult SimplePlacer::Impl::run(const SimplParams &P, const std::string &plo
         curve.emplace_back(upperHpwl, lowerHpwl);
         res_.gap = gap;
 
-        if (it == P.gapReferenceIter) {
+        if (it == par_.gapReferenceIter) {
             gapRef = gap;
         }
         if (upperHpwl < bestUpper - 1e-12) {
@@ -1768,29 +1771,29 @@ SimplResult SimplePlacer::Impl::run(const SimplParams &P, const std::string &plo
             "iter {:3d}: lower {:.6e} upper {:.6e} gap {:.4e} (ref {:.4e}) "
             "ovf lower {:.4e} upper {:.4e} alpha {:.4g} stale {}",
             it, lowerHpwl, upperHpwl, gap, gapRef, scaledOverflow(), upperOvf,
-            P.alphaBase * (1.0 + static_cast<double>(it)), stale);
+            par_.alphaBase * (1.0 + static_cast<double>(it)), stale);
 
         // Convergence. HPWL of the upper bounds oscillates for the first several
         // iterations, so the gap -- not the upper-bound HPWL alone -- is what is
         // watched, referenced to the gap at iteration 10.
-        if (gapRef > 0.0 && it > P.gapReferenceIter) {
-            if (gap < P.gapTightFrac * gapRef) {
+        if (gapRef > 0.0 && it > par_.gapReferenceIter) {
+            if (gap < par_.gapTightFrac * gapRef) {
                 converged = true;
-            } else if (gap < P.gapRelaxedFrac * gapRef && stale >= static_cast<int>(P.patience)) {
+            } else if (gap < par_.gapRelaxedFrac * gapRef && stale >= static_cast<int>(par_.patience)) {
                 converged = true;
             }
         }
 
-        if (P.traceEvery > 0 && (it % P.traceEvery) == 0 && !snapshotDir.empty()) {
+        if (par_.traceEvery > 0 && (it % par_.traceEvery) == 0 && !snapshotDir.empty()) {
             const std::string tag = "_seed" + std::to_string(par_.seed);
             writeFrame(snapshotDir + "/simpl_LAL_" + tag + "_it" + std::to_string(it) + ".svg",
                        upper, upperY, upperHpwl, upperOvf,
                        "LAL (look-ahead legalized) - iteration " + std::to_string(it), it + 1,
-                       P.maxIters);
+                       par_.maxIters);
             writeFrame(snapshotDir + "/simpl_LSS_" + tag + "_it" + std::to_string(it) + ".svg",
                        lower, lowerY, lowerHpwl, scaledOverflow(),
                        "LSS (linear system solve) - iteration " + std::to_string(it), it + 1,
-                       P.maxIters);
+                       par_.maxIters);
         }
 
         if (converged) {
@@ -1804,8 +1807,8 @@ SimplResult SimplePlacer::Impl::run(const SimplParams &P, const std::string &plo
         // number, moving the emphasis from interconnect onto constraints.
         anchorX_ = upper;
         anchorY_ = upperY;
-        const double alpha = P.alphaBase * (1.0 + static_cast<double>(it));
-        const auto tb = Clock::now();
+        const double alpha = par_.alphaBase * (1.0 + static_cast<double>(it));
+        ScopedTimer bTimer("simpl-build");
         // The B2B model and the pseudonet lengths are both measured at the LOWER
         // bound: that is the point being linearised, and the anchor distance is
         // |upper - lower|. Handing buildB2B the upper bound as the current
@@ -1817,8 +1820,9 @@ SimplResult SimplePlacer::Impl::run(const SimplParams &P, const std::string &plo
         // never moved, why lower-bound HPWL only drifted, and why every pass
         // re-legalised the same collapsed input to the same result.
         buildB2B(lower, lowerY, alpha, true);
-        buildAcc += secs(tb, Clock::now());
-        const auto ts2 = Clock::now();
+        buildAcc += bTimer.elapsedSeconds();
+        bTimer.lap();
+        ScopedTimer sTimer("simpl-solve");
         // Warm start from the previous lower bound. Starting instead from the
         // anchors was tried and rejected: it improved density (adaptec2 overflow
         // 0.093 -> 0.081) but left the final wirelength unchanged (1.73e9 ->
@@ -1832,7 +1836,8 @@ SimplResult SimplePlacer::Impl::run(const SimplParams &P, const std::string &plo
         solve();
         lower = solX_;
         lowerY = solY_;
-        solveAcc += secs(ts2, Clock::now());
+        solveAcc += sTimer.elapsedSeconds();
+        sTimer.lap();
     }
 
     if (upper.empty()) {

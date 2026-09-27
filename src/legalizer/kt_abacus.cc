@@ -6,7 +6,6 @@
 #include "legalizer/kt_abacus.h"
 
 #include <algorithm>
-#include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -15,11 +14,12 @@
 #include <memory>
 #include <numeric>
 
+#include "util/kt_log.h"
+#include "util/kt_scopedTimer.h"
+
 namespace ktplace {
 
 namespace {
-
-using Clock = std::chrono::steady_clock;
 
 /// Undo information for one place() call on a row.
 ///
@@ -88,8 +88,12 @@ struct Cluster {
     double a = 0.0;                    ///< sum of (off_m - target_m)
     double b = 0.0;                    ///< sum of (off_m - target_m)^2
 
-    [[nodiscard]] double costAt(double x) const { return n * x * x + 2.0 * a * x + b; }
-    [[nodiscard]] double ideal() const { return (n > 0.0) ? (-a / n) : 0.0; }
+    [[nodiscard]] double costAt(double pos) const {
+        return n * pos * pos + 2.0 * a * pos + b;
+    }
+    [[nodiscard]] double ideal() const {
+        return (n > 0.0) ? (-a / n) : 0.0;
+    }
 };
 
 /// One contiguous run of placeable sites within a row.
@@ -109,8 +113,12 @@ struct Subrow {
     /// Committed right edge of the last cluster, i.e. the used extent.
     double used = 0.0;
 
-    [[nodiscard]] double width() const { return xhi - xlo; }
-    [[nodiscard]] double free() const { return xhi - used; }
+    [[nodiscard]] double width() const {
+        return xhi - xlo;
+    }
+    [[nodiscard]] double free() const {
+        return xhi - used;
+    }
 };
 
 /// One placement row: a y band plus the subrows inside it.
@@ -162,10 +170,10 @@ private:
     PlacementDB &db_;
     Graph &graph_;
     std::vector<RowTrack> rows_;
-    std::vector<std::size_t> mov_;     ///< graph vertex id per movable slot
-    std::vector<double> w_, h_;         ///< per movable slot
-    std::vector<double> x0_, y0_;       ///< pre-legalization position (the target)
-    std::vector<double> xs_, ys_;       ///< live position
+    std::vector<std::size_t> mov_;  ///< graph vertex id per movable slot
+    std::vector<double> w_, h_;     ///< per movable slot
+    std::vector<double> x0_, y0_;   ///< pre-legalization position (the target)
+    std::vector<double> xs_, ys_;   ///< live position
     std::unordered_map<std::size_t, std::size_t> slotOf_;
     std::vector<FixedBox> fixed_;
     BBox die_ = {0.0, 0.0, 0.0, 0.0};
@@ -197,12 +205,14 @@ void AbacusLegalizer::Impl::buildRows() {
         if (r.subrows.empty()) {
             continue;
         }
-        std::sort(r.subrows.begin(), r.subrows.end(),
-                  [](const Subrow &a, const Subrow &b) { return a.xlo < b.xlo; });
+        std::sort(r.subrows.begin(), r.subrows.end(), [](const Subrow &a, const Subrow &b) {
+            return a.xlo < b.xlo;
+        });
         rows_.push_back(r);
     }
-    std::sort(rows_.begin(), rows_.end(),
-              [](const RowTrack &a, const RowTrack &b) { return a.y < b.y; });
+    std::sort(rows_.begin(), rows_.end(), [](const RowTrack &a, const RowTrack &b) {
+        return a.y < b.y;
+    });
 
     // Trim each subrow against the fixed cells crossing its row band. A macro
     // that lands inside a .scl subrow splits it into two placeable subrows, so
@@ -289,12 +299,12 @@ double AbacusLegalizer::Impl::place(Subrow &sr, double grid, std::size_t i, RowU
     if (merge < sr.clusters.size()) {
         at = merge;
         Cluster &c = sr.clusters[merge];
-        const auto pos = static_cast<std::size_t>(
-            std::lower_bound(c.members.begin(), c.members.end(), i,
-                             [&](std::size_t p, std::size_t q) {
-                                 return x0_[p] < x0_[q];
-                             }) -
-            c.members.begin());
+        const auto pos =
+            static_cast<std::size_t>(std::lower_bound(c.members.begin(), c.members.end(), i,
+                                                      [&](std::size_t p, std::size_t q) {
+                                                          return x0_[p] < x0_[q];
+                                                      }) -
+                                     c.members.begin());
         undo.merged = true;
         undo.mergeIdx = merge;
         undo.mergePos = pos;
@@ -538,8 +548,9 @@ void AbacusLegalizer::Impl::selfCheck(LegalizeResult &res) const {
     const std::vector<FixedBox> &fixed = fixed_;
     std::vector<std::size_t> byX(mov_.size());
     std::iota(byX.begin(), byX.end(), 0u);
-    std::sort(byX.begin(), byX.end(),
-              [&](std::size_t a, std::size_t b) { return xs_[a] < xs_[b]; });
+    std::sort(byX.begin(), byX.end(), [&](std::size_t a, std::size_t b) {
+        return xs_[a] < xs_[b];
+    });
     std::size_t lo = 0;
     for (const std::size_t i : byX) {
         while (lo < fixed.size() && fixed[lo].x1 <= xs_[i] + eps) {
@@ -558,7 +569,10 @@ void AbacusLegalizer::Impl::selfCheck(LegalizeResult &res) const {
 
 LegalizeResult AbacusLegalizer::Impl::run(const LegalizeParams &params) {
     LegalizeResult res;
-    const auto t0 = Clock::now();
+    // ScopedTimer both times the phase and records it into the shared registry,
+    // so legalization appears in the flow's Timings table next to load, place
+    // and write instead of reporting a private duration.
+    ScopedTimer timer("legalize");
 
     for (std::size_t v = 0; v < graph_.getNumVertices(); ++v) {
         const Vertex &vert = graph_.getVertex(v);
@@ -607,8 +621,9 @@ LegalizeResult AbacusLegalizer::Impl::run(const LegalizeParams &params) {
     // each row's DP sees cells in roughly the order they will sit.
     std::vector<std::size_t> order(mov_.size());
     std::iota(order.begin(), order.end(), 0u);
-    std::stable_sort(order.begin(), order.end(),
-                     [&](std::size_t a, std::size_t b) { return y0_[a] < y0_[b]; });
+    std::stable_sort(order.begin(), order.end(), [&](std::size_t a, std::size_t b) {
+        return y0_[a] < y0_[b];
+    });
 
     std::size_t placed = 0;
     std::size_t commitFail = 0;
@@ -621,7 +636,7 @@ LegalizeResult AbacusLegalizer::Impl::run(const LegalizeParams &params) {
             const RowTrack &R = rows_[r];
             const double dd = (y0_[i] < R.y)              ? (R.y - y0_[i])
                               : (y0_[i] > R.y + R.height) ? (y0_[i] - (R.y + R.height))
-                                                           : 0.0;
+                                                          : 0.0;
             if (dd < bestD) {
                 bestD = dd;
                 home = r;
@@ -656,12 +671,12 @@ LegalizeResult AbacusLegalizer::Impl::run(const LegalizeParams &params) {
             }
             const double dy = (y0_[i] < R.y)              ? (R.y - y0_[i])
                               : (y0_[i] > R.y + R.height) ? (y0_[i] - (R.y + R.height))
-                                                           : 0.0;
+                                                          : 0.0;
             // Horizontal distance to the nearest point of the subrow: zero when
             // the cell's target x already lies inside it.
-            const double dx = (x0_[i] < sr.xlo)  ? (sr.xlo - x0_[i])
+            const double dx = (x0_[i] < sr.xlo)           ? (sr.xlo - x0_[i])
                               : (x0_[i] > sr.xhi - w_[i]) ? (x0_[i] - (sr.xhi - w_[i]))
-                                                           : 0.0;
+                                                          : 0.0;
             // dx and dy are both true lower bounds on this cell's movement: it
             // cannot reach the subrow without moving at least that far.
             const double floorCost = dx * dx + dy * dy;
@@ -734,8 +749,8 @@ LegalizeResult AbacusLegalizer::Impl::run(const LegalizeParams &params) {
         // rolled back and the cell in no cluster at all, so it must be counted
         // rather than assumed placed.
         RowUndo commitUndo;
-        if (!std::isfinite(place(rows_[bestRow].subrows[bestSub], rows_[bestRow].siteWidth, i,
-                                 commitUndo))) {
+        if (!std::isfinite(
+                place(rows_[bestRow].subrows[bestSub], rows_[bestRow].siteWidth, i, commitUndo))) {
             ++commitFail;
             continue;
         }
@@ -780,7 +795,12 @@ LegalizeResult AbacusLegalizer::Impl::run(const LegalizeParams &params) {
         writeFrame(params.plotDir + name, "legal placement", placed, mov_.size());
     }
     selfCheck(res);
-    res.seconds = std::chrono::duration<double>(Clock::now() - t0).count();
+    res.seconds = timer.elapsedSeconds();
+    ktlog.echo(
+        "Abacus: {} cells in {:.3f}s, HPWL {:.6e} -> {:.6e}, squared displacement {:.6e} "
+        "(max {:.1f}), {} unplaced",
+        res.cellsPlaced, res.seconds, res.hpwlBefore, res.hpwlAfter, res.totalSquaredDisplacement,
+        res.maxDisplacement, res.unplaced);
     return res;
 }
 

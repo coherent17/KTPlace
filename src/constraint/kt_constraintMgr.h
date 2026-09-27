@@ -12,7 +12,7 @@
  *    - er0 ( 47200 252000 ) ( 297800 300000 ) ( ... ) + TYPE FENCE ;
  * END REGIONS
  * GROUPS 1 ;
- *    - er0 eh0/*
+ *    - er0 eh0/<star>
  *       + REGION er0 ;
  * END GROUPS
  * @endcode
@@ -122,7 +122,7 @@ public:
     /**
      * @brief Assign every instance whose name starts with @p prefix to @p regionId.
      *
-     * DEF writes group membership as a name pattern ("eh0/*"), so matching is
+     * DEF writes group membership as a name pattern ("eh0/<star>"), so matching is
      * by prefix. Unknown names are ignored, which lets a caller assign groups
      * before or after loading the netlist.
      *

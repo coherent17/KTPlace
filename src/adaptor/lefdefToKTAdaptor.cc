@@ -322,7 +322,7 @@ bool LefDefInputAdapter::parseDefFile(const std::string &filePath) {
             w = mIt->second.widthMicrons * unitsPerMicron;
             h = mIt->second.heightMicrons * unitsPerMicron;
         }
-        db->addCell(cname, w, h, false);
+        (void)db->addCell(cname, w, h, false);
         if (compPlaced) {
             db->setCellPosition(cname, compX, compY);
         }
@@ -347,7 +347,7 @@ bool LefDefInputAdapter::parseDefFile(const std::string &filePath) {
             w = std::max(unitsPerMicron, 1.0);
             h = std::max(unitsPerMicron, 1.0);
         }
-        db->addCell(pname, w, h, true);  // I/O pads are terminals
+        (void)db->addCell(pname, w, h, true);  // I/O pads are terminals
         if (pinPlaced) {
             db->setCellPosition(pname, pinX, pinY);
         }
@@ -420,7 +420,7 @@ bool LefDefInputAdapter::parseDefFile(const std::string &filePath) {
             double ox = x;
             for (const Seg &sg : segs) {
                 if (sg.numX > 0.0) {
-                    db->addSubrow(rowId, ox, sg.numX);
+                    (void)db->addSubrow(rowId, ox, sg.numX);
                     ox += sg.numX * siteW;
                 }
             }
@@ -703,7 +703,7 @@ bool LefDefInputAdapter::parseDefFile(const std::string &filePath) {
             name += "__NET";
         }
         if (!db->hasNet(name)) {
-            db->addNet(name, 1.0);
+            (void)db->addNet(name, 1.0);
         }
         for (const NetPinRef &ref : pins) {
             std::string cell;
@@ -734,7 +734,7 @@ bool LefDefInputAdapter::parseDefFile(const std::string &filePath) {
                 continue;
             }
             try {
-                db->addPin(cell, name, offsetX, offsetY, isInput);
+                (void)db->addPin(cell, name, offsetX, offsetY, isInput);
             } catch (const std::exception &e) {
                 std::cerr << "Warning: DEF net '" << name << "' pin '" << cell
                           << "' skipped: " << e.what() << std::endl;

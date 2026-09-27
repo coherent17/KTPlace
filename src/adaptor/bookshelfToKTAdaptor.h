@@ -90,8 +90,6 @@ private:
     bool parseWtsFile(const std::string &filePath);
 
     // Helper methods for parsing lines
-    bool parseNodeLine(const std::string &line, std::size_t lineNum);
-    bool parsePinLine(const std::string &line, std::size_t &netDegree, std::string &netName);
     bool parsePlacementLine(const std::string &line);
     bool parseSclRow(const std::vector<std::string> &tokens);
 
