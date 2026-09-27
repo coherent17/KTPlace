@@ -107,6 +107,23 @@ struct SimplParams {
     /// alpha = alphaBase * (1 + iteration number).
     double alphaBase = 0.01;
 
+    /// The pseudonet weight law. The paper's Figure 6 labels a pseudonet
+    /// "weight = alpha/Length", and AMF-Placer (ICCAD 2021) states it
+    /// independently: "the weight of a pseudo net is calculated by dividing a
+    /// global factor alpha by the movement distance of the corresponding
+    /// instance in last optimization". That makes the quadratic energy
+    /// w*(x-a)^2 ~ alpha*|x-a|, a constant-force L1 penalty whose restoring force
+    /// does NOT grow with distance, which is what gives the linear solver
+    /// "freedom" to keep optimising wirelength for a cell the legalizer moved
+    /// a long way. ConstantStiffness instead makes it an L2 penalty, whose force
+    /// grows linearly with distance, so distant cells get pinned to the anchor
+    /// and the lower bound is dragged onto the upper bound.
+    enum class PseudonetLaw {
+        InverseLength,      ///< w = alpha / max(distance, floor) -- the paper's reading
+        ConstantStiffness,  ///< w = alpha
+    };
+    PseudonetLaw pseudonetLaw = PseudonetLaw::InverseLength;
+
     // --- convergence --------------------------------------------------------
     /// Relative to the gap at `gapReferenceIter`: stop once the gap falls below
     /// 25% of it and the upper bound has stopped improving, or below 10% of it.

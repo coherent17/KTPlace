@@ -503,6 +503,95 @@ void SimplePlacer::Impl::buildGrid(const SimplParams &P) {
             }
         }
     }
+    // Smallest row site pitch, used as the sliver threshold below.
+    double ri_pitch_floor = degEps_;
+    for (const PlacementDB::RowInfo &r : db_.getRows()) {
+        if (r.pitch() > 0.0) {
+            ri_pitch_floor = std::max(ri_pitch_floor, r.pitch() * r.height);
+        }
+    }
+    // A_a is the available *cell-site* area of a bin, not its geometric area
+    // (Section 4.2). Using binArea overstates it twice over: bins that fall
+    // outside the row band have no sites at all yet were counted as fully
+    // available, and a bin that a macro almost fills was left with a tiny
+    // positive remainder. Those slivers then read as density ~1e15 in the
+    // overfill test, and densityOf() inside the region-growth loop saw an
+    // astronomic density for any rectangle containing one, so it expanded to the
+    // die boundary every time and the legalizer scattered cells over the whole
+    // chip. Measured: 169 such bins on adaptec1.
+    //
+    // So rebuild avail from the rows: the site area of a bin is the y-overlap
+    // with each row times the x-extent of that row's subrows inside the bin,
+    // summed over rows, less macro coverage.
+    {
+        const std::vector<PlacementDB::RowInfo> rowInfo = db_.getRows();
+        std::fill(grid_.avail.begin(), grid_.avail.end(), 0.0);
+        for (const PlacementDB::RowInfo &ri : rowInfo) {
+            if (!(ri.pitch() > 0.0) || !(ri.height > 0.0)) {
+                continue;
+            }
+            const double ry1 = ri.coordinate + ri.height;
+            std::size_t iy0, iy1, dummy;
+            grid_.locate(ri.coordinate, ry1, iy0, iy1);
+            (void)dummy;
+            for (std::size_t iy = iy0; iy <= iy1 && iy < grid_.nby; ++iy) {
+                const double bLo = grid_.binLoY(iy);
+                const double bHi = bLo + grid_.dy;
+                const double yOv = std::max(0.0, std::min(bHi, ry1) - std::max(bLo, ri.coordinate));
+                if (!(yOv > 0.0)) {
+                    continue;
+                }
+                for (const PlacementDB::SubrowInfo &si : ri.subrows) {
+                    if (!(si.xhi(ri.pitch()) > si.xlo())) {
+                        continue;
+                    }
+                    std::size_t ix0, ix1;
+                    grid_.locate(si.xlo(), si.xhi(ri.pitch()), ix0, ix1);
+                    for (std::size_t ix = ix0; ix <= ix1 && ix < grid_.nbx; ++ix) {
+                        const double xLo = grid_.binLoX(ix);
+                        const double xHi = xLo + grid_.dx;
+                        const double xOv = std::max(
+                            0.0, std::min(xHi, si.xhi(ri.pitch())) - std::max(xLo, si.xlo()));
+                        if (!(xOv > 0.0)) {
+                            continue;
+                        }
+                        grid_.avail[grid_.at(ix, iy)] += xOv * yOv;
+                    }
+                }
+            }
+        }
+        // Subtract macro coverage, then clamp: a bin with no room left must be
+        // exactly zero, never a sliver.
+        for (const std::uint32_t fv : fixVertex_) {
+            const Vertex &vert = graph_.getVertex(fv);
+            if (!(vert.width > 0.0) || !(vert.height > 0.0)) {
+                continue;
+            }
+            std::size_t ix0, iy0, ix1, iy1;
+            grid_.locate(vx_[fv], vy_[fv], ix0, iy0);
+            grid_.locate(vx_[fv] + vert.width, vy_[fv] + vert.height, ix1, iy1);
+            for (std::size_t iy = iy0; iy <= iy1 && iy < grid_.nby; ++iy) {
+                for (std::size_t ix = ix0; ix <= ix1 && ix < grid_.nbx; ++ix) {
+                    const double bx = grid_.binLoX(ix);
+                    const double by = grid_.binLoY(iy);
+                    const double ox = std::max(
+                        0.0, std::min(bx + grid_.dx, vx_[fv] + vert.width) - std::max(bx, vx_[fv]));
+                    const double oy = std::max(0.0, std::min(by + grid_.dy, vy_[fv] + vert.height) -
+                                                        std::max(by, vy_[fv]));
+                    grid_.avail[grid_.at(ix, iy)] =
+                        std::max(grid_.avail[grid_.at(ix, iy)] - ox * oy, 0.0);
+                }
+            }
+        }
+        // A sliver below a thousandth of a site cannot hold anything; treating it
+        // as unavailable keeps the density ratios bounded.
+        const double sliver = 1e-3 * ri_pitch_floor;
+        for (double &a : grid_.avail) {
+            if (a < sliver) {
+                a = (a > 0.0) ? 0.0 : a;
+            }
+        }
+    }
     grid_.totalAvail = 0.0;
     for (const double a : grid_.avail) {
         grid_.totalAvail += a;
@@ -662,9 +751,19 @@ void SimplePlacer::Impl::buildB2B(const std::vector<double> &px, const std::vect
         // published schedule is already calibrated against.
         if (useAnchors) {
             for (std::size_t i = 0; i < numMovable_; ++i) {
-                const double w = alpha;
+                const double anchor = (dim == 0) ? anchorX_[i] : anchorY_[i];
+                double w = alpha;
+                if (par_.pseudonetLaw == SimplParams::PseudonetLaw::InverseLength) {
+                    // alpha / distance, with the same length floor as a B2B edge.
+                    // The floor matters most exactly where the paper's initial
+                    // placement puts everything: all cells start near the centre,
+                    // so distance is often ~0 and the weight is otherwise
+                    // unbounded.
+                    const double d = std::max(std::abs(px[i] - anchor), lenFloor[dim]);
+                    w = alpha / d;
+                }
                 diag[i] += w;
-                rhs[i] += w * ((dim == 0) ? anchorX_[i] : anchorY_[i]);
+                rhs[i] += w * anchor;
                 if (dim == 0) {
                     anchorDiagSum += w;
                 }
@@ -698,7 +797,10 @@ void SimplePlacer::Impl::buildB2B(const std::vector<double> &px, const std::vect
     // How much of the system the pseudonets actually control.
     double wlDiag = 0.0;
     for (std::size_t i = 0; i < numMovable_; ++i) {
-        wlDiag += Ax_.diag[i] - (useAnchors ? alpha : 0.0);
+        wlDiag += Ax_.diag[i];
+        if (useAnchors && par_.pseudonetLaw == SimplParams::PseudonetLaw::ConstantStiffness) {
+            wlDiag -= alpha;
+        }
     }
     if (useAnchors) {
         ktlog.trace(
@@ -1337,7 +1439,8 @@ void SimplePlacer::Impl::lookAheadLegalize() {
                 clusterArea += grid_.occ[grid_.at(ix, iy)];
             }
         }
-        if (totalCellArea_ > 0.0 && clusterArea >= par_.globalClusterFrac * totalCellArea_) {
+        if (par_.globalClusterFrac > 0.0 && totalCellArea_ > 0.0 &&
+            clusterArea >= par_.globalClusterFrac * totalCellArea_) {
             std::size_t ux0 = grid_.nbx, uy0 = grid_.nby, ux1 = 0, uy1 = 0;
             for (std::size_t k = 0; k < grid_.avail.size(); ++k) {
                 if (grid_.avail[k] <= 0.0) {
@@ -1636,6 +1739,19 @@ SimplResult SimplePlacer::Impl::run(const SimplParams &P, const std::string &plo
     if (const char *e = std::getenv("KTPLACE_SIMPL_DENSITY")) {
         par_.densityLimit = std::atof(e);
     }
+    if (const char *e = std::getenv("KTPLACE_SIMPL_GLOBAL_CLUSTER")) {
+        par_.globalClusterFrac = std::atof(e);
+    }
+    if (const char *e = std::getenv("KTPLACE_SIMPL_PSEUDONET")) {
+        const std::string v = e;
+        if (v == "inv") {
+            par_.pseudonetLaw = SimplParams::PseudonetLaw::InverseLength;
+        } else if (v == "const") {
+            par_.pseudonetLaw = SimplParams::PseudonetLaw::ConstantStiffness;
+        } else {
+            ktlog.fatal("KTPLACE_SIMPL_PSEUDONET must be 'inv' or 'const' (got '{}')", v);
+        }
+    }
     if (const char *e = std::getenv("KTPLACE_SIMPL_START")) {
         const std::string v = e;
         if (v == "input") {
@@ -1773,6 +1889,7 @@ SimplResult SimplePlacer::Impl::run(const SimplParams &P, const std::string &plo
         for (int r = 0; r < rounds; ++r) {
             binCells(lx, ly);
             const double ovfBefore = scaledOverflow();
+            (void)ovfBefore;
             blocksProcessed_ = 0;
             deepestLevel_ = 0;
             maxBlockCells_ = 0;
@@ -1788,10 +1905,82 @@ SimplResult SimplePlacer::Impl::run(const SimplParams &P, const std::string &plo
             binCells(lx, ly);
             const double ovfAfter = scaledOverflow();
             describe(lx, ly, "LAL-only round");
+            // How far did the LAL actually move things, and how full is the
+            // result? If the answer is "everything moved a lot and the die is
+            // now uniformly ~100% dense", the recursion is over-spreading: at
+            // 53.5% utilisation the die can never be full.
+            double rms = 0.0, maxd = 0.0;
+            double lo = 1e300, hi = -1e300, loY = 1e300, hiY = -1e300;
+            for (std::size_t i = 0; i < numMovable_; ++i) {
+                const double dx = lx[i] - lower[i];
+                const double dy = ly[i] - lowerY[i];
+                rms += dx * dx + dy * dy;
+                maxd = std::max(maxd, std::hypot(dx, dy));
+                lo = std::min(lo, lx[i]);
+                hi = std::max(hi, lx[i]);
+                loY = std::min(loY, ly[i]);
+                hiY = std::max(hiY, ly[i]);
+            }
+            rms = std::sqrt(rms / std::max<std::size_t>(numMovable_, 1));
+            double densSum = 0.0;
+            std::size_t densN = 0;
+            for (std::size_t k = 0; k < grid_.avail.size(); ++k) {
+                if (grid_.avail[k] <= 0.0) {
+                    continue;
+                }
+                densSum += grid_.occ[k] / grid_.avail[k];
+                ++densN;
+            }
+            // How concentrated is the input? If the lower bound is collapsed
+            // into a tiny area, the legalizer has no choice but to spread it by
+            // sqrt(peak density), and that factor is paid straight back in HPWL.
+            {
+                double dlo = 1e300, dhi = -1e300, dloY = 1e300, dhiY = -1e300;
+                for (std::size_t i = 0; i < numMovable_; ++i) {
+                    dlo = std::min(dlo, lx[i]);
+                    dhi = std::max(dhi, lx[i]);
+                    dloY = std::min(dloY, ly[i]);
+                    dhiY = std::max(dhiY, ly[i]);
+                }
+                double peak = 0.0, mean = 0.0;
+                std::size_t nb = 0;
+                for (std::size_t k = 0; k < grid_.avail.size(); ++k) {
+                    if (grid_.avail[k] <= 0.0) {
+                        continue;
+                    }
+                    const double dn = grid_.occ[k] / grid_.avail[k];
+                    peak = std::max(peak, dn);
+                    mean += dn;
+                    ++nb;
+                }
+                double aMin = 1e300, aMax = -1e300, oMax = -1e300, oSum = 0.0;
+                std::size_t tiny = 0;
+                for (std::size_t k = 0; k < grid_.avail.size(); ++k) {
+                    aMin = std::min(aMin, grid_.avail[k]);
+                    aMax = std::max(aMax, grid_.avail[k]);
+                    oMax = std::max(oMax, grid_.occ[k]);
+                    oSum += grid_.occ[k];
+                    if (grid_.avail[k] > 0.0 && grid_.avail[k] < 1e-6 * aMax) {
+                        ++tiny;
+                    }
+                }
+                ktlog.echo(
+                    "    density field: avail min {:.6g} max {:.6g} ({} bins below 1e-6 of "
+                    "max); occ max {:.6g} sum {:.6g} (cell area {:.6g})",
+                    aMin, aMax, tiny, oMax, oSum, grid_.totalCellArea);
+                const double spanX = dhi - dlo, spanY = dhiY - dloY;
+                ktlog.echo(
+                    "    input: bbox x[{:.0f},{:.0f}] y[{:.0f},{:.0f}] = {:.2f}x{:.2f} of "
+                    "die; peak bin density {:.2f}, mean {:.3f}, needed linear spread "
+                    "{:.2f}x",
+                    dlo, dhi, dloY, dhiY, spanX / dieW_, spanY / dieH_, peak,
+                    nb ? mean / static_cast<double>(nb) : 0.0, std::sqrt(peak));
+            }
             ktlog.echo(
-                "  LAL-only round {}: overflow {:.4f} -> {:.4f}   hpwl {:.6e}   "
-                "({} blocks)",
-                r, ovfBefore, ovfAfter, hpwl(lx, ly), blocksProcessed_);
+                "    moved: rms {:.1f} max {:.1f} (die {:.0f}x{:.0f}); result bbox "
+                "x[{:.0f},{:.0f}] y[{:.0f},{:.0f}]; mean bin density {:.3f}",
+                rms, maxd, dieW_, dieH_, lo, hi, loY, hiY,
+                densN ? densSum / static_cast<double>(densN) : 0.0);
             prev = ovfAfter;
         }
         static_cast<void>(prev);
