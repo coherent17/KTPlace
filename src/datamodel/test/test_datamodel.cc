@@ -119,9 +119,24 @@ BOOST_AUTO_TEST_SUITE(PlacementDB_rows_and_die)
 BOOST_AUTO_TEST_CASE(counts_rows) {
     PlacementDB db;
     BOOST_TEST(db.getNumRows() == 0);
-    db.addRow(0.0, 10.0, 1.0, 1.0, 100.0);
-    db.addRow(10.0, 10.0, 1.0, 1.0, 100.0);
+    // addRow takes (coordinate, height, sitewidth, sitespacing); the placeable
+    // sites come from addSubrow, because a row with no subrow is not placeable.
+    const std::size_t r0 = db.addRow(0.0, 10.0, 1.0, 1.0);
+    const std::size_t r1 = db.addRow(10.0, 10.0, 1.0, 1.0);
+    db.addSubrow(r0, 0.0, 100.0);
+    db.addSubrow(r1, 0.0, 100.0);
     BOOST_TEST(db.getNumRows() == 2);
+
+    // The row geometry the legalizer and detailed placer depend on.
+    const std::vector<PlacementDB::RowInfo> rows = db.getRows();
+    BOOST_REQUIRE(rows.size() == 2);
+    BOOST_TEST(rows[0].coordinate == 0.0);
+    BOOST_TEST(rows[0].height == 10.0);
+    BOOST_TEST(rows[0].pitch() == 1.0);
+    BOOST_REQUIRE(rows[0].subrows.size() == 1);
+    BOOST_TEST(rows[0].subrows[0].xlo() == 0.0);
+    BOOST_TEST(rows[0].subrows[0].xhi(1.0) == 100.0);
+    BOOST_TEST(rows[1].coordinate == 10.0);
 }
 
 BOOST_AUTO_TEST_CASE(round_trips_die_area) {
@@ -177,7 +192,8 @@ BOOST_AUTO_TEST_CASE(PlacementDB_clear_resets_everything) {
     db.addCell("c0", 1.0, 1.0);
     db.addNet("n0");
     db.addPin("c0", "n0", 0.0, 0.0, true);
-    db.addRow(0.0, 1.0, 1.0, 1.0, 10.0);
+    const std::size_t row = db.addRow(0.0, 1.0, 1.0, 1.0);
+    db.addSubrow(row, 0.0, 10.0);
 
     db.clear();
 
@@ -185,6 +201,7 @@ BOOST_AUTO_TEST_CASE(PlacementDB_clear_resets_everything) {
     BOOST_TEST(db.getNumNets() == 0);
     BOOST_TEST(db.getNumPins() == 0);
     BOOST_TEST(db.getNumRows() == 0);
+    BOOST_TEST(db.getRows().empty());
     const auto [cells, nets] = db.getStats();
     BOOST_TEST(cells == 0);
     BOOST_TEST(nets == 0);

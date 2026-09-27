@@ -259,6 +259,14 @@ bool FlowMgr::Impl::runPlacement(const std::string &algorithm, const std::string
         if (const char *e = std::getenv("KTPLACE_SIMPL_TRACE_EVERY")) {
             params.traceEvery = static_cast<std::size_t>(std::atoll(e));
         }
+        // A frame every N conjugate-gradient iterations inside each solve. Off by
+        // default: each frame is ~4 MB on a 210k-cell design.
+        if (const char *e = std::getenv("KTPLACE_SIMPL_CG_EVERY")) {
+            params.cgEvery = static_cast<std::size_t>(std::atoll(e));
+        }
+        if (const char *e = std::getenv("KTPLACE_SIMPL_DENSITY_MAPS")) {
+            params.densityMaps = std::atoll(e) != 0;
+        }
         const SimplResult res = placer.place(params, plotDir, snapshotDir);
         ktReportTable summary("Solver results");
         summary.setHeaders({"metric", "initial", "final"});
@@ -277,6 +285,7 @@ bool FlowMgr::Impl::runPlacement(const std::string &algorithm, const std::string
         summary.addRow({"bound gap", "", fmt::format("{:.6}", res.gap)});
         summary.addRow({"scaled overflow (lower)", "", fmt::format("{:.6}", res.overflowLower)});
         summary.addRow({"scaled overflow (final)", "", fmt::format("{:.6}", res.overflowFinal)});
+        summary.addRow({"SVG frames written", "", fmt::format("{}", res.framesWritten)});
         summary.emit();
 
         // Global placement leaves the cells overlapping and off-row. Abacus

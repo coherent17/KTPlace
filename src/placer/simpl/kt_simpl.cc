@@ -165,7 +165,7 @@ private:
     // --- net model and solver ----------------------------------------------
     void buildB2B(const std::vector<double> &px, const std::vector<double> &py, double alpha,
                   bool useAnchors);
-    void solve();
+    void solve(const std::string &tag, bool allowFrames);
     double hpwl(const std::vector<double> &px, const std::vector<double> &py) const;
 
     // --- density -----------------------------------------------------------
@@ -190,6 +190,22 @@ private:
     void writeFrame(const std::string &path, const std::vector<double> &px,
                     const std::vector<double> &py, double hp, double ovf, const std::string &note,
                     std::size_t step, std::size_t total);
+    /// One frame from inside the CG loop: the current iterate of one axis
+    /// against the other axis' last value. `tag` identifies the outer context
+    /// (e.g. "init3" or "g07"), `dim` is 'x' or 'y'.
+    void writeCgFrame(const std::string &tag, char dim, std::size_t cgIter, double resid);
+    /// Bin-density heat map: one rectangle per bin coloured by occ/avail, so a
+    /// glance shows whether the placement is spreading or still a blob.
+    void writeDensityMap(const std::string &path, const std::vector<double> &px,
+                         const std::vector<double> &py, const std::string &note);
+    /// Bin a placement into a throwaway occupancy array, without touching the
+    /// live bin index the legalizer maintains. Returns the scaled overflow.
+    double binLocal(const std::vector<double> &px, const std::vector<double> &py,
+                    std::vector<double> &occ) const;
+    /// One trace line summarising the density field: mean/median/max bin
+    /// utilisation, share of the die near capacity, empty and overfull bins.
+    void densityStats(const std::vector<double> &px, const std::vector<double> &py,
+                      const char *tag) const;
 
     PlacementDB &db_;
     Graph &graph_;
@@ -276,6 +292,12 @@ private:
     std::size_t blocksProcessed_ = 0;
     std::size_t deepestLevel_ = 0;
     std::size_t maxBlockCells_ = 0;
+
+    /// Where placement frames go (<plotDir>/simpl, or the snapshot directory
+    /// when no plot directory was given). Empty disables all frames.
+    std::string frameDir_;
+    /// Outer-loop context for the CG frames of the solve currently running.
+    std::string cgTag_;
 };
 
 // ---------------------------------------------------------------------------
@@ -343,6 +365,44 @@ void SimplePlacer::Impl::collect() {
     res_.numFixed = fixVertex_.size();
     res_.nets = netCount;
     nets_ = std::move(nets);
+
+    // Net-degree shape and pin totals. A design that is nearly all 2-pin nets
+    // never exercises the B2B extreme-to-all expansion, so a B2B bug would hide
+    // there; adaptec1 is 52% 2-pin and 46% higher degree, which does exercise it.
+    // nets_ is indexed by VERTEX id, so it must be walked with the graph's
+    // vertex types: the cell entries are empty and would otherwise be counted as
+    // one-pin nets.
+    {
+        std::size_t twoPin = 0, multiPin = 0, singlePin = 0, pins = 0, maxDeg = 0;
+        double weightSum = 0.0, weightMin = std::numeric_limits<double>::max();
+        double weightMax = -std::numeric_limits<double>::max();
+        for (std::size_t v = 0; v < nv_; ++v) {
+            if (graph_.getVertex(v).type != VertexType::Net) {
+                continue;
+            }
+            const NetInfo &ni = nets_[v];
+            const std::size_t k = ni.cell.size();
+            pins += k;
+            maxDeg = std::max(maxDeg, k);
+            weightSum += ni.weight;
+            weightMin = std::min(weightMin, ni.weight);
+            weightMax = std::max(weightMax, ni.weight);
+            if (k < 2) {
+                ++singlePin;
+            } else if (k == 2) {
+                ++twoPin;
+            } else {
+                ++multiPin;
+            }
+        }
+        const double invN = 1.0 / static_cast<double>(std::max(netCount, std::size_t{1}));
+        ktlog.trace(
+            "nets: {} total, {} single-pin, {} two-pin ({:.1f}%), {} multi-pin ({:.1f}%), "
+            "max degree {}, {:.1f} pins/net; weight mean {:.4g} range [{:.4g},{:.4g}]",
+            netCount, singlePin, twoPin, 100.0 * static_cast<double>(twoPin) * invN, multiPin,
+            100.0 * static_cast<double>(multiPin) * invN, maxDeg, static_cast<double>(pins) * invN,
+            weightSum * invN, weightMin, weightMax);
+    }
 
     Ax_.n = numMovable_;
     Ay_.n = numMovable_;
@@ -654,6 +714,7 @@ void SimplePlacer::Impl::buildB2B(const std::vector<double> &px, const std::vect
     };
 
     double anchorDiagSum = 0.0;
+    std::size_t nnzX = 0, nnzY = 0;
     std::vector<double> pinCoord;
 
     for (int dim = 0; dim < 2; ++dim) {
@@ -739,16 +800,16 @@ void SimplePlacer::Impl::buildB2B(const std::vector<double> &px, const std::vect
         // Weight = alpha, i.e. a constant-stiffness spring, NOT alpha/length.
         // Figure 6 labels the pseudonet "weight = alpha/Length", but reading
         // Length as the raw cell-to-anchor distance makes the scheme unusable, and
-        // the arithmetic is unambiguous. Measured on adaptec1: the per-cell
-        // interconnect diagonal is 0.386, and a lower bound sits ~9000 units from
-        // its legal anchor, so
-        //     w = alpha/(d + eps)  ->  anchor share 1e-4 at iteration 35
-        //     w = alpha            ->  anchor share 1.0  at iteration 38
-        // A 1e-4 share cannot move a single cell, whereas alpha reaching parity at
-        // ~38 lands right on the 26-35 global-placement iterations the paper
-        // reports. So the figure's Length must be a normalised length of order 1,
-        // in which case alpha/Length reduces to alpha up to a constant the
-        // published schedule is already calibrated against.
+        // the arithmetic is unambiguous. Measured on adaptec1 (see the per-cell
+        // "pseudonet share" trace): the per-cell interconnect diagonal is ~0.16,
+        // while a lower bound sits ~1000 units from its legal anchor, so
+        //     w = alpha/(d + eps)  ->  anchor share ~1e-4, never moves a cell
+        //     w = alpha            ->  anchor share reaches parity around
+        //                             iteration 15, inside the paper's 26-35
+        //                             global-placement iterations.
+        // So the figure's Length must be a normalised length of order 1, in which
+        // case alpha/Length reduces to alpha up to a constant the published
+        // schedule is already calibrated against.
         if (useAnchors) {
             for (std::size_t i = 0; i < numMovable_; ++i) {
                 const double anchor = (dim == 0) ? anchorX_[i] : anchorY_[i];
@@ -792,6 +853,11 @@ void SimplePlacer::Impl::buildB2B(const std::vector<double> &px, const std::vect
         for (std::size_t i = 0; i < numMovable_; ++i) {
             A.diag[i] = std::max(diag[i], 1e-12);
         }
+        if (dim == 0) {
+            nnzX = A.rowPtr[numMovable_];
+        } else {
+            nnzY = A.rowPtr[numMovable_];
+        }
     }
 
     // How much of the system the pseudonets actually control.
@@ -802,20 +868,34 @@ void SimplePlacer::Impl::buildB2B(const std::vector<double> &px, const std::vect
             wlDiag -= alpha;
         }
     }
+    ktlog.trace("  b2b: {} x-edges, {} y-edges ({:.2f}/{:.2f} per cell)", nnzX, nnzY,
+                static_cast<double>(nnzX) / std::max<std::size_t>(numMovable_, 1),
+                static_cast<double>(nnzY) / std::max<std::size_t>(numMovable_, 1));
     if (useAnchors) {
+        const double perCell = 1.0 / std::max<std::size_t>(numMovable_, 1);
         ktlog.trace(
             "  pseudonet share: anchor diagonal {:.4g} vs interconnect diagonal {:.4g} "
-            "= {:.3g} (alpha {:.4g})",
-            anchorDiagSum, wlDiag, anchorDiagSum / std::max(wlDiag, 1e-300), alpha);
+            "= {:.3g} (alpha {:.4g}); per cell {:.4g} vs {:.4g}",
+            anchorDiagSum, wlDiag, anchorDiagSum / std::max(wlDiag, 1e-300), alpha,
+            anchorDiagSum * perCell, wlDiag * perCell);
     }
 }
 
-void SimplePlacer::Impl::solve() {
+void SimplePlacer::Impl::solve(const std::string &tag, bool allowFrames) {
     // Jacobi-preconditioned CG, run once per axis. The x and y systems are
     // different matrices with different right-hand sides, so they are solved
     // separately; the B2B model is separable, which is why this is two clean
     // SPD systems rather than one coupled 2n-by-2n one.
-    const auto one = [&](const CsrMatrix &A, const std::vector<double> &b, std::vector<double> &x) {
+    //
+    // `tag` identifies the outer context ("init3", "g07", ...) for the
+    // per-CG-iteration frames. A frame shows the axis currently being solved
+    // against the other axis' current value -- the honest view of CG
+    // convergence. Frames are disabled for the initial-placement solves: that
+    // phase is a monotone descent with nothing to diagnose, and emitting frames
+    // for it would bury the global loop under thousands of files.
+    cgTag_ = tag;
+    const auto one = [&](const CsrMatrix &A, const std::vector<double> &b, std::vector<double> &x,
+                         char dim) {
         const std::size_t n = A.n;
         std::vector<double> r(n), z(n), p(n), Ap(n);
         std::vector<double> invDiag(n);
@@ -830,7 +910,7 @@ void SimplePlacer::Impl::solve() {
         }
         const double bNorm = std::sqrt(bNorm2);
         if (!(bNorm > 0.0)) {
-            return std::make_pair(0u, 0.0);
+            return std::make_tuple(0u, 0u, 0.0);
         }
         double rho = 0.0;
         for (std::size_t i = 0; i < n; ++i) {
@@ -844,6 +924,7 @@ void SimplePlacer::Impl::solve() {
         }
         double resid = std::sqrt(rs) / bNorm;
         std::size_t iters = 0;
+        std::size_t itersToTol = 0;
         for (std::size_t it = 0; it < par_.cgMaxIter && resid > par_.cgTol; ++it) {
             iters = it + 1;
             A.matvec(p, Ap);
@@ -862,6 +943,13 @@ void SimplePlacer::Impl::solve() {
                 rs += r[i] * r[i];
             }
             resid = std::sqrt(rs) / bNorm;
+            if (itersToTol == 0 && resid <= 1e-3) {
+                itersToTol = iters;
+            }
+            if (allowFrames && par_.cgEvery > 0 && !frameDir_.empty() &&
+                (iters % par_.cgEvery) == 0) {
+                writeCgFrame(tag, dim, iters, resid);
+            }
             double rhoNew = 0.0;
             for (std::size_t i = 0; i < n; ++i) {
                 z[i] = invDiag[i] * r[i];
@@ -876,13 +964,17 @@ void SimplePlacer::Impl::solve() {
             }
             rho = rhoNew;
         }
-        return std::make_pair(static_cast<unsigned>(iters), resid);
+        return std::make_tuple(static_cast<unsigned>(iters), static_cast<unsigned>(itersToTol),
+                               resid);
     };
 
-    const auto rx = one(Ax_, rhsX_, solX_);
-    const auto ry = one(Ay_, rhsY_, solY_);
-    ktlog.trace("  cg: x {} iteration(s) residual {:.3e}, y {} iteration(s) residual {:.3e}",
-                rx.first, rx.second, ry.first, ry.second);
+    const auto rx = one(Ax_, rhsX_, solX_, 'x');
+    const auto ry = one(Ay_, rhsY_, solY_, 'y');
+    ktlog.trace(
+        "  cg: x {} iteration(s) (1e-3 at {}) residual {:.3e}, y {} iteration(s) (1e-3 at {}) "
+        "residual {:.3e}",
+        std::get<0>(rx), std::get<1>(rx), std::get<2>(rx), std::get<0>(ry), std::get<1>(ry),
+        std::get<2>(ry));
 }
 
 double SimplePlacer::Impl::hpwl(const std::vector<double> &px,
@@ -1716,6 +1808,218 @@ void SimplePlacer::Impl::writeFrame(const std::string &path, const std::vector<d
     // scale, so iteration N and N+1 are comparable instead of being auto-zoomed.
     writeFrameSvg(path, graph_, fx, fy, die_, step, total, hp, res_.hpwlSeed, ovf, note, nullptr,
                   /*fixedView=*/true);
+    ++res_.framesWritten;
+}
+
+namespace {
+
+/// Zero-padded step number, so a directory listing sorts in run order instead of
+/// alphabetically. Frames are meant to be flipped through in sequence, and
+/// "it9" sorting after "it10" breaks that.
+std::string frameStep(std::size_t n) {
+    std::string s = std::to_string(n);
+    while (s.size() < 4) {
+        s.insert(s.begin(), '0');
+    }
+    return s;
+}
+
+}  // namespace
+
+void SimplePlacer::Impl::writeCgFrame(const std::string &tag, char dim, std::size_t cgIter,
+                                      double resid) {
+    // The axis under solve is plotted against the other axis' current iterate.
+    // That is the honest picture of a separable solve: x is being refined while
+    // y is still wherever the previous solve left it.
+    std::vector<float> fx(nv_), fy(nv_);
+    for (std::size_t v = 0; v < nv_; ++v) {
+        fx[v] = static_cast<float>(vx_[v]);
+        fy[v] = static_cast<float>(vy_[v]);
+    }
+    for (std::size_t i = 0; i < numMovable_; ++i) {
+        fx[movVertex_[i]] = static_cast<float>(solX_[i]);
+        fy[movVertex_[i]] = static_cast<float>(solY_[i]);
+    }
+    // A CG iterate is not a placement worth an HPWL/overflow label, so those are
+    // passed as 0 and the residual carries the meaning in the note.
+    const std::string path =
+        frameDir_ + "/simpl_cg_" + tag + "_" + dim + "_" + frameStep(cgIter) + ".svg";
+    writeFrameSvg(
+        path, graph_, fx, fy, die_, cgIter, par_.cgMaxIter, 0.0, res_.hpwlSeed, 0.0,
+        fmt::format("CG {} iterate {} ({} axis), residual {:.3e}", tag, cgIter, dim, resid),
+        nullptr, /*fixedView=*/true);
+    ++res_.framesWritten;
+}
+
+double SimplePlacer::Impl::binLocal(const std::vector<double> &px, const std::vector<double> &py,
+                                    std::vector<double> &occ) const {
+    occ.assign(grid_.occ.size(), 0.0);
+    for (std::size_t i = 0; i < numMovable_; ++i) {
+        std::size_t ix, iy;
+        grid_.locate(px[i], py[i], ix, iy);
+        occ[grid_.at(ix, iy)] += area_[i];
+    }
+    double ex = 0.0;
+    for (std::size_t k = 0; k < occ.size(); ++k) {
+        const double cap = g_ * grid_.avail[k];
+        if (occ[k] > cap) {
+            ex += occ[k] - cap;
+        }
+    }
+    return (grid_.totalAvail > 0.0) ? ex / grid_.totalAvail : 0.0;
+}
+
+void SimplePlacer::Impl::writeDensityMap(const std::string &path, const std::vector<double> &px,
+                                         const std::vector<double> &py, const std::string &note) {
+    std::vector<double> occ;
+    const double ovf = binLocal(px, py, occ);
+
+    // One rectangle per bin, coloured by occ/avail. This is the view that answers
+    // "is the lower bound actually spreading": a cell scatter plot of 210k cells
+    // still looks like a blob at this scale, whereas the density field is
+    // readable bin by bin.
+    constexpr int W = 900, H = 620, PAD = 52;
+    std::ofstream out(path);
+    if (!out.is_open()) {
+        return;
+    }
+    out << "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"" << W << "\" height=\"" << H
+        << "\">\n<rect width=\"100%\" height=\"100%\" fill=\"#101418\"/>\n";
+    out << "<title>" << note << "</title>\n";
+    const double sx = (W - 2 * PAD) / dieW_;
+    const double sy = (H - 2 * PAD) / dieH_;
+    const auto toX = [&](double x) {
+        return PAD + (x - die_[0]) * sx;
+    };
+    const auto toY = [&](double y) {
+        return H - PAD - (y - die_[1]) * sy;
+    };
+    const double bw = std::max(1.0, grid_.dx * sx);
+    const double bh = std::max(1.0, grid_.dy * sy);
+
+    for (std::size_t iy = 0; iy < grid_.nby; ++iy) {
+        for (std::size_t ix = 0; ix < grid_.nbx; ++ix) {
+            const std::size_t k = grid_.at(ix, iy);
+            if (!(grid_.avail[k] > 0.0)) {
+                continue;  // no sites at all: not part of the density problem
+            }
+            const double u = occ[k] / grid_.avail[k];
+            // Blue (empty) -> green (at capacity) -> red (overfull). Piecewise
+            // linear in u, so the eye reads a fill level directly.
+            int r, g, b;
+            if (u > 1.0) {
+                const double t = std::min((u - 1.0) / 2.0, 1.0);
+                r = 255;
+                g = static_cast<int>(90.0 * (1.0 - t));
+                b = static_cast<int>(90.0 * (1.0 - t));
+            } else {
+                r = static_cast<int>(40.0 + 90.0 * u);
+                g = static_cast<int>(90.0 + 150.0 * u);
+                b = static_cast<int>(190.0 * (1.0 - u));
+            }
+            out << "<rect x=\"" << toX(grid_.binLoX(ix)) << "\" y=\""
+                << toY(grid_.binLoY(iy) + grid_.dy) << "\" width=\"" << bw << "\" height=\"" << bh
+                << "\" fill=\"rgb(" << r << ',' << g << ',' << b << ")\"/>\n";
+        }
+    }
+    // Fixed macros, outlined, so blockage is distinguishable from legal space.
+    for (const std::uint32_t fv : fixVertex_) {
+        const Vertex &vert = graph_.getVertex(fv);
+        if (!(vert.width > 0.0) || !(vert.height > 0.0)) {
+            continue;
+        }
+        out << "<rect x=\"" << toX(vx_[fv]) << "\" y=\"" << toY(vy_[fv] + vert.height)
+            << "\" width=\"" << (vert.width * sx) << "\" height=\"" << (vert.height * sy)
+            << "\" fill=\"#bdbdbd\" fill-opacity=\"0.45\" stroke=\"#bdbdbd\" "
+               "stroke-width=\"0.5\"/>\n";
+    }
+    out << "<text x=\"" << PAD
+        << "\" y=\"24\" fill=\"#e0e0e0\" font-family=\"monospace\" "
+           "font-size=\"14\">bin density "
+        << note << "  ovf " << fmt::format("{:.4f}", ovf) << "</text>\n";
+    // Legend.
+    constexpr int kLegend = 12, kLegendW = 46;
+    const int lx0 = PAD, ly0 = H - PAD + 10;
+    for (int i = 0; i < kLegend; ++i) {
+        const double u = 2.0 * static_cast<double>(i) / (kLegend - 1);  // 0 .. 2
+        int r, g, b;
+        if (u > 1.0) {
+            const double t = std::min((u - 1.0) / 2.0, 1.0);
+            r = 255;
+            g = static_cast<int>(90.0 * (1.0 - t));
+            b = static_cast<int>(90.0 * (1.0 - t));
+        } else {
+            r = static_cast<int>(40.0 + 90.0 * u);
+            g = static_cast<int>(90.0 + 150.0 * u);
+            b = static_cast<int>(190.0 * (1.0 - u));
+        }
+        out << "<rect x=\"" << (lx0 + i * kLegendW) << "\" y=\"" << ly0 << "\" width=\"" << kLegendW
+            << "\" height=\"9\" fill=\"rgb(" << r << ',' << g << ',' << b << ")\"/>\n";
+    }
+    out << "<text x=\"" << lx0 << "\" y=\"" << (ly0 + 22)
+        << "\" fill=\"#9e9e9e\" "
+           "font-family=\"monospace\" font-size=\"10\">utilisation 0 -> 1 -> 2 (red = "
+           "overfull)</text>\n";
+    out << "</svg>\n";
+    ++res_.framesWritten;
+}
+
+void SimplePlacer::Impl::densityStats(const std::vector<double> &px, const std::vector<double> &py,
+                                      const char *tag) const {
+    std::vector<double> occ;
+    const double ovf = binLocal(px, py, occ);
+    std::vector<double> util;
+    util.reserve(occ.size());
+    double worst = 0.0;
+    std::size_t worstBin = 0;
+    for (std::size_t k = 0; k < occ.size(); ++k) {
+        if (!(grid_.avail[k] > 0.0)) {
+            continue;
+        }
+        const double u = occ[k] / grid_.avail[k];
+        util.push_back(u);
+        if (u > worst) {
+            worst = u;
+            worstBin = k;
+        }
+    }
+    if (util.empty()) {
+        return;
+    }
+    const auto q = [&](double p) {
+        std::size_t i = static_cast<std::size_t>(p * static_cast<double>(util.size()));
+        std::nth_element(util.begin(), util.begin() + static_cast<long>(i), util.end());
+        return util[i];
+    };
+    double mean = 0.0;
+    for (const double u : util) {
+        mean += u;
+    }
+    mean /= static_cast<double>(util.size());
+    std::size_t empty = 0, nearCap = 0, overfull = 0;
+    for (std::size_t k = 0; k < occ.size(); ++k) {
+        if (!(grid_.avail[k] > 0.0)) {
+            continue;
+        }
+        if (occ[k] <= 0.0) {
+            ++empty;
+        }
+        const double u = occ[k] / grid_.avail[k];
+        if (u > 1.0) {
+            ++overfull;
+        }
+        if (u >= 0.8 && u <= 1.0) {
+            ++nearCap;
+        }
+    }
+    // The single worst bin is worth naming precisely: a utilisation of 1e15 can
+    // only mean a near-zero available-area bin that still took cells, which is a
+    // different defect from an overfull region.
+    const double worstAvail = grid_.avail[worstBin];
+    ktlog.trace(
+        "  density[{}]: ovf {:.4f}, utilisation mean {:.3f} median {:.3f} p99 {:.3f} max {:.4g}; "
+        "{} of {} usable bins at 0.8-1.0 ({} overfull, {} empty); worst bin avail {:.4g}",
+        tag, ovf, mean, q(0.5), q(0.99), worst, nearCap, util.size(), overfull, empty, worstAvail);
 }
 
 // ---------------------------------------------------------------------------
@@ -1764,7 +2068,31 @@ SimplResult SimplePlacer::Impl::run(const SimplParams &P, const std::string &plo
             ktlog.fatal("KTPLACE_SIMPL_START must be one of: input, auto, uniform (got '{}')", v);
         }
     }
+    // Frame cadence. Per-CG-iteration frames are ~4 MB each on a 210k-cell
+    // design, so cgEvery defaults to 0 (off) and is meant for short debug runs.
+    if (const char *e = std::getenv("KTPLACE_SIMPL_CG_EVERY")) {
+        par_.cgEvery = static_cast<std::size_t>(std::max(std::atoi(e), 0));
+    }
+    if (const char *e = std::getenv("KTPLACE_SIMPL_DENSITY_MAPS")) {
+        par_.densityMaps = std::atoi(e) != 0;
+    }
     g_ = std::clamp(par_.densityLimit, 0.05, 1.0);
+
+    // Frames go to <plotDir>/simpl, NOT next to the output .pl. snapshotDir is
+    // derived from the output path, so a run writing to /tmp used to scatter its
+    // frames there and leave the work directory empty. Prefer the plot
+    // directory, which is always the work directory, and fall back to snapshotDir
+    // only when there is no plot directory at all.
+    if (!plotDir.empty()) {
+        frameDir_ = plotDir + "/simpl";
+    } else if (!snapshotDir.empty()) {
+        frameDir_ = snapshotDir;
+    } else {
+        frameDir_.clear();
+    }
+    if (!frameDir_.empty() && (par_.traceEvery > 0 || par_.cgEvery > 0)) {
+        ensureDir(frameDir_);
+    }
 
     ScopedTimer setupTimer("simpl-setup");
     collect();
@@ -1862,11 +2190,26 @@ SimplResult SimplePlacer::Impl::run(const SimplParams &P, const std::string &plo
             buildB2B(lower, lowerY, 0.0, false);
             solX_ = lower;
             solY_ = lowerY;
-            solve();
+            solve("init" + frameStep(it), /*allowFrames=*/false);
             lower = solX_;
             lowerY = solY_;
             res_.initIters = it + 1;
             const double h = hpwl(lower, lowerY);
+            densityStats(lower, lowerY, fmt::format("init{}", it).c_str());
+            if (par_.traceEvery > 0 && !frameDir_.empty()) {
+                // binLocal, not scaledOverflow: the live occupancy in grid_.occ is
+                // still describing the previous legalizer pass here.
+                std::vector<double> tmpOcc;
+                const double ovfInit = binLocal(lower, lowerY, tmpOcc);
+                const std::string note =
+                    fmt::format("LSS init iteration {} of {}", it, par_.initMaxIters);
+                writeFrame(frameDir_ + "/simpl_LSS_init_" + frameStep(it) + ".svg", lower, lowerY,
+                           h, ovfInit, note, it, par_.initMaxIters);
+                if (par_.densityMaps) {
+                    writeDensityMap(frameDir_ + "/simpl_density_init_" + frameStep(it) + ".svg",
+                                    lower, lowerY, note);
+                }
+            }
             ktlog.trace("init iter {:2d}: hpwl {:.6e} cg-resid ok", it, h);
             if (!(h < prevHpwl)) {
                 break;  // HPWL stopped improving
@@ -2050,6 +2393,8 @@ SimplResult SimplePlacer::Impl::run(const SimplParams &P, const std::string &plo
         binCells(lower, lowerY);
         describe(lower, lowerY, "LSS (linear system solve)");
         describe(upper, upperY, "LAL (look-ahead legalized)");
+        densityStats(lower, lowerY, ("LSS it" + std::to_string(it)).c_str());
+        densityStats(upper, upperY, ("LAL it" + std::to_string(it)).c_str());
         const double upperHpwl = hpwl(upper, upperY);
         const double lowerHpwl = hpwl(lower, lowerY);
         const double gap = upperHpwl - lowerHpwl;
@@ -2093,16 +2438,20 @@ SimplResult SimplePlacer::Impl::run(const SimplParams &P, const std::string &plo
             }
         }
 
-        if (par_.traceEvery > 0 && (it % par_.traceEvery) == 0 && !snapshotDir.empty()) {
-            const std::string tag = "_seed" + std::to_string(par_.seed);
-            writeFrame(snapshotDir + "/simpl_LAL_" + tag + "_it" + std::to_string(it) + ".svg",
-                       upper, upperY, upperHpwl, upperOvf,
-                       "LAL (look-ahead legalized) - iteration " + std::to_string(it), it + 1,
+        if (par_.traceEvery > 0 && (it % par_.traceEvery) == 0 && !frameDir_.empty()) {
+            const std::string step = frameStep(it);
+            writeFrame(frameDir_ + "/simpl_LSS_" + step + ".svg", lower, lowerY, lowerHpwl,
+                       upperOvf, "LSS (linear system solve) - iteration " + std::to_string(it), it,
                        par_.maxIters);
-            writeFrame(snapshotDir + "/simpl_LSS_" + tag + "_it" + std::to_string(it) + ".svg",
-                       lower, lowerY, lowerHpwl, scaledOverflow(),
-                       "LSS (linear system solve) - iteration " + std::to_string(it), it + 1,
+            writeFrame(frameDir_ + "/simpl_LAL_" + step + ".svg", upper, upperY, upperHpwl,
+                       upperOvf, "LAL (look-ahead legalized) - iteration " + std::to_string(it), it,
                        par_.maxIters);
+            if (par_.densityMaps) {
+                writeDensityMap(frameDir_ + "/simpl_density_LSS_" + step + ".svg", lower, lowerY,
+                                "LSS iteration " + std::to_string(it));
+                writeDensityMap(frameDir_ + "/simpl_density_LAL_" + step + ".svg", upper, upperY,
+                                "LAL iteration " + std::to_string(it));
+            }
         }
 
         if (converged) {
@@ -2135,14 +2484,12 @@ SimplResult SimplePlacer::Impl::run(const SimplParams &P, const std::string &plo
         // Warm start from the previous lower bound. Starting instead from the
         // anchors was tried and rejected: it improved density (adaptec2 overflow
         // 0.093 -> 0.081) but left the final wirelength unchanged (1.73e9 ->
-        // 1.75e9) and turned the bound gap negative. With either start the lower
-        // bound tracks the upper bound to within a few percent, which is the real
-        // finding: the pseudonets reach ~80% of the matrix diagonal by the end of
-        // the run, so the linear solve contributes little however it is
-        // initialised, and the paper's own result is the upper bound anyway.
+        // 1.75e9) and turned the bound gap negative. The seed is not the lever
+        // here; the anchor weight is. See the "pseudonet share" trace, which is
+        // where the real diagnosis lives.
         solX_ = lower;
         solY_ = lowerY;
-        solve();
+        solve("g" + frameStep(it), /*allowFrames=*/true);
         lower = solX_;
         lowerY = solY_;
         solveAcc += sTimer.elapsedSeconds();
@@ -2219,14 +2566,19 @@ SimplResult SimplePlacer::Impl::run(const SimplParams &P, const std::string &plo
                "bound</text>\n</svg>\n";
     }
 
-    if (!snapshotDir.empty()) {
-        ensureDir(snapshotDir);
-        writeFrame(snapshotDir + "/simpl_FINAL_LAL_seed" + std::to_string(par_.seed) + ".svg",
-                   upper, upperY, res_.hpwlFinal, res_.overflowFinal,
-                   "FINAL = last LAL (look-ahead legalized) placement", res_.globalIters,
-                   std::max<std::size_t>(res_.globalIters, 1));
+    if (!frameDir_.empty()) {
+        ensureDir(frameDir_);
+        writeFrame(frameDir_ + "/simpl_FINAL_LAL.svg", upper, upperY, res_.hpwlFinal,
+                   res_.overflowFinal, "FINAL = last LAL (look-ahead legalized) placement",
+                   res_.globalIters, std::max<std::size_t>(res_.globalIters, 1));
+        if (par_.densityMaps) {
+            writeDensityMap(frameDir_ + "/simpl_density_FINAL.svg", upper, upperY, "FINAL LAL");
+            writeDensityMap(frameDir_ + "/simpl_density_FINAL_LSS.svg", lower, lowerY, "FINAL LSS");
+        }
     }
 
+    ktlog.trace("frames written: {} to {}", res_.framesWritten,
+                frameDir_.empty() ? "(none)" : frameDir_);
     return res_;
 }
 

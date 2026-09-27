@@ -152,6 +152,14 @@ struct SimplParams {
     /// Write an SVG frame every N global-placement iterations (0 = only the
     /// final frame). Requires a snapshot directory.
     std::size_t traceEvery = 0;
+    /// Write a cell-placement SVG frame every N conjugate-gradient iterations
+    /// inside each linear solve (0 = off). A full run produces thousands of
+    /// ~4 MB frames, so enable this only for short debug runs
+    /// (KTPLACE_SIMPL_CG_EVERY=1 with a small KTPLACE_SIMPL_ITERS).
+    std::size_t cgEvery = 0;
+    /// Write a bin-density heat map next to every placement frame. This is the
+    /// view that shows whether the lower bound is actually spreading.
+    bool densityMaps = true;
     /// Fixed seed for the uniform initial placement, so runs are reproducible.
     std::uint64_t seed = 20240607;
 
@@ -213,6 +221,9 @@ struct SimplResult {
     double spreadSeconds = 0.0;
     double buildSeconds = 0.0;
     double solveSeconds = 0.0;
+
+    /// Placement frames (LSS/LAL/CG/density) actually written.
+    std::size_t framesWritten = 0;
 };
 
 class SimplePlacer {
