@@ -78,6 +78,29 @@ void FlowMgr::run(const std::string &inputBaseName, const std::string &inputDirP
     {
         PlacementDB &db = pImpl->getPlacementDB();
         auto [numCells, numNets] = db.getStats();
+        // What placement did the design actually ship with? Worth logging: if it
+        // is missing or degenerate every placer silently falls back to its own
+        // seed, which looks like a placer bug and is not one.
+        {
+            std::size_t moved = 0;
+            double lo = 1e300, hi = -1e300, loY = 1e300, hiY = -1e300;
+            const Graph &g = db.getGraph();
+            for (std::size_t v = 0; v < g.getNumVertices(); ++v) {
+                const Vertex &vert = g.getVertex(v);
+                if (vert.type != VertexType::Cell || vert.isFixed || vert.isTerminal) {
+                    continue;
+                }
+                lo = std::min(lo, vert.x);
+                hi = std::max(hi, vert.x);
+                loY = std::min(loY, vert.y);
+                hiY = std::max(hiY, vert.y);
+                moved += (vert.x != 0.0 || vert.y != 0.0) ? 1 : 0;
+            }
+            ktlog.echo(
+                "Loaded placement: {}/{} cells carry a position, bbox "
+                "x[{:.1f},{:.1f}] y[{:.1f},{:.1f}]",
+                moved, g.getNumVertices(), lo, hi, loY, hiY);
+        }
         ktlog.echo("Loaded: {} cells ({} terminals), {} nets, {} pins, {} rows", numCells,
                    db.getNumTerminals(), numNets, db.getNumPins(), db.getNumRows());
     }
@@ -278,7 +301,8 @@ bool FlowMgr::Impl::runPlacement(const std::string &algorithm, const std::string
         lsummary.setHeaders({"metric", "value"});
         lsummary.addRow({"cells placed", fmt::format("{}", lres.cellsPlaced)});
         lsummary.addRow({"cells unplaced", fmt::format("{}", lres.unplaced)});
-        lsummary.addRow({"squared displacement", fmt::format("{:.6}", lres.totalSquaredDisplacement)});
+        lsummary.addRow(
+            {"squared displacement", fmt::format("{:.6}", lres.totalSquaredDisplacement)});
         lsummary.addRow({"max displacement", fmt::format("{:.6}", lres.maxDisplacement)});
         lsummary.addRow({"HPWL before", fmt::format("{:.6}", lres.hpwlBefore)});
         lsummary.addRow({"HPWL after", fmt::format("{:.6}", lres.hpwlAfter)});
@@ -315,10 +339,10 @@ bool FlowMgr::Impl::runPlacement(const std::string &algorithm, const std::string
         dsummary.addRow({"cluster moves", fmt::format("{}", dres.clusterMoves)});
         dsummary.addRow({"HPWL before", fmt::format("{:.6}", dres.hpwlBefore)});
         dsummary.addRow({"HPWL after", fmt::format("{:.6}", dres.hpwlAfter)});
-        dsummary.addRow({"HPWL change",
-                         fmt::format("{:.2}%",
-                                     100.0 * (dres.hpwlAfter - dres.hpwlBefore) /
-                                         (dres.hpwlBefore > 0.0 ? dres.hpwlBefore : 1.0))});
+        dsummary.addRow(
+            {"HPWL change",
+             fmt::format("{:.2}%", 100.0 * (dres.hpwlAfter - dres.hpwlBefore) /
+                                       (dres.hpwlBefore > 0.0 ? dres.hpwlBefore : 1.0))});
         dsummary.addRow({"time (s)", fmt::format("{:.6}", dres.seconds)});
         dsummary.addRow({"overlapping pairs", fmt::format("{}", dres.overlappingPairs)});
         dsummary.addRow({"cells off row", fmt::format("{}", dres.offRow)});

@@ -193,6 +193,7 @@ bool BookshelfInputAdapter::readFromFiles(const std::string &nodesFile, const st
         parsePlacementFile(plFile);
     }
 
+
     // Parse scl file (optional)
     if (!sclFile.empty()) {
         parseSclFile(sclFile);
@@ -409,8 +410,7 @@ bool BookshelfInputAdapter::parseNetsFile(const std::string &filePath) {
         }
         for (const PinRec &pin : netPins[i]) {
             try {
-                (void)db->addPin(pin.cellName, netName, pin.offsetX, pin.offsetY,
-                                 pin.isInput);
+                (void)db->addPin(pin.cellName, netName, pin.offsetX, pin.offsetY, pin.isInput);
             } catch (const std::exception &e) {
                 std::cerr << "Warning: Error adding pin: " << e.what() << std::endl;
             }

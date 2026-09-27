@@ -757,16 +757,14 @@ void refreshDensityFields(DensityGrid &g, double uTarget) {
             const std::size_t k = g.idx(static_cast<int>(ix), static_cast<int>(iy));
             const std::size_t kxm =
                 (ix > 0) ? g.idx(static_cast<int>(ix - 1), static_cast<int>(iy)) : k;
-            const std::size_t kxp =
-                (ix + 1 < static_cast<std::size_t>(g.nbx))
-                    ? g.idx(static_cast<int>(ix + 1), static_cast<int>(iy))
-                    : k;
+            const std::size_t kxp = (ix + 1 < static_cast<std::size_t>(g.nbx))
+                                        ? g.idx(static_cast<int>(ix + 1), static_cast<int>(iy))
+                                        : k;
             const std::size_t kym =
                 (iy > 0) ? g.idx(static_cast<int>(ix), static_cast<int>(iy - 1)) : k;
-            const std::size_t kyp =
-                (iy + 1 < static_cast<std::size_t>(g.nby))
-                    ? g.idx(static_cast<int>(ix), static_cast<int>(iy + 1))
-                    : k;
+            const std::size_t kyp = (iy + 1 < static_cast<std::size_t>(g.nby))
+                                        ? g.idx(static_cast<int>(ix), static_cast<int>(iy + 1))
+                                        : k;
             const double capMin = 0.5 * g.dx * g.dy;
             // A blocked bin holds no movable cells; treating it as "empty"
             // utilization would tilt the gradient and pull cells onto the
@@ -2330,9 +2328,9 @@ PlacerResult QuadraticPlacer::place(int maxIter, double tol, const std::string &
     // converged is not churned by a step it no longer needs.
     constexpr double kSpreadGrow = 1.0;  // 1.0 disables adaptation
     constexpr double kSpreadShrink = 1.0;
-    constexpr double kSpreadGrowDrop = 0.03;      // smoothed rel. drop worth growing for
-    constexpr double kSpreadAlpha = 0.25;         // EMA weight on the newest sample
-    constexpr int kSpreadStallLimit = 6;          // smoothed non-improving iterations
+    constexpr double kSpreadGrowDrop = 0.03;  // smoothed rel. drop worth growing for
+    constexpr double kSpreadAlpha = 0.25;     // EMA weight on the newest sample
+    constexpr int kSpreadStallLimit = 6;      // smoothed non-improving iterations
     // Phase gate. Wirelength refinement starts the moment it begins, and its
     // solve pulls the layout off the uniform carpet, so entering it early just
     // spends the budget re-spreading what refinement pulled in. Enter it on

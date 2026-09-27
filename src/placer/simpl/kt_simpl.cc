@@ -205,9 +205,10 @@ private:
     std::vector<double> area_;                 // per movable slot
     std::vector<double> areaMovW_, areaMovH_;  // cell extents, for the macro overlap test
     std::vector<double> vx_, vy_;              // per graph vertex, live positions
-    std::vector<double> pinX_, pinY_;          // per movable slot, cell position
-    std::vector<double> anchorX_, anchorY_;    // per movable slot, fixed pseudonet targets
-    std::vector<NetInfo> nets_;                // indexed by graph vertex
+    std::vector<double> pinX_, pinY_;
+    std::vector<double> inputX_, inputY_;    // per movable slot, cell position
+    std::vector<double> anchorX_, anchorY_;  // per movable slot, fixed pseudonet targets
+    std::vector<NetInfo> nets_;              // indexed by graph vertex
 
     // The B2B model is separable, but the x and y graphs are NOT the same graph:
     // the extreme (min/max) pins, and therefore the edge set and every weight,
@@ -329,6 +330,11 @@ void SimplePlacer::Impl::collect() {
         }
         varOfVertex_[v] = static_cast<std::uint32_t>(numMovable_++);
         movVertex_.push_back(static_cast<std::uint32_t>(v));
+        // Keep whatever placement the design shipped with. It used to be dropped
+        // on the floor here and overwritten by a uniform seed, so a Bookshelf .pl
+        // carrying a good solution was never even looked at.
+        inputX_.push_back(vert.x);
+        inputY_.push_back(vert.y);
         area_.push_back(vert.width * vert.height);
         areaMovW_.push_back(vert.width);
         areaMovH_.push_back(vert.height);
@@ -346,6 +352,10 @@ void SimplePlacer::Impl::collect() {
     rhsY_.assign(numMovable_, 0.0);
     pinX_.assign(numMovable_, 0.0);
     pinY_.assign(numMovable_, 0.0);
+    if (inputX_.size() != numMovable_) {
+        inputX_.assign(numMovable_, 0.0);
+        inputY_.assign(numMovable_, 0.0);
+    }
     anchorX_.assign(numMovable_, 0.0);
     anchorY_.assign(numMovable_, 0.0);
     vx_.assign(nv_, 0.0);
@@ -374,6 +384,37 @@ void SimplePlacer::Impl::buildGrid(const SimplParams &P) {
         }
         if (contains) {
             die = {da.first.first, da.first.second, da.second.first, da.second.second};
+        }
+    }
+    // Fall back to the rows. A Bookshelf design need not have any fixed cell
+    // and need not declare a die area, and without this such a design gets a
+    // 1x1 die: dma reported "available area 1" and a utilisation of 1.6e13%,
+    // which poisoned the density grid and made its input placement look
+    // degenerate. The rows are the authoritative statement of where cells may
+    // go, so they are a better source than an empty fixed-cell bounding box.
+    if (!(die[2] - die[0] > 1.0) || !(die[3] - die[1] > 1.0)) {
+        const std::vector<PlacementDB::RowInfo> rows = db_.getRows();
+        double rlo = 0.0, rhi = 0.0, blo = 0.0, bhi = 0.0;
+        bool any = false;
+        for (const PlacementDB::RowInfo &ri : rows) {
+            if (!(ri.pitch() > 0.0)) {
+                continue;
+            }
+            if (!any) {
+                rlo = ri.coordinate;
+                rhi = ri.coordinate + ri.height;
+                blo = ri.xlo();
+                bhi = ri.xhi();
+                any = true;
+                continue;
+            }
+            rlo = std::min(rlo, ri.coordinate);
+            rhi = std::max(rhi, ri.coordinate + ri.height);
+            blo = std::min(blo, ri.xlo());
+            bhi = std::max(bhi, ri.xhi());
+        }
+        if (any && (bhi > blo) && (rhi > rlo)) {
+            die = BBox{blo, rlo, bhi, rhi};
         }
     }
     die_ = die;
@@ -1595,6 +1636,18 @@ SimplResult SimplePlacer::Impl::run(const SimplParams &P, const std::string &plo
     if (const char *e = std::getenv("KTPLACE_SIMPL_DENSITY")) {
         par_.densityLimit = std::atof(e);
     }
+    if (const char *e = std::getenv("KTPLACE_SIMPL_START")) {
+        const std::string v = e;
+        if (v == "input") {
+            par_.start = SimplParams::StartPlacement::Input;
+        } else if (v == "auto") {
+            par_.start = SimplParams::StartPlacement::Auto;
+        } else if (v == "uniform") {
+            par_.start = SimplParams::StartPlacement::Uniform;
+        } else {
+            ktlog.fatal("KTPLACE_SIMPL_START must be one of: input, auto, uniform (got '{}')", v);
+        }
+    }
     g_ = std::clamp(par_.densityLimit, 0.05, 1.0);
 
     ScopedTimer setupTimer("simpl-setup");
@@ -1606,38 +1659,104 @@ SimplResult SimplePlacer::Impl::run(const SimplParams &P, const std::string &plo
         return res_;
     }
 
-    ktlog.echo(
-        "SimPL: uniform seed {}; {} movable cells, {} fixed, {} nets; grid {}x{}, available area "
-        "{:.4g}, "
-        "cell area {:.4g} (utilisation {:.1f}%), density limit g = {:.2f}",
-        par_.seed, numMovable_, res_.numFixed, res_.nets, grid_.nbx, grid_.nby, grid_.totalAvail,
-        grid_.totalCellArea, 100.0 * grid_.totalCellArea / std::max(grid_.totalAvail, 1e-12), g_);
+    // ---- where does the starting placement come from? ------------------------
+    //
+    // Section 4.1 runs an area-blind quadratic solve because the placer has
+    // nothing better to start from. But a Bookshelf .pl or a DEF normally already
+    // carries a placement, and it is a real solution: adaptec1 ships one at
+    // 9.57e7. Discarding it for a uniform seed throws away the best information
+    // available, and the area-blind solve cannot recover it because it collapses
+    // the cells into a blob (HPWL 4.2e7 with enormous overlap) which the
+    // look-ahead legalizer then has to blow back out.
+    //
+    // So: adopt the design's own placement when it is usable, and fall back to
+    // the paper's uniform seed plus Section 4.1 only when it is not.
+    const bool inputUsable = [&] {
+        if (par_.start == SimplParams::StartPlacement::Uniform) {
+            return false;
+        }
+        if (par_.start == SimplParams::StartPlacement::Input) {
+            return true;
+        }
+        if (inputX_.size() != numMovable_) {
+            return false;
+        }
+        // A design with no placement ships every cell at the same point, so a
+        // degenerate bounding box is the tell. Require the cells to occupy a
+        // real part of the die and to be mostly inside it.
+        double lo = std::numeric_limits<double>::max();
+        double hi = -std::numeric_limits<double>::max();
+        double loY = std::numeric_limits<double>::max();
+        double hiY = -std::numeric_limits<double>::max();
+        for (std::size_t i = 0; i < numMovable_; ++i) {
+            lo = std::min(lo, inputX_[i]);
+            hi = std::max(hi, inputX_[i]);
+            loY = std::min(loY, inputY_[i]);
+            hiY = std::max(hiY, inputY_[i]);
+        }
+        if (!(hi - lo > 0.25 * dieW_) || !(hiY - loY > 0.25 * dieH_)) {
+            return false;
+        }
+        std::size_t inside = 0;
+        for (std::size_t i = 0; i < numMovable_; ++i) {
+            if (inputX_[i] >= die_[0] && inputX_[i] < die_[0] + dieW_ && inputY_[i] >= die_[1] &&
+                inputY_[i] < die_[1] + dieH_) {
+                ++inside;
+            }
+        }
+        return static_cast<double>(inside) >= par_.minInputInsideFrac * numMovable_;
+    }();
 
-    // ---- initial placement: interconnect only, areas and overlaps ignored ---
-    seedUniform(par_.seed);
+
+    res_.usedInputPlacement = inputUsable;
+    if (inputUsable) {
+        pinX_ = inputX_;
+        pinY_ = inputY_;
+    } else {
+        seedUniform(par_.seed);
+    }
+    res_.hpwlInput = hpwl(pinX_, pinY_);
+
+    ktlog.echo(
+        "SimPL: {} movable cells, {} fixed, {} nets; grid {}x{}, available area {:.4g}, "
+        "cell area {:.4g} (utilisation {:.1f}%), density limit g = {:.2f}; start {} "
+        "(input HPWL {:.6e}{})",
+        numMovable_, res_.numFixed, res_.nets, grid_.nbx, grid_.nby, grid_.totalAvail,
+        grid_.totalCellArea, 100.0 * grid_.totalCellArea / std::max(grid_.totalAvail, 1e-12), g_,
+        inputUsable ? "input placement" : "uniform seed", res_.hpwlInput,
+        inputUsable ? "" : (par_.seed == 0 ? "" : fmt::format(", seed {}", par_.seed)));
+
     std::vector<double> lower = pinX_;
     std::vector<double> lowerY = pinY_;
     std::vector<double> upper;
     std::vector<double> upperY;
 
     res_.hpwlSeed = hpwl(lower, lowerY);
-    double prevHpwl = std::numeric_limits<double>::max();
-    for (std::size_t it = 0; it < par_.initMaxIters; ++it) {
-        // The B2B model is placement-dependent, so the graph is rebuilt from the
-        // current locations before every solve.
-        buildB2B(lower, lowerY, 0.0, false);
-        solX_ = lower;
-        solY_ = lowerY;
-        solve();
-        lower = solX_;
-        lowerY = solY_;
-        res_.initIters = it + 1;
-        const double h = hpwl(lower, lowerY);
-        ktlog.trace("init iter {:2d}: hpwl {:.6e} cg-resid ok", it, h);
-        if (!(h < prevHpwl)) {
-            break;  // HPWL stopped improving
+    // Section 4.1's area-blind quadratic solve, alternating B2B rebuilds until
+    // HPWL stops improving. Skipped when the design already supplies a
+    // placement: the solve ignores cell areas by design, so it collapses the
+    // cells into a blob whose wirelength is meaningless, and the only thing it
+    // usefully establishes is the ordering of the cells, which the design's own
+    // placement already has.
+    if (!inputUsable) {
+        double prevHpwl = std::numeric_limits<double>::max();
+        for (std::size_t it = 0; it < par_.initMaxIters; ++it) {
+            // The B2B model is placement-dependent, so the graph is rebuilt
+            // from the current locations before every solve.
+            buildB2B(lower, lowerY, 0.0, false);
+            solX_ = lower;
+            solY_ = lowerY;
+            solve();
+            lower = solX_;
+            lowerY = solY_;
+            res_.initIters = it + 1;
+            const double h = hpwl(lower, lowerY);
+            ktlog.trace("init iter {:2d}: hpwl {:.6e} cg-resid ok", it, h);
+            if (!(h < prevHpwl)) {
+                break;  // HPWL stopped improving
+            }
+            prevHpwl = h;
         }
-        prevHpwl = h;
     }
     res_.hpwlLower = hpwl(lower, lowerY);
 
@@ -1779,7 +1898,8 @@ SimplResult SimplePlacer::Impl::run(const SimplParams &P, const std::string &plo
         if (gapRef > 0.0 && it > par_.gapReferenceIter) {
             if (gap < par_.gapTightFrac * gapRef) {
                 converged = true;
-            } else if (gap < par_.gapRelaxedFrac * gapRef && stale >= static_cast<int>(par_.patience)) {
+            } else if (gap < par_.gapRelaxedFrac * gapRef &&
+                       stale >= static_cast<int>(par_.patience)) {
                 converged = true;
             }
         }

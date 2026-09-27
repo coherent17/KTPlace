@@ -137,6 +137,30 @@ struct SimplParams {
     std::size_t traceEvery = 0;
     /// Fixed seed for the uniform initial placement, so runs are reproducible.
     std::uint64_t seed = 20240607;
+
+    /// Where the starting placement comes from.
+    enum class StartPlacement {
+        /// Use the design's own placement when it looks like a real one, and fall
+        /// back to the paper's uniform seed otherwise. Not the default: measured
+        /// on dma, which does ship a placement at 4.33e8, adopting it and then
+        /// running the loop ends at 4.13e9, so the loop still destroys a good
+        /// input. Enable it once the loop stops regressing real placements.
+        Auto,
+        /// The paper's Figure 2: a uniformly distributed placement, then the
+        /// area-blind quadratic initial placement of Section 4.1. Correct when
+        /// the design ships no usable placement.
+        Uniform,
+        /// Trust the design's own placement unconditionally.
+        Input,
+    };
+    /// Uniform, the paper's behaviour, is the default: the ISPD 2005 benchmarks
+    /// ship every movable cell at the origin, so there is nothing there to adopt,
+    /// and adopting a real placement currently makes the result worse.
+    StartPlacement start = StartPlacement::Uniform;
+
+    /// Minimum fraction of movable cells that must lie inside the die for the
+    /// input placement to count as usable under StartPlacement::Auto.
+    double minInputInsideFrac = 0.9;
 };
 
 /// Outcome of a run.
@@ -152,6 +176,10 @@ struct SimplResult {
     std::size_t binsX = 0;
     std::size_t binsY = 0;
 
+    /// HPWL of the placement the design shipped with, when one was adopted.
+    double hpwlInput = 0.0;
+    /// Whether the input placement was adopted instead of a uniform seed.
+    bool usedInputPlacement = false;
     /// HPWL of the uniform seed, of the last lower bound, and of the returned
     /// (last upper-bound) placement. The paper's result is the upper bound.
     double hpwlSeed = 0.0;

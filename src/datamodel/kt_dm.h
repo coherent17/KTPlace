@@ -93,8 +93,12 @@ public:
         double originX = 0.0;
         double numSites = 0.0;
 
-        [[nodiscard]] double xlo() const { return originX; }
-        [[nodiscard]] double xhi(double spacing) const { return originX + numSites * spacing; }
+        [[nodiscard]] double xlo() const {
+            return originX;
+        }
+        [[nodiscard]] double xhi(double spacing) const {
+            return originX + numSites * spacing;
+        }
     };
 
     struct RowInfo {
@@ -103,11 +107,15 @@ public:
         double sitewidth = 0.0;
         double sitespacing = 0.0;
         /// Site pitch; the subrow's sites sit at originX + k * sitePitch.
-        [[nodiscard]] double pitch() const { return (sitespacing > 0.0) ? sitespacing : sitewidth; }
+        [[nodiscard]] double pitch() const {
+            return (sitespacing > 0.0) ? sitespacing : sitewidth;
+        }
         /// One entry per SubrowOrigin/NumSites pair in the .scl, in file order.
         std::vector<SubrowInfo> subrows;
 
-        [[nodiscard]] double xlo() const { return subrows.empty() ? 0.0 : subrows.front().xlo(); }
+        [[nodiscard]] double xlo() const {
+            return subrows.empty() ? 0.0 : subrows.front().xlo();
+        }
         [[nodiscard]] double xhi() const {
             double hi = 0.0;
             for (const SubrowInfo &sr : subrows) {
