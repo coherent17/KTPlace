@@ -111,18 +111,29 @@ struct SimplParams {
     /// "weight = alpha/Length", and AMF-Placer (ICCAD 2021) states it
     /// independently: "the weight of a pseudo net is calculated by dividing a
     /// global factor alpha by the movement distance of the corresponding
-    /// instance in last optimization". That makes the quadratic energy
-    /// w*(x-a)^2 ~ alpha*|x-a|, a constant-force L1 penalty whose restoring force
-    /// does NOT grow with distance, which is what gives the linear solver
-    /// "freedom" to keep optimising wirelength for a cell the legalizer moved
-    /// a long way. ConstantStiffness instead makes it an L2 penalty, whose force
-    /// grows linearly with distance, so distant cells get pinned to the anchor
-    /// and the lower bound is dragged onto the upper bound.
+    /// instance in last optimization". Taken literally that is a constant-force
+    /// L1 penalty whose restoring force does not grow with distance, which would
+    /// give the linear solver permanent freedom to keep optimising wirelength for
+    /// a cell the legalizer moved a long way.
+    ///
+    /// It is also far too weak to spread anything, and that is measured rather
+    /// than argued. On adaptec1 the per-cell interconnect diagonal is 0.164 and
+    /// a lower bound sits ~1000 units from its legal anchor, so
+    ///     w = alpha/length -> per-cell anchor weight 1.0e-5, i.e. 6.2e-05 of
+    ///                           the interconnect diagonal at iteration 0
+    ///     w = alpha       -> per-cell anchor weight 0.01,   i.e. 6.1e-02, and
+    ///                           the lower bound's overflow falls 0.548 -> 0.308
+    ///                           over two iterations instead of staying at 0.508
+    /// Parity between 0.01*(1+iteration) and 0.164 arrives around iteration 15,
+    /// which is inside the paper's 26-35 global-placement iterations. So the
+    /// figure's Length must be a normalised length of order 1, in which case
+    /// alpha/Length reduces to alpha up to a constant the published schedule is
+    /// already calibrated against.
     enum class PseudonetLaw {
-        InverseLength,      ///< w = alpha / max(distance, floor) -- the paper's reading
-        ConstantStiffness,  ///< w = alpha
+        ConstantStiffness,  ///< w = alpha -- the default; the reading that works
+        InverseLength,      ///< w = alpha / max(distance, floor) -- literal, inert
     };
-    PseudonetLaw pseudonetLaw = PseudonetLaw::InverseLength;
+    PseudonetLaw pseudonetLaw = PseudonetLaw::ConstantStiffness;
 
     // --- convergence --------------------------------------------------------
     /// Relative to the gap at `gapReferenceIter`: stop once the gap falls below
