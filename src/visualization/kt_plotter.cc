@@ -50,7 +50,7 @@ constexpr double kMargin = 36.0;            // image margin in pixels
 // bottom-anchored and so grows upward -- slides back under the last line of the
 // key, which is how this was originally wrong.
 constexpr double kHeaderH = 116.0;
-constexpr double kImageW = 768.0;           // frame image size
+constexpr double kImageW = 768.0;  // frame image size
 constexpr double kImageH = 768.0;
 
 /// Filename stem of the per-iteration stills that writeAnimatedGif() collects.
@@ -208,7 +208,7 @@ std::uint32_t packRgb(std::uint8_t r, std::uint8_t g, std::uint8_t b) {
 /// the frame gets half the palette, and a one-off antialiased edge shade that
 /// appears on four pixels does not.
 std::vector<Rgb24> medianCutPalette(const std::map<std::uint32_t, std::uint32_t> &hist,
-                                     std::size_t maxColors) {
+                                    std::size_t maxColors) {
     std::vector<Rgb24> out;
     if (hist.empty()) {
         return out;
@@ -251,8 +251,8 @@ std::vector<Rgb24> medianCutPalette(const std::map<std::uint32_t, std::uint32_t>
             for (const auto &[key, count] : boxes[i].entries) {
                 (void)count;
                 const std::uint8_t c[3] = {static_cast<std::uint8_t>((key >> 16) & 0xff),
-                                            static_cast<std::uint8_t>((key >> 8) & 0xff),
-                                            static_cast<std::uint8_t>(key & 0xff)};
+                                           static_cast<std::uint8_t>((key >> 8) & 0xff),
+                                           static_cast<std::uint8_t>(key & 0xff)};
                 for (int k = 0; k < 3; ++k) {
                     lo[k] = std::min(lo[k], c[k]);
                     hi[k] = std::max(hi[k], c[k]);
@@ -269,8 +269,8 @@ std::vector<Rgb24> medianCutPalette(const std::map<std::uint32_t, std::uint32_t>
             if (span <= 0) {
                 continue;
             }
-            const double score = static_cast<double>(span) *
-                                 static_cast<double>(boxes[i].entries.size());
+            const double score =
+                static_cast<double>(span) * static_cast<double>(boxes[i].entries.size());
             if (score > bestScore) {
                 bestScore = score;
                 bestIdx = i;

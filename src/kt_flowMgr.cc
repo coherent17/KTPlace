@@ -14,6 +14,7 @@
 #include "datamodel/kt_graph.h"
 #include "adaptor/bookshelfToKTAdaptor.h"
 #include "adaptor/lefdefToKTAdaptor.h"
+#include <map>
 #include <memory>
 #include <fstream>
 #include <string>
@@ -46,7 +47,7 @@ public:
     /// Legalize and then detail-place, for the algorithms that stop at a global
     /// placement. Split out of runPlacement because RePlAce and SimPL both end
     /// here, and the reporting is identical -- a second copy would drift.
-    bool legalizeAndDetail(const std::string &plotDir);
+    bool legalizeAndDetail(const std::string &plotDir, const constraintMgr *fences);
     bool writePlacement(const std::string &outputPath, const std::string &format = "bookshelf");
     PlacementDB &getPlacementDB();
     const PlacementDB &getPlacementDB() const;
@@ -212,8 +213,125 @@ bool FlowMgr::Impl::loadBookshelfFromFiles(const std::string &nodesFile,
     return true;
 }
 
-bool FlowMgr::Impl::legalizeAndDetail(const std::string &plotDir) {
-        // Everything the placer reserved is released here, so the legalizer and the
+
+namespace {
+/// One thing wrong with a finished placement.
+struct Defect {
+    std::string what;
+    std::size_t count = 0;
+};
+
+/// Verify a finished placement against every constraint we know how to check.
+///
+/// The legalizer and the detailed placer each self-check, and their counts are
+/// reported, but those are the checks each stage knew to ask about. This is the
+/// independent pass over the placement as it will actually be written, and it asks
+/// the question a reader of the output file would ask: is this legal?
+///
+/// It is deliberately not a summary of the stages' own numbers. A stage reporting
+/// zero overlaps and the delivered file containing overlaps is exactly the failure
+/// a summary cannot catch, and it is the failure that matters, because the file is
+/// what the next tool reads. The stages' counters also cannot see a cell outside the
+/// die or outside its fence -- neither is its job -- so those two are only ever
+/// counted here.
+std::vector<Defect> verifyPlacement(const PlacementDB &db, const constraintMgr *fences) {
+    std::vector<Defect> defects;
+    const Graph &g = db.getGraph();
+
+    // --- cells outside the die, and outside their fence -----------------------
+    BBox box = fixedCellBBox(g);
+    const auto da = db.getDieArea();
+    if (da.second.first > da.first.first && da.second.second > da.first.second) {
+        box = {da.first.first, da.first.second, da.second.first, da.second.second};
+    }
+    std::size_t outOfDie = 0;
+    std::size_t offFence = 0;
+    const std::size_t nv = g.getNumVertices();
+    for (std::size_t v = 0; v < nv; ++v) {
+        const Vertex &vert = g.getVertex(v);
+        if (vert.type != VertexType::Cell || vert.isFixed || vert.isTerminal) {
+            continue;
+        }
+        const double eps = 1e-6;
+        if (vert.x < box[0] - eps || vert.y < box[1] - eps || vert.x + vert.width > box[2] + eps ||
+            vert.y + vert.height > box[3] + eps) {
+            ++outOfDie;
+            continue;
+        }
+        if (fences != nullptr && vert.regionId != constraintMgr::kNoRegion) {
+            std::vector<double> flat{vert.x, vert.y};
+            std::vector<int> ids{vert.regionId};
+            offFence += fences->countViolations(flat, ids);
+        }
+    }
+
+    // --- overlapping pairs ---------------------------------------------------
+    // A uniform grid over the cells, so this is linear in the number of cells
+    // rather than quadratic. At 700k cells the pairwise version is not an option,
+    // and a checker that cannot run on the largest design in the suite is not a
+    // checker.
+    std::size_t overlaps = 0;
+    {
+        const double bin = std::max(
+            {1.0, std::sqrt((box[2] - box[0]) * (box[3] - box[1]) / std::max<std::size_t>(1, nv))});
+        std::map<std::pair<long long, long long>, std::vector<std::size_t>> buckets;
+        for (std::size_t v = 0; v < nv; ++v) {
+            const Vertex &vert = g.getVertex(v);
+            if (vert.type != VertexType::Cell || vert.isFixed || vert.isTerminal) {
+                continue;
+            }
+            const long long bx = static_cast<long long>(std::floor(vert.x / bin));
+            const long long by = static_cast<long long>(std::floor(vert.y / bin));
+            buckets[{bx, by}].push_back(v);
+        }
+        const double eps = 1e-9;
+        const auto hits = [&](std::size_t a, std::size_t b) {
+            const Vertex &p = g.getVertex(a);
+            const Vertex &q = g.getVertex(b);
+            return p.x < q.x + q.width - eps && q.x < p.x + p.width - eps &&
+                   p.y < q.y + q.height - eps && q.y < p.y + p.height - eps;
+        };
+        for (const auto &[key, members] : buckets) {
+            for (std::size_t i = 0; i < members.size(); ++i) {
+                for (std::size_t j = i + 1; j < members.size(); ++j) {
+                    overlaps += hits(members[i], members[j]) ? 1u : 0u;
+                }
+            }
+            // A cell can only overlap one in the eight neighbouring buckets.
+            for (long long dx = -1; dx <= 1; ++dx) {
+                for (long long dy = -1; dy <= 1; ++dy) {
+                    if (dx == 0 && dy == 0) {
+                        continue;
+                    }
+                    auto it = buckets.find({key.first + dx, key.second + dy});
+                    if (it == buckets.end()) {
+                        continue;
+                    }
+                    for (std::size_t a : members) {
+                        for (std::size_t b : it->second) {
+                            overlaps += hits(a, b) ? 1u : 0u;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if (outOfDie > 0) {
+        defects.push_back({"cells outside the die", outOfDie});
+    }
+    if (overlaps > 0) {
+        defects.push_back({"overlapping cell pairs", overlaps});
+    }
+    if (offFence > 0) {
+        defects.push_back({"cells outside their fence", offFence});
+    }
+    return defects;
+}
+}  // namespace
+
+bool FlowMgr::Impl::legalizeAndDetail(const std::string &plotDir, const constraintMgr *fences) {
+    // Everything the placer reserved is released here, so the legalizer and the
     // detailed placer can use the whole remaining budget.
     if (PlacementAnimator::instance().enabled()) {
         PlacementAnimator::instance().holdBack(0);
@@ -231,18 +349,17 @@ bool FlowMgr::Impl::legalizeAndDetail(const std::string &plotDir) {
     }
     if (!plotDir.empty()) {
         lparams.plotDir = plotDir + "/legalize";
-        lparams.frameEvery = std::getenv("KTPLACE_ABACUS_FRAME_EVERY")
-                                 ? static_cast<std::size_t>(
-                                       std::atoll(std::getenv("KTPLACE_ABACUS_FRAME_EVERY")))
-                                 : 20000;
+        lparams.frameEvery =
+            std::getenv("KTPLACE_ABACUS_FRAME_EVERY")
+                ? static_cast<std::size_t>(std::atoll(std::getenv("KTPLACE_ABACUS_FRAME_EVERY")))
+                : 20000;
     }
     const LegalizeResult lres = legalizer.legalize(lparams);
     ktReportTable lsummary("Legalization (Abacus)");
     lsummary.setHeaders({"metric", "value"});
     lsummary.addRow({"cells placed", fmt::format("{}", lres.cellsPlaced)});
     lsummary.addRow({"cells unplaced", fmt::format("{}", lres.unplaced)});
-    lsummary.addRow(
-        {"squared displacement", fmt::format("{:.6}", lres.totalSquaredDisplacement)});
+    lsummary.addRow({"squared displacement", fmt::format("{:.6}", lres.totalSquaredDisplacement)});
     lsummary.addRow({"max displacement", fmt::format("{:.6}", lres.maxDisplacement)});
     lsummary.addRow({"HPWL before", fmt::format("{:.6}", lres.hpwlBefore)});
     lsummary.addRow({"HPWL after", fmt::format("{:.6}", lres.hpwlAfter)});
@@ -279,10 +396,9 @@ bool FlowMgr::Impl::legalizeAndDetail(const std::string &plotDir) {
     dsummary.addRow({"cluster moves", fmt::format("{}", dres.clusterMoves)});
     dsummary.addRow({"HPWL before", fmt::format("{:.6}", dres.hpwlBefore)});
     dsummary.addRow({"HPWL after", fmt::format("{:.6}", dres.hpwlAfter)});
-    dsummary.addRow(
-        {"HPWL change",
-         fmt::format("{:.2}%", 100.0 * (dres.hpwlAfter - dres.hpwlBefore) /
-                                   (dres.hpwlBefore > 0.0 ? dres.hpwlBefore : 1.0))});
+    dsummary.addRow({"HPWL change",
+                     fmt::format("{:.2}%", 100.0 * (dres.hpwlAfter - dres.hpwlBefore) /
+                                               (dres.hpwlBefore > 0.0 ? dres.hpwlBefore : 1.0))});
     dsummary.addRow({"time (s)", fmt::format("{:.6}", dres.seconds)});
     dsummary.addRow({"overlapping pairs", fmt::format("{}", dres.overlappingPairs)});
     dsummary.addRow({"cells off row", fmt::format("{}", dres.offRow)});
@@ -292,19 +408,48 @@ bool FlowMgr::Impl::legalizeAndDetail(const std::string &plotDir) {
     if (dres.overlappingPairs != 0 || dres.offRow != 0 || dres.overFixed != 0) {
         ktlog.echo("WARNING: detailed placement broke legality; see counts above");
     }
+    // Independent check of the placement as it will be written. Last, so it sees
+    // the effect of both stages, and separate from their own self-checks, so that a
+    // disagreement between what a stage claims and what the file contains is visible
+    // rather than averaged away.
+    {
+        const std::vector<Defect> defects = verifyPlacement(*db, fences);
+        ktReportTable check("Placement check (independent, after legalization)");
+        check.setHeaders({"check", "result"});
+        if (defects.empty()) {
+            check.addRow({"overlapping cell pairs", "0"});
+            check.addRow({"cells outside the die", "0"});
+            check.addRow({"cells outside their fence", fences != nullptr ? "0" : "n/a"});
+            check.addRow({"verdict", "PASS"});
+        } else {
+            for (const Defect &d : defects) {
+                check.addRow({d.what, fmt::format("{}", d.count)});
+            }
+            check.addRow({"verdict", "FAIL"});
+        }
+        check.emit();
+        if (!defects.empty()) {
+            ktlog.echo(
+                "WARNING: the placement that will be written is not legal; see the "
+                "placement check above");
+        }
+    }
+
     // Every stage has now contributed, so the run can be told as one animation.
     // Assembling it here, and not at the end of global placement, is the whole
     // point: the legalizer's pull back onto the rows is usually the most
     // consequential motion of the run, and it happens after the placer is done.
     if (const auto &anim = PlacementAnimator::instance(); anim.enabled()) {
         if (anim.finish()) {
-            ktlog.echo("animation: {} frames -> {}/anim/placement.gif (global placement, then "
-                       "legalization, then detailed placement)",
-                       anim.frameCount(), plotDir);
+            ktlog.echo(
+                "animation: {} frames -> {}/anim/placement.gif (global placement, then "
+                "legalization, then detailed placement)",
+                anim.frameCount(), plotDir);
         } else {
-            ktlog.echo("animation: {} frame(s) recorded, no GIF written (one animation needs at "
-                       "least two frames)",
-                       anim.frameCount());
+            ktlog.echo(
+                "animation: {} frame(s) recorded, no GIF written (one animation needs at "
+                "least two frames)",
+                anim.frameCount());
         }
     }
     placed = true;
@@ -334,9 +479,8 @@ bool FlowMgr::Impl::runPlacement(const std::string &algorithm, const std::string
                                 : 12;
         // Three frames per recorded placement: the two in-between plus the
         // placement itself, which is what turns a per-iteration jump into motion.
-        const int blend = std::getenv("KTPLACE_ANIM_BLEND")
-                              ? std::atoi(std::getenv("KTPLACE_ANIM_BLEND"))
-                              : 3;
+        const int blend =
+            std::getenv("KTPLACE_ANIM_BLEND") ? std::atoi(std::getenv("KTPLACE_ANIM_BLEND")) : 3;
         PlacementAnimator::instance().configure(plotDir + "/anim", maxFrames, delayCs, blend);
     } else {
         PlacementAnimator::instance().reset();
@@ -347,19 +491,38 @@ bool FlowMgr::Impl::runPlacement(const std::string &algorithm, const std::string
     // detailed placement, which are the stages that turn a legal-looking but
     // unusable placement into a real one.
     if (PlacementAnimator::instance().enabled()) {
-        const std::size_t total = std::getenv("KTPLACE_ANIM_MAX_FRAMES")
-                                      ? static_cast<std::size_t>(
-                                            std::atoll(std::getenv("KTPLACE_ANIM_MAX_FRAMES")))
-                                      : std::size_t{480};
+        const std::size_t total =
+            std::getenv("KTPLACE_ANIM_MAX_FRAMES")
+                ? static_cast<std::size_t>(std::atoll(std::getenv("KTPLACE_ANIM_MAX_FRAMES")))
+                : std::size_t{480};
         PlacementAnimator::instance().holdBack(total / 5);
     }
 
     if (algorithm == "simpl") {
         ktlog.echo("Running SimPL global placement (B2B net model + look-ahead legalization)...");
         SimplePlacer placer(*db);
-        // Bookshelf carries no placement regions; the LEF/DEF reader is the only
-        // source of fences, so they are not consulted here. SimPL's own spreading
-        // comes from legalizing, not from a fence-aware field.
+        // Fences come from the LEF/DEF reader; Bookshelf carries none, so there the
+        // pointer is null and the design is correctly unconstrained. Passing them
+        // is what makes a fenced ISPD 2015 design come out legal: the reader
+        // stamps Vertex::regionId, and the placer both holds each cell inside its
+        // region and draws the regions, so a run that ignores this silently scatters
+        // fenced cells across the die and shows no fence at all.
+        const constraintMgr *regions = nullptr;
+        if (lefdefAdapter && lefdefAdapter->getConstraints().numRegions() > 0) {
+            regions = &lefdefAdapter->getConstraints();
+        }
+        // KTPLACE_SIMPL_FENCES=0 turns the fences off, for a run that wants to see
+        // what the placement would be without them -- the difference between the two
+        // is the cost of the constraint, which is otherwise only visible as a
+        // longer wirelength with nothing to attribute it to. Off means the fences are
+        // neither enforced nor drawn, so the frames do not show regions that are not
+        // being honoured; the report says "off" rather than leaving it ambiguous.
+        const char *fenceEnv = std::getenv("KTPLACE_SIMPL_FENCES");
+        const bool fencesOn = (fenceEnv == nullptr) || (std::atoi(fenceEnv) != 0);
+        if (!fencesOn) {
+            regions = nullptr;
+            ktlog.echo("SimPL: fence enforcement DISABLED by KTPLACE_SIMPL_FENCES=0");
+        }
         SimplParams params;
         params.traceEvery = 5;
         // Per-iteration frames, for watching the LSS/LAL interaction.
@@ -377,7 +540,7 @@ bool FlowMgr::Impl::runPlacement(const std::string &algorithm, const std::string
         if (const char *e = std::getenv("KTPLACE_SIMPL_DENSITY_MAPS")) {
             params.densityMaps = std::atoll(e) != 0;
         }
-        const SimplResult res = placer.place(params, plotDir, snapshotDir);
+        const SimplResult res = placer.place(params, plotDir, snapshotDir, regions);
         ktReportTable summary("Solver results");
         summary.setHeaders({"metric", "initial", "final"});
         summary.addRow({"movable cells", "", fmt::format("{}", res.numMovable)});
@@ -390,6 +553,13 @@ bool FlowMgr::Impl::runPlacement(const std::string &algorithm, const std::string
         summary.addRow({"look-ahead (s)", "", fmt::format("{:.6}", res.spreadSeconds)});
         summary.addRow({"linear solves (s)", "", fmt::format("{:.6}", res.solveSeconds)});
         summary.addRow({"look-ahead legalization", "", res.usedLookAhead ? "on" : "OFF (raw LSS)"});
+        summary.addRow({"fence regions", "",
+                        regions == nullptr ? (fencesOn ? "none" : "OFF (disabled)")
+                                           : fmt::format("{}", regions->numRegions())});
+        summary.addRow({"cells held in fence", "", fmt::format("{}", res.fenceClamps)});
+        summary.addRow({"cells pushed out of a fence", "", fmt::format("{}", res.fencePushes)});
+        summary.addRow(
+            {"cells outside their fence at exit", "", fmt::format("{}", res.fenceViolations)});
         summary.addRow({"HPWL seed", fmt::format("{:.6}", res.hpwlSeed), ""});
         summary.addRow({"HPWL lower bound", "", fmt::format("{:.6}", res.hpwlLower)});
         summary.addRow({"HPWL final", "", fmt::format("{:.6}", res.hpwlFinal)});
@@ -401,7 +571,7 @@ bool FlowMgr::Impl::runPlacement(const std::string &algorithm, const std::string
         summary.addRow({"SVG frames written", "", fmt::format("{}", res.framesWritten)});
         summary.emit();
 
-        legalizeAndDetail(plotDir);
+        legalizeAndDetail(plotDir, regions);
         return true;
 
     } else {

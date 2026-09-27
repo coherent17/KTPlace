@@ -25,7 +25,6 @@ AUTOLINK_SUPPORT       = YES
 INPUT                  = src \
                          README.md \
                          benchmark/README.md \
-                         docs/QuadraticPlacement.md \
                          docs/simpl.md
 FILE_PATTERNS          = *.h *.cc *.md
 RECURSIVE              = YES

@@ -4,6 +4,7 @@
  */
 
 #include "visualization/kt_animator.h"
+#include "constraint/kt_constraintMgr.h"
 #include "util/kt_log.h"
 #include <utility>
 
@@ -67,9 +68,9 @@ void PlacementAnimator::holdBack(std::size_t n) {
 }
 
 void PlacementAnimator::record(const Graph &g, const std::vector<float> &x,
-                              const std::vector<float> &y, const BBox &die, std::size_t step,
-                              std::size_t total, double hpwl, double hpwlInitial, double resid,
-                              const std::string &note) {
+                               const std::vector<float> &y, const BBox &die, std::size_t step,
+                               std::size_t total, double hpwl, double hpwlInitial, double resid,
+                               const std::string &note, const constraintMgr *constraints) {
     const std::size_t limit = held_ < maxFrames_ ? maxFrames_ - held_ : maxFrames_;
     if (!enabled_ || frame_ >= limit) {
         if (enabled_ && !capped_) {
@@ -92,8 +93,8 @@ void PlacementAnimator::record(const Graph &g, const std::vector<float> &x,
             return false;
         }
         const std::string path = (dir_ / frameName(frame_)).string();
-        writeFrameRaster(path, g, ix, iy, die, step, total, hpwl, hpwlInitial, resid, note,
-                         nullptr, /*fixedView=*/true);
+        writeFrameRaster(path, g, ix, iy, die, step, total, hpwl, hpwlInitial, resid, note, nullptr,
+                         /*fixedView=*/true);
         ++frame_;
         return frame_ < limit;
     };

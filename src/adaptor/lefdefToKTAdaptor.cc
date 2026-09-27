@@ -194,6 +194,7 @@ bool LefDefInputAdapter::parseLefFile(const std::string &filePath) {
     bool inPin = false;
     std::string pin;
     bool inSite = false;
+    bool inPropDefs = false;
     std::string site;
     std::size_t lineNum = 0;
 
@@ -201,6 +202,31 @@ bool LefDefInputAdapter::parseLefFile(const std::string &filePath) {
         ++lineNum;
         const auto tokens = tokenize(line);
         if (tokens.empty()) {
+            continue;
+        }
+
+        // PROPERTYDEFINITIONS is metadata this parser has no use for, but it
+        // cannot simply be walked past: it contains lines that begin with MACRO
+        // (property *types* are named after what they describe), and taking one
+        // of those for a macro definition puts the parser into macro mode. The
+        // block then closes with "END PROPERTYDEFINITIONS", whose name does not
+        // match the macro it thinks it is inside, so macro mode never ends -- and
+        // every later top-level statement in the file, SITE included, is skipped
+        // because they are all guarded on !inMacro.
+        //
+        // That is not hypothetical: it is why the ISPD 2015 designs came out with
+        // no site height at all, which gave every DEF row a height of zero, which
+        // left the placer's density grid with no available area and made the
+        // overflow, the density term and the legalizer's region growth all read
+        // from an empty map.
+        if (inPropDefs) {
+            if (tokens[0] == "END" && tokens.size() >= 2 && tokens[1] == "PROPERTYDEFINITIONS") {
+                inPropDefs = false;
+            }
+            continue;
+        }
+        if (tokens[0] == "PROPERTYDEFINITIONS") {
+            inPropDefs = true;
             continue;
         }
 

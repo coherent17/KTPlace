@@ -55,6 +55,7 @@
 #include <memory>
 #include <string>
 
+#include "constraint/kt_constraintMgr.h"
 #include "datamodel/kt_dm.h"
 
 namespace ktplace {
@@ -287,6 +288,12 @@ struct SimplResult {
     /// Final gap, hpwlFinal - hpwlLower.
     double gap = 0.0;
 
+    /// Fence accounting. All zero for an unconstrained design, which is how a
+    /// caller can tell "no fences" from "fences present and ignored".
+    std::size_t fenceClamps = 0;
+    std::size_t fencePushes = 0;
+    std::size_t fenceViolations = 0;
+
     /// Scaled overflow per bin (Figure 7) of the final lower bound and of the
     /// returned placement.
     double overflowLower = 0.0;
@@ -313,12 +320,19 @@ public:
     /**
      * @brief Run global placement.
      *
-     * @param params      tunables
-     * @param plotDir     directory for the progress curve, or empty
-     * @param snapshotDir directory for SVG frames, or empty
+     * @param params      solver parameters
+     * @param plotDir     directory for the progress curve and frames, or empty
+     * @param snapshotDir directory for frames when there is no plot directory
+     * @param constraints placement fences, or null. The LEF/DEF reader is the only
+     *        source of these; Bookshelf carries none. Non-null means fences are
+     *        enforced after every solve -- an assigned cell is held inside its own
+     *        region and an unassigned cell is held out of all of them -- and drawn
+     *        in the frames. Null leaves the placement unconstrained, which is
+     *        correct for a Bookshelf design rather than a silent omission.
      */
     SimplResult place(const SimplParams &params = {}, const std::string &plotDir = "",
-                      const std::string &snapshotDir = "");
+                      const std::string &snapshotDir = "",
+                      const constraintMgr *constraints = nullptr);
 
 private:
     class Impl;

@@ -38,9 +38,13 @@ jobs:
 
       - name: Check formatting
         run: |
-          # Every tracked source must already match .clang-format.
+          # Every tracked first-party source must already match .clang-format.
+          # Vendored third-party code is exempt: CImg.h is a 3.4 MB upstream
+          # single-header library, and reformatting it would bury the vendored
+          # copy in a diff that makes it impossible to compare against upstream or
+          # to update. Doxygen already excludes it for the same reason.
           status=0
-          for f in $(git ls-files 'src/*.cc' 'src/*.h'); do
+          for f in $(git ls-files 'src/*.cc' 'src/*.h' | grep -v '^src/visualization/CImg.h$'); do
             if ! clang-format --dry-run --Werror "$f" > /dev/null 2>&1; then
               echo "::error file=$f::not clang-format clean; run clang-format -i $f"
               status=1

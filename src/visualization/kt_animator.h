@@ -54,9 +54,10 @@ public:
      * @param outDir    directory the GIF is created in; created if missing
      * @param maxFrames ceiling on recorded stills for the whole run
      * @param delayCs   delay between GIF frames, in hundredths of a second
+     * @param blend     in-between frames emitted per recorded placement; values
+     *                  below 2 disable interpolation. See blend().
      */
-    void configure(const std::string &outDir, std::size_t maxFrames, int delayCs,
-                   int blend = 3);
+    void configure(const std::string &outDir, std::size_t maxFrames, int delayCs, int blend = 3);
 
     /// Forget the current run. Recorded frames are left on disk.
     void reset();
@@ -121,15 +122,26 @@ public:
     /**
      * @brief Rasterise the current placement as the next frame of the run.
      *
+     * @param g           graph the coordinates index into
+     * @param x           per-vertex x, one entry per graph vertex
+     * @param y           per-vertex y, one entry per graph vertex
+     * @param die         die box the frame is drawn to
+     * @param step        iteration this frame depicts, for the caption
+     * @param total       iteration count, for the caption
+     * @param hpwl        wirelength of the placement, for the caption
+     * @param hpwlInitial wirelength the run is measured against, for the caption
+     * @param resid       overflow of the placement, for the caption
+     * @param note        human-readable stage label, drawn into the frame
+     * @param constraints placement fences to draw, or null
+     *
      * A no-op when the animator is not configured, when the cap is reached, or
      * when @p x and @p y are not one entry per graph vertex. The cap is checked
      * before the work, not after, so a capped run costs nothing.
-     *
-     * @param note human-readable stage label, drawn into the frame
      */
     void record(const Graph &g, const std::vector<float> &x, const std::vector<float> &y,
                 const BBox &die, std::size_t step, std::size_t total, double hpwl,
-                double hpwlInitial, double resid, const std::string &note);
+                double hpwlInitial, double resid, const std::string &note,
+                const constraintMgr *constraints = nullptr);
 
     /**
      * @brief Write the collected stills as one animated GIF.

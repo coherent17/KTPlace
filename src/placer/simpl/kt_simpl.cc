@@ -156,7 +156,7 @@ public:
     explicit Impl(PlacementDB &db) : db_(db), graph_(db.getGraph()) {}
 
     SimplResult run(const SimplParams &P, const std::string &plotDir,
-                    const std::string &snapshotDir);
+                    const std::string &snapshotDir, const constraintMgr *constraints);
 
 private:
     // --- setup -------------------------------------------------------------
@@ -309,10 +309,25 @@ private:
     /// detailed placer land in the same GIF rather than each keeping its own.
     bool animEnabled_ = false;
 
+    /// Placement fences, or null for an unconstrained design. Assigned to by run()
+    /// and consulted after every solve and by the frame renderers.
+    const constraintMgr *fences_ = nullptr;
+    /// Region id per movable cell, mirrored from Vertex::regionId so the hot loop
+    /// does not chase a vertex per cell per iteration.
+    std::vector<int> movRegion_;
+    /// Cells moved back into their own region, and cells pushed out of someone
+    /// else's, accumulated over the run. Reported, so a fence that is being
+    /// enforced expensively is visible rather than inferred.
+    std::size_t fenceClamps_ = 0;
+    std::size_t fencePushes_ = 0;
+
     /// Rasterise the current placement into the run's animation. Called from every
     /// frame producer -- warm-up CG iterates, per-iteration CG iterates, the LSS
     /// and LAL bounds, and the final placement -- so the GIF reads as one
     /// continuous run rather than three separate ones.
+    /// Hold every movable cell inside the fence it belongs to.
+    void enforceFences(std::vector<double> &px, std::vector<double> &py);
+
     void recordGifFrame(const std::vector<float> &fx, const std::vector<float> &fy,
                         std::size_t step, std::size_t total, double hp, double ovf,
                         const std::string &note);
@@ -582,11 +597,27 @@ void SimplePlacer::Impl::buildGrid(const SimplParams &P) {
         }
     }
     // Smallest row site pitch, used as the sliver threshold below.
-    double ri_pitch_floor = degEps_;
+    // The smallest site area over the rows, which is the area below which a bin
+    // cannot hold even one cell and is therefore not usable space.
+    //
+    // This was a maximum, which is the opposite of what the comment said and of
+    // what the threshold means. The threshold answers "is this remainder big enough
+    // to be a place a cell could go?", so it has to be judged against the smallest
+    // site in the design; taking the largest one makes the bar scale with the
+    // biggest row instead. On a design whose rows are not all alike that zeroes
+    // every bin: mgc_superblue16_a reported "available area 0" and a utilisation of
+    // 6.2e28%, and with no capacity anywhere the density term, the overflow and the
+    // legalizer's region growth are all reading from an empty map. The Bookshelf
+    // designs hid it because their rows are uniform, so the max and the min are the
+    // same number.
+    double ri_pitch_floor = std::numeric_limits<double>::max();
     for (const PlacementDB::RowInfo &r : db_.getRows()) {
-        if (r.pitch() > 0.0) {
-            ri_pitch_floor = std::max(ri_pitch_floor, r.pitch() * r.height);
+        if (r.pitch() > 0.0 && r.height > 0.0) {
+            ri_pitch_floor = std::min(ri_pitch_floor, r.pitch() * r.height);
         }
+    }
+    if (!(ri_pitch_floor < std::numeric_limits<double>::max())) {
+        ri_pitch_floor = degEps_;
     }
     // A_a is the available *cell-site* area of a bin, not its geometric area
     // (Section 4.2). Using binArea overstates it twice over: bins that fall
@@ -668,6 +699,37 @@ void SimplePlacer::Impl::buildGrid(const SimplParams &P) {
             if (a < sliver) {
                 a = (a > 0.0) ? 0.0 : a;
             }
+        }
+        {
+            std::size_t nrows = 0, nsub = 0, npos = 0;
+            double siteSum = 0.0, maxSite = 0.0, minSite = 1e300;
+            for (const PlacementDB::RowInfo &r : db_.getRows()) {
+                ++nrows;
+                nsub += r.subrows.size();
+                siteSum += r.pitch() * r.height;
+                maxSite = std::max(maxSite, r.pitch() * r.height);
+                minSite = std::min(minSite, r.pitch() * r.height);
+                for (const PlacementDB::SubrowInfo &si : r.subrows) {
+                    if (si.xhi(r.pitch()) > si.xlo()) {
+                        ++npos;
+                    }
+                }
+            }
+            double pre = 0.0;
+            for (const double a : grid_.avail) {
+                pre += a;
+            }
+            ktlog.trace(
+                "grid diag: rows {} subrows {} usable {} site min {} max {} avg {} "
+                "sliver {} availBeforeSliver {} nonzero {}",
+                nrows, nsub, npos, minSite, maxSite,
+                nrows ? siteSum / static_cast<double>(nrows) : 0.0, sliver, pre, [&] {
+                    std::size_t k = 0;
+                    for (const double a : grid_.avail) {
+                        k += (a > 0.0) ? 1u : 0u;
+                    }
+                    return k;
+                }());
         }
     }
     grid_.totalAvail = 0.0;
@@ -1886,14 +1948,58 @@ std::string frameStep(std::size_t n) {
 
 }  // namespace
 
+void SimplePlacer::Impl::enforceFences(std::vector<double> &px, std::vector<double> &py) {
+    if (fences_ == nullptr || fences_->numRegions() == 0) {
+        return;
+    }
+    // A hard fence, applied after the solve rather than as a term in it.
+    //
+    // The alternative is a penalty in the quadratic, which is how a soft fence is
+    // normally done, and it is the wrong tool here: the solve is a linear system
+    // with no room for a one-sided inequality, and a cell pushed back by a penalty
+    // is only pushed back in proportion to how badly it wants to leave. A fence is
+    // a promise about where a cell may be, so it is enforced as one: the cell is
+    // put where it is allowed to be. The wirelength consequence is real and is the
+    // cost of the constraint, not a bug in it.
+    //
+    // Assigned cells are clamped into their own region, and only their own --
+    // clampToRegion is a no-op for a cell already inside. Unassigned cells are held
+    // out of every region, since a fence is reserved for the cells assigned to it.
+    std::size_t clamped = 0;
+    std::size_t pushed = 0;
+    for (std::size_t i = 0; i < numMovable_; ++i) {
+        double &x = px[i];
+        double &y = py[i];
+        const int id = movRegion_[i];
+        if (id != constraintMgr::kNoRegion) {
+            double cx = x;
+            double cy = y;
+            fences_->clampToRegion(id, cx, cy);
+            if (cx != x || cy != y) {
+                x = cx;
+                y = cy;
+                ++clamped;
+            }
+            continue;
+        }
+        if (fences_->pushOutOfRegions(x, y, die_[0], die_[1], die_[2], die_[3])) {
+            ++pushed;
+        }
+    }
+    if (clamped > 0 || pushed > 0) {
+        fenceClamps_ += clamped;
+        fencePushes_ += pushed;
+    }
+}
+
 void SimplePlacer::Impl::recordGifFrame(const std::vector<float> &fx, const std::vector<float> &fy,
-                                       std::size_t step, std::size_t total, double hp,
-                                       double ovf, const std::string &note) {
+                                        std::size_t step, std::size_t total, double hp, double ovf,
+                                        const std::string &note) {
     if (!animEnabled_) {
         return;
     }
     PlacementAnimator::instance().record(graph_, fx, fy, die_, step, total, hp, res_.hpwlSeed, ovf,
-                                         note);
+                                         note, fences_);
 }
 
 void SimplePlacer::Impl::writeFrame(const std::string &path, const std::vector<double> &px,
@@ -1910,7 +2016,7 @@ void SimplePlacer::Impl::writeFrame(const std::string &path, const std::vector<d
     }
     // fixedView: every frame in a sequence is drawn at the same die-relative
     // scale, so iteration N and N+1 are comparable instead of being auto-zoomed.
-    writeFrameSvg(path, graph_, fx, fy, die_, step, total, hp, res_.hpwlSeed, ovf, note, nullptr,
+    writeFrameSvg(path, graph_, fx, fy, die_, step, total, hp, res_.hpwlSeed, ovf, note, fences_,
                   /*fixedView=*/true);
     // Raster twin for the whole-run animation. The name is a plain counter
     // rather than the SVG's tag, so the animation follows run order even though
@@ -1937,12 +2043,11 @@ void SimplePlacer::Impl::writeCgFrame(const std::string &tag, std::size_t cgIter
     }
     // A CG iterate is not a placement worth an HPWL/overflow label, so those are
     // passed as 0 and the residuals carry the meaning in the note.
-    const std::string note =
-        fmt::format("CG {} iterate {} of {}, residual x {:.3e} / y {:.3e}", tag, cgIter,
-                    par_.cgMaxIter, residX, residY);
+    const std::string note = fmt::format("CG {} iterate {} of {}, residual x {:.3e} / y {:.3e}",
+                                         tag, cgIter, par_.cgMaxIter, residX, residY);
     const std::string path = frameDir_ + "/simpl_cg_" + tag + "_" + frameStep(cgIter) + ".svg";
-    writeFrameSvg(path, graph_, fx, fy, die_, cgIter, par_.cgMaxIter, 0.0, res_.hpwlSeed, 0.0,
-                  note, nullptr, /*fixedView=*/true);
+    writeFrameSvg(path, graph_, fx, fy, die_, cgIter, par_.cgMaxIter, 0.0, res_.hpwlSeed, 0.0, note,
+                  nullptr, /*fixedView=*/true);
     // The same iterate, rasterised, so the animation shows the solve converging
     // rather than jumping straight from one outer iteration to the next.
     recordGifFrame(fx, fy, cgIter, par_.cgMaxIter, 0.0, 0.0, note);
@@ -2123,8 +2228,12 @@ void SimplePlacer::Impl::densityStats(const std::vector<double> &px, const std::
 // ---------------------------------------------------------------------------
 
 SimplResult SimplePlacer::Impl::run(const SimplParams &P, const std::string &plotDir,
-                                    const std::string &snapshotDir) {
+                                    const std::string &snapshotDir,
+                                    const constraintMgr *constraints) {
     par_ = P;
+    fences_ = constraints;
+    fenceClamps_ = 0;
+    fencePushes_ = 0;
     // Debugging cap: the legalizer is the expensive part, so a short run is
     // needed to iterate on it. Unset in normal use.
     if (const char *e = std::getenv("KTPLACE_SIMPL_ITERS")) {
@@ -2220,6 +2329,20 @@ SimplResult SimplePlacer::Impl::run(const SimplParams &P, const std::string &plo
 
     ScopedTimer setupTimer("simpl-setup");
     collect();
+
+    // Mirror the region assignment once, now that collect() has defined the
+    // movable list. This has to come after collect(): numMovable_ is still zero
+    // above it, so sizing the mirror here produced an empty vector and the fence
+    // check then indexed it from zero -- a null dereference on the first cell.
+    // Vertex::regionId is the source of truth, but the check runs over every cell
+    // after every solve, so it wants this per movable index rather than a graph
+    // lookup each time.
+    movRegion_.assign(numMovable_, constraintMgr::kNoRegion);
+    if (fences_ != nullptr) {
+        for (std::size_t i = 0; i < numMovable_; ++i) {
+            movRegion_[i] = graph_.getVertex(movVertex_[i]).regionId;
+        }
+    }
     buildGrid(P);
     res_.buildSeconds = setupTimer.elapsedSeconds();
     setupTimer.lap();  // record "simpl-setup" in the shared registry
@@ -2325,6 +2448,7 @@ SimplResult SimplePlacer::Impl::run(const SimplParams &P, const std::string &plo
             solve("init" + frameStep(it), /*allowFrames=*/animEnabled_);
             lower = solX_;
             lowerY = solY_;
+            enforceFences(lower, lowerY);
             res_.initIters = it + 1;
             const double h = hpwl(lower, lowerY);
             // Convergence on the wirelength, not on a round count. The improvement
@@ -2362,8 +2486,8 @@ SimplResult SimplePlacer::Impl::run(const SimplParams &P, const std::string &plo
                                     lower, lowerY, note);
                 }
             }
-            ktlog.trace("init iter {:2d}: hpwl {:.6e} best {:.6e} ({:.4f}% off, {}/{} stale)", it, h,
-                        bestInitHpwl,
+            ktlog.trace("init iter {:2d}: hpwl {:.6e} best {:.6e} ({:.4f}% off, {}/{} stale)", it,
+                        h, bestInitHpwl,
                         bestInitHpwl > 0.0 ? 100.0 * (h - bestInitHpwl) / bestInitHpwl : 0.0,
                         initStale, par_.initPatience);
             if (initStale >= static_cast<int>(par_.initPatience)) {
@@ -2707,6 +2831,7 @@ SimplResult SimplePlacer::Impl::run(const SimplParams &P, const std::string &plo
         solve("g" + frameStep(it), /*allowFrames=*/true);
         lower = solX_;
         lowerY = solY_;
+        enforceFences(lower, lowerY);
         solveAcc += sTimer.elapsedSeconds();
         sTimer.lap();
     }
@@ -2742,6 +2867,20 @@ SimplResult SimplePlacer::Impl::run(const SimplParams &P, const std::string &plo
     res_.buildSeconds += buildAcc;
     res_.solveSeconds += solveAcc;
     res_.usedLookAhead = par_.lookAhead;
+    res_.fenceClamps = fenceClamps_;
+    res_.fencePushes = fencePushes_;
+    if (fences_ != nullptr && !movRegion_.empty()) {
+        // Counted on the placement actually returned, not on the last lower bound:
+        // this is the number that says whether the delivered result honours the
+        // fences, which is the only one a reader cares about.
+        std::vector<double> flat;
+        flat.reserve(2 * upper.size());
+        for (std::size_t i = 0; i < upper.size(); ++i) {
+            flat.push_back(upper[i]);
+            flat.push_back(upperY[i]);
+        }
+        res_.fenceViolations = fences_->countViolations(flat, movRegion_);
+    }
     binCells(lower, lowerY);
     res_.overflowLower = scaledOverflow();
     binCells(upper, upperY);
@@ -2874,8 +3013,8 @@ SimplePlacer::SimplePlacer(SimplePlacer &&) noexcept = default;
 SimplePlacer &SimplePlacer::operator=(SimplePlacer &&) noexcept = default;
 
 SimplResult SimplePlacer::place(const SimplParams &params, const std::string &plotDir,
-                                const std::string &snapshotDir) {
-    return pImpl->run(params, plotDir, snapshotDir);
+                                const std::string &snapshotDir, const constraintMgr *constraints) {
+    return pImpl->run(params, plotDir, snapshotDir, constraints);
 }
 
 }  // namespace ktplace
