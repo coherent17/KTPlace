@@ -5,9 +5,9 @@
 
 #include "kt_flowMgr.h"
 #include "util/kt_reportTable.h"
+#include "visualization/kt_animator.h"
 #include "util/kt_scopedTimer.h"
 #include "util/kt_log.h"
-#include "placer/kt_quadPlacer.h"
 #include "detailPlacer/kt_fastdp.h"
 #include "legalizer/kt_abacus.h"
 #include "placer/simpl/kt_simpl.h"
@@ -41,8 +41,12 @@ public:
     bool loadBookshelfFromFiles(const std::string &nodesFile, const std::string &netsFile,
                                 const std::string &plFile = "", const std::string &sclFile = "",
                                 const std::string &wtsFile = "");
-    bool runPlacement(const std::string &algorithm = "quadratic", const std::string &plotDir = "",
+    bool runPlacement(const std::string &algorithm = "simpl", const std::string &plotDir = "",
                       const std::string &snapshotDir = "");
+    /// Legalize and then detail-place, for the algorithms that stop at a global
+    /// placement. Split out of runPlacement because RePlAce and SimPL both end
+    /// here, and the reporting is identical -- a second copy would drift.
+    bool legalizeAndDetail(const std::string &plotDir);
     bool writePlacement(const std::string &outputPath, const std::string &format = "bookshelf");
     PlacementDB &getPlacementDB();
     const PlacementDB &getPlacementDB() const;
@@ -208,59 +212,165 @@ bool FlowMgr::Impl::loadBookshelfFromFiles(const std::string &nodesFile,
     return true;
 }
 
+bool FlowMgr::Impl::legalizeAndDetail(const std::string &plotDir) {
+        // Everything the placer reserved is released here, so the legalizer and the
+    // detailed placer can use the whole remaining budget.
+    if (PlacementAnimator::instance().enabled()) {
+        PlacementAnimator::instance().holdBack(0);
+    }
+
+    // Global placement leaves the cells overlapping and off-row. Abacus
+    // removes the overlap with the least movement it can, and self-checks
+    // the result so a legalization bug shows up as a count, not as a
+    // silently bad placement.
+    ktlog.echo("Running Abacus legalization...");
+    AbacusLegalizer legalizer(*db);
+    LegalizeParams lparams;
+    if (const char *e = std::getenv("KTPLACE_ABACUS_MAX_ROW_DIST")) {
+        lparams.maxRowDistance = static_cast<std::size_t>(std::atoll(e));
+    }
+    if (!plotDir.empty()) {
+        lparams.plotDir = plotDir + "/legalize";
+        lparams.frameEvery = std::getenv("KTPLACE_ABACUS_FRAME_EVERY")
+                                 ? static_cast<std::size_t>(
+                                       std::atoll(std::getenv("KTPLACE_ABACUS_FRAME_EVERY")))
+                                 : 20000;
+    }
+    const LegalizeResult lres = legalizer.legalize(lparams);
+    ktReportTable lsummary("Legalization (Abacus)");
+    lsummary.setHeaders({"metric", "value"});
+    lsummary.addRow({"cells placed", fmt::format("{}", lres.cellsPlaced)});
+    lsummary.addRow({"cells unplaced", fmt::format("{}", lres.unplaced)});
+    lsummary.addRow(
+        {"squared displacement", fmt::format("{:.6}", lres.totalSquaredDisplacement)});
+    lsummary.addRow({"max displacement", fmt::format("{:.6}", lres.maxDisplacement)});
+    lsummary.addRow({"HPWL before", fmt::format("{:.6}", lres.hpwlBefore)});
+    lsummary.addRow({"HPWL after", fmt::format("{:.6}", lres.hpwlAfter)});
+    lsummary.addRow({"time (s)", fmt::format("{:.6}", lres.seconds)});
+    lsummary.addRow({"overlapping pairs", fmt::format("{}", lres.overlappingPairs)});
+    lsummary.addRow({"cells off row", fmt::format("{}", lres.offRow)});
+    lsummary.addRow({"cells off site", fmt::format("{}", lres.offSite)});
+    lsummary.addRow({"cells over macro", fmt::format("{}", lres.overFixed)});
+    lsummary.addRow({"cells out of rows", fmt::format("{}", lres.outOfRows)});
+    lsummary.addRow({"commit failures", fmt::format("{}", lres.commitFailures)});
+    lsummary.emit();
+    if (lres.overlappingPairs != 0 || lres.offRow != 0 || lres.overFixed != 0) {
+        ktlog.echo("WARNING: legalization is not legal; see counts above");
+    }
+
+    // The legalizer minimises displacement, not wirelength, so a legal
+    // placement usually costs a little HPWL against the global placement it
+    // came from. Detailed placement wins it back.
+    ktlog.echo("Running FastDP detailed placement...");
+    FastDetailedPlacer dp(*db);
+    DetailPlaceParams dparams;
+    if (const char *e = std::getenv("KTPLACE_DP_WINDOW")) {
+        dparams.localReorderWindow = static_cast<std::size_t>(std::atoll(e));
+    }
+    if (!plotDir.empty()) {
+        dparams.plotDir = plotDir + "/detailplace";
+    }
+    const DetailPlaceResult dres = dp.place(dparams);
+    ktReportTable dsummary("Detailed placement (FastDP)");
+    dsummary.setHeaders({"metric", "value"});
+    dsummary.addRow({"global swaps", fmt::format("{}", dres.globalSwaps)});
+    dsummary.addRow({"vertical swaps", fmt::format("{}", dres.verticalSwaps)});
+    dsummary.addRow({"reorder moves", fmt::format("{}", dres.reorderMoves)});
+    dsummary.addRow({"cluster moves", fmt::format("{}", dres.clusterMoves)});
+    dsummary.addRow({"HPWL before", fmt::format("{:.6}", dres.hpwlBefore)});
+    dsummary.addRow({"HPWL after", fmt::format("{:.6}", dres.hpwlAfter)});
+    dsummary.addRow(
+        {"HPWL change",
+         fmt::format("{:.2}%", 100.0 * (dres.hpwlAfter - dres.hpwlBefore) /
+                                   (dres.hpwlBefore > 0.0 ? dres.hpwlBefore : 1.0))});
+    dsummary.addRow({"time (s)", fmt::format("{:.6}", dres.seconds)});
+    dsummary.addRow({"overlapping pairs", fmt::format("{}", dres.overlappingPairs)});
+    dsummary.addRow({"cells off row", fmt::format("{}", dres.offRow)});
+    dsummary.addRow({"cells off site", fmt::format("{}", dres.offSite)});
+    dsummary.addRow({"cells over macro", fmt::format("{}", dres.overFixed)});
+    dsummary.emit();
+    if (dres.overlappingPairs != 0 || dres.offRow != 0 || dres.overFixed != 0) {
+        ktlog.echo("WARNING: detailed placement broke legality; see counts above");
+    }
+    // Every stage has now contributed, so the run can be told as one animation.
+    // Assembling it here, and not at the end of global placement, is the whole
+    // point: the legalizer's pull back onto the rows is usually the most
+    // consequential motion of the run, and it happens after the placer is done.
+    if (const auto &anim = PlacementAnimator::instance(); anim.enabled()) {
+        if (anim.finish()) {
+            ktlog.echo("animation: {} frames -> {}/anim/placement.gif (global placement, then "
+                       "legalization, then detailed placement)",
+                       anim.frameCount(), plotDir);
+        } else {
+            ktlog.echo("animation: {} frame(s) recorded, no GIF written (one animation needs at "
+                       "least two frames)",
+                       anim.frameCount());
+        }
+    }
+    placed = true;
+    return true;
+}
+
 bool FlowMgr::Impl::runPlacement(const std::string &algorithm, const std::string &plotDir,
                                  const std::string &snapshotDir) {
     if (!loaded) {
         ktlog.fatal("No placement database loaded");
     }
 
-    if (algorithm == "quadratic") {
-        ktlog.echo("Running global placement (clique/star net model, WL + density, PCG)...");
-        QuadraticPlacer placer(*db);
-        // Region ("fence") constraints come from the LEF/DEF reader; the
-        // Bookshelf format has no equivalent, so this is null there.
-        const constraintMgr *regions = nullptr;
-        if (lefdefAdapter) {
-            regions = &lefdefAdapter->getConstraints();
-        }
-        const PlacerResult res = placer.place(200, 0.10, plotDir, regions, snapshotDir);
-        // Units live in the metric name so the value columns stay purely
-        // numeric and get right-aligned by the table.
-        ktReportTable summary("Solver results");
-        summary.setHeaders({"metric", "initial", "final"});
-        summary.addRow({"movable cells", "", fmt::format("{}", res.numMovable)});
-        summary.addRow({"star nodes", "", fmt::format("{}", res.numStars)});
-        summary.addRow({"outer iterations", "", fmt::format("{}", res.numIterations)});
-        summary.addRow({"matrix build (s)", "", fmt::format("{:.6}", res.buildSeconds)});
-        summary.addRow({"global place (s)", "", fmt::format("{:.6}", res.solveSeconds)});
-        summary.addRow({"density overflow", fmt::format("{:.6}", res.densityOverflowInitial),
-                        fmt::format("{:.6}", res.densityOverflowFinal)});
-        summary.addRow(
-            {"HPWL", fmt::format("{:.6}", res.hpwlInitial), fmt::format("{:.6}", res.hpwlFinal)});
-        // A ratio, not a signed percentage: spreading raises wirelength well
-        // above the seed, and a degenerate seed (every cell on one point, as
-        // in several public Bookshelf suites) makes any percentage meaningless.
-        summary.addRow({"HPWL / seed", "",
-                        res.hpwlInitial > 0.0
-                            ? fmt::format("{:.2f}x", res.hpwlFinal / res.hpwlInitial)
-                            : std::string("n/a (degenerate seed)")});
-        summary.emit();
-        placed = true;
-        return true;
-    } else if (algorithm == "simpl") {
+    // One animation for the whole run, armed before the first stage and closed
+    // after the last. Configuring it here, rather than inside a stage, is what
+    // lets the legalizer and the detailed placer add frames to the same GIF the
+    // placer started.
+    if (!plotDir.empty() && std::getenv("KTPLACE_ANIM") != nullptr) {
+        const std::size_t maxFrames =
+            std::getenv("KTPLACE_ANIM_MAX_FRAMES")
+                ? static_cast<std::size_t>(std::atoll(std::getenv("KTPLACE_ANIM_MAX_FRAMES")))
+                : std::size_t{300};
+        // 12 centiseconds (120 ms) per frame. The default 6 was quick enough that
+        // a 300-frame animation flashed past in under two seconds, which is not
+        // long enough to follow a placement moving.
+        const int delayCs = std::getenv("KTPLACE_ANIM_DELAY_CS")
+                                ? std::atoi(std::getenv("KTPLACE_ANIM_DELAY_CS"))
+                                : 12;
+        // Three frames per recorded placement: the two in-between plus the
+        // placement itself, which is what turns a per-iteration jump into motion.
+        const int blend = std::getenv("KTPLACE_ANIM_BLEND")
+                              ? std::atoi(std::getenv("KTPLACE_ANIM_BLEND"))
+                              : 3;
+        PlacementAnimator::instance().configure(plotDir + "/anim", maxFrames, delayCs, blend);
+    } else {
+        PlacementAnimator::instance().reset();
+    }
+
+    // Global placement is by far the most frame-hungry stage, so it does not get
+    // to spend the whole budget: a quarter is held back for legalization and
+    // detailed placement, which are the stages that turn a legal-looking but
+    // unusable placement into a real one.
+    if (PlacementAnimator::instance().enabled()) {
+        const std::size_t total = std::getenv("KTPLACE_ANIM_MAX_FRAMES")
+                                      ? static_cast<std::size_t>(
+                                            std::atoll(std::getenv("KTPLACE_ANIM_MAX_FRAMES")))
+                                      : std::size_t{480};
+        PlacementAnimator::instance().holdBack(total / 5);
+    }
+
+    if (algorithm == "simpl") {
         ktlog.echo("Running SimPL global placement (B2B net model + look-ahead legalization)...");
         SimplePlacer placer(*db);
         // Bookshelf carries no placement regions; the LEF/DEF reader is the only
         // source of fences, so they are not consulted here. SimPL's own spreading
         // comes from legalizing, not from a fence-aware field.
         SimplParams params;
-        params.traceEvery = 10;
+        params.traceEvery = 5;
         // Per-iteration frames, for watching the LSS/LAL interaction.
         if (const char *e = std::getenv("KTPLACE_SIMPL_TRACE_EVERY")) {
             params.traceEvery = static_cast<std::size_t>(std::atoll(e));
         }
-        // A frame every N conjugate-gradient iterations inside each solve. Off by
-        // default: each frame is ~4 MB on a 210k-cell design.
+        // A frame every N conjugate-gradient iterations inside each solve. On by
+        // default now: a per-iteration record is what makes the animation show the
+        // solve converging rather than only the outer loop, and with blending in
+        // place the extra frames are what the motion is made of.
+        params.cgEvery = 5;
         if (const char *e = std::getenv("KTPLACE_SIMPL_CG_EVERY")) {
             params.cgEvery = static_cast<std::size_t>(std::atoll(e));
         }
@@ -279,91 +389,21 @@ bool FlowMgr::Impl::runPlacement(const std::string &algorithm, const std::string
         summary.addRow({"matrix build (s)", "", fmt::format("{:.6}", res.buildSeconds)});
         summary.addRow({"look-ahead (s)", "", fmt::format("{:.6}", res.spreadSeconds)});
         summary.addRow({"linear solves (s)", "", fmt::format("{:.6}", res.solveSeconds)});
+        summary.addRow({"look-ahead legalization", "", res.usedLookAhead ? "on" : "OFF (raw LSS)"});
         summary.addRow({"HPWL seed", fmt::format("{:.6}", res.hpwlSeed), ""});
         summary.addRow({"HPWL lower bound", "", fmt::format("{:.6}", res.hpwlLower)});
         summary.addRow({"HPWL final", "", fmt::format("{:.6}", res.hpwlFinal)});
+        summary.addRow({"returned from iteration", "",
+                        fmt::format("{} of {}", res.bestIter, res.globalIters)});
         summary.addRow({"bound gap", "", fmt::format("{:.6}", res.gap)});
         summary.addRow({"scaled overflow (lower)", "", fmt::format("{:.6}", res.overflowLower)});
         summary.addRow({"scaled overflow (final)", "", fmt::format("{:.6}", res.overflowFinal)});
         summary.addRow({"SVG frames written", "", fmt::format("{}", res.framesWritten)});
         summary.emit();
 
-        // Global placement leaves the cells overlapping and off-row. Abacus
-        // removes the overlap with the least movement it can, and self-checks
-        // the result so a legalization bug shows up as a count, not as a
-        // silently bad placement.
-        ktlog.echo("Running Abacus legalization...");
-        AbacusLegalizer legalizer(*db);
-        LegalizeParams lparams;
-        if (const char *e = std::getenv("KTPLACE_ABACUS_MAX_ROW_DIST")) {
-            lparams.maxRowDistance = static_cast<std::size_t>(std::atoll(e));
-        }
-        if (!plotDir.empty()) {
-            lparams.plotDir = plotDir + "/legalize";
-            lparams.frameEvery = std::getenv("KTPLACE_ABACUS_FRAME_EVERY")
-                                     ? static_cast<std::size_t>(
-                                           std::atoll(std::getenv("KTPLACE_ABACUS_FRAME_EVERY")))
-                                     : 20000;
-        }
-        const LegalizeResult lres = legalizer.legalize(lparams);
-        ktReportTable lsummary("Legalization (Abacus)");
-        lsummary.setHeaders({"metric", "value"});
-        lsummary.addRow({"cells placed", fmt::format("{}", lres.cellsPlaced)});
-        lsummary.addRow({"cells unplaced", fmt::format("{}", lres.unplaced)});
-        lsummary.addRow(
-            {"squared displacement", fmt::format("{:.6}", lres.totalSquaredDisplacement)});
-        lsummary.addRow({"max displacement", fmt::format("{:.6}", lres.maxDisplacement)});
-        lsummary.addRow({"HPWL before", fmt::format("{:.6}", lres.hpwlBefore)});
-        lsummary.addRow({"HPWL after", fmt::format("{:.6}", lres.hpwlAfter)});
-        lsummary.addRow({"time (s)", fmt::format("{:.6}", lres.seconds)});
-        lsummary.addRow({"overlapping pairs", fmt::format("{}", lres.overlappingPairs)});
-        lsummary.addRow({"cells off row", fmt::format("{}", lres.offRow)});
-        lsummary.addRow({"cells off site", fmt::format("{}", lres.offSite)});
-        lsummary.addRow({"cells over macro", fmt::format("{}", lres.overFixed)});
-        lsummary.addRow({"cells out of rows", fmt::format("{}", lres.outOfRows)});
-        lsummary.addRow({"commit failures", fmt::format("{}", lres.commitFailures)});
-        lsummary.emit();
-        if (lres.overlappingPairs != 0 || lres.offRow != 0 || lres.overFixed != 0) {
-            ktlog.echo("WARNING: legalization is not legal; see counts above");
-        }
-
-        // The legalizer minimises displacement, not wirelength, so a legal
-        // placement usually costs a little HPWL against the global placement it
-        // came from. Detailed placement wins it back.
-        ktlog.echo("Running FastDP detailed placement...");
-        FastDetailedPlacer dp(*db);
-        DetailPlaceParams dparams;
-        if (const char *e = std::getenv("KTPLACE_DP_WINDOW")) {
-            dparams.localReorderWindow = static_cast<std::size_t>(std::atoll(e));
-        }
-        if (!plotDir.empty()) {
-            dparams.plotDir = plotDir + "/detailplace";
-        }
-        const DetailPlaceResult dres = dp.place(dparams);
-        ktReportTable dsummary("Detailed placement (FastDP)");
-        dsummary.setHeaders({"metric", "value"});
-        dsummary.addRow({"global swaps", fmt::format("{}", dres.globalSwaps)});
-        dsummary.addRow({"vertical swaps", fmt::format("{}", dres.verticalSwaps)});
-        dsummary.addRow({"reorder moves", fmt::format("{}", dres.reorderMoves)});
-        dsummary.addRow({"cluster moves", fmt::format("{}", dres.clusterMoves)});
-        dsummary.addRow({"HPWL before", fmt::format("{:.6}", dres.hpwlBefore)});
-        dsummary.addRow({"HPWL after", fmt::format("{:.6}", dres.hpwlAfter)});
-        dsummary.addRow(
-            {"HPWL change",
-             fmt::format("{:.2}%", 100.0 * (dres.hpwlAfter - dres.hpwlBefore) /
-                                       (dres.hpwlBefore > 0.0 ? dres.hpwlBefore : 1.0))});
-        dsummary.addRow({"time (s)", fmt::format("{:.6}", dres.seconds)});
-        dsummary.addRow({"overlapping pairs", fmt::format("{}", dres.overlappingPairs)});
-        dsummary.addRow({"cells off row", fmt::format("{}", dres.offRow)});
-        dsummary.addRow({"cells off site", fmt::format("{}", dres.offSite)});
-        dsummary.addRow({"cells over macro", fmt::format("{}", dres.overFixed)});
-        dsummary.emit();
-        if (dres.overlappingPairs != 0 || dres.offRow != 0 || dres.overFixed != 0) {
-            ktlog.echo("WARNING: detailed placement broke legality; see counts above");
-        }
-
-        placed = true;
+        legalizeAndDetail(plotDir);
         return true;
+
     } else {
         ktlog.fatal("Unknown placement algorithm: {}", algorithm);
     }

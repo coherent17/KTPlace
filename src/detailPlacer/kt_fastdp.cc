@@ -17,6 +17,7 @@
 #include "datamodel/kt_graph.h"
 #include "util/kt_log.h"
 #include "util/kt_scopedTimer.h"
+#include "visualization/kt_animator.h"
 #include "visualization/kt_plotter.h"
 
 namespace ktplace {
@@ -764,6 +765,9 @@ void FastDetailedPlacer::Impl::writeFrame(const std::string &path, const char *n
     }
     writeFrameSvg(path, graph_, fx, fy, die_, 0, 1, hpwl(), 0.0, 0.0, note, nullptr,
                   /*fixedView=*/true);
+    // Into the run's animation as well, so detailed placement's contribution --
+    // usually the last thing that moves cells -- is in the GIF too.
+    PlacementAnimator::instance().record(graph_, fx, fy, die_, 0, 1, hpwl(), hpwl(), 0.0, note);
 }
 
 void FastDetailedPlacer::Impl::selfCheck(DetailPlaceResult &res) const {

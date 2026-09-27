@@ -62,7 +62,15 @@ void Logger::configure(std::string logFilePath, bool verbose) {
     closeFiles();
     reportedOpenFailure = false;
     path = std::move(logFilePath);
-    tracePath = verbose ? tracePathFor(path) : std::string();
+    // The trace file is always opened. Trace records are where the per-iteration
+    // numbers live -- the lower/upper bounds, the overflow of each, the pseudonet
+    // and density shares -- and they are the only way to tell a converging run
+    // from one that is stuck. Gating that behind a flag meant the runs worth
+    // diagnosing were the runs nobody had thought to ask for a trace of, since
+    // whether a run needs diagnosing is not known until afterwards. The flag now
+    // only controls whether trace text also reaches the console; the file is
+    // always there.
+    tracePath = tracePathFor(path);
     verboseEnabled = verbose;
 
     const auto openOne = [this](std::ofstream &stream, const std::string &target) {
@@ -127,13 +135,12 @@ void Logger::emit(Level level, const std::string &message) {
     }
 
     std::lock_guard<std::mutex> lock(mutex);
-    if (isTrace && !verboseEnabled) {
-        return;
-    }
     ++records;
 
-    // Diagnostics live in their own file so the main transcript stays
-    // readable; without --verbose no trace file is created at all.
+    // Diagnostics live in their own file so the main transcript stays readable,
+    // and that file is always written: a trace record is how a run is explained
+    // after the fact, and whether a run turns out to need explaining is not known
+    // while it is still running.
     if (isTrace) {
         if (traceFile.is_open()) {
             traceFile << timestamp() << " [trace] " << body << '\n';
@@ -144,9 +151,10 @@ void Logger::emit(Level level, const std::string &message) {
         file.flush();
     }
 
-    // stderr is the interactive view: echo and fatal records only, so a
-    // verbose run keeps its diagnostics in the file instead of the terminal.
-    if (!isTrace) {
+    // stderr is the interactive view: echo and fatal records always, and trace
+    // records only under -v. The trace file has them either way, so the console
+    // stays a summary and the file is the complete record.
+    if (!isTrace || verboseEnabled) {
         std::cerr << body << '\n';
     }
 }

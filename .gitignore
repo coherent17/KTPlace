@@ -33,3 +33,11 @@ docs/*
 !docs/simpl.md
 ref/
 *.whl
+
+# Downloaded toolchain (Doxygen), same policy as the benchmark data: fetched, not
+# committed. `make docs` fetches it.
+tools/
+
+# Python bytecode
+__pycache__/
+*.pyc

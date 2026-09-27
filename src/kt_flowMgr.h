@@ -46,14 +46,14 @@ public:
      * @param inputBaseName Base name of input files (e.g., "adaptec2")
      * @param inputDirPath Directory path containing input files
      * @param outputPath Output file path for placement results
-     * @param algorithm Placement algorithm name ("quadratic", etc.)
+     * @param algorithm Placement algorithm name ("simpl")
      * @param outputFormat Output format ("bookshelf", etc.)
      * @param plotDir If non-empty, directory for SVG/CSV/HTML placement
-     *                visualization snapshots (see QuadraticPlacer::place).
+     *                visualization snapshots (see SimplePlacer::place).
      * @throws std::runtime_error if any step fails
      */
     void run(const std::string &inputBaseName, const std::string &inputDirPath,
-             const std::string &outputPath, const std::string &algorithm = "quadratic",
+             const std::string &outputPath, const std::string &algorithm = "simpl",
              const std::string &outputFormat = "bookshelf", const std::string &plotDir = "");
 
 private:

@@ -10,7 +10,7 @@
 CXX ?= g++
 CXXFLAGS ?= -std=c++23 -Wall -Wextra -O2 -g -pthread
 # Every source uses project-root-relative includes ("datamodel/kt_dm.h",
-# "placer/kt_quadPlacer.h", ...), so a single -I at the project root
+# "placer/simpl/kt_simpl.h", ...), so a single -I at the project root
 # (src/) is all that is needed, regardless of which subdirectory make
 # is running in.  `override` is required because the parent makefile
 # passes INCLUDES on the command line.
@@ -18,7 +18,7 @@ override INCLUDES := -I..
 OBJ_DIR ?= ../build/obj/placer
 
 # Source files in this directory
-SRCS := kt_quadPlacer.cc simpl/kt_simpl.cc
+SRCS := simpl/kt_simpl.cc
 
 # Only include files that exist
 EXISTING_SRCS := $(foreach src,$(SRCS),$(if $(wildcard $(src)),$(src),))
@@ -52,6 +52,15 @@ $(OBJ_DIR)/%.o: %.cc
 
 # Include dependency files
 -include $(DEPS)
+
+# ============================================================================
+# Unit tests (Boost.Test)
+# ============================================================================
+#
+# The suites (placer/simpl/test/test_simpl.cc) are built and run by the
+# top-level `make test`, not here: they need PlacementDB, the logger, the
+# timer and the plotter, so they link the whole engine and belong with the
+# other suites at the top level.
 
 # Clean this directory
 clean:

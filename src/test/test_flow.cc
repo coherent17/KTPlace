@@ -228,20 +228,26 @@ BOOST_AUTO_TEST_CASE(flow_writes_visualization_output_when_asked) {
     const fs::path plots = dir.file("plots");
 
     FlowMgr flow;
-    flow.run("tiny", dir.str(), out.string(), "quadratic", "bookshelf", plots.string());
+    flow.run("tiny", dir.str(), out.string(), "simpl", "bookshelf", plots.string());
 
     BOOST_REQUIRE(fs::exists(plots / "index.html"));
-    BOOST_REQUIRE(fs::exists(plots / "hpwl.csv"));
-    BOOST_REQUIRE(fs::exists(plots / "hpwl.svg"));
-    BOOST_TEST(countNonEmptyLines(plots / "hpwl.csv") > 0);
+    // SimPL plots the LSS/HPWL bound it converges against, not the raw
+    // per-iteration HPWL series the quadratic placer emitted.
+    BOOST_REQUIRE(fs::exists(plots / "simpl_bounds.csv"));
+    BOOST_REQUIRE(fs::exists(plots / "simpl_bounds.svg"));
+    BOOST_TEST(countNonEmptyLines(plots / "simpl_bounds.csv") > 0);
 
-    std::size_t frames = 0;
-    for (const auto &entry : fs::directory_iterator(plots)) {
-        if (entry.path().filename().string().rfind("frame_step_", 0) == 0) {
-            ++frames;
+    std::size_t stills = 0;
+    // SimPL's default stills are SVG (simpl_*.svg) under <plotDir>/simpl, nested
+    // so they do not collide with the bounds curve and the index. The raster
+    // frame_*.ppm stills only appear when a CG trace cadence is requested.
+    for (const auto &entry : fs::directory_iterator(plots / "simpl")) {
+        const std::string name = entry.path().filename().string();
+        if (name.rfind("simpl_", 0) == 0 && entry.path().extension() == ".svg") {
+            ++stills;
         }
     }
-    BOOST_TEST(frames > 0);
+    BOOST_TEST(stills > 0);
 }
 
 BOOST_AUTO_TEST_CASE(flow_handles_a_lefdef_design) {

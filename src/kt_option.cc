@@ -25,7 +25,7 @@ public:
     std::string inputBaseName;
     std::string inputDir;
     std::string outputPath;
-    std::string algorithm = "quadratic";
+    std::string algorithm = "simpl";
     std::string outputFormat = "bookshelf";
     std::string logFile;
     bool verbose = false;
@@ -234,12 +234,12 @@ Arguments:
   output_path      Output file path for placement results
 
 Options:
-  -a, --algorithm <name>    Placement algorithm: quadratic or simpl (default: quadratic)
+  -a, --algorithm <name>    Placement algorithm: simpl (default: simpl)
   -f, --format <format>     Output format (default: bookshelf)
   -l, --log <file>          Transcript log file (default: ktplace.log,
                             or <work-dir>/ktplace.log with -w)
-  -v, --verbose             Write trace diagnostics to a second file,
-                            <log>_trace.log
+  -v, --verbose             Also send trace diagnostics to the console.
+                            <log>_trace.log is always written either way.
   -w, --work-dir <dir>      Base directory for relative output, plot and log
                             paths; created if missing
   -c, --config <file>       Configuration file path (optional)
@@ -249,12 +249,13 @@ Options:
   -V, --version             Show version information
 
 Logging goes to the log file and stderr; stdout is never written to.
-With -v the trace records are kept in a separate <log>_trace.log so the
-main transcript stays readable.
+Trace records go to a separate <log>_trace.log, which is always written; -v
+additionally sends them to the console. Keeping them out of the main log
+means the main transcript stays readable.
 
 Examples:
   {} adaptec2 ./benchmark/ISPD_2005/adaptec2 ./output/adaptec2.pl
-  {} adaptec2 ./benchmark/ISPD_2005/adaptec2 ./output/adaptec2.pl -a quadratic -f bookshelf
+  {} adaptec2 ./benchmark/ISPD_2005/adaptec2 ./output/adaptec2.pl -a simpl -f bookshelf
   {} adaptec2 ./benchmark/ISPD_2005/adaptec2 ./output/adaptec2.pl -l placement.log
 )";
     ktlog.echo(fmt::format(kUsage, VERSION, programName, programName, programName, programName));

@@ -106,6 +106,15 @@ table.addRow({"load", "4.75s", "7.09s"});
 table.emit();
 ```
 
+## Third-party code
+
+`src/visualization/CImg.h` is the [CImg](https://cimg.eu) library, vendored as a
+single header. It is dual-licensed by its author under CeCILL-C and CeCILL; see
+the header for the full terms. It is used only to rasterise animation frames and
+writes no files of its own — the GIF container, its LZW stream and the palette
+quantiser are all in `src/visualization/kt_gif.cc`. Everything else in this
+repository is original work under the MIT license in `LICENSE`.
+
 ## Benchmarks
 
 Benchmarks are not vendored (they are several GB). Fetch them from their

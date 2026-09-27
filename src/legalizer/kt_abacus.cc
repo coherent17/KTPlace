@@ -15,6 +15,7 @@
 #include <numeric>
 
 #include "util/kt_log.h"
+#include "visualization/kt_animator.h"
 #include "util/kt_scopedTimer.h"
 
 namespace ktplace {
@@ -476,6 +477,11 @@ void AbacusLegalizer::Impl::writeFrame(const std::string &path, const std::strin
     }
     writeFrameSvg(path, graph_, fx, fy, die_, step, total, hpwlOf(xs_, ys_), 0.0, 0.0, note,
                   nullptr, /*fixedView=*/true);
+    // The same frame into the run's animation, so the GIF shows the legalizer
+    // pulling the placement back onto its rows rather than cutting straight from
+    // a scattered global placement to a legal one.
+    PlacementAnimator::instance().record(graph_, fx, fy, die_, step, total, hpwlOf(xs_, ys_),
+                                         hpwlOf(xs_, ys_), 0.0, note);
 }
 
 void AbacusLegalizer::Impl::selfCheck(LegalizeResult &res) const {

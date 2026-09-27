@@ -163,6 +163,8 @@ public:
      * @brief Is (x, y) inside the region?
      *
      * @param id  region id; kNoRegion always counts as inside.
+     * @param x  query x coordinate
+     * @param y  query y coordinate
      */
     [[nodiscard]] bool contains(int id, double x, double y) const;
 

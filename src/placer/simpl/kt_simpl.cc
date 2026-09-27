@@ -1,5 +1,5 @@
 /**
- * @file simpl.cc
+ * @file kt_simpl.cc
  * @brief SimPL global placement. See kt_simpl.h for the algorithm summary and
  *        the bibliographic reference.
  */
@@ -7,6 +7,7 @@
 #include "placer/simpl/kt_simpl.h"
 
 #include "util/kt_scopedTimer.h"
+#include "visualization/kt_animator.h"
 
 #include <algorithm>
 #include <cassert>
@@ -14,6 +15,7 @@
 #include <cstdint>
 #include <deque>
 #include <cstdlib>
+#include <filesystem>
 #include <fstream>
 #include <oneapi/tbb/blocked_range.h>
 #include <oneapi/tbb/parallel_for.h>
@@ -193,7 +195,10 @@ private:
     /// One frame from inside the CG loop: the current iterate of one axis
     /// against the other axis' last value. `tag` identifies the outer context
     /// (e.g. "init3" or "g07"), `dim` is 'x' or 'y'.
-    void writeCgFrame(const std::string &tag, char dim, std::size_t cgIter, double resid);
+    /// One frame per conjugate-gradient iteration, covering both axes: the
+    /// placement is the state the next step starts from, and @p residX/@p residY
+    /// say how far each axis still is from its own tolerance.
+    void writeCgFrame(const std::string &tag, std::size_t cgIter, double residX, double residY);
     /// Bin-density heat map: one rectangle per bin coloured by occ/avail, so a
     /// glance shows whether the placement is spreading or still a blob.
     void writeDensityMap(const std::string &path, const std::vector<double> &px,
@@ -298,6 +303,19 @@ private:
     std::string frameDir_;
     /// Outer-loop context for the CG frames of the solve currently running.
     std::string cgTag_;
+
+    /// Whether this stage contributes raster frames at all. The frames themselves
+    /// belong to the run's PlacementAnimator, so that the legalizer and the
+    /// detailed placer land in the same GIF rather than each keeping its own.
+    bool animEnabled_ = false;
+
+    /// Rasterise the current placement into the run's animation. Called from every
+    /// frame producer -- warm-up CG iterates, per-iteration CG iterates, the LSS
+    /// and LAL bounds, and the final placement -- so the GIF reads as one
+    /// continuous run rather than three separate ones.
+    void recordGifFrame(const std::vector<float> &fx, const std::vector<float> &fy,
+                        std::size_t step, std::size_t total, double hp, double ovf,
+                        const std::string &note);
 };
 
 // ---------------------------------------------------------------------------
@@ -887,94 +905,155 @@ void SimplePlacer::Impl::solve(const std::string &tag, bool allowFrames) {
     // separately; the B2B model is separable, which is why this is two clean
     // SPD systems rather than one coupled 2n-by-2n one.
     //
-    // `tag` identifies the outer context ("init3", "g07", ...) for the
-    // per-CG-iteration frames. A frame shows the axis currently being solved
-    // against the other axis' current value -- the honest view of CG
-    // convergence. Frames are disabled for the initial-placement solves: that
-    // phase is a monotone descent with nothing to diagnose, and emitting frames
-    // for it would bury the global loop under thousands of files.
+    // The two systems share no state, so they are advanced in one loop rather
+    // than one after the other: each iteration takes one step on x and one on y
+    // and stops each axis as soon as that axis converges. The solutions are
+    // identical either way -- neither axis' recurrence reads the other -- but the
+    // iteration count drops from itersX + itersY to their maximum, and, more to
+    // the point here, the animation gets one frame per iteration instead of two.
+    // A frame that shows the x sweep and a second that shows the y sweep reads as
+    // two events when the run only took one step of each.
+    //
+    // `tag` identifies the outer context ("init3", "g07", ...).
     cgTag_ = tag;
-    const auto one = [&](const CsrMatrix &A, const std::vector<double> &b, std::vector<double> &x,
-                         char dim) {
-        const std::size_t n = A.n;
-        std::vector<double> r(n), z(n), p(n), Ap(n);
-        std::vector<double> invDiag(n);
-        for (std::size_t i = 0; i < n; ++i) {
-            invDiag[i] = 1.0 / A.diag[i];
-        }
-        A.matvec(x, Ap);
-        double bNorm2 = 0.0;
-        for (std::size_t i = 0; i < n; ++i) {
-            r[i] = b[i] - Ap[i];
-            bNorm2 += b[i] * b[i];
-        }
-        const double bNorm = std::sqrt(bNorm2);
-        if (!(bNorm > 0.0)) {
-            return std::make_tuple(0u, 0u, 0.0);
-        }
+
+    // One axis' CG state. Everything the recurrence needs lives here so the two
+    // axes can be interleaved without either one's bookkeeping disturbing the
+    // other's.
+    struct Axis {
+        const CsrMatrix *A = nullptr;
+        const std::vector<double> *b = nullptr;
+        std::vector<double> *x = nullptr;
+        std::vector<double> r, z, p, Ap, invDiag;
+        double bNorm = 0.0;
         double rho = 0.0;
-        for (std::size_t i = 0; i < n; ++i) {
-            z[i] = invDiag[i] * r[i];
-            rho += r[i] * z[i];
-        }
-        p = z;
-        double rs = 0.0;
-        for (std::size_t i = 0; i < n; ++i) {
-            rs += r[i] * r[i];
-        }
-        double resid = std::sqrt(rs) / bNorm;
+        double resid = 0.0;
         std::size_t iters = 0;
         std::size_t itersToTol = 0;
-        for (std::size_t it = 0; it < par_.cgMaxIter && resid > par_.cgTol; ++it) {
-            iters = it + 1;
-            A.matvec(p, Ap);
-            double pAp = 0.0;
-            for (std::size_t i = 0; i < n; ++i) {
-                pAp += p[i] * Ap[i];
-            }
-            if (!(pAp > 0.0)) {
-                break;
-            }
-            const double alpha = rho / pAp;
-            rs = 0.0;
-            for (std::size_t i = 0; i < n; ++i) {
-                x[i] += alpha * p[i];
-                r[i] -= alpha * Ap[i];
-                rs += r[i] * r[i];
-            }
-            resid = std::sqrt(rs) / bNorm;
-            if (itersToTol == 0 && resid <= 1e-3) {
-                itersToTol = iters;
-            }
-            if (allowFrames && par_.cgEvery > 0 && !frameDir_.empty() &&
-                (iters % par_.cgEvery) == 0) {
-                writeCgFrame(tag, dim, iters, resid);
-            }
-            double rhoNew = 0.0;
-            for (std::size_t i = 0; i < n; ++i) {
-                z[i] = invDiag[i] * r[i];
-                rhoNew += r[i] * z[i];
-            }
-            if (!(rhoNew > 0.0)) {
-                break;
-            }
-            const double beta = rhoNew / rho;
-            for (std::size_t i = 0; i < n; ++i) {
-                p[i] = z[i] + beta * p[i];
-            }
-            rho = rhoNew;
-        }
-        return std::make_tuple(static_cast<unsigned>(iters), static_cast<unsigned>(itersToTol),
-                               resid);
+        bool active = false;
     };
 
-    const auto rx = one(Ax_, rhsX_, solX_, 'x');
-    const auto ry = one(Ay_, rhsY_, solY_, 'y');
+    const auto setup = [&](Axis &ax, const CsrMatrix &A, const std::vector<double> &b,
+                           std::vector<double> &x) {
+        const std::size_t n = A.n;
+        ax.A = &A;
+        ax.b = &b;
+        ax.x = &x;
+        ax.r.assign(n, 0.0);
+        ax.z.assign(n, 0.0);
+        ax.p.assign(n, 0.0);
+        ax.Ap.assign(n, 0.0);
+        ax.invDiag.resize(n);
+        for (std::size_t i = 0; i < n; ++i) {
+            ax.invDiag[i] = 1.0 / A.diag[i];
+        }
+        A.matvec(x, ax.Ap);
+        double bNorm2 = 0.0;
+        for (std::size_t i = 0; i < n; ++i) {
+            ax.r[i] = b[i] - ax.Ap[i];
+            bNorm2 += b[i] * b[i];
+        }
+        ax.bNorm = std::sqrt(bNorm2);
+        if (!(ax.bNorm > 0.0)) {
+            return;  // nothing to solve; leave the axis where it is
+        }
+        for (std::size_t i = 0; i < n; ++i) {
+            ax.z[i] = ax.invDiag[i] * ax.r[i];
+            ax.rho += ax.r[i] * ax.z[i];
+        }
+        ax.p = ax.z;
+        double rs = 0.0;
+        for (std::size_t i = 0; i < n; ++i) {
+            rs += ax.r[i] * ax.r[i];
+        }
+        ax.resid = std::sqrt(rs) / ax.bNorm;
+        ax.active = true;
+    };
+
+    // One CG step. Returns false if the recurrence can go no further, which is
+    // how the reference's non-positive curvature test is handled: the axis stops
+    // where it is rather than propagating a NaN.
+    const auto step = [](Axis &ax) {
+        const std::size_t n = ax.A->n;
+        ax.A->matvec(ax.p, ax.Ap);
+        double pAp = 0.0;
+        for (std::size_t i = 0; i < n; ++i) {
+            pAp += ax.p[i] * ax.Ap[i];
+        }
+        if (!(pAp > 0.0)) {
+            return false;
+        }
+        const double alpha = ax.rho / pAp;
+        double rs = 0.0;
+        for (std::size_t i = 0; i < n; ++i) {
+            (*ax.x)[i] += alpha * ax.p[i];
+            ax.r[i] -= alpha * ax.Ap[i];
+            rs += ax.r[i] * ax.r[i];
+        }
+        ax.resid = std::sqrt(rs) / ax.bNorm;
+        if (ax.itersToTol == 0 && ax.resid <= 1e-3) {
+            ax.itersToTol = ax.iters;
+        }
+        double rhoNew = 0.0;
+        for (std::size_t i = 0; i < n; ++i) {
+            ax.z[i] = ax.invDiag[i] * ax.r[i];
+            rhoNew += ax.r[i] * ax.z[i];
+        }
+        if (!(rhoNew > 0.0)) {
+            return false;
+        }
+        const double beta = rhoNew / ax.rho;
+        for (std::size_t i = 0; i < n; ++i) {
+            ax.p[i] = ax.z[i] + beta * ax.p[i];
+        }
+        ax.rho = rhoNew;
+        return true;
+    };
+
+    Axis ax, ay;
+    setup(ax, Ax_, rhsX_, solX_);
+    setup(ay, Ay_, rhsY_, solY_);
+
+    for (std::size_t it = 0; it < par_.cgMaxIter; ++it) {
+        const bool liveX = ax.active && ax.resid > par_.cgTol;
+        const bool liveY = ay.active && ay.resid > par_.cgTol;
+        if (!liveX && !liveY) {
+            break;
+        }
+        if (liveX) {
+            ++ax.iters;
+            if (!step(ax)) {
+                ax.active = false;
+            }
+        }
+        if (liveY) {
+            ++ay.iters;
+            if (!step(ay)) {
+                ay.active = false;
+            }
+        }
+        // One frame per iteration, after both axes have moved, labelled with both
+        // residuals -- the placement on it is the state the next step starts from.
+        //
+        // The cadence is a sampling interval, not a filter that can drop a whole
+        // solve: with cgEvery at 5 and a separable solve that converges in three
+        // iterations, the modulo never fires and that solve contributes no frames
+        // at all, which is why the per-iteration record was dense in the warm-up
+        // (long solves) and nearly empty in the global loop (short ones). So the
+        // last iteration of every solve is always recorded, and the interval
+        // governs the iterations between.
+        const bool stillGoing =
+            (ax.active && ax.resid > par_.cgTol) || (ay.active && ay.resid > par_.cgTol);
+        if (allowFrames && par_.cgEvery > 0 && !frameDir_.empty() &&
+            (((it + 1) % par_.cgEvery) == 0 || !stillGoing)) {
+            writeCgFrame(tag, it + 1, ax.resid, ay.resid);
+        }
+    }
+
     ktlog.trace(
         "  cg: x {} iteration(s) (1e-3 at {}) residual {:.3e}, y {} iteration(s) (1e-3 at {}) "
         "residual {:.3e}",
-        std::get<0>(rx), std::get<1>(rx), std::get<2>(rx), std::get<0>(ry), std::get<1>(ry),
-        std::get<2>(ry));
+        ax.iters, ax.itersToTol, ax.resid, ay.iters, ay.itersToTol, ay.resid);
 }
 
 double SimplePlacer::Impl::hpwl(const std::vector<double> &px,
@@ -1792,6 +1871,31 @@ void SimplePlacer::Impl::describe(const std::vector<double> &px, const std::vect
         tag, (mx - die_[0]) / dieW_, (my - die_[1]) / dieH_, sx, sy, rho, fillX, fillY);
 }
 
+namespace {
+
+/// Zero-padded step number, so a directory listing sorts in run order instead of
+/// alphabetically. Frames are meant to be flipped through in sequence, and
+/// "it9" sorting after "it10" breaks that.
+std::string frameStep(std::size_t n) {
+    std::string s = std::to_string(n);
+    while (s.size() < 4) {
+        s.insert(s.begin(), '0');
+    }
+    return s;
+}
+
+}  // namespace
+
+void SimplePlacer::Impl::recordGifFrame(const std::vector<float> &fx, const std::vector<float> &fy,
+                                       std::size_t step, std::size_t total, double hp,
+                                       double ovf, const std::string &note) {
+    if (!animEnabled_) {
+        return;
+    }
+    PlacementAnimator::instance().record(graph_, fx, fy, die_, step, total, hp, res_.hpwlSeed, ovf,
+                                         note);
+}
+
 void SimplePlacer::Impl::writeFrame(const std::string &path, const std::vector<double> &px,
                                     const std::vector<double> &py, double hp, double ovf,
                                     const std::string &note, std::size_t step, std::size_t total) {
@@ -1808,29 +1912,20 @@ void SimplePlacer::Impl::writeFrame(const std::string &path, const std::vector<d
     // scale, so iteration N and N+1 are comparable instead of being auto-zoomed.
     writeFrameSvg(path, graph_, fx, fy, die_, step, total, hp, res_.hpwlSeed, ovf, note, nullptr,
                   /*fixedView=*/true);
+    // Raster twin for the whole-run animation. The name is a plain counter
+    // rather than the SVG's tag, so the animation follows run order even though
+    // the SVG files are named after the stage that drew them.
+    recordGifFrame(fx, fy, step, total, hp, ovf, note);
     ++res_.framesWritten;
 }
 
-namespace {
-
-/// Zero-padded step number, so a directory listing sorts in run order instead of
-/// alphabetically. Frames are meant to be flipped through in sequence, and
-/// "it9" sorting after "it10" breaks that.
-std::string frameStep(std::size_t n) {
-    std::string s = std::to_string(n);
-    while (s.size() < 4) {
-        s.insert(s.begin(), '0');
-    }
-    return s;
-}
-
-}  // namespace
-
-void SimplePlacer::Impl::writeCgFrame(const std::string &tag, char dim, std::size_t cgIter,
-                                      double resid) {
-    // The axis under solve is plotted against the other axis' current iterate.
-    // That is the honest picture of a separable solve: x is being refined while
-    // y is still wherever the previous solve left it.
+void SimplePlacer::Impl::writeCgFrame(const std::string &tag, std::size_t cgIter, double residX,
+                                      double residY) {
+    // Both axes are shown at once, after both have moved. Plotting the axis under
+    // solve against the other axis' previous value was the honest view of a
+    // separable solve, but it cost two frames per iteration and read as two
+    // events where the run took one step of each; a single frame per iteration
+    // with both residuals in the label says the same thing in half the space.
     std::vector<float> fx(nv_), fy(nv_);
     for (std::size_t v = 0; v < nv_; ++v) {
         fx[v] = static_cast<float>(vx_[v]);
@@ -1841,13 +1936,16 @@ void SimplePlacer::Impl::writeCgFrame(const std::string &tag, char dim, std::siz
         fy[movVertex_[i]] = static_cast<float>(solY_[i]);
     }
     // A CG iterate is not a placement worth an HPWL/overflow label, so those are
-    // passed as 0 and the residual carries the meaning in the note.
-    const std::string path =
-        frameDir_ + "/simpl_cg_" + tag + "_" + dim + "_" + frameStep(cgIter) + ".svg";
-    writeFrameSvg(
-        path, graph_, fx, fy, die_, cgIter, par_.cgMaxIter, 0.0, res_.hpwlSeed, 0.0,
-        fmt::format("CG {} iterate {} ({} axis), residual {:.3e}", tag, cgIter, dim, resid),
-        nullptr, /*fixedView=*/true);
+    // passed as 0 and the residuals carry the meaning in the note.
+    const std::string note =
+        fmt::format("CG {} iterate {} of {}, residual x {:.3e} / y {:.3e}", tag, cgIter,
+                    par_.cgMaxIter, residX, residY);
+    const std::string path = frameDir_ + "/simpl_cg_" + tag + "_" + frameStep(cgIter) + ".svg";
+    writeFrameSvg(path, graph_, fx, fy, die_, cgIter, par_.cgMaxIter, 0.0, res_.hpwlSeed, 0.0,
+                  note, nullptr, /*fixedView=*/true);
+    // The same iterate, rasterised, so the animation shows the solve converging
+    // rather than jumping straight from one outer iteration to the next.
+    recordGifFrame(fx, fy, cgIter, par_.cgMaxIter, 0.0, 0.0, note);
     ++res_.framesWritten;
 }
 
@@ -2076,6 +2174,25 @@ SimplResult SimplePlacer::Impl::run(const SimplParams &P, const std::string &plo
     if (const char *e = std::getenv("KTPLACE_SIMPL_DENSITY_MAPS")) {
         par_.densityMaps = std::atoi(e) != 0;
     }
+    // The pseudonet weight schedule is the only spreading force in the solve --
+    // there is no density term -- so its base is the knob that decides whether the
+    // run converges to a wirelength optimum or to a frozen spread state. Exposed
+    // because it is worth sweeping per design, not because the default is wrong.
+    if (const char *e = std::getenv("KTPLACE_SIMPL_ALPHA_BASE")) {
+        par_.alphaBase = std::atof(e);
+    }
+    if (const char *e = std::getenv("KTPLACE_SIMPL_ALPHA_DECAY")) {
+        par_.alphaDecay = std::atof(e);
+    }
+    if (const char *e = std::getenv("KTPLACE_SIMPL_ALPHA_DECAY_BELOW")) {
+        par_.alphaDecayBelow = std::atof(e);
+    }
+    if (const char *e = std::getenv("KTPLACE_SIMPL_GAP_PATIENCE")) {
+        par_.gapPatience = static_cast<std::size_t>(std::atoll(e));
+    }
+    if (const char *e = std::getenv("KTPLACE_SIMPL_NO_LAL")) {
+        par_.lookAhead = std::atoi(e) == 0;
+    }
     g_ = std::clamp(par_.densityLimit, 0.05, 1.0);
 
     // Frames go to <plotDir>/simpl, NOT next to the output .pl. snapshotDir is
@@ -2092,6 +2209,13 @@ SimplResult SimplePlacer::Impl::run(const SimplParams &P, const std::string &plo
     }
     if (!frameDir_.empty() && (par_.traceEvery > 0 || par_.cgEvery > 0)) {
         ensureDir(frameDir_);
+    }
+    // KTPLACE_ANIM=1 additionally writes a raster twin of every frame. The GIF
+    // itself is assembled by the flow once the legalizer and the detailed
+    // placer have added their frames, so that one animation covers the whole
+    // run instead of stopping at the end of global placement.
+    if (const char *e = std::getenv("KTPLACE_ANIM")) {
+        animEnabled_ = std::atoi(e) != 0;
     }
 
     ScopedTimer setupTimer("simpl-setup");
@@ -2174,6 +2298,10 @@ SimplResult SimplePlacer::Impl::run(const SimplParams &P, const std::string &plo
     std::vector<double> lowerY = pinY_;
     std::vector<double> upper;
     std::vector<double> upperY;
+    // Best warm-up round, hoisted out of the warm-up block so the writeback at the
+    // end of the run can hand it on. Empty means the warm-up never ran, which is
+    // the normal case for a design that supplies its own placement.
+    std::vector<double> bestInit, bestInitY;
 
     res_.hpwlSeed = hpwl(lower, lowerY);
     // Section 4.1's area-blind quadratic solve, alternating B2B rebuilds until
@@ -2184,17 +2312,41 @@ SimplResult SimplePlacer::Impl::run(const SimplParams &P, const std::string &plo
     // placement already has.
     if (!inputUsable) {
         double prevHpwl = std::numeric_limits<double>::max();
+        double bestInitHpwl = std::numeric_limits<double>::max();
+        int initStale = 0;
         for (std::size_t it = 0; it < par_.initMaxIters; ++it) {
             // The B2B model is placement-dependent, so the graph is rebuilt
             // from the current locations before every solve.
             buildB2B(lower, lowerY, 0.0, false);
             solX_ = lower;
             solY_ = lowerY;
-            solve("init" + frameStep(it), /*allowFrames=*/false);
+            // The warm-up solves are part of the run, so their iterates belong in
+            // the animation alongside everything after them.
+            solve("init" + frameStep(it), /*allowFrames=*/animEnabled_);
             lower = solX_;
             lowerY = solY_;
             res_.initIters = it + 1;
             const double h = hpwl(lower, lowerY);
+            // Convergence on the wirelength, not on a round count. The improvement
+            // is measured relative to the best round so far rather than to the
+            // previous one, so a single regression does not read as convergence and
+            // a single large gain is not discarded by the round after it.
+            // Two separate questions. "Is this round the best so far?" is a plain
+            // minimum -- a 0.05% gain is still a gain, and the writeback should
+            // hand on the best placement, not the best one that cleared a
+            // threshold. "Has it stopped paying?" is the tolerance test, and only
+            // that one advances the patience. Folding the tolerance into the
+            // minimum test throws away real improvements near convergence, which
+            // is exactly where the remaining gains are.
+            if (h < bestInitHpwl) {
+                const double gain = bestInitHpwl > 0.0 ? (bestInitHpwl - h) / bestInitHpwl : 1.0;
+                bestInitHpwl = h;
+                bestInit = lower;
+                bestInitY = lowerY;
+                initStale = gain < par_.initTolFrac ? initStale + 1 : 0;
+            } else {
+                ++initStale;
+            }
             densityStats(lower, lowerY, fmt::format("init{}", it).c_str());
             if (par_.traceEvery > 0 && !frameDir_.empty()) {
                 // binLocal, not scaledOverflow: the live occupancy in grid_.occ is
@@ -2210,9 +2362,13 @@ SimplResult SimplePlacer::Impl::run(const SimplParams &P, const std::string &plo
                                     lower, lowerY, note);
                 }
             }
-            ktlog.trace("init iter {:2d}: hpwl {:.6e} cg-resid ok", it, h);
-            if (!(h < prevHpwl)) {
-                break;  // HPWL stopped improving
+            ktlog.trace("init iter {:2d}: hpwl {:.6e} best {:.6e} ({:.4f}% off, {}/{} stale)", it, h,
+                        bestInitHpwl,
+                        bestInitHpwl > 0.0 ? 100.0 * (h - bestInitHpwl) / bestInitHpwl : 0.0,
+                        initStale, par_.initPatience);
+            if (initStale >= static_cast<int>(par_.initPatience)) {
+                // Converged: further rounds are not paying for themselves.
+                break;
             }
             prevHpwl = h;
         }
@@ -2340,6 +2496,18 @@ SimplResult SimplePlacer::Impl::run(const SimplParams &P, const std::string &plo
 
     // ---- global placement iterations --------------------------------------
     double gapRef = -1.0;
+    // Gap-plateau tracking, which is what actually decides convergence. gapRef
+    // stays for the trace only: it is a snapshot at one iteration and deciding
+    // "converged" from a snapshot taken while the gap is still collapsing is what
+    // stopped the runs short.
+    double bestGap = std::numeric_limits<double>::max();
+    // Annealing state for the pseudonet weight, 1.0 until the lower bound is
+    // spread enough (see SimplParams::alphaDecay).
+    double alphaScale = 1.0;
+    // Reported in the trace so the two can be compared; a fixed iteration is
+    // fine for a diagnostic and not fine for a stopping rule.
+    const std::size_t gapRefIter = 10;
+    int gapStale = 0;
     double bestUpper = std::numeric_limits<double>::max();
     int stale = 0;
     bool converged = false;
@@ -2347,6 +2515,20 @@ SimplResult SimplePlacer::Impl::run(const SimplParams &P, const std::string &plo
     double solveAcc = 0.0;
     double spreadAcc = 0.0;
     std::vector<std::pair<double, double>> curve;  // (upper HPWL, lower HPWL)
+    // The best legal placement seen, kept because "last" and "best" are not the
+    // same thing. The upper bound is not monotone: legalizing a lower bound that
+    // improved can still lengthen wires, so a later iteration can be worse than
+    // an earlier one. Measured on ibm01, the best legal wirelength was 1.157e7 at
+    // iteration 1, and the run ended by returning 2.064e7 from iteration 21 --
+    // 78% worse than a placement it had already computed and thrown away.
+    std::vector<double> bestX, bestY;
+    // The lower bound from the *same* iteration. The reported gap is a
+    // convergence measure between the two bounds of one iteration; pairing an
+    // early upper bound with the last lower bound makes the gap negative and
+    // meaningless, which is not a legal-placement property but an artefact of
+    // the two numbers coming from different iterations.
+    std::vector<double> bestLower, bestLowerY;
+    std::size_t bestIter = 0;
 
     for (std::size_t it = 0; it < par_.maxIters && !converged; ++it) {
         res_.globalIters = it + 1;
@@ -2366,7 +2548,8 @@ SimplResult SimplePlacer::Impl::run(const SimplParams &P, const std::string &plo
         std::vector<double> keepX = pinX_;
         std::vector<double> keepY = pinY_;
         double prevPassOvf = std::numeric_limits<double>::max();
-        for (std::size_t pass = 0; pass < std::max<std::size_t>(par_.lalPasses, 1); ++pass) {
+        for (std::size_t pass = 0;
+             par_.lookAhead && pass < std::max<std::size_t>(par_.lalPasses, 1); ++pass) {
             blocksProcessed_ = 0;
             deepestLevel_ = 0;
             maxBlockCells_ = 0;
@@ -2394,6 +2577,13 @@ SimplResult SimplePlacer::Impl::run(const SimplParams &P, const std::string &plo
         describe(lower, lowerY, "LSS (linear system solve)");
         describe(upper, upperY, "LAL (look-ahead legalized)");
         densityStats(lower, lowerY, ("LSS it" + std::to_string(it)).c_str());
+        const double ovfLower = scaledOverflow();
+        if (par_.alphaDecay < 1.0 && ovfLower < par_.alphaDecayBelow) {
+            // Once the lower bound is spread past the crowding point, start
+            // letting the pseudonet weight fall so the solve can recover
+            // wirelength instead of only ever adding spread.
+            alphaScale *= par_.alphaDecay;
+        }
         densityStats(upper, upperY, ("LAL it" + std::to_string(it)).c_str());
         const double upperHpwl = hpwl(upper, upperY);
         const double lowerHpwl = hpwl(lower, lowerY);
@@ -2410,11 +2600,16 @@ SimplResult SimplePlacer::Impl::run(const SimplParams &P, const std::string &plo
         curve.emplace_back(upperHpwl, lowerHpwl);
         res_.gap = gap;
 
-        if (it == par_.gapReferenceIter) {
+        if (it == gapRefIter) {
             gapRef = gap;
         }
         if (upperHpwl < bestUpper - 1e-12) {
             bestUpper = upperHpwl;
+            bestX = upper;
+            bestY = upperY;
+            bestLower = lower;
+            bestLowerY = lowerY;
+            bestIter = it;
             stale = 0;
         } else {
             ++stale;
@@ -2424,16 +2619,36 @@ SimplResult SimplePlacer::Impl::run(const SimplParams &P, const std::string &plo
             "iter {:3d}: lower {:.6e} upper {:.6e} gap {:.4e} (ref {:.4e}) "
             "ovf lower {:.4e} upper {:.4e} alpha {:.4g} stale {}",
             it, lowerHpwl, upperHpwl, gap, gapRef, scaledOverflow(), upperOvf,
-            par_.alphaBase * (1.0 + static_cast<double>(it)), stale);
+            par_.alphaBase * (1.0 + static_cast<double>(it)) * alphaScale, stale);
+        ktlog.trace("  gap plateau: best {:.6e}, {}/{} iterations without closing",
+                    std::min(bestGap, gap), gapStale, par_.gapPatience);
 
-        // Convergence. HPWL of the upper bounds oscillates for the first several
-        // iterations, so the gap -- not the upper-bound HPWL alone -- is what is
-        // watched, referenced to the gap at iteration 10.
-        if (gapRef > 0.0 && it > par_.gapReferenceIter) {
-            if (gap < par_.gapTightFrac * gapRef) {
-                converged = true;
-            } else if (gap < par_.gapRelaxedFrac * gapRef &&
-                       stale >= static_cast<int>(par_.patience)) {
+        // Convergence, watched on the gap and on nothing else.
+        //
+        // The paper is explicit that upper-bound HPWL "oscillate[s] during the
+        // first four to seven iterations" and that the gap between the bounds is
+        // what is monitored "to prevent premature termination". The previous test
+        // did both halves of that wrong: it ANDed a gap threshold with a patience
+        // count on non-improving *upper-bound HPWL*, so the run could stop during
+        // exactly the oscillation the paper says to sit through. On ibm01 the
+        // upper bound stopped improving at iteration 1, the patience of 5 expired
+        // at iteration 6, and the run was ready to declare convergence while still
+        // oscillating -- then returned the worst draw of the sequence.
+        //
+        // Two conditions now, both about the gap and neither keyed to a frozen
+        // reference iteration:
+        //   1. the bounds have met, measured scale-free as gap/upperHpwl, so no
+        //      arbitrary "iteration 10" decides what small means;
+        //   2. the gap has stopped shrinking, so a single lucky iteration cannot
+        //      end the run.
+        if (upperHpwl > 0.0 && gap < par_.gapRelativeToUpper * upperHpwl) {
+            if (gap >= bestGap * (1.0 - 1e-3)) {
+                ++gapStale;
+            } else {
+                bestGap = gap;
+                gapStale = 0;
+            }
+            if (gapStale >= static_cast<int>(par_.gapPatience)) {
                 converged = true;
             }
         }
@@ -2465,7 +2680,7 @@ SimplResult SimplePlacer::Impl::run(const SimplParams &P, const std::string &plo
         // number, moving the emphasis from interconnect onto constraints.
         anchorX_ = upper;
         anchorY_ = upperY;
-        const double alpha = par_.alphaBase * (1.0 + static_cast<double>(it));
+        const double alpha = par_.alphaBase * (1.0 + static_cast<double>(it)) * alphaScale;
         ScopedTimer bTimer("simpl-build");
         // The B2B model and the pseudonet lengths are both measured at the LOWER
         // bound: that is the point being linearised, and the anchor distance is
@@ -2501,16 +2716,49 @@ SimplResult SimplePlacer::Impl::run(const SimplParams &P, const std::string &plo
         upper = lower;
         upperY = lowerY;
     }
-    res_.hpwlLower = hpwl(lower, lowerY);
+    if (!bestX.empty()) {
+        // Return the best legal placement, not the last one. The paper's Figure 2
+        // reports the last upper bound, which is only equivalent when the upper
+        // bound is monotone; here it demonstrably is not, so "last" silently ships
+        // a worse placement than the run already had in hand. bestX is the same
+        // computation, kept when it improved on everything seen so far.
+        upper = bestX;
+        upperY = bestY;
+        lower = bestLower;
+        lowerY = bestLowerY;
+        res_.bestIter = bestIter;
+    }
     res_.hpwlFinal = hpwl(upper, upperY);
+    if (!bestInit.empty()) {
+        // Best warm-up round, for the same reason the global loop returns its best
+        // upper bound: the last round of a converging solve is not reliably its
+        // best, and here the stopping rule can land on a round that regressed.
+        lower = bestInit;
+        lowerY = bestInitY;
+    }
+    res_.hpwlLower = hpwl(lower, lowerY);
     res_.gap = res_.hpwlFinal - res_.hpwlLower;
     res_.spreadSeconds = spreadAcc;
     res_.buildSeconds += buildAcc;
-    res_.solveSeconds = solveAcc;
+    res_.solveSeconds += solveAcc;
+    res_.usedLookAhead = par_.lookAhead;
     binCells(lower, lowerY);
     res_.overflowLower = scaledOverflow();
     binCells(upper, upperY);
     res_.overflowFinal = scaledOverflow();
+
+    if (!par_.lookAhead) {
+        // No legalization ran, so the anchors were the lower bound's own previous
+        // positions and the solve had no spreading force left: this loop was just
+        // the area-blind wirelength minimisation run to a local minimum. That is
+        // the point of the switch -- it hands the caller the best wirelength the
+        // net model can produce with all the overlap intact, so a downstream
+        // legalizer's cost is an honest measure of the net model alone.
+        ktlog.echo(
+            "SimPL: look-ahead legalization DISABLED (KTPLACE_SIMPL_NO_LAL); returning the "
+            "overlapping lower bound, HPWL {:.6e}, scaled overflow {:.6e}",
+            res_.hpwlFinal, res_.overflowFinal);
+    }
 
     // The result is the last upper bound (Figure 2: "Last Upper-bound
     // Placement"); positions are written back for the normal output path.
@@ -2574,6 +2822,42 @@ SimplResult SimplePlacer::Impl::run(const SimplParams &P, const std::string &plo
         if (par_.densityMaps) {
             writeDensityMap(frameDir_ + "/simpl_density_FINAL.svg", upper, upperY, "FINAL LAL");
             writeDensityMap(frameDir_ + "/simpl_density_FINAL_LSS.svg", lower, lowerY, "FINAL LSS");
+        }
+        // The GIF itself is written by the flow, not here: it can only be
+        // assembled once the legalizer and the detailed placer have added their
+        // frames, and a GIF closed at the end of global placement would stop
+        // exactly where the placement stops being interesting.
+
+        // A browsable index of the stills alongside the bounds curve, so a run
+        // can be flipped through frame by frame without an image viewer that
+        // knows how to sort "frame_0010" after "frame_0009".
+        if (!animEnabled_) {
+            // Nothing rastered; the SVG stills are indexed by name instead.
+            std::vector<std::string> svgs;
+            for (const auto &e : std::filesystem::directory_iterator(frameDir_)) {
+                if (e.path().extension() == ".svg") {
+                    svgs.push_back(e.path().filename().string());
+                }
+            }
+            std::sort(svgs.begin(), svgs.end());
+            writeGallery(plotDir, svgs, "simpl_bounds.csv");
+        } else {
+            // Raster stills now live in the run's animation directory, not
+            // beside the SVGs, so index them from there.
+            std::vector<std::string> stills;
+            const std::filesystem::path animDir = std::filesystem::path(plotDir) / "anim";
+            std::error_code ec;
+            for (const auto &e : std::filesystem::directory_iterator(animDir, ec)) {
+                if (ec) {
+                    break;
+                }
+                const std::string n = e.path().filename().string();
+                if (n.rfind("frame_", 0) == 0 && e.path().extension() == ".ppm") {
+                    stills.push_back("anim/" + n);
+                }
+            }
+            std::sort(stills.begin(), stills.end());
+            writeGallery(plotDir, stills, "simpl_bounds.csv");
         }
     }
 

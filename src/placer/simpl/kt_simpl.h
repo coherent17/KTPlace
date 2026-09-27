@@ -65,9 +65,36 @@ struct SimplParams {
     // --- initial placement (ignores areas and overlaps entirely) ------------
     /// Alternate B2B rebuild and CG solve until HPWL stops improving. The paper
     /// reports 5-7 iterations being sufficient.
-    std::size_t initMaxIters = 10;
+    /// Hard ceiling on warm-up iterations. A safety net, not the stopping rule.
+    ///
+    /// Deliberately small. The warm-up is Section 4.1's area-blind quadratic solve,
+    /// whose own comment in this file notes that it ignores cell areas and so
+    /// collapses the cells into a blob whose wirelength is meaningless. All it
+    /// usefully establishes is the ordering of the cells, and the LSS/LAL loop
+    /// does the real work. Spending dozens of iterations -- and, once frames are
+    /// recorded, dozens of frames -- refining a number that is thrown away is
+    /// budget taken away from the part of the run that decides the result.
+    std::size_t initMaxIters = 6;
+    /// Stop the warm-up when a round improves HPWL by less than this fraction.
+    /// The paper's Section 4.1 says only "until HPWL stops improving", which as
+    /// written means any non-improvement at all ends it -- and a quadratic solve
+    /// alternates improvements with tiny regressions, so that rule fires on noise
+    /// and stops the warm-up early. A relative floor plus patience is the same
+    /// test with the noise taken out.
+    double initTolFrac = 5e-3;
+    /// Consecutive rounds below initTolFrac before the warm-up is called done.
+    /// One, because the warm-up is meant to be rough.
+    std::size_t initPatience = 1;
 
     // --- look-ahead legalization --------------------------------------------
+    /// Run look-ahead legalization. Turning this off returns the raw lower bound,
+    /// so the only spreading is whatever the anchors achieve and the caller is
+    /// left to legalize (Abacus). It is a diagnostic, not a configuration: the
+    /// paper's upper bound IS a legalized placement, so there is no such thing as
+    /// a finished SimPL result without it. What it does isolate is how much of
+    /// the lower bound's wirelength survives a real legalizer, which is the
+    /// measurement needed to tell a bad net model from a bad legalizer.
+    bool lookAhead = true;
     /// Maximum allowed bin density, g. The paper's ISPD 2005 runs use 1.0.
     double densityLimit = 1.0;
     /// Bins per axis for the density grid. 0 selects automatically.
@@ -106,6 +133,25 @@ struct SimplParams {
     // --- pseudonets ---------------------------------------------------------
     /// alpha = alphaBase * (1 + iteration number).
     double alphaBase = 0.01;
+    /// Optional annealing of the pseudonet weight. 1.0 (the default) never anneals,
+    /// which is the paper's "increasing weights of pseudonets" schedule.
+    ///
+    /// The schedule is the suspected cause of a specific failure: because alpha
+    /// only ever grows and it is the *only* spreading force in the solve, nothing
+    /// in the loop ever reduces spreading pressure, so once the lower bound has
+    /// been pulled far enough out, wirelength can only get worse. Measured on
+    /// ibm01, the upper bound lands at ~2.1e7 for every alphaBase from 0.001 to
+    /// 0.3 while a legal placement of 1.05e7 existed at iteration 2, at the same
+    /// density -- so the damage is not the magnitude of alpha but its having no
+    /// downward phase.
+    ///
+    /// With alphaDecay set, alpha is multiplied by this factor on every iteration
+    /// after the lower bound's overflow drops below alphaDecayBelow, so spreading
+    /// is ramped up while the placement is crowded and then relaxed to let
+    /// wirelength be recovered. 1.0 disables it.
+    double alphaDecay = 1.0;
+    /// Lower-bound overflow below which alphaDecay starts to apply.
+    double alphaDecayBelow = 0.40;
 
     /// The pseudonet weight law. The paper's Figure 6 labels a pseudonet
     /// "weight = alpha/Length", and AMF-Placer (ICCAD 2021) states it
@@ -136,12 +182,19 @@ struct SimplParams {
     PseudonetLaw pseudonetLaw = PseudonetLaw::ConstantStiffness;
 
     // --- convergence --------------------------------------------------------
-    /// Relative to the gap at `gapReferenceIter`: stop once the gap falls below
-    /// 25% of it and the upper bound has stopped improving, or below 10% of it.
-    double gapRelaxedFrac = 0.25;
-    double gapTightFrac = 0.10;
-    std::size_t gapReferenceIter = 10;
-    std::size_t patience = 5;  // upper-bound non-improving iterations tolerated
+    // The paper monitors the gap between the lower and upper bounds, and says so
+    // explicitly to avoid premature termination: upper-bound HPWL oscillates for
+    // the first four to seven iterations, so anything that terminates on the
+    // upper bound's HPWL alone stops inside that oscillation. Both conditions
+    // below are therefore about the gap, and neither refers to a fixed iteration.
+    /// The bounds count as met when the gap is below this fraction of the upper
+    /// bound's own wirelength. Scale-free, so it behaves the same on a 12k-cell
+    /// design and a 210k-cell one, and unlike a fraction of the gap at some fixed
+    // iteration it cannot be tripped while the gap is still collapsing.
+    double gapRelativeToUpper = 0.05;
+    /// Iterations the gap may fail to improve by more than 0.1% before the run is
+    /// called converged.
+    std::size_t gapPatience = 5;
 
     // --- solver -------------------------------------------------------------
     // CG budget. The paper's claim is that, with preconditioning, the iteration
@@ -217,10 +270,20 @@ struct SimplResult {
     /// Whether the input placement was adopted instead of a uniform seed.
     bool usedInputPlacement = false;
     /// HPWL of the uniform seed, of the last lower bound, and of the returned
-    /// (last upper-bound) placement. The paper's result is the upper bound.
+    /// placement. The paper's result is the upper bound.
+    ///
+    /// The returned placement is the *best* upper bound seen, not the last: the
+    /// upper bound is not monotone across iterations, so the two differ, and
+    /// returning the last one can ship a materially worse placement than the run
+    /// already computed. bestIter says which iteration it came from.
     double hpwlSeed = 0.0;
     double hpwlLower = 0.0;
     double hpwlFinal = 0.0;
+    /// Iteration the returned upper bound came from, 0-based.
+    std::size_t bestIter = 0;
+    /// Whether look-ahead legalization ran. When false, hpwlFinal IS hpwlLower
+    /// and the placement is overlapping.
+    bool usedLookAhead = false;
     /// Final gap, hpwlFinal - hpwlLower.
     double gap = 0.0;
 
