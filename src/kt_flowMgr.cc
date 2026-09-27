@@ -8,6 +8,7 @@
 #include "util/kt_scopedTimer.h"
 #include "util/kt_log.h"
 #include "placer/kt_quadPlacer.h"
+#include "detailPlacer/kt_fastdp.h"
 #include "legalizer/kt_abacus.h"
 #include "placer/simpl/kt_simpl.h"
 #include "datamodel/kt_graph.h"
@@ -287,9 +288,45 @@ bool FlowMgr::Impl::runPlacement(const std::string &algorithm, const std::string
         lsummary.addRow({"cells off site", fmt::format("{}", lres.offSite)});
         lsummary.addRow({"cells over macro", fmt::format("{}", lres.overFixed)});
         lsummary.addRow({"cells out of rows", fmt::format("{}", lres.outOfRows)});
+        lsummary.addRow({"commit failures", fmt::format("{}", lres.commitFailures)});
         lsummary.emit();
         if (lres.overlappingPairs != 0 || lres.offRow != 0 || lres.overFixed != 0) {
             ktlog.echo("WARNING: legalization is not legal; see counts above");
+        }
+
+        // The legalizer minimises displacement, not wirelength, so a legal
+        // placement usually costs a little HPWL against the global placement it
+        // came from. Detailed placement wins it back.
+        ktlog.echo("Running FastDP detailed placement...");
+        FastDetailedPlacer dp(*db);
+        DetailPlaceParams dparams;
+        if (const char *e = std::getenv("KTPLACE_DP_WINDOW")) {
+            dparams.localReorderWindow = static_cast<std::size_t>(std::atoll(e));
+        }
+        if (!plotDir.empty()) {
+            dparams.plotDir = plotDir + "/detailplace";
+        }
+        const DetailPlaceResult dres = dp.place(dparams);
+        ktReportTable dsummary("Detailed placement (FastDP)");
+        dsummary.setHeaders({"metric", "value"});
+        dsummary.addRow({"global swaps", fmt::format("{}", dres.globalSwaps)});
+        dsummary.addRow({"vertical swaps", fmt::format("{}", dres.verticalSwaps)});
+        dsummary.addRow({"reorder moves", fmt::format("{}", dres.reorderMoves)});
+        dsummary.addRow({"cluster moves", fmt::format("{}", dres.clusterMoves)});
+        dsummary.addRow({"HPWL before", fmt::format("{:.6}", dres.hpwlBefore)});
+        dsummary.addRow({"HPWL after", fmt::format("{:.6}", dres.hpwlAfter)});
+        dsummary.addRow({"HPWL change",
+                         fmt::format("{:.2}%",
+                                     100.0 * (dres.hpwlAfter - dres.hpwlBefore) /
+                                         (dres.hpwlBefore > 0.0 ? dres.hpwlBefore : 1.0))});
+        dsummary.addRow({"time (s)", fmt::format("{:.6}", dres.seconds)});
+        dsummary.addRow({"overlapping pairs", fmt::format("{}", dres.overlappingPairs)});
+        dsummary.addRow({"cells off row", fmt::format("{}", dres.offRow)});
+        dsummary.addRow({"cells off site", fmt::format("{}", dres.offSite)});
+        dsummary.addRow({"cells over macro", fmt::format("{}", dres.overFixed)});
+        dsummary.emit();
+        if (dres.overlappingPairs != 0 || dres.offRow != 0 || dres.overFixed != 0) {
+            ktlog.echo("WARNING: detailed placement broke legality; see counts above");
         }
 
         placed = true;
