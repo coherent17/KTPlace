@@ -367,11 +367,11 @@ std::vector<Defect> verifyPlacement(const PlacementDB &db, const constraintMgr *
     const Graph &g = db.getGraph();
 
     // --- cells outside the die, and outside their fence -----------------------
-    BBox box = fixedCellBBox(g);
-    const auto da = db.getDieArea();
-    if (da.second.first > da.first.first && da.second.second > da.first.second) {
-        box = {da.first.first, da.first.second, da.second.first, da.second.second};
-    }
+    // The same definition the placer used. Two different notions of "the die"
+    // mean a legal placement can be reported as illegal: the placer spreads over
+    // the union of the fixed geometry and the rows, and a checker built from the
+    // fixed geometry alone fails every cell in a row that reaches past the pads.
+    const std::array<double, 4> box = placementDieBox(db);
     std::size_t outOfDie = 0;
     std::size_t offFence = 0;
     const std::size_t nv = g.getNumVertices();

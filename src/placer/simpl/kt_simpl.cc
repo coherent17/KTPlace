@@ -462,54 +462,11 @@ void SimplePlacer::Impl::collect() {
 void SimplePlacer::Impl::buildGrid(const SimplParams &P) {
     // Die extent: the parsed die area when it plausibly contains the fixed
     // cells, otherwise the fixed-cell bounding box.
-    BBox die = fixedCellBBox(graph_);
-    const auto da = db_.getDieArea();
-    if (da.second.first > da.first.first && da.second.second > da.first.second) {
-        bool contains = true;
-        for (const std::uint32_t v : fixVertex_) {
-            const Vertex &vert = graph_.getVertex(v);
-            if (vert.x < da.first.first - 1.0 || vert.y < da.first.second - 1.0 ||
-                vert.x + vert.width > da.second.first + 1.0 ||
-                vert.y + vert.height > da.second.second + 1.0) {
-                contains = false;
-                break;
-            }
-        }
-        if (contains) {
-            die = {da.first.first, da.first.second, da.second.first, da.second.second};
-        }
-    }
-    // Fall back to the rows. A Bookshelf design need not have any fixed cell
-    // and need not declare a die area, and without this such a design gets a
-    // 1x1 die: dma reported "available area 1" and a utilisation of 1.6e13%,
-    // which poisoned the density grid and made its input placement look
-    // degenerate. The rows are the authoritative statement of where cells may
-    // go, so they are a better source than an empty fixed-cell bounding box.
-    if (!(die[2] - die[0] > 1.0) || !(die[3] - die[1] > 1.0)) {
-        const std::vector<PlacementDB::RowInfo> rows = db_.getRows();
-        double rlo = 0.0, rhi = 0.0, blo = 0.0, bhi = 0.0;
-        bool any = false;
-        for (const PlacementDB::RowInfo &ri : rows) {
-            if (!(ri.pitch() > 0.0)) {
-                continue;
-            }
-            if (!any) {
-                rlo = ri.coordinate;
-                rhi = ri.coordinate + ri.height;
-                blo = ri.xlo();
-                bhi = ri.xhi();
-                any = true;
-                continue;
-            }
-            rlo = std::min(rlo, ri.coordinate);
-            rhi = std::max(rhi, ri.coordinate + ri.height);
-            blo = std::min(blo, ri.xlo());
-            bhi = std::max(bhi, ri.xhi());
-        }
-        if (any && (bhi > blo) && (rhi > rlo)) {
-            die = BBox{blo, rlo, bhi, rhi};
-        }
-    }
+    // The region a cell may occupy, defined once in the datamodel and shared with
+    // the legality check. See placementDieBox() there for why it is the union of
+    // the fixed geometry, the declared die area and the rows.
+    const std::array<double, 4> dieBox = placementDieBox(db_);
+    BBox die = BBox{dieBox[0], dieBox[1], dieBox[2], dieBox[3]};
     die_ = die;
     dieW_ = std::max(die[2] - die[0], 1e-9);
     dieH_ = std::max(die[3] - die[1], 1e-9);
@@ -1815,6 +1772,48 @@ void SimplePlacer::Impl::lookAheadLegalize() {
     }
     // What the legalizer achieved, in the only terms that matter: the density
     // before and after, plus how deep the top-down partitioning actually got.
+    // Pull any cell that ended up outside the die back inside it.
+    //
+    // Look-ahead legalization only touches the cells that are inside a block it
+    // processes, and it only processes blocks that came from g-overfilled bins.
+    // A cell the quadratic solve pushed outside the die is binned by `locate()`
+    // into the nearest edge bin -- the bin index is clamped, not rejected -- so
+    // its area is counted for overflow, but the cell itself is only moved if that
+    // edge bin happens to be part of a cluster. When it is not, the cell is never
+    // touched and stays outside the die for the rest of the run: the upper bound
+    // is illegal, every later anchor is illegal, and the pseudonets then hold
+    // other cells out there too. Measured on adaptec3, 2853 cells outside the die
+    // in the final placement.
+    //
+    // It is also why such cells are invisible in the plots: the frames are drawn
+    // against the die box, so a cell outside it is drawn off-canvas and simply
+    // does not appear, which reads as the placer having lost it.
+    //
+    // The die is a hard constraint, so this is a clamp and not a term in the
+    // objective. It is applied to the upper bound, which is the bound that is
+    // meant to be legal; the lower bound is left alone, since its whole purpose
+    // is to be the unconstrained answer and the gap between the two is a
+    // reported quantity that clamping one side would flatter.
+    {
+        std::size_t pulled = 0;
+        const double loX = die_[0], loY = die_[1], hiX = die_[2], hiY = die_[3];
+        for (std::size_t i = 0; i < numMovable_; ++i) {
+            const double w = areaMovW_[i], h = areaMovH_[i];
+            // A cell is placed by its lower-left corner, so the corner has to stay
+            // inside the die far enough for the whole cell to fit.
+            const double nx = std::clamp(pinX_[i], loX, std::max(loX, hiX - w));
+            const double ny = std::clamp(pinY_[i], loY, std::max(loY, hiY - h));
+            if (nx != pinX_[i] || ny != pinY_[i]) {
+                pinX_[i] = nx;
+                pinY_[i] = ny;
+                ++pulled;
+            }
+        }
+        if (pulled > 0) {
+            ktlog.trace("  pulled {} cell(s) back inside the die", pulled);
+        }
+    }
+
     binCells(pinX_, pinY_);
     const double after = scaledOverflow();
     {

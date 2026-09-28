@@ -6,6 +6,7 @@
 #include "datamodel/kt_dm.h"
 #include "datamodel/kt_graph.h"
 #include <algorithm>
+#include <limits>
 #include <stdexcept>
 
 // oneTBB - parallel stats
@@ -277,6 +278,85 @@ void PlacementDB::clear() {
 
 std::pair<std::size_t, std::size_t> PlacementDB::getStats() const {
     return {getNumCells(), getNumNets()};
+}
+
+std::array<double, 4> placementDieBox(const PlacementDB &db) {
+    const Graph &g = db.getGraph();
+    // The fixed cells: the I/O pad ring bounds the die in a Bookshelf design.
+    double lo[2] = {std::numeric_limits<double>::max(), std::numeric_limits<double>::max()};
+    double hi[2] = {-std::numeric_limits<double>::max(), -std::numeric_limits<double>::max()};
+    const std::size_t nv = g.getNumVertices();
+    for (std::size_t v = 0; v < nv; ++v) {
+        const Vertex &vert = g.getVertex(v);
+        if (vert.type != VertexType::Cell) {
+            continue;
+        }
+        if (!vert.isFixed && !vert.isTerminal) {
+            continue;
+        }
+        lo[0] = std::min(lo[0], vert.x);
+        lo[1] = std::min(lo[1], vert.y);
+        hi[0] = std::max(hi[0], vert.x + std::max(vert.width, 1.0));
+        hi[1] = std::max(hi[1], vert.y + std::max(vert.height, 1.0));
+    }
+    std::array<double, 4> box{lo[0], lo[1], hi[0], hi[1]};
+    const bool haveFixed = (box[2] > box[0]) && (box[3] > box[1]);
+
+    // A declared die area, when the format carries one and it contains every
+    // fixed cell. A declared area that excludes a fixed cell is not describing
+    // the same die the pads describe, so it is not trusted.
+    const auto da = db.getDieArea();
+    if (da.second.first > da.first.first && da.second.second > da.first.second) {
+        bool contains = true;
+        for (std::size_t v = 0; v < nv; ++v) {
+            const Vertex &vert = g.getVertex(v);
+            if (vert.type != VertexType::Cell || !vert.isFixed) {
+                continue;
+            }
+            if (vert.x < da.first.first - 1.0 || vert.y < da.first.second - 1.0 ||
+                vert.x + vert.width > da.second.first + 1.0 ||
+                vert.y + vert.height > da.second.second + 1.0) {
+                contains = false;
+                break;
+            }
+        }
+        if (contains) {
+            box = {da.first.first, da.first.second, da.second.first, da.second.second};
+        }
+    }
+
+    // The rows, unioned in. A cell in a row is legal by definition of a row, and
+    // for adaptec3 the rows reach below the fixed cells, so a box without them
+    // excludes a row the legalizer is right to have used.
+    double rlo = std::numeric_limits<double>::max(), rhi = -std::numeric_limits<double>::max();
+    double blo = std::numeric_limits<double>::max(), bhi = -std::numeric_limits<double>::max();
+    bool anyRow = false;
+    for (const PlacementDB::RowInfo &ri : db.getRows()) {
+        if (!(ri.pitch() > 0.0)) {
+            continue;
+        }
+        rlo = std::min(rlo, ri.coordinate);
+        rhi = std::max(rhi, ri.coordinate + ri.height);
+        blo = std::min(blo, ri.xlo());
+        bhi = std::max(bhi, ri.xhi());
+        anyRow = true;
+    }
+    if (anyRow && (bhi > blo) && (rhi > rlo)) {
+        if (!haveFixed || !((box[2] > box[0]) && (box[3] > box[1]))) {
+            box = {blo, rlo, bhi, rhi};
+        } else {
+            box = {std::min(box[0], blo), std::min(box[1], rlo), std::max(box[2], bhi),
+                   std::max(box[3], rhi)};
+        }
+    }
+
+    if (!((box[2] > box[0]) && (box[3] > box[1]))) {
+        // Genuinely nothing to go on: a 1x1 box keeps every division downstream
+        // finite. The density grid in particular reports a utilisation of 1e13%
+        // on a zero-area die, which poisons the look-ahead legalizer.
+        return {0.0, 0.0, 1.0, 1.0};
+    }
+    return box;
 }
 
 }  // namespace ktplace
