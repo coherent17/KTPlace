@@ -2287,6 +2287,11 @@ SimplResult SimplePlacer::Impl::run(const SimplParams &P, const std::string &plo
     // there is no density term -- so its base is the knob that decides whether the
     // run converges to a wirelength optimum or to a frozen spread state. Exposed
     // because it is worth sweeping per design, not because the default is wrong.
+    if (const char *e = std::getenv("KTPLACE_SIMPL_PSEUDONET")) {
+        par_.pseudonetLaw = (std::string(e) == "constant")
+                                ? SimplParams::PseudonetLaw::ConstantStiffness
+                                : SimplParams::PseudonetLaw::InverseLength;
+    }
     if (const char *e = std::getenv("KTPLACE_SIMPL_ALPHA_BASE")) {
         par_.alphaBase = std::atof(e);
     }
@@ -2295,9 +2300,6 @@ SimplResult SimplePlacer::Impl::run(const SimplParams &P, const std::string &plo
     }
     if (const char *e = std::getenv("KTPLACE_SIMPL_ALPHA_DECAY_BELOW")) {
         par_.alphaDecayBelow = std::atof(e);
-    }
-    if (const char *e = std::getenv("KTPLACE_SIMPL_GAP_PATIENCE")) {
-        par_.gapPatience = static_cast<std::size_t>(std::atoll(e));
     }
     if (const char *e = std::getenv("KTPLACE_SIMPL_NO_LAL")) {
         par_.lookAhead = std::atoi(e) == 0;
@@ -2620,17 +2622,11 @@ SimplResult SimplePlacer::Impl::run(const SimplParams &P, const std::string &plo
 
     // ---- global placement iterations --------------------------------------
     double gapRef = -1.0;
-    // Gap-plateau tracking, which is what actually decides convergence. gapRef
-    // stays for the trace only: it is a snapshot at one iteration and deciding
-    // "converged" from a snapshot taken while the gap is still collapsing is what
-    // stopped the runs short.
-    double bestGap = std::numeric_limits<double>::max();
     // Annealing state for the pseudonet weight, 1.0 until the lower bound is
     // spread enough (see SimplParams::alphaDecay).
     double alphaScale = 1.0;
     // Reported in the trace so the two can be compared; a fixed iteration is
     // fine for a diagnostic and not fine for a stopping rule.
-    const std::size_t gapRefIter = 10;
     int gapStale = 0;
     double bestUpper = std::numeric_limits<double>::max();
     int stale = 0;
@@ -2724,9 +2720,6 @@ SimplResult SimplePlacer::Impl::run(const SimplParams &P, const std::string &plo
         curve.emplace_back(upperHpwl, lowerHpwl);
         res_.gap = gap;
 
-        if (it == gapRefIter) {
-            gapRef = gap;
-        }
         if (upperHpwl < bestUpper - 1e-12) {
             bestUpper = upperHpwl;
             bestX = upper;
@@ -2744,8 +2737,6 @@ SimplResult SimplePlacer::Impl::run(const SimplParams &P, const std::string &plo
             "ovf lower {:.4e} upper {:.4e} alpha {:.4g} stale {}",
             it, lowerHpwl, upperHpwl, gap, gapRef, scaledOverflow(), upperOvf,
             par_.alphaBase * (1.0 + static_cast<double>(it)) * alphaScale, stale);
-        ktlog.trace("  gap plateau: best {:.6e}, {}/{} iterations without closing",
-                    std::min(bestGap, gap), gapStale, par_.gapPatience);
 
         // Convergence, watched on the gap and on nothing else.
         //
@@ -2765,14 +2756,22 @@ SimplResult SimplePlacer::Impl::run(const SimplParams &P, const std::string &plo
         //      arbitrary "iteration 10" decides what small means;
         //   2. the gap has stopped shrinking, so a single lucky iteration cannot
         //      end the run.
-        if (upperHpwl > 0.0 && gap < par_.gapRelativeToUpper * upperHpwl) {
-            if (gap >= bestGap * (1.0 - 1e-3)) {
-                ++gapStale;
-            } else {
-                bestGap = gap;
-                gapStale = 0;
-            }
-            if (gapStale >= static_cast<int>(par_.gapPatience)) {
+        // The paper's rule: the gap below a fraction of the gap at the tenth
+        // iteration, *and* the upper bound no longer improving. Both halves matter.
+        // The gap alone is satisfied by both bounds drifting upward together, which
+        // is what this implementation does -- on adaptec1 the upper bound rises
+        // from 5.3e8 to 7.5e8 while the gap falls 4.5e8 -> 2.0e7, so a gap-only
+        // test certifies convergence on a placement 40% worse than the one it
+        // started from. Requiring the upper bound to have stopped improving is what
+        // makes the criterion mean something.
+        if (it == par_.gapReferenceIter) {
+            gapRef = gap;
+        }
+        if (gapRef > 0.0 && it > par_.gapReferenceIter) {
+            if (gap < par_.gapTightFrac * gapRef) {
+                converged = true;
+            } else if (gap < par_.gapRelaxedFrac * gapRef &&
+                       stale >= static_cast<int>(par_.patience)) {
                 converged = true;
             }
         }

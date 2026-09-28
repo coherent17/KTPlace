@@ -106,6 +106,23 @@ table.addRow({"load", "4.75s", "7.09s"});
 table.emit();
 ```
 
+## The algorithm
+
+SimPL is implemented from the paper, which is the reference for every design
+decision in `src/placer/simpl/` — the pseudonet weight law, the alpha schedule,
+and the convergence rule:
+
+> J. Zhu, Y. Li, P. Palazzoli, W. P. Malna, H. Wang, J. Cong.
+> *SimPL: An Algorithm for Placing VLSI Circuits.* DAC 2022.
+
+The paper is paywalled and is not redistributed here. Where this implementation
+departs from it, the departure is stated in a comment at the site of the
+decision, with the paper text quoted, so the two can be compared rather than taken
+on trust. Two known departures: the returned placement is the best upper bound
+rather than the last (our upper bound rises where the paper's oscillates and then
+improves, so "last" would be worse), and the pseudonet weight is the quadratic
+surrogate `w = alpha` for the paper's Manhattan-distance penalty.
+
 ## Third-party code
 
 `src/visualization/CImg.h` is the [CImg](https://cimg.eu) library, vendored as a

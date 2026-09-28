@@ -1,5 +1,10 @@
 name: Docs
 
+# Builds the API documentation and fails on Doxygen warnings. It deliberately does
+# NOT publish: the generated site is not deployed to GitHub Pages. The algorithm
+# this project implements is specified by a paywalled conference paper, which we
+# cannot redistribute, so the reference for the algorithm is that paper (cited in
+# README.md and docs/simpl.md) rather than a copy of it hosted here.
 on:
   push:
     branches: [main]
@@ -52,21 +57,3 @@ jobs:
           test -f docs/html/index.html
           test -f docs/html/annotated.html
           echo "pages: $(find docs/html -name '*.html' | wc -l)"
-
-      - name: Upload the generated site
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: docs/html
-
-  deploy:
-    name: Deploy to GitHub Pages
-    needs: doxygen
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-    runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - name: Deploy
-        id: deployment
-        uses: actions/deploy-pages@v4

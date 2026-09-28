@@ -68,14 +68,14 @@ struct SimplParams {
     /// reports 5-7 iterations being sufficient.
     /// Hard ceiling on warm-up iterations. A safety net, not the stopping rule.
     ///
-    /// Deliberately small. The warm-up is Section 4.1's area-blind quadratic solve,
+    /// One. The warm-up is Section 4.1's area-blind quadratic solve,
     /// whose own comment in this file notes that it ignores cell areas and so
     /// collapses the cells into a blob whose wirelength is meaningless. All it
     /// usefully establishes is the ordering of the cells, and the LSS/LAL loop
     /// does the real work. Spending dozens of iterations -- and, once frames are
     /// recorded, dozens of frames -- refining a number that is thrown away is
     /// budget taken away from the part of the run that decides the result.
-    std::size_t initMaxIters = 6;
+    std::size_t initMaxIters = 1;
     /// Stop the warm-up when a round improves HPWL by less than this fraction.
     /// The paper's Section 4.1 says only "until HPWL stops improving", which as
     /// written means any non-improvement at all ends it -- and a quadratic solve
@@ -177,25 +177,50 @@ struct SimplParams {
     /// alpha/Length reduces to alpha up to a constant the published schedule is
     /// already calibrated against.
     enum class PseudonetLaw {
-        ConstantStiffness,  ///< w = alpha -- the default; the reading that works
-        InverseLength,      ///< w = alpha / max(distance, floor) -- literal, inert
+        ConstantStiffness,  ///< w = alpha -- the paper's law, as a quadratic surrogate
+        InverseLength,      ///< w = alpha / max(distance, floor) -- not the paper's
     };
+    // The paper, on this, verbatim: "we control cell movement and iteration
+    // convergence by multiplying each pseudonet weight by an additional factor
+    // alpha > 0 computed as alpha = 0.01 x (1 + Iteration_Number) ... The relevant
+    // constraint requires that each cell be placed over its anchor, and the
+    // (Manhattan) distance between their locations is the penalty for violating
+    // the constraint."
+    //
+    // So the anchor term is alpha times the *Manhattan distance to the anchor* --
+    // an L1 penalty, whose gradient is a force of constant magnitude alpha. The
+    // weight is therefore alpha, not alpha over the distance: alpha/d is not the
+    // paper's law and, as a quadratic surrogate for an L1 penalty, it is the wrong
+    // shape as well. This had briefly been changed to InverseLength on the reading
+    // of a "weight = alpha/Length" note in the source; that note describes no
+    // equation in this paper, and the text above is the actual statement.
+    //
+    // alpha = 0.01 x (1 + it) is unchanged and already matches the paper exactly.
+    // KTPLACE_SIMPL_PSEUDONET=inverse selects the other law for comparison.
     PseudonetLaw pseudonetLaw = PseudonetLaw::ConstantStiffness;
 
     // --- convergence --------------------------------------------------------
-    // The paper monitors the gap between the lower and upper bounds, and says so
-    // explicitly to avoid premature termination: upper-bound HPWL oscillates for
-    // the first four to seven iterations, so anything that terminates on the
-    // upper bound's HPWL alone stops inside that oscillation. Both conditions
-    // below are therefore about the gap, and neither refers to a fixed iteration.
-    /// The bounds count as met when the gap is below this fraction of the upper
-    /// bound's own wirelength. Scale-free, so it behaves the same on a 12k-cell
-    /// design and a 210k-cell one, and unlike a fraction of the gap at some fixed
-    // iteration it cannot be tripped while the gap is still collapsing.
-    double gapRelativeToUpper = 0.05;
-    /// Iterations the gap may fail to improve by more than 0.1% before the run is
-    /// called converged.
-    std::size_t gapPatience = 5;
+    /// The paper's rule, verbatim: "Global placement continues until (1) the gap is
+    /// reduced to 25% of the gap at the 10th iteration and upper-bound solution
+    /// stops improving or (2) the gap is smaller [than 10% of it]."
+    ///
+    /// This was briefly replaced by a scale-free "gap < 5% of the upper bound" test,
+    /// on the reasoning that a fixed reference iteration is arbitrary. It is not
+    /// arbitrary: the paper names the tenth iteration, and the sentence before it
+    /// explains why -- upper-bound HPWL oscillates for the first four to seven
+    /// iterations, so a reference taken inside that window measures noise.
+    ///
+    /// Both halves are required. The gap alone is satisfied by both bounds drifting
+    /// upward together, which is what this implementation does: on adaptec1 the
+    /// upper bound rises from 5.3e8 to 7.5e8 while the gap falls 4.5e8 -> 2.0e7, so
+    /// a gap-only test certifies convergence on a placement 40% worse than the one
+    /// it started from.
+    double gapRelaxedFrac = 0.25;
+    double gapTightFrac = 0.10;
+    std::size_t gapReferenceIter = 10;
+    /// Upper-bound non-improving iterations tolerated once the gap test is met --
+    /// the paper's "stops improving", which is what the oscillation note warns about.
+    std::size_t patience = 5;
 
     // --- solver -------------------------------------------------------------
     // CG budget. The paper's claim is that, with preconditioning, the iteration
