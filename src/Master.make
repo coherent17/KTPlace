@@ -113,12 +113,20 @@ ENV_SOURCES := $(TOP_DIR)/scripts/ktplace.sh $(TOP_DIR)/scripts/ktplace.csh
 .PHONY: env
 env: $(ENV_SCRIPTS)
 
-$(ENV_SCRIPTS): $(ENV_SOURCES) | $(TARGET)
-	@for src in $(ENV_SOURCES); do \
-	    dst="$(TOP_DIR)/`basename $$src`"; \
-	    if cmp -s "$$src" "$$dst"; then echo "  up to date: $$dst"; \
-	    else cp "$$src" "$$dst" && echo "  generated: $$dst"; fi; \
-	done
+# One rule per script, each copying only itself.
+#
+# This was one rule with a loop over both, and that is a race under `make -j`:
+# make runs the recipe once per target, so two copies of the same loop run at
+# once and both try to create both files, and the loser fails with "cp: cannot
+# create regular file ... File exists". It only ever showed up once CI was given
+# a parallel build, and the build has no reason to be serial.
+$(TOP_DIR)/ktplace.sh: $(TOP_DIR)/scripts/ktplace.sh | $(TARGET)
+	@if cmp -s "$<" "$@"; then echo "  up to date: $@"; \
+	 else cp "$<" "$@" && echo "  generated: $@"; fi
+
+$(TOP_DIR)/ktplace.csh: $(TOP_DIR)/scripts/ktplace.csh | $(TARGET)
+	@if cmp -s "$<" "$@"; then echo "  up to date: $@"; \
+	 else cp "$<" "$@" && echo "  generated: $@"; fi
 
 # Static library
 $(STATIC_LIB): $(LIB_OBJS) | dirs
