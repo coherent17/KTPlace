@@ -100,8 +100,7 @@ BOOST_AUTO_TEST_CASE(a_region_with_no_usable_rectangle_is_rejected) {
     constraintMgr mgr;
     BOOST_TEST(mgr.addRegion("empty", {}) == constraintMgr::kNoRegion);
     // Zero area and a single corner are both unusable.
-    BOOST_TEST(mgr.addRegion("degenerate", rect(5.0, 5.0, 5.0, 5.0)) ==
-               constraintMgr::kNoRegion);
+    BOOST_TEST(mgr.addRegion("degenerate", rect(5.0, 5.0, 5.0, 5.0)) == constraintMgr::kNoRegion);
     BOOST_TEST(mgr.addRegion("flat", {Point{0.0, 0.0}, Point{10.0, 0.0}}) ==
                constraintMgr::kNoRegion);
     BOOST_TEST(mgr.numRegions() == 0u);
@@ -134,8 +133,7 @@ BOOST_AUTO_TEST_CASE(a_region_is_the_union_of_its_rectangles_not_an_outline) {
     // polygon would call the gap legal; the ISPD fences are genuinely
     // disconnected, so the gap has to be outside.
     constraintMgr mgr;
-    mgr.addRegion("er0", {Point{0.0, 0.0}, Point{10.0, 10.0}, Point{20.0, 0.0},
-                          Point{30.0, 10.0}});
+    mgr.addRegion("er0", {Point{0.0, 0.0}, Point{10.0, 10.0}, Point{20.0, 0.0}, Point{30.0, 10.0}});
 
     BOOST_TEST(mgr.contains(0, 5.0, 5.0));
     BOOST_TEST(mgr.contains(0, 25.0, 5.0));
@@ -179,8 +177,8 @@ BOOST_AUTO_TEST_CASE(clamping_pulls_a_position_inside) {
 BOOST_AUTO_TEST_CASE(clamping_chooses_the_nearest_rectangle_of_a_split_region) {
     // The nearest rectangle is the one on the same side, not simply the first.
     constraintMgr mgr;
-    mgr.addRegion("er0", {Point{0.0, 0.0}, Point{10.0, 10.0}, Point{100.0, 0.0},
-                          Point{110.0, 10.0}});
+    mgr.addRegion("er0",
+                  {Point{0.0, 0.0}, Point{10.0, 10.0}, Point{100.0, 0.0}, Point{110.0, 10.0}});
 
     double x = 99.0;
     double y = 5.0;
@@ -285,12 +283,9 @@ BOOST_AUTO_TEST_CASE(assign_by_prefix_stamps_matching_cells_only) {
     BOOST_TEST(graph.getVertexId("eh0/a") != static_cast<std::size_t>(-1));
     BOOST_TEST(graph.getVertex(graph.getVertexId("eh0/a")).regionId == 0);
     BOOST_TEST(graph.getVertex(graph.getVertexId("eh0/b")).regionId == 0);
-    BOOST_TEST(graph.getVertex(graph.getVertexId("eh1/a")).regionId ==
-               constraintMgr::kNoRegion);
-    BOOST_TEST(graph.getVertex(graph.getVertexId("other")).regionId ==
-               constraintMgr::kNoRegion);
-    BOOST_TEST(graph.getVertex(graph.getVertexId("eh0/net")).regionId ==
-               constraintMgr::kNoRegion);
+    BOOST_TEST(graph.getVertex(graph.getVertexId("eh1/a")).regionId == constraintMgr::kNoRegion);
+    BOOST_TEST(graph.getVertex(graph.getVertexId("other")).regionId == constraintMgr::kNoRegion);
+    BOOST_TEST(graph.getVertex(graph.getVertexId("eh0/net")).regionId == constraintMgr::kNoRegion);
 
     const Region *r = mgr.region(0);
     BOOST_REQUIRE(r != nullptr);
@@ -322,8 +317,7 @@ BOOST_AUTO_TEST_CASE(assign_rejects_an_unusable_region_or_prefix) {
     BOOST_TEST(mgr.assignByPrefix(constraintMgr::kNoRegion, "eh0/", graph) == 0u);
     BOOST_TEST(mgr.assignByPrefix(9, "eh0/", graph) == 0u);  // out of range
     BOOST_TEST(mgr.assignByPrefix(0, "", graph) == 0u);      // empty prefix
-    BOOST_TEST(graph.getVertex(graph.getVertexId("eh0/a")).regionId ==
-               constraintMgr::kNoRegion);
+    BOOST_TEST(graph.getVertex(graph.getVertexId("eh0/a")).regionId == constraintMgr::kNoRegion);
 }
 
 BOOST_AUTO_TEST_CASE(a_prefix_longer_than_the_name_cannot_match) {
@@ -360,8 +354,8 @@ BOOST_AUTO_TEST_CASE(a_missing_region_id_list_truncates_the_count) {
 
 BOOST_AUTO_TEST_CASE(a_region_with_many_rectangles_reports_its_full_area) {
     constraintMgr mgr;
-    mgr.addRegion("er0", {Point{0.0, 0.0}, Point{10.0, 10.0}, Point{0.0, 20.0},
-                          Point{10.0, 30.0}, Point{0.0, 40.0}, Point{10.0, 50.0}});
+    mgr.addRegion("er0", {Point{0.0, 0.0}, Point{10.0, 10.0}, Point{0.0, 20.0}, Point{10.0, 30.0},
+                          Point{0.0, 40.0}, Point{10.0, 50.0}});
     const Region *r = mgr.region(0);
     BOOST_REQUIRE(r != nullptr);
     BOOST_TEST(r->rects.size() == 3u);

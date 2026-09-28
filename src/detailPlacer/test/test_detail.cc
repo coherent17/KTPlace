@@ -73,8 +73,7 @@ void addCellRaw(PlacementDB &db, const std::string &name, double x, int rowIndex
     db.setCellPosition(id, x, rowIndex * kRowPitch);
 }
 
-void addCell(PlacementDB &db, const std::string &name, double x, int rowIndex,
-             double width = 1.0) {
+void addCell(PlacementDB &db, const std::string &name, double x, int rowIndex, double width = 1.0) {
     const std::size_t id = db.addCell(name, width, kRowHeight);
     db.setCellPosition(id, std::round(x / kSite) * kSite, rowIndex * kRowPitch);
     gWidths.resize(db.getNumCells(), 1.0);

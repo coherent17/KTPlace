@@ -56,10 +56,13 @@ jobs:
           exit $status
 
       - name: Build
-        run: make
+        # -j with the runner's own core count. The default is a serial build,
+        # which on a 4-core runner is several minutes of one compiler; the unit
+        # test binaries link the same objects, so they get the same treatment.
+        run: make -j"$(nproc)"
 
       - name: Unit tests
-        run: make test
+        run: make -j"$(nproc)" test
 
       - name: Line coverage
         # gcov ships with gcc, so this needs no extra package and cannot be the
@@ -103,8 +106,14 @@ jobs:
           KTPLACE_ANIM=1 KTPLACE_ANIM_MAX_FRAMES=40 KTPLACE_ANIM_BLEND=1 \
           KTPLACE_SIMPL_TRACE_EVERY=1 KTPLACE_SIMPL_CG_EVERY=8 \
             ./build/bin/ktplace adaptec1 \
-              ./benchmark/ISPD_2005/adaptec1 ./out.pl -p plots \
+              ./benchmark/ISPD_2005/adaptec1 out.pl -p plots \
               -w output/adaptec1 2>&1 | tee smoke.log
+
+          # -w is the run's output directory, and it is also what the placement
+          # path is resolved against, so the written .pl is inside it. Naming it
+          # "./out.pl" wrote it to output/adaptec1/./out.pl and every assertion
+          # below then measured a file that was never there.
+          PL=output/adaptec1/out.pl
 
           # The netlist must match the benchmark exactly.
           grep -q "Loaded: 211447 cells (543 terminals), 221142 nets, 944053 pins, 890 rows" \
@@ -112,7 +121,7 @@ jobs:
 
           # The run must finish cleanly and write one record per cell.
           test "$(grep -c 'Placement completed successfully' smoke.log)" -eq 1
-          test "$(wc -l < out.pl)" -eq 211447
+          test "$(wc -l < "$PL")" -eq 211447
 
           # The point of the flow: what is written has to be a legal placement.
           # The checker is independent of the two stages that produced it, so this
@@ -169,8 +178,9 @@ jobs:
           # is the number of pixels that must carry it, and a decimation bug shows
           # up as a shortfall. A little over one is fine: the antialiased rim
           # around each cell lands on the same colour.
-          python3 - <<'PY'
+          PL="$PL" python3 - <<'PY'
           import gzip
+          import os
           import struct
 
           PNG = "output/adaptec1/plots/final/final.png"
@@ -196,7 +206,7 @@ jobs:
           die = [1e18, 1e18, -1e18, -1e18]
           area = 0.0
           movable = 0
-          for line in open("out.pl"):
+          for line in open(os.environ["PL"]):
               t = line.split()
               if len(t) < 3 or t[0] not in sizes:
                   continue
@@ -242,7 +252,7 @@ jobs:
         with:
           name: smoke-placement
           path: |
-            out.pl
+            output/adaptec1/out.pl
             smoke.log
             output/adaptec1/plots/final/final.png
             output/adaptec1/plots/anim/placement.gif

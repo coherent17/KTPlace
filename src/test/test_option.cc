@@ -110,20 +110,27 @@ BOOST_AUTO_TEST_CASE(every_flag_is_accepted_in_both_its_short_and_long_form) {
     const struct {
         const char *shortForm;
         const char *longForm;
-    } forms[] = {{"-a", "--algorithm"}, {"-f", "--format"}, {"-l", "--log"},
-                 {"-c", "--config"}, {"-p", "--plot"}};
+    } forms[] = {{"-a", "--algorithm"},
+                 {"-f", "--format"},
+                 {"-l", "--log"},
+                 {"-c", "--config"},
+                 {"-p", "--plot"}};
 
     for (const auto &f : forms) {
         const ScratchDir dir("forms");
         std::vector<std::string> args = base(dir);
         args.emplace_back(f.shortForm);
         args.emplace_back("value");
-        BOOST_TEST_CONTEXT(f.shortForm) { BOOST_CHECK_NO_THROW(parse(args)); }
+        BOOST_TEST_CONTEXT(f.shortForm) {
+            BOOST_CHECK_NO_THROW(parse(args));
+        }
 
         std::vector<std::string> args2 = base(dir);
         args2.emplace_back(f.longForm);
         args2.emplace_back("value");
-        BOOST_TEST_CONTEXT(f.longForm) { BOOST_CHECK_NO_THROW(parse(args2)); }
+        BOOST_TEST_CONTEXT(f.longForm) {
+            BOOST_CHECK_NO_THROW(parse(args2));
+        }
     }
 }
 
@@ -156,7 +163,7 @@ BOOST_AUTO_TEST_CASE(a_flag_at_the_end_without_a_value_is_rejected) {
     // Silently keeping the default would turn a typo into a run that writes the
     // wrong kind of output, so each of these has to throw.
     const char *flags[] = {"-a", "--algorithm", "-f", "--format", "-l", "--log",
-                           "-w", "--work-dir", "-c", "--config", "-p", "--plot"};
+                           "-w", "--work-dir",  "-c", "--config", "-p", "--plot"};
     for (const char *flag : flags) {
         const ScratchDir dir("novalue");
         std::vector<std::string> args = base(dir);
