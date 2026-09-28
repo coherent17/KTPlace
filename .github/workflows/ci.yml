@@ -21,6 +21,9 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
+          # No gcov here: it is part of gcc and has no package of its own on
+          # Ubuntu 24.04, so naming it makes `apt-get install` fail outright
+          # before a single line of the build runs. It arrives with g++.
           sudo apt-get install -y --no-install-recommends \
             g++ \
             libtbb-dev \
@@ -28,8 +31,7 @@ jobs:
             libboost-test-dev \
             zlib1g-dev \
             libfmt-dev \
-            clang-format \
-            gcov
+            clang-format
 
       - name: Show toolchain
         run: |
@@ -71,8 +73,10 @@ jobs:
       - name: Publish the coverage report
         # GitHub renders the table on the run page whether or not it is
         # uploaded; the artifact is for reading a full run's numbers later.
+        # Guarded, because a step that fails when the file it cats is missing
+        # reports a second red mark that hides the first one.
         if: always()
-        run: cat coverage.txt >> "$GITHUB_STEP_SUMMARY"
+        run: test -f coverage.txt && cat coverage.txt >> "$GITHUB_STEP_SUMMARY" || true
 
       - name: Upload the coverage report
         if: always()
