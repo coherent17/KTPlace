@@ -145,8 +145,8 @@ void writeFinalFrameRaster(const std::string &path, const Graph &g,
  * per run, of the placement that is actually being written out. The vector form
  * is the one to open when a region has to be looked at closely, since it stays
  * sharp at any magnification, and it is also the exact record of the drawing --
- * one <rect> per cell, so "every cell is in the picture" is a count rather than
- * an estimate.
+ * one rectangle element per cell, so "every cell is in the picture" is a count
+ * rather than an estimate.
  *
  * @param path      output .svg file
  * @param g         graph holding the finished placement
