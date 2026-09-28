@@ -215,8 +215,7 @@ Rgb24 blendOnBg(const Rgb24 &c, double alpha) {
  *
  * @return one {yBottom, yTop} per row, empty when no row structure is present
  */
-std::vector<std::array<double, 2>> rowBands(const Graph &g, const std::vector<float> &y,
-                                            double cellHeight) {
+std::vector<std::array<double, 2>> rowBands(const Graph &g, const std::vector<float> &y) {
     std::vector<double> ys;
     std::vector<double> heights;
     const std::size_t nv = g.getNumVertices();
@@ -737,7 +736,7 @@ CImg<unsigned char> renderFrameCImg(const Graph &g, const std::vector<float> &x,
     // The rows, drawn under the cells. They are recovered from the cells, so
     // there is nothing to pass in and a frame of a design with no row structure
     // simply gets none.
-    const std::vector<std::array<double, 2>> rows = rowBands(g, y, 0.0);
+    const std::vector<std::array<double, 2>> rows = rowBands(g, y);
 
     // Row lines, at the very back. Faint, and only every eighth row, which turns
     // them from a hatch into a ruler: a line at every row pitch on a design with a
@@ -1154,7 +1153,7 @@ void writeFrameSvg(const std::string &path, const Graph &g, const std::vector<fl
     // The rows, under the cells, as in the raster frame. Recovered from the cells
     // rather than passed in, so a frame of a design with no row structure -- an
     // unlegalized placement -- simply has none.
-    const std::vector<std::array<double, 2>> rows = rowBands(g, y, 0.0);
+    const std::vector<std::array<double, 2>> rows = rowBands(g, y);
     if (!rows.empty()) {
         // Every eighth row, for the same reason as in the raster renderer: a line
         // at every pitch hatches the whole placement.
