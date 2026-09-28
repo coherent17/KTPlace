@@ -2235,6 +2235,9 @@ SimplResult SimplePlacer::Impl::run(const SimplParams &P, const std::string &plo
     fencePushes_ = 0;
     // Debugging cap: the legalizer is the expensive part, so a short run is
     // needed to iterate on it. Unset in normal use.
+    if (const char *e = std::getenv("KTPLACE_SIMPL_INIT_ITERS")) {
+        par_.initMaxIters = static_cast<std::size_t>(std::atoll(e));
+    }
     if (const char *e = std::getenv("KTPLACE_SIMPL_ITERS")) {
         par_.maxIters = static_cast<std::size_t>(std::max(std::atoi(e), 1));
     }

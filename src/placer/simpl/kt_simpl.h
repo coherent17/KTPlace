@@ -67,15 +67,19 @@ struct SimplParams {
     /// Alternate B2B rebuild and CG solve until HPWL stops improving. The paper
     /// reports 5-7 iterations being sufficient.
     /// Hard ceiling on warm-up iterations. A safety net, not the stopping rule.
+    /// Upper bound on the initial-placement rounds of Section 4.1.
     ///
-    /// One. The warm-up is Section 4.1's area-blind quadratic solve,
-    /// whose own comment in this file notes that it ignores cell areas and so
-    /// collapses the cells into a blob whose wirelength is meaningless. All it
-    /// usefully establishes is the ordering of the cells, and the LSS/LAL loop
-    /// does the real work. Spending dozens of iterations -- and, once frames are
-    /// recorded, dozens of frames -- refining a number that is thrown away is
-    /// budget taken away from the part of the run that decides the result.
-    std::size_t initMaxIters = 1;
+    /// Seven, which is what the paper reports for every benchmark size: it
+    /// alternates the quadratic solve with a B2B graph rebuild, and the rebuild
+    /// is the point, because the net model is placement-dependent and a second
+    /// solve on the same graph buys very little. This was 1, on the reasoning that
+    /// the warm-up result is thrown away. It is not thrown away -- it seeds the
+    /// global-placement loop, and the first anchors are the first look-ahead
+    /// legalization of it, so its shape is what gets locked in. The paper says as
+    /// much: this step "notably impacts the final result, as it can determine the
+    /// overall shape of the final placement solutions". Measured on adaptec1,
+    /// one round gives 4.054e+08 and seven give 3.559e+08.
+    std::size_t initMaxIters = 7;
     /// Stop the warm-up when a round improves HPWL by less than this fraction.
     /// The paper's Section 4.1 says only "until HPWL stops improving", which as
     /// written means any non-improvement at all ends it -- and a quadratic solve
