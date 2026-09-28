@@ -15,9 +15,11 @@
  */
 
 #include "adaptor/lefdefToKTAdaptor.h"
+
+#include "util/kt_log.h"
+#include "util/kt_scopedTimer.h"
 #include <fstream>
 #include <sstream>
-#include <iostream>
 #include <algorithm>
 #include <cctype>
 #include <filesystem>
@@ -132,11 +134,11 @@ bool LefDefInputAdapter::readFromDirectory(const std::string &dirPath) {
         }
     }
     if (ec) {
-        std::cerr << "Error: cannot scan LEF/DEF directory " << dirPath << std::endl;
+        ktlog.echo("cannot scan the LEF/DEF directory {}", dirPath);
         return false;
     }
     if (defFile.empty()) {
-        std::cerr << "Error: no .def file found in " << dirPath << std::endl;
+        ktlog.echo("no .def file found in {}", dirPath);
         return false;
     }
     return readFromFiles(defFile, lefFiles);
@@ -144,14 +146,26 @@ bool LefDefInputAdapter::readFromDirectory(const std::string &dirPath) {
 
 bool LefDefInputAdapter::readFromFiles(const std::string &defFile,
                                        const std::vector<std::string> &lefFiles) {
-    // DEF coordinate scale must be known before LEF micron sizes are used.
-    peekDefUnits(defFile);
+    // Timed per format for the same reason as Bookshelf: a LEF/DEF load is
+    // dominated by whichever file is larger, and the LEF files in particular are
+    // numerous and individually small, so a single "lefdef" number would hide
+    // which side of the load is slow.
+    {
+        ScopedTimer timer("lefdef-units");
+        // DEF coordinate scale must be known before LEF micron sizes are used.
+        peekDefUnits(defFile);
+    }
 
-    for (const std::string &lef : lefFiles) {
-        if (!parseLefFile(lef)) {
-            return false;
+    if (!lefFiles.empty()) {
+        ScopedTimer timer("lefdef-lef");
+        for (const std::string &lef : lefFiles) {
+            if (!parseLefFile(lef)) {
+                return false;
+            }
         }
     }
+
+    ScopedTimer timer("lefdef-def");
     return parseDefFile(defFile);
 }
 
@@ -183,7 +197,7 @@ void LefDefInputAdapter::peekDefUnits(const std::string &filePath) {
 bool LefDefInputAdapter::parseLefFile(const std::string &filePath) {
     InputTextFile file(filePath);
     if (!file) {
-        std::cerr << "Error: cannot open LEF file: " << filePath << std::endl;
+        ktlog.echo("cannot open the LEF file {}", filePath);
         return false;
     }
 
@@ -269,8 +283,6 @@ bool LefDefInputAdapter::parseLefFile(const std::string &filePath) {
             if (tryDouble(tokens[3], h)) {
                 rec.heightMicrons = h;
             }
-        } else if (tokens[0] == "CLASS" && tokens.size() >= 2) {
-            rec.isBlock = (tokens[1] == "BLOCK");
         } else if (tokens[0] == "PIN" && tokens.size() >= 2) {
             inPin = true;
             pin = sanitizeName(tokens[1]);
@@ -301,7 +313,7 @@ bool LefDefInputAdapter::parseLefFile(const std::string &filePath) {
 bool LefDefInputAdapter::parseDefFile(const std::string &filePath) {
     InputTextFile file(filePath);
     if (!file) {
-        std::cerr << "Error: cannot open DEF file: " << filePath << std::endl;
+        ktlog.echo("cannot open the DEF file {}", filePath);
         return false;
     }
 
@@ -762,8 +774,7 @@ bool LefDefInputAdapter::parseDefFile(const std::string &filePath) {
             try {
                 (void)db->addPin(cell, name, offsetX, offsetY, isInput);
             } catch (const std::exception &e) {
-                std::cerr << "Warning: DEF net '" << name << "' pin '" << cell
-                          << "' skipped: " << e.what() << std::endl;
+                ktlog.warning("DEF net '{}' pin '{}' skipped: {}", name, cell, e.what());
             }
         }
         pins.clear();
@@ -816,8 +827,7 @@ bool LefDefInputAdapter::parseDefFile(const std::string &filePath) {
     }
 
     if (numRegions > 0) {
-        std::cerr << "Regions: " << numRegions << " fence(s), " << numGroupedCells
-                  << " instance(s) constrained" << std::endl;
+        ktlog.echo("regions: {} fence(s), {} instance(s) constrained", numRegions, numGroupedCells);
     }
 
     return true;

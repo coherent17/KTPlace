@@ -200,24 +200,33 @@ struct SimplParams {
     PseudonetLaw pseudonetLaw = PseudonetLaw::ConstantStiffness;
 
     // --- convergence --------------------------------------------------------
-    /// The paper's rule, verbatim: "Global placement continues until (1) the gap is
-    /// reduced to 25% of the gap at the 10th iteration and upper-bound solution
-    /// stops improving or (2) the gap is smaller [than 10% of it]."
+    /// The paper's rule, expressed scale-free. Verbatim the paper says "Global
+    /// placement continues until (1) the gap is reduced to 25% of the gap at the
+    /// 10th iteration and upper-bound solution stops improving or (2) the gap is
+    /// smaller [than 10% of it]." The reference, "the gap at the 10th iteration",
+    /// is itself already a small fraction of the placement -- on adaptec1 that gap
+    /// is ~4% of the upper bound's HPWL -- so "25% of the gap" means the bounds
+    /// within ~1% of each other, which never occurs short of the gap going negative
+    /// through overlap. Measuring the gap as a fraction of the placement it
+    /// describes (gap / upperHpwl) is the same rule with the scale taken out.
     ///
-    /// This was briefly replaced by a scale-free "gap < 5% of the upper bound" test,
-    /// on the reasoning that a fixed reference iteration is arbitrary. It is not
-    /// arbitrary: the paper names the tenth iteration, and the sentence before it
-    /// explains why -- upper-bound HPWL oscillates for the first four to seven
-    /// iterations, so a reference taken inside that window measures noise.
+    /// Iteration 10 is still honoured, as the *window*, not the reference: upper
+    /// bound HPWL oscillates for the first four to seven iterations, so no
+    /// convergence test is evaluated before gapReferenceIter. That is what keeps a
+    /// lucky early dip from ending the run.
     ///
-    /// Both halves are required. The gap alone is satisfied by both bounds drifting
-    /// upward together, which is what this implementation does: on adaptec1 the
-    /// upper bound rises from 5.3e8 to 7.5e8 while the gap falls 4.5e8 -> 2.0e7, so
-    /// a gap-only test certifies convergence on a placement 40% worse than the one
-    /// it started from.
-    double gapRelaxedFrac = 0.25;
-    double gapTightFrac = 0.10;
-    std::size_t gapReferenceIter = 10;
+    /// Both halves of the rule are required before the relaxed test fires. The gap
+    /// alone is satisfied by both bounds drifting upward together, which is what
+    /// this implementation did: on adaptec1 the upper bound rose from 5.3e8 to
+    /// 7.5e8 while the gap fell 4.5e8 -> 2.0e7, so a gap-only test certified
+    /// convergence on a placement 40% worse than the one it started from.
+    /// Requiring the upper bound to have stopped improving (patience) is what makes
+    /// the criterion mean something.
+    ///
+    /// Defaults are fractions of the upper bound's HPWL.
+    double gapRelaxedFrac = 0.25;       ///< bounds within 25% and upper bound stale
+    double gapTightFrac = 0.10;         ///< bounds within 10%: converged, no patience
+    std::size_t gapReferenceIter = 10;  ///< oscillation window; first test at it+1
     /// Upper-bound non-improving iterations tolerated once the gap test is met --
     /// the paper's "stops improving", which is what the oscillation note warns about.
     std::size_t patience = 5;

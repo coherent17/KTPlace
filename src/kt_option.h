@@ -55,25 +55,14 @@ public:
     [[nodiscard]] const std::string &getLogFile() const;
     [[nodiscard]] const std::string &getConfigFile() const;
     [[nodiscard]] const std::string &getPlotDir() const;
-    [[nodiscard]] const std::string &getWorkDir() const;
 
-    /**
-     * @brief Check if help was requested
-     * @return true if help was requested
-     */
-    [[nodiscard]] bool isHelpRequested() const;
+    [[nodiscard]] const std::string &getWorkDir() const;
 
     /**
      * @brief Check if verbose (trace-level) logging was requested
      * @return true if -v/--verbose was given
      */
     [[nodiscard]] bool isVerbose() const;
-
-    /**
-     * @brief Check if version was requested
-     * @return true if version was requested
-     */
-    [[nodiscard]] bool isVersionRequested() const;
 
     /**
      * @brief Print usage information

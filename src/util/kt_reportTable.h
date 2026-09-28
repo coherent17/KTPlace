@@ -56,17 +56,11 @@ public:
     /// Drop every row and header, keeping the title.
     void clear();
 
-    /// @return the number of body rows (headers excluded)
-    [[nodiscard]] std::size_t rowCount() const;
-
     /// Render the table as text, without any log prefix.
     [[nodiscard]] std::string render() const;
 
     /// Render and write the table through `ktlog::echo` as a single record.
     void emit() const;
-
-    /// Render and write the table through `ktlog::trace` instead.
-    void emitVerbose() const;
 
 private:
     std::string title;

@@ -95,7 +95,6 @@ private:
     struct MacroRec {
         double widthMicrons = 1.0;
         double heightMicrons = 1.0;
-        bool isBlock = false;
         std::unordered_map<std::string, bool> pinIsInput;  // pin name -> isInput
         std::unordered_map<std::string, std::pair<double, double>>
             pinOffset;  // pin -> (x,y) microns

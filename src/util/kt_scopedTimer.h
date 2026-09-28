@@ -51,9 +51,6 @@
 
 namespace ktplace {
 
-/// Monotonic seconds from an arbitrary epoch; only differences are meaningful.
-[[nodiscard]] double monotonicSeconds();
-
 /**
  * @brief Accumulated statistics for one timer name.
  *
@@ -84,15 +81,6 @@ public:
 
     /// Add one interval to @p name.
     void record(std::string name, double wallSeconds, double cpuSeconds);
-
-    /**
-     * @brief Enable or disable recording for @p name.
-     *
-     * Disabled timers still measure, but discard their result, which keeps
-     * hot loops free of map and mutex traffic. Recording is enabled by
-     * default.
-     */
-    void setEnabled(const std::string &name, bool enabled);
 
     /// @return true when @p name is currently recorded
     [[nodiscard]] bool isEnabled(const std::string &name) const;

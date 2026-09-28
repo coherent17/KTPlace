@@ -33,6 +33,7 @@
 #include <string>
 #include <vector>
 
+#include "constraint/kt_constraintMgr.h"
 #include "datamodel/kt_dm.h"
 
 namespace ktplace {
@@ -53,6 +54,8 @@ struct DetailPlaceParams {
     double minImprovement = 1e-4;
     /// If non-empty, write an SVG frame per pass to this directory.
     std::string plotDir;
+    /// Fence regions, drawn in the frames but not enforced by the optimiser.
+    const constraintMgr *constraints = nullptr;
 };
 
 struct DetailPlaceResult {

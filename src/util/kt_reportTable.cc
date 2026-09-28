@@ -71,10 +71,6 @@ void ktReportTable::clear() {
     rows.clear();
 }
 
-std::size_t ktReportTable::rowCount() const {
-    return rows.size();
-}
-
 std::string ktReportTable::render() const {
     // Column count: the widest row wins.
     std::size_t columns = headers.size();
@@ -173,13 +169,6 @@ void ktReportTable::emit() const {
     const std::string text = withoutTrailingNewline(render());
     if (!text.empty()) {
         ktlog.echo("{}", text);
-    }
-}
-
-void ktReportTable::emitVerbose() const {
-    const std::string text = withoutTrailingNewline(render());
-    if (!text.empty()) {
-        ktlog.trace("{}", text);
     }
 }
 }  // namespace ktplace

@@ -7,10 +7,12 @@
  */
 
 #include "adaptor/bookshelfToKTAdaptor.h"
+
+#include "util/kt_log.h"
+#include "util/kt_scopedTimer.h"
 #include <filesystem>
 #include <fstream>
 #include <sstream>
-#include <iostream>
 #include <algorithm>
 #include <cstring>
 #include <unordered_map>
@@ -171,31 +173,48 @@ bool BookshelfInputAdapter::readFromFiles(const std::string &nodesFile, const st
     // Clear existing data
     db->clear();
 
+    // Each file is timed on its own. Parsing dominates the load phase on a large
+    // design, and the four files cost very different amounts: .nodes and .nets are
+    // O(cells + pins) and slow, .scl and .pl are small and instant. When a load
+    // takes minutes, "which file" is the first question, and the answer should not
+    // require a profiler to get.
+    //
     // Parse nodes file (required)
-    if (!parseNodesFile(nodesFile)) {
-        std::cerr << "Error: Failed to parse nodes file: " << nodesFile << std::endl;
-        return false;
+    {
+        ScopedTimer timer("bookshelf-nodes");
+        if (!parseNodesFile(nodesFile)) {
+            ktlog.echo("cannot parse the nodes file: {}", nodesFile);
+            return false;
+        }
     }
 
     // Parse weights file (optional) BEFORE nets so net weights are honored
     if (!wtsFile.empty()) {
+        ScopedTimer timer("bookshelf-wts");
         parseWtsFile(wtsFile);
     }
 
     // Parse nets file (required)
-    if (!parseNetsFile(netsFile)) {
-        std::cerr << "Error: Failed to parse nets file: " << netsFile << std::endl;
-        return false;
+    {
+        ScopedTimer timer("bookshelf-nets");
+        if (!parseNetsFile(netsFile)) {
+            ktlog.echo("cannot parse the nets file: {}", netsFile);
+            return false;
+        }
     }
 
     // Parse placement file (optional)
     if (!plFile.empty()) {
+        ScopedTimer timer("bookshelf-pl");
         parsePlacementFile(plFile);
     }
 
-
     // Parse scl file (optional)
     if (!sclFile.empty()) {
+        // Timed last, and separately, because it is the file that decides the
+        // rows. If it is empty the design has no legal placement at all, which is
+        // worth being able to confirm from the log rather than deduce.
+        ScopedTimer timer("bookshelf-scl");
         parseSclFile(sclFile);
     }
 
@@ -205,7 +224,7 @@ bool BookshelfInputAdapter::readFromFiles(const std::string &nodesFile, const st
 bool BookshelfInputAdapter::parseNodesFile(const std::string &filePath) {
     InputTextFile file(filePath);
     if (!file) {
-        std::cerr << "Error: Cannot open nodes file: " << filePath << std::endl;
+        ktlog.echo("cannot open the nodes file: {}", filePath);
         return false;
     }
 
@@ -244,8 +263,7 @@ bool BookshelfInputAdapter::parseNodesFile(const std::string &filePath) {
 
                 std::vector<std::string> tokens = tokenize(stripped);
                 if (tokens.size() < 3) {
-                    std::cerr << "Warning: Failed to parse node line " << (bodyStart + i + 1)
-                              << ": " << stripped << std::endl;
+                    ktlog.warning("cannot parse node line {}: {}", bodyStart + i + 1, stripped);
                     continue;
                 }
 
@@ -257,8 +275,8 @@ bool BookshelfInputAdapter::parseNodesFile(const std::string &filePath) {
                     rec.name = std::move(tokens[0]);
                     rec.valid = true;
                 } catch (const std::exception &e) {
-                    std::cerr << "Warning: Failed to parse node line " << (bodyStart + i + 1)
-                              << ": " << stripped << " (" << e.what() << ")" << std::endl;
+                    ktlog.warning("cannot parse node line {}: {} ({})", bodyStart + i + 1, stripped,
+                                  e.what());
                 }
             }
         });
@@ -275,7 +293,7 @@ bool BookshelfInputAdapter::parseNodesFile(const std::string &filePath) {
                 db->setCellFixed(id, true);
             }
         } catch (const std::exception &e) {
-            std::cerr << "Error adding cell " << rec.name << ": " << e.what() << std::endl;
+            ktlog.echo("cannot add cell {}: {}", rec.name, e.what());
         }
     }
 
@@ -285,7 +303,7 @@ bool BookshelfInputAdapter::parseNodesFile(const std::string &filePath) {
 bool BookshelfInputAdapter::parseNetsFile(const std::string &filePath) {
     InputTextFile file(filePath);
     if (!file) {
-        std::cerr << "Error: Cannot open nets file: " << filePath << std::endl;
+        ktlog.echo("cannot open the nets file: {}", filePath);
         return false;
     }
 
@@ -327,8 +345,7 @@ bool BookshelfInputAdapter::parseNetsFile(const std::string &filePath) {
                     break;
             }
             if (tokens.size() < nameIdx + 1) {
-                std::cerr << "Warning: Malformed NetDegree line " << (i + 1) << ": " << stripped
-                          << std::endl;
+                ktlog.warning("malformed NetDegree line {}: {}", i + 1, stripped);
                 continue;
             }
             NetStub stub;
@@ -384,9 +401,8 @@ bool BookshelfInputAdapter::parseNetsFile(const std::string &filePath) {
                                           rec.offsetY = std::stod(tokens[4]);
                                       }
                                   } catch (const std::exception &e) {
-                                      std::cerr << "Warning: Failed to parse pin line "
-                                                << (lineIdx + 1) << ": " << stripped << " ("
-                                                << e.what() << ")" << std::endl;
+                                      ktlog.warning("cannot parse pin line {}: {} ({})",
+                                                    lineIdx + 1, stripped, e.what());
                                       continue;
                                   }
                                   pins.push_back(std::move(rec));
@@ -412,7 +428,7 @@ bool BookshelfInputAdapter::parseNetsFile(const std::string &filePath) {
             try {
                 (void)db->addPin(pin.cellName, netName, pin.offsetX, pin.offsetY, pin.isInput);
             } catch (const std::exception &e) {
-                std::cerr << "Warning: Error adding pin: " << e.what() << std::endl;
+                ktlog.warning("cannot add pin: {}", e.what());
             }
         }
     }

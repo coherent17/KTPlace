@@ -8,7 +8,18 @@
 
 # Compiler settings
 CXX := g++
-CXXFLAGS := -std=c++23 -Wall -Wextra -Wpedantic -Wshadow -O2 -g -pthread
+
+# `make coverage COVERAGE=1` swaps this object tree for an instrumented one, so a
+# coverage run cannot leave .gcno/.gcda files next to the normal build's objects
+# and then report the ordinary binary as instrumented. -O0 because gcov maps
+# lines back through the optimizer at higher levels, which makes the uncovered
+# set harder to read and the numbers less trustworthy.
+ifeq ($(COVERAGE),1)
+  CXXFLAGS := -std=c++23 -Wall -Wextra -Wpedantic -Wshadow -O0 -g -pthread --coverage
+  COVERAGE_LDFLAGS := --coverage
+else
+  CXXFLAGS := -std=c++23 -Wall -Wextra -Wpedantic -Wshadow -O2 -g -pthread
+endif
 # All quoted includes are project-root-relative (e.g. "datamodel/kt_dm.h"),
 # so the project root (this directory) is the only include path needed.
 INCLUDES := -I.
@@ -19,7 +30,14 @@ LIBS := -ltbb -lboost_iostreams -lz -lfmt
 
 # Directories
 SRC_DIR := .
-BUILD_DIR := ../build
+# The coverage build gets its own tree: instrumented objects and counters must
+# not sit next to the ordinary build's, or the ordinary binary ends up reporting
+# as instrumented and a stale .gcda from an earlier run merges into the next.
+ifeq ($(COVERAGE),1)
+  BUILD_DIR := ../build-cov
+else
+  BUILD_DIR := ../build
+endif
 OBJ_DIR := $(BUILD_DIR)/obj
 BIN_DIR := $(BUILD_DIR)/bin
 LIB_DIR := $(BUILD_DIR)/lib
@@ -58,7 +76,7 @@ LIB_OBJS := $(filter-out $(OBJ_DIR)/kt_place.o,$(ALL_OBJS))
 # Phony targets
 # ============================================================================
 
-.PHONY: all clean rebuild lib test check $(SUBDIRS) dirs help
+.PHONY: all clean rebuild lib test test-build check $(SUBDIRS) dirs help
 
 # Default target
 all: dirs $(SUBDIRS) $(TARGET) env
@@ -79,7 +97,7 @@ $(SUBDIRS):
 # Main executable
 $(TARGET): $(ALL_OBJS) | dirs
 	@echo "Linking $@..."
-	@$(CXX) $(CXXFLAGS) -o $@ $(ALL_OBJS) $(LIBS)
+	@$(CXX) $(CXXFLAGS) -o $@ $(ALL_OBJS) $(LIBS) $(COVERAGE_LDFLAGS)
 	@echo "Build complete: $@"
 
 # Environment helper scripts.
@@ -133,8 +151,21 @@ TEST_LIBS := -lboost_unit_test_framework
 TEST_datamodel := datamodel/test/test_datamodel.cc
 TEST_adaptor := adaptor/test/test_adaptor.cc
 TEST_flow := test/test_flow.cc
+TEST_util := util/test/test_util.cc
+TEST_constraint := constraint/test/test_constraint.cc
+TEST_option := test/test_option.cc
+TEST_viz := visualization/test/test_viz.cc
+TEST_detail := detailPlacer/test/test_detail.cc
 
-TEST_BINS := $(BIN_DIR)/test_datamodel $(BIN_DIR)/test_adaptor $(BIN_DIR)/test_flow
+TEST_BINS := $(BIN_DIR)/test_datamodel $(BIN_DIR)/test_adaptor $(BIN_DIR)/test_flow \
+             $(BIN_DIR)/test_util $(BIN_DIR)/test_constraint $(BIN_DIR)/test_option $(BIN_DIR)/test_viz \
+             $(BIN_DIR)/test_detail
+
+# Builds the test binaries without running them. `make coverage` needs this:
+# the coverage driver wants to run the binaries itself, once, under the
+# instrumented build, rather than have make run them before gcov is ready.
+.PHONY: test-build
+test-build: $(TEST_BINS)
 
 .PHONY: test check
 test check: $(TEST_BINS)
@@ -149,15 +180,52 @@ test check: $(TEST_BINS)
 # Each test binary: its own source plus the engine objects (no main()).
 $(BIN_DIR)/test_datamodel: $(TEST_datamodel) $(LIB_OBJS) | dirs
 	@echo "  Building test_datamodel..."
-	@$(CXX) $(CXXFLAGS) $(INCLUDES) -o $@ $(TEST_datamodel) $(LIB_OBJS) $(LIBS) $(TEST_LIBS)
+	@$(CXX) $(CXXFLAGS) $(INCLUDES) -o $@ $(TEST_datamodel) $(LIB_OBJS) $(LIBS) $(COVERAGE_LDFLAGS) $(TEST_LIBS)
 
 $(BIN_DIR)/test_adaptor: $(TEST_adaptor) $(LIB_OBJS) | dirs
 	@echo "  Building test_adaptor..."
-	@$(CXX) $(CXXFLAGS) $(INCLUDES) -o $@ $(TEST_adaptor) $(LIB_OBJS) $(LIBS) $(TEST_LIBS)
+	@$(CXX) $(CXXFLAGS) $(INCLUDES) -o $@ $(TEST_adaptor) $(LIB_OBJS) $(LIBS) $(COVERAGE_LDFLAGS) $(TEST_LIBS)
 
 $(BIN_DIR)/test_flow: $(TEST_flow) $(LIB_OBJS) | dirs
 	@echo "  Building test_flow..."
-	@$(CXX) $(CXXFLAGS) $(INCLUDES) -o $@ $(TEST_flow) $(LIB_OBJS) $(LIBS) $(TEST_LIBS)
+	@$(CXX) $(CXXFLAGS) $(INCLUDES) -o $@ $(TEST_flow) $(LIB_OBJS) $(LIBS) $(COVERAGE_LDFLAGS) $(TEST_LIBS)
+
+$(BIN_DIR)/test_util: $(TEST_util) $(LIB_OBJS) | dirs
+	@echo "  Building test_util..."
+	@$(CXX) $(CXXFLAGS) $(INCLUDES) -o $@ $(TEST_util) $(LIB_OBJS) $(LIBS) $(COVERAGE_LDFLAGS) $(TEST_LIBS)
+
+$(BIN_DIR)/test_constraint: $(TEST_constraint) $(LIB_OBJS) | dirs
+	@echo "  Building test_constraint..."
+	@$(CXX) $(CXXFLAGS) $(INCLUDES) -o $@ $(TEST_constraint) $(LIB_OBJS) $(LIBS) $(COVERAGE_LDFLAGS) $(TEST_LIBS)
+
+$(BIN_DIR)/test_option: $(TEST_option) $(LIB_OBJS) | dirs
+	@echo "  Building test_option..."
+	@$(CXX) $(CXXFLAGS) $(INCLUDES) -o $@ $(TEST_option) $(LIB_OBJS) $(LIBS) $(COVERAGE_LDFLAGS) $(TEST_LIBS)
+
+$(BIN_DIR)/test_viz: $(TEST_viz) $(LIB_OBJS) | dirs
+	@echo "  Building test_viz..."
+	@$(CXX) $(CXXFLAGS) $(INCLUDES) -o $@ $(TEST_viz) $(LIB_OBJS) $(LIBS) $(COVERAGE_LDFLAGS) $(TEST_LIBS)
+
+$(BIN_DIR)/test_detail: $(TEST_detail) $(LIB_OBJS) | dirs
+	@echo "  Building test_detail..."
+	@$(CXX) $(CXXFLAGS) $(INCLUDES) -o $@ $(TEST_detail) $(LIB_OBJS) $(LIBS) $(COVERAGE_LDFLAGS) $(TEST_LIBS)
+
+# ============================================================================
+# Line coverage
+# ============================================================================
+#
+# Built and reported by scripts/coverage_report.py, which reads gcov's JSON and
+# prints per-file and per-directory figures. gcov is used directly rather than
+# lcov because it ships with gcc: a coverage gate that needs an extra package
+# installed is a coverage gate that silently does not run.
+
+.PHONY: coverage coverage-clean
+coverage:
+	@python3 ../scripts/coverage_report.py --clean --build \
+		--min $(or $(COVERAGE_MIN),0)
+
+coverage-clean:
+	@rm -rf $(BUILD_DIR)-cov
 
 # Clean
 clean:

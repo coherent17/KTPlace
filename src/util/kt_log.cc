@@ -42,10 +42,27 @@ const char *Logger::levelTag(Level tag) {
             return "echo";
         case Level::Trace:
             return "trace";
+        case Level::Warning:
+            return "warning";
         case Level::Fatal:
             return "fatal";
     }
     return "?";
+}
+
+const char *Logger::levelColor(Level tag) {
+    // Yellow for a warning, red for a fatal. The transcript file never gets these
+    // codes: it stays plain text so it can be diffed, grepped and pasted.
+    switch (tag) {
+        case Level::Warning:
+            return "\033[1;33m";
+        case Level::Fatal:
+            return "\033[1;31m";
+        case Level::Echo:
+        case Level::Trace:
+            break;
+    }
+    return "";
 }
 
 Logger &Logger::instance() {
@@ -87,11 +104,6 @@ void Logger::configure(std::string logFilePath, bool verbose) {
     };
     openOne(file, path);
     openOne(traceFile, tracePath);
-}
-
-void Logger::setVerbose(bool enabled) {
-    std::lock_guard<std::mutex> lock(mutex);
-    verboseEnabled = enabled;
 }
 
 std::string Logger::tracePathFor(const std::string &logFilePath) {
@@ -155,7 +167,15 @@ void Logger::emit(Level level, const std::string &message) {
     // records only under -v. The trace file has them either way, so the console
     // stays a summary and the file is the complete record.
     if (!isTrace || verboseEnabled) {
-        std::cerr << body << '\n';
+        // Colour the stderr view only, and only the level marker, so the body of a
+        // long warning is not washed out in a yellow block. Echo and trace stay
+        // uncoloured: a transcript of an ordinary run should read as plain text.
+        if (const char *color = levelColor(level); *color != 0) {
+            std::cerr << color << '[' << levelTag(level) << "] " << "\033[0m" << ' ' << body
+                      << '\n';
+        } else {
+            std::cerr << body << '\n';
+        }
     }
 }
 

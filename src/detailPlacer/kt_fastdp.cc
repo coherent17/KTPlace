@@ -48,6 +48,7 @@ struct Span {
 struct NetPin {
     std::size_t slot;   ///< kNoSlot for a fixed pin
     double offX = 0.0;  ///< offset from the cell's origin
+    double offY = 0.0;  ///< offset from the cell's origin
     double absX = 0.0;  ///< used when slot == kNoSlot
 };
 
@@ -73,7 +74,14 @@ private:
     /// affected positions.
     [[nodiscard]] double deltaMove(std::size_t c, double nx) const;
     /// Exact HPWL change from exchanging two cells.
-    [[nodiscard]] double deltaSwap(std::size_t a, double na, std::size_t b, double nb) const;
+    /// @param  nay  y cell a lands at; y_[a] is unchanged
+    /// @param  nby  y cell b lands at
+    /// Both axes are measured, because the exchange is judged against the same
+    /// HPWL that hpwl() reports. An earlier x-only version let a vertical swap
+    /// pass the "improves" test while making the true two-axis HPWL worse, so
+    /// a run could report a net loss as a gain.
+    [[nodiscard]] double deltaSwap(std::size_t a, double na, double nay, std::size_t b, double nb,
+                                   double nby) const;
     /// Can c sit at nx without overlapping a neighbour, a macro, or leaving its
     /// span? The span bounds and the site grid are checked; the neighbour check
     /// is done against the cells sorted by x in the span.
@@ -87,10 +95,24 @@ private:
     std::size_t singleSegmentCluster();
     void selfCheck(DetailPlaceResult &res) const;
     void writeFrame(const std::string &path, const char *note) const;
+    /// Fences, carried from the params so the frame writer can draw them.
+    const constraintMgr *constraints_ = nullptr;
     void commit(std::size_t c, double nx);
     /// Re-sort a span's cells by x. The neighbour check in canPlace() binary
     /// searches that order, so it has to be restored after every move.
     void resort(std::size_t s);
+    std::size_t overlaps(const std::vector<std::size_t> &cells,
+                         const std::vector<double> *nx = nullptr) const;
+    std::size_t offSites(const std::vector<std::size_t> &cells,
+                         const std::vector<double> *nx = nullptr) const;
+    double segmentHpwl(const std::vector<std::size_t> &cells,
+                       const std::vector<double> *nx = nullptr) const;
+    // Ranks two layouts of one span. Legality dominates: a layout with fewer
+    // overlaps wins, then one with fewer cells off the site pitch, and only a
+    // tie on both is broken by wirelength. Ranking it the other way round would
+    // leave a legal span alone but never repair an illegal one.
+    static bool betterLayout(std::size_t ovNew, std::size_t offNew, double hpNew, std::size_t ovOld,
+                             std::size_t offOld, double hpOld);
     /// Spans in the rows immediately above and below each row, built once.
     std::vector<std::vector<std::size_t>> rowsNear_;
     void removeFromSpan(std::size_t c);
@@ -244,11 +266,11 @@ void FastDetailedPlacer::Impl::buildNetlist() {
         for (const std::size_t eid : vert.inEdges) {
             const Edge &e = graph_.getEdge(eid);
             const std::size_t s = slotOf[e.source];
+            const Vertex &c = graph_.getVertex(e.source);
             if (s == kNoSlot) {
-                const Vertex &c = graph_.getVertex(e.source);
-                netPins_[v].push_back(NetPin{kNoSlot, e.offsetX, c.x + e.offsetX});
+                netPins_[v].push_back(NetPin{kNoSlot, e.offsetX, e.offsetY, c.x + e.offsetX});
             } else {
-                netPins_[v].push_back(NetPin{s, e.offsetX, 0.0});
+                netPins_[v].push_back(NetPin{s, e.offsetX, e.offsetY, 0.0});
                 cellNets_[s].push_back(v);
             }
         }
@@ -331,45 +353,82 @@ double FastDetailedPlacer::Impl::deltaMove(std::size_t c, double nx) const {
     return delta;
 }
 
-double FastDetailedPlacer::Impl::deltaSwap(std::size_t a, double na, std::size_t b,
-                                           double nb) const {
-    const double oa = x_[a];
-    const double ob = x_[b];
-    double delta = 0.0;
+double FastDetailedPlacer::Impl::deltaSwap(std::size_t a, double na, double nay, std::size_t b,
+                                           double nb, double nby) const {
     // Union of the nets of both cells, deduplicated.
     std::vector<std::size_t> nets = cellNets_[a];
     nets.insert(nets.end(), cellNets_[b].begin(), cellNets_[b].end());
     std::sort(nets.begin(), nets.end());
     nets.erase(std::unique(nets.begin(), nets.end()), nets.end());
+
+    // Per-pin coordinates after and before the exchange. Only a and b move, so
+    // every other pin keeps its current position. A fixed pin has no y: hpwl()
+    // takes the y extent from movable pins only, and this has to agree with that
+    // term for term or the comparison is against a different quantity than the
+    // one reported.
+    const auto pinX = [&](const NetPin &p, double ax, double bx) {
+        if (p.slot == kNoSlot) {
+            return p.absX;
+        }
+        if (p.slot == a) {
+            return ax + p.offX;
+        }
+        if (p.slot == b) {
+            return bx + p.offX;
+        }
+        return x_[p.slot] + p.offX;
+    };
+    const auto pinY = [&](const NetPin &p, double ay, double by) {
+        if (p.slot == kNoSlot) {
+            return 0.0;
+        }
+        if (p.slot == a) {
+            return ay + p.offY;
+        }
+        if (p.slot == b) {
+            return by + p.offY;
+        }
+        return y_[p.slot] + p.offY;
+    };
+
+    // Accumulated as new-minus-old over every affected net, so a negative total
+    // means the exchange shortens the wirelength.
+    double delta = 0.0;
     for (const std::size_t n : nets) {
-        double ax = std::numeric_limits<double>::max();
-        double bx = -std::numeric_limits<double>::max();
+        double nxlo = std::numeric_limits<double>::max();
+        double nxhi = -std::numeric_limits<double>::max();
+        double oxlo = std::numeric_limits<double>::max();
+        double oxhi = -std::numeric_limits<double>::max();
+        double nylo = std::numeric_limits<double>::max();
+        double nyhi = -std::numeric_limits<double>::max();
+        double oylo = std::numeric_limits<double>::max();
+        double oyhi = -std::numeric_limits<double>::max();
         for (const NetPin &p : netPins_[n]) {
-            double px;
+            const double npx = pinX(p, na, nb);
+            const double opx = pinX(p, x_[a], x_[b]);
+            nxlo = std::min(nxlo, npx);
+            nxhi = std::max(nxhi, npx);
+            oxlo = std::min(oxlo, opx);
+            oxhi = std::max(oxhi, opx);
             if (p.slot == kNoSlot) {
-                px = p.absX;
-            } else if (p.slot == a) {
-                px = na + p.offX;
-            } else if (p.slot == b) {
-                px = nb + p.offX;
-            } else {
-                px = x_[p.slot] + p.offX;
+                continue;
             }
-            ax = std::min(ax, px);
-            bx = std::max(bx, px);
+            const double npy = pinY(p, nay, nby);
+            const double opy = pinY(p, y_[a], y_[b]);
+            const double h = h_[p.slot];
+            nylo = std::min(nylo, npy);
+            nyhi = std::max(nyhi, npy + h);
+            oylo = std::min(oylo, opy);
+            oyhi = std::max(oyhi, opy + h);
         }
-        delta += (bx - ax);
-        ax = std::numeric_limits<double>::max();
-        bx = -std::numeric_limits<double>::max();
-        for (const NetPin &p : netPins_[n]) {
-            const double px = (p.slot == kNoSlot) ? p.absX : (x_[p.slot] + p.offX);
-            ax = std::min(ax, px);
-            bx = std::max(bx, px);
+        // A net whose pins are all fixed has no y extent to speak of, and the
+        // sentinels would otherwise make the term -inf. hpwl() zeroes it too.
+        if (nylo == std::numeric_limits<double>::max()) {
+            nylo = nyhi = oylo = oyhi = 0.0;
         }
-        delta -= (bx - ax);
+        delta += (nxhi - nxlo) + (nyhi - nylo);
+        delta -= (oxhi - oxlo) + (oyhi - oylo);
     }
-    (void)oa;
-    (void)ob;
     return delta;
 }
 
@@ -511,6 +570,89 @@ bool FastDetailedPlacer::Impl::locate(std::size_t c) {
     return false;
 }
 
+// How many adjacent pairs in a span overlap. nx overrides the positions, which
+// is how a candidate layout is scored before it is committed.
+std::size_t FastDetailedPlacer::Impl::overlaps(const std::vector<std::size_t> &cells,
+                                               const std::vector<double> *nx) const {
+    std::size_t bad = 0;
+    for (std::size_t k = 1; k < cells.size(); ++k) {
+        const double a = nx ? (*nx)[k - 1] : x_[cells[k - 1]];
+        const double b = nx ? (*nx)[k] : x_[cells[k]];
+        if (a + w_[cells[k - 1]] > b + 1e-6) {
+            ++bad;
+        }
+    }
+    return bad;
+}
+
+// How many cells of a span are not on the site pitch. nx overrides positions.
+std::size_t FastDetailedPlacer::Impl::offSites(const std::vector<std::size_t> &cells,
+                                               const std::vector<double> *nx) const {
+    const double site = spans_.empty() ? 1.0 : spans_[0].site;
+    std::size_t bad = 0;
+    for (std::size_t k = 0; k < cells.size(); ++k) {
+        const double v = nx ? (*nx)[k] : x_[cells[k]];
+        const double q = v / site;
+        if (std::fabs(q - std::round(q)) * site > 1e-6 * std::max(1.0, std::fabs(v))) {
+            ++bad;
+        }
+    }
+    return bad;
+}
+
+bool FastDetailedPlacer::Impl::betterLayout(std::size_t ovNew, std::size_t offNew, double hpNew,
+                                            std::size_t ovOld, std::size_t offOld, double hpOld) {
+    if (ovNew != ovOld) {
+        return ovNew < ovOld;
+    }
+    if (offNew != offOld) {
+        return offNew < offOld;
+    }
+    return hpNew < hpOld - 1e-9;
+}
+
+// The x-extent HPWL of the nets that only these cells touch. Used to compare two
+// layouts of the same span, where the rest of the design is identical and
+// cancels, so only the x term is needed to rank them.
+double FastDetailedPlacer::Impl::segmentHpwl(const std::vector<std::size_t> &cells,
+                                             const std::vector<double> *nx) const {
+    std::vector<std::size_t> nets;
+    for (const std::size_t c : cells) {
+        nets.insert(nets.end(), cellNets_[c].begin(), cellNets_[c].end());
+    }
+    std::sort(nets.begin(), nets.end());
+    nets.erase(std::unique(nets.begin(), nets.end()), nets.end());
+
+    // In the candidate layout only the cells of this span move, so each one's
+    // index within the span is all that is needed to find its new x.
+    std::vector<std::size_t> slotInSpan(mov_.size(), kNoSlot);
+    if (nx != nullptr) {
+        for (std::size_t k = 0; k < cells.size(); ++k) {
+            slotInSpan[cells[k]] = k;
+        }
+    }
+
+    double total = 0.0;
+    for (const std::size_t n : nets) {
+        double lo = std::numeric_limits<double>::max();
+        double hi = -std::numeric_limits<double>::max();
+        for (const NetPin &p : netPins_[n]) {
+            double v;
+            if (p.slot == kNoSlot) {
+                v = p.absX;
+            } else if (nx != nullptr && slotInSpan[p.slot] != kNoSlot) {
+                v = (*nx)[slotInSpan[p.slot]] + p.offX;
+            } else {
+                v = x_[p.slot] + p.offX;
+            }
+            lo = std::min(lo, v);
+            hi = std::max(hi, v);
+        }
+        total += hi - lo;
+    }
+    return total;
+}
+
 void FastDetailedPlacer::Impl::resort(std::size_t s) {
     std::vector<std::size_t> &cells = spans_[s].cells;
     std::sort(cells.begin(), cells.end(), [&](std::size_t a, std::size_t b) {
@@ -582,11 +724,15 @@ std::size_t FastDetailedPlacer::Impl::verticalSwap() {
                 if (!fitsIgnoring(c, odx, s2, ignore, 2) || !fitsIgnoring(d, ocx, sc, ignore, 2)) {
                     continue;
                 }
-                if (deltaSwap(c, odx, d, ocx) >= -1e-9) {
+                // The two cells change row as well as column, so the y each one
+                // lands at is part of the decision. Judging on x alone let a
+                // swap through that lengthened the real wirelength.
+                const double ncy = spans_[s2].ylo;
+                const double ndy = spans_[sc].ylo;
+                if (deltaSwap(c, odx, ncy, d, ocx, ndy) >= -1e-9) {
                     continue;
                 }
-                // The two cells also change row, so clear the macro test for the
-                // y each one lands at.
+                // Clear the macro test for the y each one lands at.
                 y_[c] = spans_[s2].ylo;
                 y_[d] = spans_[sc].ylo;
                 if (!fitsIgnoring(c, odx, s2, ignore, 2) || !fitsIgnoring(d, ocx, sc, ignore, 2)) {
@@ -662,6 +808,18 @@ std::size_t FastDetailedPlacer::Impl::localReorder() {
                     if (nx + w_[c] > sp.xhi + 1e-6) {
                         continue;
                     }
+                    // The subrow's right edge is the only thing the packing bound
+                    // above checks, so a cell can be planned onto a macro or on
+                    // top of the cell just outside the window. The other passes go
+                    // through fitsIgnoring, which tests both; skipping it here is
+                    // what put 9879 cells over macros on adaptec1. The whole
+                    // window is ignored, since the packing constraint is what
+                    // keeps the window's own cells apart and they are not all
+                    // where they are now.
+                    const std::size_t sIdx = static_cast<std::size_t>(&sp - spans_.data());
+                    if (!fitsIgnoring(c, nx, sIdx, sp.cells.data() + start, len)) {
+                        continue;
+                    }
                     const double cand = cost[mask] + deltaMove(c, nx);
                     const std::size_t nm = mask | bit;
                     if (cand < cost[nm]) {
@@ -694,15 +852,39 @@ std::size_t FastDetailedPlacer::Impl::localReorder() {
                 continue;
             }
             std::reverse(order.begin(), order.end());
+            // The dynamic program scores each cell against the layout it started
+            // from, so the order it picks can come out worse once the moves are
+            // actually applied. The winner is therefore committed, measured, and
+            // rolled back to the positions the window started at if the real
+            // wirelength did not improve. Re-packing the new order would not
+            // restore anything.
+            const double hpBefore = segmentHpwl(sp.cells);
+            std::vector<double> keep(n);
+            for (std::size_t k = 0; k < n; ++k) {
+                keep[k] = x_[sp.cells[k]];
+            }
             double cursor = base;
+            std::size_t moved = 0;
             for (const std::size_t c : order) {
                 const double nx = cursor;
-                if (deltaMove(c, nx) < -1e-9 || std::fabs(x_[c] - nx) > 1e-9) {
+                if (std::fabs(x_[c] - nx) > 1e-9) {
                     commit(c, nx);
-                    ++moves;
+                    ++moved;
                 }
                 cursor = nx + w_[c];
             }
+            if (segmentHpwl(sp.cells) < hpBefore - 1e-9) {
+                moves += moved;
+            } else {
+                for (std::size_t k = 0; k < n; ++k) {
+                    commit(sp.cells[k], keep[k]);
+                }
+            }
+            // The window came out in a new left-to-right order, so the span's
+            // cell list no longer matches the x order. Everything downstream
+            // assumes a span is sorted by x, and selfCheck reported a correct
+            // reordering as a set of overlaps until this was added.
+            resort(static_cast<std::size_t>(&sp - spans_.data()));
         }
     }
     return moves;
@@ -715,19 +897,19 @@ std::size_t FastDetailedPlacer::Impl::singleSegmentCluster() {
     // same site as a neighbour are pulled apart, which is where the wirelength
     // comes from.
     std::size_t moves = 0;
-    for (Span &sp : spans_) {
-        const std::size_t n = sp.cells.size();
+    for (std::size_t s = 0; s < spans_.size(); ++s) {
+        const std::size_t n = spans_[s].cells.size();
         if (n < 2) {
             continue;
         }
         std::vector<double> nx(n, 0.0);
-        double cursor = sp.xlo;
+        double cursor = spans_[s].xlo;
         bool ok = true;
         for (std::size_t k = 0; k < n; ++k) {
-            const std::size_t c = sp.cells[k];
+            const std::size_t c = spans_[s].cells[k];
             double want = std::max(x_[c], cursor);
-            want = std::round(want / sp.site) * sp.site;
-            if (want + w_[c] > sp.xhi + 1e-6) {
+            want = std::round(want / spans_[s].site) * spans_[s].site;
+            if (want + w_[c] > spans_[s].xhi + 1e-6) {
                 ok = false;
                 break;
             }
@@ -737,16 +919,21 @@ std::size_t FastDetailedPlacer::Impl::singleSegmentCluster() {
         if (!ok) {
             continue;
         }
-        for (std::size_t k = 0; k < n; ++k) {
-            const std::size_t c = sp.cells[k];
-            if (std::fabs(x_[c] - nx[k]) > 1e-9 && deltaMove(c, nx[k]) < -1e-9) {
-                commit(c, nx[k]);
-                ++moves;
+        // Pulling overlapping cells apart is the point of this pass, and it
+        // necessarily lengthens the nets between them, so legality has to be
+        // ranked above wirelength or an illegal span is never repaired.
+        if (betterLayout(overlaps(spans_[s].cells, &nx), offSites(spans_[s].cells, &nx),
+                         segmentHpwl(spans_[s].cells, &nx), overlaps(spans_[s].cells),
+                         offSites(spans_[s].cells), segmentHpwl(spans_[s].cells))) {
+            for (std::size_t k = 0; k < n; ++k) {
+                const std::size_t c = spans_[s].cells[k];
+                if (std::fabs(x_[c] - nx[k]) > 1e-9) {
+                    commit(c, nx[k]);
+                    ++moves;
+                }
             }
-        }
-        // The pass keeps the order, so the span is still sorted by x.
-        if (moves != 0) {
-            resort(static_cast<std::size_t>(&sp - spans_.data()));
+            // The pass keeps the order, so the span is still sorted by x.
+            resort(s);
         }
     }
     return moves;
@@ -763,11 +950,12 @@ void FastDetailedPlacer::Impl::writeFrame(const std::string &path, const char *n
         fx[mov_[i]] = static_cast<float>(x_[i]);
         fy[mov_[i]] = static_cast<float>(y_[i]);
     }
-    writeFrameSvg(path, graph_, fx, fy, die_, 0, 1, hpwl(), 0.0, 0.0, note, nullptr,
+    writeFrameSvg(path, graph_, fx, fy, die_, 0, 1, hpwl(), 0.0, 0.0, note, constraints_,
                   /*fixedView=*/true);
     // Into the run's animation as well, so detailed placement's contribution --
     // usually the last thing that moves cells -- is in the GIF too.
-    PlacementAnimator::instance().record(graph_, fx, fy, die_, 0, 1, hpwl(), hpwl(), 0.0, note);
+    PlacementAnimator::instance().record(graph_, fx, fy, die_, 0, 1, hpwl(), hpwl(), 0.0, note,
+                                         constraints_);
 }
 
 void FastDetailedPlacer::Impl::selfCheck(DetailPlaceResult &res) const {
@@ -814,6 +1002,23 @@ DetailPlaceResult FastDetailedPlacer::Impl::place(const DetailPlaceParams &param
     DetailPlaceResult res;
     ScopedTimer timer("detail-place");
     localWindow_ = params.localReorderWindow;
+    constraints_ = params.constraints;
+
+    // place() is a normal call, not a one-shot: the same object may be run
+    // again with different parameters. The per-run accumulators below append
+    // rather than assign, so without this a second call doubled mov_ and every
+    // other vector, and the placement ended up reported as heavily overlapping.
+    // The snapshots inside are the source of truth for a run, so clearing them
+    // is enough; nothing carries across runs except the DB, which place()
+    // writes back at the end.
+    mov_.clear();
+    w_.clear();
+    h_.clear();
+    x_.clear();
+    y_.clear();
+    fixed_.clear();
+    netPins_.clear();
+    die_ = BBox{};
 
     for (std::size_t v = 0; v < graph_.getNumVertices(); ++v) {
         const Vertex &vert = graph_.getVertex(v);
@@ -839,24 +1044,34 @@ DetailPlaceResult FastDetailedPlacer::Impl::place(const DetailPlaceParams &param
     res.hpwlBefore = hpwl();
 
     if (!params.plotDir.empty()) {
-        std::filesystem::create_directories(params.plotDir);
-        writeFrame(params.plotDir + "/dp_000.svg", "legalized input");
+        // The frames are a diagnostic. create_directories without an error_code
+        // throws, which would turn a plotting problem into a lost placement, so
+        // the failure is reported and the run carries on without frames.
+        std::error_code ec;
+        std::filesystem::create_directories(params.plotDir, ec);
+        if (ec) {
+            ktlog.warning(
+                "cannot create the detailed-placement plot directory '{}': {}. "
+                "Continuing without frames.",
+                params.plotDir, ec.message());
+        } else {
+            writeFrame(params.plotDir + "/dp_000.svg", "legalized input");
+        }
     }
 
     double prev = res.hpwlBefore;
     int pass = 0;
-    const auto sweep = [&](const char *name, std::size_t limit, std::size_t &counter) {
+    // The technique is passed as a function rather than as a name to dispatch on.
+    // Selecting it by the first letter of a label looked equivalent and was not:
+    // "reorder" starts with 'r', so it fell through to the clustering branch,
+    // which meant local re-ordering never ran in any flow and single-segment
+    // clustering ran twice per pass. The move counters made this invisible --
+    // both branches increment the same field, so the totals still looked sane.
+    const auto sweep = [&](const char *name, std::size_t limit, std::size_t &counter,
+                           std::size_t (Impl::*technique)()) {
         for (std::size_t k = 0; k < limit; ++k) {
             const std::size_t before = counter;
-            if (name[0] == 'g') {
-                counter = globalSwap();
-            } else if (name[0] == 'v') {
-                counter = verticalSwap();
-            } else if (name[0] == 'l') {
-                counter = localReorder();
-            } else {
-                counter = singleSegmentCluster();
-            }
+            counter = (this->*technique)();
             const double now = hpwl();
             char note[128];
             std::snprintf(note, sizeof(note), "%s pass %zu (hpwl %.6g)", name, k, now);
@@ -876,10 +1091,10 @@ DetailPlaceResult FastDetailedPlacer::Impl::place(const DetailPlaceParams &param
         }
     };
 
-    sweep("global", params.globalSwapPasses, res.globalSwaps);
-    sweep("vertical", params.verticalSwapPasses, res.verticalSwaps);
-    sweep("reorder", params.localReorderPasses, res.reorderMoves);
-    sweep("cluster", params.clusterPasses, res.clusterMoves);
+    sweep("global", params.globalSwapPasses, res.globalSwaps, &Impl::globalSwap);
+    sweep("vertical", params.verticalSwapPasses, res.verticalSwaps, &Impl::verticalSwap);
+    sweep("reorder", params.localReorderPasses, res.reorderMoves, &Impl::localReorder);
+    sweep("cluster", params.clusterPasses, res.clusterMoves, &Impl::singleSegmentCluster);
 
     res.hpwlAfter = hpwl();
     for (std::size_t i = 0; i < mov_.size(); ++i) {

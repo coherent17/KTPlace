@@ -9,12 +9,6 @@
 #include <ctime>
 
 namespace ktplace {
-
-double monotonicSeconds() {
-    using clock = std::chrono::steady_clock;
-    return std::chrono::duration<double>(clock::now().time_since_epoch()).count();
-}
-
 namespace {
 /// Processor seconds consumed by this process so far, over all threads.
 }  // namespace
@@ -37,11 +31,6 @@ void TimerRegistry::record(std::string name, double wallSeconds, double cpuSecon
     entry.wallSeconds += wallSeconds;
     entry.cpuSeconds += cpuSeconds > 0.0 ? cpuSeconds : 0.0;
     ++entry.calls;
-}
-
-void TimerRegistry::setEnabled(const std::string &name, bool isEnabled) {
-    std::lock_guard<std::mutex> lock(mutex);
-    enabled[name] = isEnabled;
 }
 
 bool TimerRegistry::isEnabled(const std::string &name) const {

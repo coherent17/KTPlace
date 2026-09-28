@@ -178,6 +178,8 @@ private:
     std::unordered_map<std::size_t, std::size_t> slotOf_;
     std::vector<FixedBox> fixed_;
     BBox die_ = {0.0, 0.0, 0.0, 0.0};
+    /// Fences, carried from the params so the frame writer can draw them.
+    const constraintMgr *constraints_ = nullptr;
 };
 
 void AbacusLegalizer::Impl::buildRows() {
@@ -481,7 +483,7 @@ void AbacusLegalizer::Impl::writeFrame(const std::string &path, const std::strin
     // pulling the placement back onto its rows rather than cutting straight from
     // a scattered global placement to a legal one.
     PlacementAnimator::instance().record(graph_, fx, fy, die_, step, total, hpwlOf(xs_, ys_),
-                                         hpwlOf(xs_, ys_), 0.0, note);
+                                         hpwlOf(xs_, ys_), 0.0, note, constraints_);
 }
 
 void AbacusLegalizer::Impl::selfCheck(LegalizeResult &res) const {
@@ -579,6 +581,7 @@ LegalizeResult AbacusLegalizer::Impl::run(const LegalizeParams &params) {
     // so legalization appears in the flow's Timings table next to load, place
     // and write instead of reporting a private duration.
     ScopedTimer timer("legalize");
+    constraints_ = params.constraints;
 
     for (std::size_t v = 0; v < graph_.getNumVertices(); ++v) {
         const Vertex &vert = graph_.getVertex(v);

@@ -88,9 +88,6 @@ public:
     /// existing pixel when it is below 1.0.
     void fillRect(int x, int y, int w, int h, int idx, double alpha = 1.0);
 
-    /// One-pixel outline, drawn just inside the given rectangle.
-    void strokeRect(int x, int y, int w, int h, int idx);
-
     void hLine(int x0, int x1, int y, int idx);
     void vLine(int y0, int y1, int x, int idx);
 

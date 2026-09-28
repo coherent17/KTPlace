@@ -93,8 +93,12 @@ void PlacementAnimator::record(const Graph &g, const std::vector<float> &x,
             return false;
         }
         const std::string path = (dir_ / frameName(frame_)).string();
-        writeFrameRaster(path, g, ix, iy, die, step, total, hpwl, hpwlInitial, resid, note, nullptr,
-                         /*fixedView=*/true);
+        // The caller's constraints, not nullptr: a run with fences drew them in
+        // the per-iteration SVGs and then dropped them from the GIF, so the one
+        // picture that gets looked at was missing the regions the placement was
+        // required to respect.
+        writeFrameRaster(path, g, ix, iy, die, step, total, hpwl, hpwlInitial, resid, note,
+                         constraints, /*fixedView=*/true);
         ++frame_;
         return frame_ < limit;
     };

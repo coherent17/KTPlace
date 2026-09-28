@@ -36,6 +36,7 @@
 #include <string>
 #include <vector>
 
+#include "constraint/kt_constraintMgr.h"
 #include "datamodel/kt_dm.h"
 #include "visualization/kt_plotter.h"
 
@@ -46,13 +47,14 @@ struct LegalizeParams {
     /// never considered. 0 means unlimited (the paper's own bound is the cost
     /// lower bound, not a fixed distance).
     std::size_t maxRowDistance = 0;
-    /// Weight on wirelength change relative to squared displacement, added to the
-    /// row cost. 0 keeps the pure Abacus objective (displacement only).
-    double hpwlWeight = 0.0;
     /// If non-empty, write SVG frames here: the input placement, one frame every
     /// `frameEvery` cells legalized, and the final legal placement.
     std::string plotDir;
     std::size_t frameEvery = 0;
+    /// Fence regions, for the frames only. The legalizer is not constrained by
+    /// them -- it only draws them, so a frame of the legalizer's work shows the
+    /// regions the result has to end up inside.
+    const constraintMgr *constraints = nullptr;
 };
 
 struct LegalizeResult {

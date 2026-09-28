@@ -78,9 +78,6 @@ public:
      */
     void configure(std::string logFilePath, bool verbose);
 
-    /// Enable or disable `trace` output at runtime.
-    void setVerbose(bool enabled);
-
     /// @return true when `trace` records are being emitted
     [[nodiscard]] bool verbose() const;
 
@@ -108,6 +105,20 @@ public:
         emit(Level::Trace, fmt::format(fmtStr, std::forward<Args>(args)...));
     }
 
+    /**
+     * @brief Write a warning to the transcript and stderr, in yellow.
+     *
+     * A warning is a condition the run recovered from or deliberately accepted:
+     * it does not stop the flow, but it is not something to discover later from a
+     * count in a table either. It goes to the transcript uncoloured, so a log
+     * file is plain text and greppable, and to stderr in yellow, so the word
+     * "warning" is visible while a run is still going.
+     */
+    template <typename... Args>
+    void warning(fmt::format_string<Args...> fmtStr, Args &&...args) {
+        emit(Level::Warning, fmt::format(fmtStr, std::forward<Args>(args)...));
+    }
+
     /// Write an error record to the transcript and stderr, then exit(EXIT_FAILURE).
     template <typename... Args>
     [[noreturn]] void fatal(fmt::format_string<Args...> fmtStr, Args &&...args) {
@@ -124,6 +135,9 @@ public:
     void trace(std::string_view message) {
         emit(Level::Trace, std::string(message));
     }
+    void warning(std::string_view message) {
+        emit(Level::Warning, std::string(message));
+    }
     [[noreturn]] void fatal(std::string_view message) {
         emit(Level::Fatal, std::string(message));
         shutdown();
@@ -134,12 +148,14 @@ public:
     void shutdown();
 
 private:
-    enum class Level { Echo, Trace, Fatal };
+    enum class Level { Echo, Trace, Warning, Fatal };
 
     Logger() = default;
 
     void emit(Level level, const std::string &message);
     static const char *levelTag(Level level);
+    /// SGR colour for @p level on stderr, or "" for an uncoloured level.
+    static const char *levelColor(Level level);
     void closeFiles();  // caller holds mutex
 
     mutable std::mutex mutex;

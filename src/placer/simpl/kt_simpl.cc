@@ -2329,25 +2329,39 @@ SimplResult SimplePlacer::Impl::run(const SimplParams &P, const std::string &plo
         animEnabled_ = std::atoi(e) != 0;
     }
 
-    ScopedTimer setupTimer("simpl-setup");
-    collect();
+    // Scoped to collect() alone. Declared at function scope it stayed alive until
+    // place() returned, so "simpl-setup" reported the whole run -- 32s of which
+    // was the iteration loop, not setup -- and the two numbers could not be
+    // compared with anything.
+    {
+        ScopedTimer setupTimer("simpl-setup");
+        collect();
 
-    // Mirror the region assignment once, now that collect() has defined the
-    // movable list. This has to come after collect(): numMovable_ is still zero
-    // above it, so sizing the mirror here produced an empty vector and the fence
-    // check then indexed it from zero -- a null dereference on the first cell.
-    // Vertex::regionId is the source of truth, but the check runs over every cell
-    // after every solve, so it wants this per movable index rather than a graph
-    // lookup each time.
-    movRegion_.assign(numMovable_, constraintMgr::kNoRegion);
-    if (fences_ != nullptr) {
-        for (std::size_t i = 0; i < numMovable_; ++i) {
-            movRegion_[i] = graph_.getVertex(movVertex_[i]).regionId;
+        // Mirror the region assignment once, now that collect() has defined the
+        // movable list. This has to come after collect(): numMovable_ is still zero
+        // above it, so sizing the mirror here produced an empty vector and the fence
+        // check then indexed it from zero -- a null dereference on the first cell.
+        // Vertex::regionId is the source of truth, but the check runs over every cell
+        // after every solve, so it wants this per movable index rather than a graph
+        // lookup each time.
+        movRegion_.assign(numMovable_, constraintMgr::kNoRegion);
+        if (fences_ != nullptr) {
+            for (std::size_t i = 0; i < numMovable_; ++i) {
+                movRegion_[i] = graph_.getVertex(movVertex_[i]).regionId;
+            }
         }
+    }  // "simpl-setup"
+
+    // The density grid. Timed on its own and folded into res_.buildSeconds below
+    // alongside the per-iteration matrix rebuilds, so "matrix build" in the
+    // summary means every second spent assembling a matrix, not just the
+    // per-iteration ones.
+    {
+        ScopedTimer gridTimer("simpl-grid");
+        buildGrid(P);
+        res_.buildSeconds = gridTimer.elapsedSeconds();
     }
-    buildGrid(P);
-    res_.buildSeconds = setupTimer.elapsedSeconds();
-    setupTimer.lap();  // record "simpl-setup" in the shared registry
+
     if (numMovable_ == 0) {
         return res_;
     }
@@ -2436,7 +2450,6 @@ SimplResult SimplePlacer::Impl::run(const SimplParams &P, const std::string &plo
     // usefully establishes is the ordering of the cells, which the design's own
     // placement already has.
     if (!inputUsable) {
-        double prevHpwl = std::numeric_limits<double>::max();
         double bestInitHpwl = std::numeric_limits<double>::max();
         int initStale = 0;
         for (std::size_t it = 0; it < par_.initMaxIters; ++it) {
@@ -2496,7 +2509,6 @@ SimplResult SimplePlacer::Impl::run(const SimplParams &P, const std::string &plo
                 // Converged: further rounds are not paying for themselves.
                 break;
             }
-            prevHpwl = h;
         }
     }
     res_.hpwlLower = hpwl(lower, lowerY);
@@ -2625,9 +2637,6 @@ SimplResult SimplePlacer::Impl::run(const SimplParams &P, const std::string &plo
     // Annealing state for the pseudonet weight, 1.0 until the lower bound is
     // spread enough (see SimplParams::alphaDecay).
     double alphaScale = 1.0;
-    // Reported in the trace so the two can be compared; a fixed iteration is
-    // fine for a diagnostic and not fine for a stopping rule.
-    int gapStale = 0;
     double bestUpper = std::numeric_limits<double>::max();
     int stale = 0;
     bool converged = false;
@@ -2732,48 +2741,71 @@ SimplResult SimplePlacer::Impl::run(const SimplParams &P, const std::string &plo
             ++stale;
         }
 
+        const double relGapTrace = upperHpwl > 0.0 ? gap / upperHpwl : 0.0;
         ktlog.trace(
-            "iter {:3d}: lower {:.6e} upper {:.6e} gap {:.4e} (ref {:.4e}) "
+            "iter {:3d}: lower {:.6e} upper {:.6e} gap {:.4e} ({:.3f}%, ref {:.4e}) "
             "ovf lower {:.4e} upper {:.4e} alpha {:.4g} stale {}",
-            it, lowerHpwl, upperHpwl, gap, gapRef, scaledOverflow(), upperOvf,
+            it, lowerHpwl, upperHpwl, gap, relGapTrace * 100.0, gapRef, scaledOverflow(), upperOvf,
             par_.alphaBase * (1.0 + static_cast<double>(it)) * alphaScale, stale);
 
-        // Convergence, watched on the gap and on nothing else.
+        // Convergence, watched on the gap relative to the placement it describes.
         //
-        // The paper is explicit that upper-bound HPWL "oscillate[s] during the
-        // first four to seven iterations" and that the gap between the bounds is
-        // what is monitored "to prevent premature termination". The previous test
-        // did both halves of that wrong: it ANDed a gap threshold with a patience
-        // count on non-improving *upper-bound HPWL*, so the run could stop during
-        // exactly the oscillation the paper says to sit through. On ibm01 the
-        // upper bound stopped improving at iteration 1, the patience of 5 expired
-        // at iteration 6, and the run was ready to declare convergence while still
-        // oscillating -- then returned the worst draw of the sequence.
+        // The paper ("SimPL", CACM 56(6)) terminates global placement when the
+        // gap is reduced to 25% of the gap at the tenth iteration and the
+        // upper-bound solution stops improving, or when the gap is smaller still.
+        // The tenth-iteration reference is itself a small fraction of the
+        // placement -- on adaptec1 the gap at the tenth iteration is ~4% of the
+        // upper bound's HPWL -- so 25% of it means the bounds within ~1% of each
+        // other, which is unreachable in practice: the bounds converge to a few
+        // percent of each other and then plateau. The previous implementation
+        // froze the reference and required `gap < 25% of gapRef`, which on
+        // adaptec1 and adaptec2 never fired -- the runs only ended because the gap
+        // eventually went NEGATIVE (overlapping legalized cells), which trivially
+        // satisfies `gap < 10% of gapRef`. "Convergence" was the overlap, and the
+        // iterations after the first, best placement (iteration 1 on both) were
+        // pure LSS/LAL waste.
         //
-        // Two conditions now, both about the gap and neither keyed to a frozen
-        // reference iteration:
-        //   1. the bounds have met, measured scale-free as gap/upperHpwl, so no
-        //      arbitrary "iteration 10" decides what small means;
-        //   2. the gap has stopped shrinking, so a single lucky iteration cannot
-        //      end the run.
-        // The paper's rule: the gap below a fraction of the gap at the tenth
-        // iteration, *and* the upper bound no longer improving. Both halves matter.
-        // The gap alone is satisfied by both bounds drifting upward together, which
-        // is what this implementation does -- on adaptec1 the upper bound rises
-        // from 5.3e8 to 7.5e8 while the gap falls 4.5e8 -> 2.0e7, so a gap-only
-        // test certifies convergence on a placement 40% worse than the one it
-        // started from. Requiring the upper bound to have stopped improving is what
-        // makes the criterion mean something.
+        // The rule is therefore evaluated scale-free, exactly as the reference's
+        // own value is a scale: the bounds have met when the gap is a bounded
+        // fraction of the placement it separates.
+        //
+        // Two conditions, both guarded by the paper's oscillation window (no test
+        // before gapReferenceIter -- the first few iterations' upper-bound HPWL
+        // oscillates, so a reference taken inside that window measures noise):
+        //   1. the bounds have met: gap/upperHpwl <= gapTightFrac;
+        //   2. the bounds are close AND the upper bound has stopped improving for
+        //      `patience` iterations: gap/upperHpwl <= gapRelaxedFrac && stale.
+        // Both halves of condition 2 matter. The gap alone is satisfied by both
+        // bounds drifting upward together, which is what this implementation does
+        // -- on adaptec1 the upper bound rises from 5.3e8 to 7.5e8 while the gap
+        // falls 4.5e8 -> 2.0e7, so a gap-only test certifies convergence on a
+        // placement 40% worse than the one it started from. Requiring the upper
+        // bound to have stopped improving is what makes the criterion mean
+        // something.
+        //
+        // The best upper bound seen is kept in any case (bestX/bestY above), so an
+        // earlier stop never costs quality: it only stops paying for LSS/LAL rounds
+        // that have nothing left to improve.
         if (it == par_.gapReferenceIter) {
-            gapRef = gap;
+            gapRef = gap;  // informative only; the trace reports it
         }
-        if (gapRef > 0.0 && it > par_.gapReferenceIter) {
-            if (gap < par_.gapTightFrac * gapRef) {
+        if (gap > 0.0 && it > par_.gapReferenceIter && upperHpwl > 0.0) {
+            const double relGap = gap / upperHpwl;
+            if (relGap <= par_.gapTightFrac) {
                 converged = true;
-            } else if (gap < par_.gapRelaxedFrac * gapRef &&
-                       stale >= static_cast<int>(par_.patience)) {
+            } else if (relGap <= par_.gapRelaxedFrac && stale >= static_cast<int>(par_.patience)) {
                 converged = true;
             }
+        } else if (gap < 0.0 && it > par_.gapReferenceIter) {
+            // The negative-gap guard from the `sawInvalidGap` block: a negative
+            // gap is the legalized cells overlapping, not the bounds meeting, so
+            // it is not convergence. It does mean the LSS/LAL loop has nothing
+            // left to offer -- the spread has overshot and only re-legalizes into
+            // overlap -- so keeping the best placement and stopping is right, as
+            // long as the loop that would otherwise run forever (adaptec1 never
+            // re-achieved a positive gap once it turned negative at iteration 24)
+            // terminates instead of burning every remaining iteration.
+            converged = true;
         }
 
         if (par_.traceEvery > 0 && (it % par_.traceEvery) == 0 && !frameDir_.empty()) {
@@ -2793,8 +2825,8 @@ SimplResult SimplePlacer::Impl::run(const SimplParams &P, const std::string &plo
         }
 
         if (converged) {
-            ktlog.trace("converged at iteration {}: gap {:.4e} vs reference {:.4e}", it, gap,
-                        gapRef);
+            ktlog.trace("converged at iteration {}: gap {:.4e} ({:.3f}% of upper)", it, gap,
+                        relGapTrace * 100.0);
             break;
         }
 
@@ -2840,12 +2872,28 @@ SimplResult SimplePlacer::Impl::run(const SimplParams &P, const std::string &plo
         upper = lower;
         upperY = lowerY;
     }
+    if (!bestInit.empty()) {
+        // Best warm-up round, for the same reason the global loop returns its best
+        // upper bound: the last round of a converging solve is not reliably its
+        // best, and the stopping rule can land on a round that regressed. This is
+        // the *fallback* lower bound -- it is what applies when the global loop
+        // produced no upper bound to pair with.
+        lower = bestInit;
+        lowerY = bestInitY;
+    }
     if (!bestX.empty()) {
         // Return the best legal placement, not the last one. The paper's Figure 2
         // reports the last upper bound, which is only equivalent when the upper
         // bound is monotone; here it demonstrably is not, so "last" silently ships
-        // a worse placement than the run already had in hand. bestX is the same
-        // computation, kept when it improved on everything seen so far.
+        // a worse placement than the run already had in hand.
+        //
+        // The lower bound must come from the SAME iteration as the upper bound it
+        // is being compared against, or the gap is not a gap: it is one iteration's
+        // wirelength subtracted from another's. Doing this before the warm-up
+        // fallback above let the warm-up's lower bound overwrite the correctly
+        // paired one, so adaptec1 reported a lower bound of 8.07e7 against an
+        // upper bound of 4.05e8 from a different iteration -- a gap of 3.2e8 that
+        // means nothing, and an apparent lower bound below the warm-up's own HPWL.
         upper = bestX;
         upperY = bestY;
         lower = bestLower;
@@ -2853,13 +2901,6 @@ SimplResult SimplePlacer::Impl::run(const SimplParams &P, const std::string &plo
         res_.bestIter = bestIter;
     }
     res_.hpwlFinal = hpwl(upper, upperY);
-    if (!bestInit.empty()) {
-        // Best warm-up round, for the same reason the global loop returns its best
-        // upper bound: the last round of a converging solve is not reliably its
-        // best, and here the stopping rule can land on a round that regressed.
-        lower = bestInit;
-        lowerY = bestInitY;
-    }
     res_.hpwlLower = hpwl(lower, lowerY);
     res_.gap = res_.hpwlFinal - res_.hpwlLower;
     res_.spreadSeconds = spreadAcc;

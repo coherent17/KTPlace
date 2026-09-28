@@ -14,7 +14,6 @@
 namespace ktplace {
 
 // Forward declaration of base adapter interface
-class InputAdapter;
 
 /**
  * @brief Adapter for Bookshelf format input files

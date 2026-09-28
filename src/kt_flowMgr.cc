@@ -6,6 +6,7 @@
 #include "kt_flowMgr.h"
 #include "util/kt_reportTable.h"
 #include "visualization/kt_animator.h"
+#include "visualization/kt_plotter.h"
 #include "util/kt_scopedTimer.h"
 #include "util/kt_log.h"
 #include "detailPlacer/kt_fastdp.h"
@@ -26,6 +27,125 @@
 #include <filesystem>
 
 namespace ktplace {
+
+namespace {
+/// One-line report of a single timer, issued when the phase named by @p name
+/// completes, so a long run tells its cost as it goes rather than only in the
+/// summary table at the end (TimerRegistry::report). The registry accumulates,
+/// so this reports the phase's own totals at the moment they are final.
+void reportPhase(const std::string &name) {
+    if (const TimerStats *s = TimerRegistry::instance().find(name)) {
+        ktlog.echo("phase {}: {:.3f}s wall, {:.3f}s cpu, {} call(s)", name, s->wallSeconds,
+                   s->cpuSeconds, s->calls);
+    }
+}
+/// Report what the design asks for before any placement runs, and say plainly when
+/// the ask is impossible.
+///
+/// A legalizer that cannot legalize is usually not broken, it is being handed
+/// something that does not fit. ibm01 packs its cells into 4.127e6 units of row
+/// but its cells total 4.23e6, and 245 of them are four to nine rows tall against
+/// a sixteen-unit row. Every downstream number -- overflow, the density term, the
+/// legalizer's region growth, the final overlap count -- is then a measurement of
+/// an impossible input, and the run finishes with an illegal placement and a
+/// report full of confident numbers. Checking the arithmetic first costs nothing
+/// and turns "the legalizer is broken" into "this design is 102% full".
+struct Utilisation {
+    double cellArea = 0.0;
+    double fixedArea = 0.0;
+    double rowArea = 0.0;
+    double rowHeight = 0.0;
+    std::size_t multiRow = 0;
+    std::size_t cells = 0;
+};
+
+Utilisation measureUtilisation(const PlacementDB &db) {
+    Utilisation u;
+    const Graph &g = db.getGraph();
+    const std::size_t nv = g.getNumVertices();
+    for (std::size_t v = 0; v < nv; ++v) {
+        const Vertex &vert = g.getVertex(v);
+        if (vert.type != VertexType::Cell) {
+            continue;
+        }
+        const double a = vert.width * vert.height;
+        // A terminal is fixed area, not absent area. In the ISPD 2005 Bookshelf
+        // suites the macros *are* the terminals -- adaptec1 carries no other fixed
+        // cell, and its .pl marks exactly the 543 terminals and nothing else. So
+        // skipping terminals here reported adaptec1's fixed area as zero, which
+        // reads as "this design has no macros" when it has hundreds of them, and
+        // understates the demand on the rows by all of their area.
+        if (vert.isFixed || vert.isTerminal) {
+            u.fixedArea += a;
+        } else {
+            u.cellArea += a;
+            ++u.cells;
+        }
+    }
+    double pitch = std::numeric_limits<double>::max();
+    for (const PlacementDB::RowInfo &r : db.getRows()) {
+        if (!(r.pitch() > 0.0) || !(r.height > 0.0)) {
+            continue;
+        }
+        u.rowHeight = std::max(u.rowHeight, r.height);
+        pitch = std::min(pitch, r.pitch());
+        for (const PlacementDB::SubrowInfo &si : r.subrows) {
+            if (si.xhi(r.pitch()) > si.xlo()) {
+                u.rowArea += (si.xhi(r.pitch()) - si.xlo()) * r.height;
+            }
+        }
+    }
+    // Cells that cannot fit a single row. Counted here because it is the other
+    // way a design can be unplaceable at any density.
+    if (u.rowHeight > 0.0) {
+        for (std::size_t v = 0; v < nv; ++v) {
+            const Vertex &vert = g.getVertex(v);
+            if (vert.type == VertexType::Cell && !vert.isFixed && !vert.isTerminal &&
+                vert.height > u.rowHeight * 1.5) {
+                ++u.multiRow;
+            }
+        }
+    }
+    (void)pitch;
+    return u;
+}
+
+void reportUtilisation(const PlacementDB &db) {
+    const Utilisation u = measureUtilisation(db);
+    const double demand = u.cellArea + u.fixedArea;
+    const double util = u.rowArea > 0.0 ? 100.0 * demand / u.rowArea : 0.0;
+    ktReportTable t("Design utilisation (before placement)");
+    t.setHeaders({"measure", "value"});
+    t.addRow({"movable cell area", fmt::format("{:.6e}", u.cellArea)});
+    t.addRow({"fixed cell area", fmt::format("{:.6e}", u.fixedArea)});
+    t.addRow({"row (placeable) area", fmt::format("{:.6e}", u.rowArea)});
+    t.addRow({"utilisation", fmt::format("{:.2}%", util)});
+    t.addRow({"movable cells", fmt::format("{}", u.cells)});
+    if (u.rowHeight > 0.0) {
+        t.addRow({"row height", fmt::format("{:.3}", u.rowHeight)});
+        t.addRow({"cells taller than one row", fmt::format("{}", u.multiRow)});
+    }
+    t.emit();
+    if (u.rowArea > 0.0 && util > 100.0) {
+        ktlog.warning(
+            "the design needs {:.6e} of cell area but only {:.6e} of row is placeable, so it "
+            "is {:.1f}% full. No legal placement exists for this input: the cells do not fit, "
+            "however the placer is retried.",
+            demand, u.rowArea, util);
+    }
+    if (u.multiRow > 0) {
+        // Said here, before placement runs, rather than only after legalization
+        // fails: this is a property of the input, so the reader learns it before
+        // spending several minutes on a global placement that cannot end legal.
+        ktlog.warning(
+            "{} cell(s) are taller than one row (row height {:.3}) and the legalizer only "
+            "places into single rows, so those cells will be left unplaced and the result will "
+            "not be legal. Legalizing this design needs a multi-height legalizer, which this "
+            "build does not have.",
+            u.multiRow, u.rowHeight);
+    }
+}
+}  // namespace
 
 // PIMPL implementation
 class FlowMgr::Impl {
@@ -78,6 +198,7 @@ void FlowMgr::run(const std::string &inputBaseName, const std::string &inputDirP
             throw std::runtime_error("Failed to load input files");
         }
     }
+    reportPhase("load");
 
     // Report loaded statistics
     {
@@ -121,10 +242,16 @@ void FlowMgr::run(const std::string &inputBaseName, const std::string &inputDirP
         // remembering the -p flag.  An explicit -p directory still wins.
         const std::string effectivePlotDir =
             !plotDir.empty() ? plotDir : snapshotDir + "/" + inputBaseName + "_plots";
+        // Before the placer, not after: once the solver is running, every number
+        // downstream is derived from a density model, and on an over-full design
+        // that model is describing an impossibility. The reader needs to know the
+        // design did not fit before they read a wirelength off it.
+        reportUtilisation(*pImpl->db);
         if (!pImpl->runPlacement(algorithm, effectivePlotDir, snapshotDir)) {
             throw std::runtime_error("Placement algorithm failed");
         }
     }
+    reportPhase("place");
 
     // Write output
     {
@@ -133,6 +260,7 @@ void FlowMgr::run(const std::string &inputBaseName, const std::string &inputDirP
             throw std::runtime_error("Failed to write output");
         }
     }
+    reportPhase("write");
 
     TimerRegistry::instance().report();
 }
@@ -247,6 +375,13 @@ std::vector<Defect> verifyPlacement(const PlacementDB &db, const constraintMgr *
     std::size_t outOfDie = 0;
     std::size_t offFence = 0;
     const std::size_t nv = g.getNumVertices();
+    // Row height, for deciding what counts as a tall cell below.
+    double rowHeight = 0.0;
+    for (const PlacementDB::RowInfo &ri : db.getRows()) {
+        if (ri.height > rowHeight) {
+            rowHeight = ri.height;
+        }
+    }
     for (std::size_t v = 0; v < nv; ++v) {
         const Vertex &vert = g.getVertex(v);
         if (vert.type != VertexType::Cell || vert.isFixed || vert.isTerminal) {
@@ -266,52 +401,132 @@ std::vector<Defect> verifyPlacement(const PlacementDB &db, const constraintMgr *
     }
 
     // --- overlapping pairs ---------------------------------------------------
-    // A uniform grid over the cells, so this is linear in the number of cells
-    // rather than quadratic. At 700k cells the pairwise version is not an option,
-    // and a checker that cannot run on the largest design in the suite is not a
-    // checker.
+    //
+    // Three things have to be true at once for this to be usable on a real suite:
+    // it must not miss a pair, it must not count one twice, and it must finish on
+    // a 400k-cell design. The version before this was wrong twice. It sized the
+    // grid bin from the LARGEST cell so the neighbour search would be exhaustive,
+    // which is sound but degenerate: ibm01 carries a single cell 12752 units tall,
+    // so the bin became the size of the die, every cell landed in one bucket, and
+    // the check became a 12500^2 pairwise comparison. It also reported "no
+    // overlap" on inputs where a frame plainly showed a cell on a macro, because
+    // it skipped terminals, and in the Bookshelf suites the macros ARE the
+    // terminals.
+    //
+    // So: bulk cells go in a grid with a bin sized for a typical cell, and every
+    // pair is examined once by looking inside a bucket and at the four forward
+    // neighbours. Tall cells are not in the grid at all; they are rare, and a tall
+    // cell cannot be found by a small-bin search, so they are compared against
+    // everything directly.
     std::size_t overlaps = 0;
     {
-        const double bin = std::max(
-            {1.0, std::sqrt((box[2] - box[0]) * (box[3] - box[1]) / std::max<std::size_t>(1, nv))});
-        std::map<std::pair<long long, long long>, std::vector<std::size_t>> buckets;
+        double bin = 0.0;
+        std::size_t nTall = 0;
         for (std::size_t v = 0; v < nv; ++v) {
             const Vertex &vert = g.getVertex(v);
-            if (vert.type != VertexType::Cell || vert.isFixed || vert.isTerminal) {
+            if (vert.type != VertexType::Cell) {
                 continue;
             }
-            const long long bx = static_cast<long long>(std::floor(vert.x / bin));
-            const long long by = static_cast<long long>(std::floor(vert.y / bin));
+            // "Tall" is judged against the rows, not an absolute number: a cell
+            // more than four rows high cannot be located by a bin sized for a
+            // standard cell, whatever its width.
+            const double rows = rowHeight > 0.0 ? vert.height / rowHeight : vert.height;
+            if (rows > 4.0) {
+                ++nTall;
+                continue;
+            }
+            bin += vert.width * vert.height;
+        }
+        const double meanArea = nv > 0 ? bin / std::max<std::size_t>(1, nv - nTall) : 0.0;
+        double cell = meanArea > 0.0 ? std::sqrt(meanArea) : 1.0;
+        const double dieW = std::max(box[2] - box[0], 1.0);
+        const double dieH = std::max(box[3] - box[1], 1.0);
+        // Aim for a few cells per bucket, but never so many buckets that the map
+        // dominates, and never a bin so fine that a standard cell spans many of
+        // them (which is what made the original miss pairs).
+        const std::size_t target = 64;
+        cell = std::max(cell, std::max(dieW, dieH) / 512.0);
+        cell = std::max(cell, 1e-9);
+        (void)target;
+
+        std::map<std::pair<long long, long long>, std::vector<std::size_t>> buckets;
+        std::vector<std::size_t> tallCells;
+        std::vector<char> isTall(nv, 0);
+        for (std::size_t v = 0; v < nv; ++v) {
+            const Vertex &vert = g.getVertex(v);
+            if (vert.type != VertexType::Cell) {
+                continue;
+            }
+            const double rows = rowHeight > 0.0 ? vert.height / rowHeight : vert.height;
+            if (rows > 4.0) {
+                tallCells.push_back(v);
+                isTall[v] = 1;
+                continue;
+            }
+            const long long bx = static_cast<long long>(std::floor(vert.x / cell));
+            const long long by = static_cast<long long>(std::floor(vert.y / cell));
             buckets[{bx, by}].push_back(v);
         }
         const double eps = 1e-9;
         const auto hits = [&](std::size_t a, std::size_t b) {
             const Vertex &p = g.getVertex(a);
             const Vertex &q = g.getVertex(b);
+            // Two fixed cells overlapping each other is the input's business, not
+            // the placer's, so it is not reported.
+            if (p.isFixed && q.isFixed) {
+                return false;
+            }
             return p.x < q.x + q.width - eps && q.x < p.x + p.width - eps &&
                    p.y < q.y + q.height - eps && q.y < p.y + p.height - eps;
         };
-        for (const auto &[key, members] : buckets) {
-            for (std::size_t i = 0; i < members.size(); ++i) {
-                for (std::size_t j = i + 1; j < members.size(); ++j) {
-                    overlaps += hits(members[i], members[j]) ? 1u : 0u;
+        // Only forward neighbours: scanning all eight examines every cross-bucket
+        // pair twice, once from each side.
+        static const int kFwd[4][2] = {{1, 0}, {-1, 1}, {0, 1}, {1, 1}};
+        for (const auto &kv : buckets) {
+            const std::vector<std::size_t> &mine = kv.second;
+            for (std::size_t a = 0; a < mine.size(); ++a) {
+                for (std::size_t b = a + 1; b < mine.size(); ++b) {
+                    overlaps += hits(mine[a], mine[b]) ? 1u : 0u;
                 }
             }
-            // A cell can only overlap one in the eight neighbouring buckets.
-            for (long long dx = -1; dx <= 1; ++dx) {
-                for (long long dy = -1; dy <= 1; ++dy) {
-                    if (dx == 0 && dy == 0) {
-                        continue;
+            for (const auto &d : kFwd) {
+                auto it = buckets.find({kv.first.first + d[0], kv.first.second + d[1]});
+                if (it == buckets.end()) {
+                    continue;
+                }
+                for (const std::size_t a : mine) {
+                    for (const std::size_t b : it->second) {
+                        overlaps += hits(a, b) ? 1u : 0u;
                     }
-                    auto it = buckets.find({key.first + dx, key.second + dy});
-                    if (it == buckets.end()) {
-                        continue;
-                    }
-                    for (std::size_t a : members) {
-                        for (std::size_t b : it->second) {
-                            overlaps += hits(a, b) ? 1u : 0u;
-                        }
-                    }
+                }
+            }
+        }
+        // Tall cells against everything.
+        //
+        // The scan is over ALL vertices, not just those above `a` in index order.
+        // Restricting it to b > a silently skipped every pair of a tall cell with
+        // a normal cell of lower index, because the normal cells are not in the
+        // grid either (the grid pairs normal cells with normal cells only). That
+        // is where a count of 558 came from an input that a direct scan of the
+        // written file put at 827. A checker that under-counts is the failure mode
+        // this whole routine exists to prevent, so the rule is instead: compare
+        // against every cell, and accept a tall-tall pair only once by index.
+        for (const std::size_t a : tallCells) {
+            for (std::size_t b = 0; b < nv; ++b) {
+                if (b == a) {
+                    continue;
+                }
+                const Vertex &q = g.getVertex(b);
+                if (q.type != VertexType::Cell) {
+                    continue;
+                }
+                // Both tall: the same pair is reached from both sides, so keep
+                // only the one where this is the lower vertex index.
+                if (isTall[b] && b < a) {
+                    continue;
+                }
+                if (hits(a, b)) {
+                    ++overlaps;
                 }
             }
         }
@@ -347,6 +562,7 @@ bool FlowMgr::Impl::legalizeAndDetail(const std::string &plotDir, const constrai
     if (const char *e = std::getenv("KTPLACE_ABACUS_MAX_ROW_DIST")) {
         lparams.maxRowDistance = static_cast<std::size_t>(std::atoll(e));
     }
+    lparams.constraints = fences;
     if (!plotDir.empty()) {
         lparams.plotDir = plotDir + "/legalize";
         lparams.frameEvery =
@@ -355,6 +571,7 @@ bool FlowMgr::Impl::legalizeAndDetail(const std::string &plotDir, const constrai
                 : 20000;
     }
     const LegalizeResult lres = legalizer.legalize(lparams);
+    reportPhase("legalize");
     ktReportTable lsummary("Legalization (Abacus)");
     lsummary.setHeaders({"metric", "value"});
     lsummary.addRow({"cells placed", fmt::format("{}", lres.cellsPlaced)});
@@ -372,7 +589,25 @@ bool FlowMgr::Impl::legalizeAndDetail(const std::string &plotDir, const constrai
     lsummary.addRow({"commit failures", fmt::format("{}", lres.commitFailures)});
     lsummary.emit();
     if (lres.overlappingPairs != 0 || lres.offRow != 0 || lres.overFixed != 0) {
-        ktlog.echo("WARNING: legalization is not legal; see counts above");
+        ktlog.warning("legalization is not legal; see the counts above");
+    }
+
+    // Abacus places into single rows, so a cell taller than one row has nowhere
+    // to go: it is reported unplaced and stays where global placement left it,
+    // overlapping whatever is there. On ibm01 that is 120 cells, and the
+    // legalization check below fails on exactly those.
+    //
+    // There is no multi-row legalizer here. That is a known limitation of this
+    // build, not something a caller can turn on, so it is reported as a warning
+    // naming the cells that will be left behind rather than left to be inferred
+    // from a count in a table.
+    if (lres.outOfRows > 0) {
+        // The count, after the fact, so the pre-flight warning above can be
+        // cross-checked against what actually happened rather than trusted.
+        ktlog.warning(
+            "{} cell(s) taller than one row could not be placed and are still at their global "
+            "placement positions. The placement is not legal; see \"cells out of rows\" above.",
+            lres.outOfRows);
     }
 
     // The legalizer minimises displacement, not wirelength, so a legal
@@ -384,10 +619,12 @@ bool FlowMgr::Impl::legalizeAndDetail(const std::string &plotDir, const constrai
     if (const char *e = std::getenv("KTPLACE_DP_WINDOW")) {
         dparams.localReorderWindow = static_cast<std::size_t>(std::atoll(e));
     }
+    dparams.constraints = fences;
     if (!plotDir.empty()) {
         dparams.plotDir = plotDir + "/detailplace";
     }
     const DetailPlaceResult dres = dp.place(dparams);
+    reportPhase("detail-place");
     ktReportTable dsummary("Detailed placement (FastDP)");
     dsummary.setHeaders({"metric", "value"});
     dsummary.addRow({"global swaps", fmt::format("{}", dres.globalSwaps)});
@@ -406,13 +643,18 @@ bool FlowMgr::Impl::legalizeAndDetail(const std::string &plotDir, const constrai
     dsummary.addRow({"cells over macro", fmt::format("{}", dres.overFixed)});
     dsummary.emit();
     if (dres.overlappingPairs != 0 || dres.offRow != 0 || dres.overFixed != 0) {
-        ktlog.echo("WARNING: detailed placement broke legality; see counts above");
+        ktlog.warning("detailed placement broke legality; see the counts above");
     }
     // Independent check of the placement as it will be written. Last, so it sees
     // the effect of both stages, and separate from their own self-checks, so that a
     // disagreement between what a stage claims and what the file contains is visible
     // rather than averaged away.
     {
+        // Timed on its own because it is the one phase that reads the whole
+        // placement and changes nothing. It is also the phase that goes quadratic
+        // if the spatial index degrades, so its cost has to be visible: a run that
+        // suddenly takes twenty minutes longer is the checker, not the placer.
+        const ScopedTimer checkTimer("place-check");
         const std::vector<Defect> defects = verifyPlacement(*db, fences);
         ktReportTable check("Placement check (independent, after legalization)");
         check.setHeaders({"check", "result"});
@@ -429,10 +671,51 @@ bool FlowMgr::Impl::legalizeAndDetail(const std::string &plotDir, const constrai
         }
         check.emit();
         if (!defects.empty()) {
-            ktlog.echo(
-                "WARNING: the placement that will be written is not legal; see the "
-                "placement check above");
+            ktlog.warning(
+                "the placement that will be written is not legal; see the placement check "
+                "above");
         }
+        reportPhase("place-check");
+    }
+
+    // The last thing that moves cells has now run and been verified, so this is
+    // the finished placement. Write one high-resolution still of it: the
+    // animation frames are kept small because a GIF has to be, and at that size
+    // a big design's cells collapse to a pixel each, so the "look at the result"
+    // picture is rendered separately at a larger scale. The zoom applies to both
+    // image axes, so zoom 4 turns the 768x768 frame into a 3072x3072 still.
+    if (!plotDir.empty()) {
+        double zoom = 4.0;
+        if (const char *e = std::getenv("KTPLACE_FINAL_ZOOM")) {
+            const double v = std::atof(e);
+            if (v >= 1.0) {
+                zoom = v;
+            }
+        }
+        {
+            ScopedTimer finalTimer("final-image");
+            const std::string finalDir = plotDir + "/final";
+            std::error_code ec;
+            std::filesystem::create_directories(finalDir, ec);
+            if (ec) {
+                ktlog.warning(
+                    "cannot create the final-image plot directory '{}': {}. "
+                    "No high-resolution final still written.",
+                    finalDir, ec.message());
+            } else {
+                // The finished placement is the picture worth keeping, and a PPM is not one:
+                // no browser and no image viewer opens it. So the final still is
+                // written as a PNG -- which is also small, since a placement frame
+                // is flat colour and compresses well -- and the PPM beside it is
+                // the lossless copy the animation path reads back.
+                writeFinalFrameRaster(finalDir + "/final.png", db->getGraph(), fences, zoom);
+                writeFinalFrameRaster(finalDir + "/final.ppm", db->getGraph(), fences, zoom);
+                ktlog.echo("final high-resolution image: {}/final.png ({}x{})", finalDir,
+                           static_cast<int>(std::lround(zoom * 768.0)),
+                           static_cast<int>(std::lround(zoom * 768.0)));
+            }
+        }
+        reportPhase("final-image");
     }
 
     // Every stage has now contributed, so the run can be told as one animation.
@@ -440,6 +723,10 @@ bool FlowMgr::Impl::legalizeAndDetail(const std::string &plotDir, const constrai
     // point: the legalizer's pull back onto the rows is usually the most
     // consequential motion of the run, and it happens after the placer is done.
     if (const auto &anim = PlacementAnimator::instance(); anim.enabled()) {
+        // Timed because encoding the GIF is pure output cost: it can be longer
+        // than the detailed placement on a small design, and without a number here
+        // it looks like the run hung at the end.
+        ScopedTimer animTimer("anim-finish");
         if (anim.finish()) {
             ktlog.echo(
                 "animation: {} frames -> {}/anim/placement.gif (global placement, then "
@@ -451,6 +738,7 @@ bool FlowMgr::Impl::legalizeAndDetail(const std::string &plotDir, const constrai
                 "least two frames)",
                 anim.frameCount());
         }
+        reportPhase("anim-finish");
     }
     placed = true;
     return true;

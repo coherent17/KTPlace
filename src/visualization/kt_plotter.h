@@ -53,25 +53,14 @@ BBox fixedCellBBox(const Graph &g);
  * @param constraints  placement regions to draw as fences; may be null
  * @param fixedView  ignore the current solution and draw the cells at their
  *                   original positions, so a series of frames shares one scale
+ *
+ * Every cell in the graph is drawn, with no decimation.
  */
 void writeFrameSvg(const std::string &path, const Graph &g, const std::vector<float> &x,
                    const std::vector<float> &y, const BBox &dieBox, std::size_t step,
                    std::size_t numSteps, double hpwl, double hpwlInitial, double resid,
                    const std::string &note, const constraintMgr *constraints = nullptr,
                    bool fixedView = false);
-
-/**
- * @brief Write the HPWL-vs-CG-step curve as CSV plus an SVG line chart.
- * @param csvPath  output .csv file
- * @param svgPath  output .svg chart
- * @param curve  (step, hpwl) pairs in ascending step order.
- * @param residuals  optional per-step density overflow; if non-null and the
- *                   same size as curve, a third CSV column and a second
- *                   (yellow) curve are added.
- */
-void writeHpwlCurve(const std::string &csvPath, const std::string &svgPath,
-                    const std::vector<std::pair<std::size_t, double>> &curve,
-                    const std::vector<double> *residuals = nullptr);
 
 /**
  * @brief Write an HTML gallery page that embeds all frames and the curve.
@@ -84,15 +73,20 @@ void writeGallery(const std::string &dir, const std::vector<std::string> &frameP
  *        counterpart of writeFrameSvg().
  *
  * Draws the same layout as writeFrameSvg() using CImg instead of SVG markup.
- * The output format follows the extension of @p path, which CImg dispatches
- * on. Use ".ppm": it is a binary P6 file, needs no external library, and can
- * be read back losslessly -- unlike ".bmp" and ".png", which CImg writes but
- * cannot reliably load again here, and ".png" additionally needs libpng
- * headers, which are not installed. Frames named "frame_NNNN.ppm" are what
+ * The output format follows the extension of @p path, which is dispatched on:
+ * ".ppm" and ".bmp" are written by CImg and need no external library, and
+ * ".png" is written by this codebase on top of zlib, which it already links.
+ * ".ppm" is the one to use for the animation: it is a binary P6 file, can be
+ * read back losslessly -- unlike ".bmp" and ".png", which CImg writes but
+ * cannot reliably load again here -- and frames named "frame_NNNN.ppm" are what
  * writeAnimatedGif() collects, so a run can stream stills to disk and only pay
  * for the animation once, at the end.
  *
- * @param path      output image file; ".ppm" needs no external library
+ * Every cell in the graph is drawn. There is no decimation: a frame that shows
+ * some of the placement reads as the placer having lost the rest, and no design
+ * is large enough for drawing all of its cells to be the expensive part.
+ *
+ * @param path      output image file
  * @param g         graph (for cell dimensions, names, fixed flag)
  * @param x         x coordinate per vertex id (movable overridden)
  * @param y         y coordinate per vertex id
@@ -106,12 +100,41 @@ void writeGallery(const std::string &dir, const std::vector<std::string> &frameP
  * @param constraints  placement regions to draw as fences; may be null
  * @param fixedView  draw the cells at their original positions, so a series of
  *                   frames shares one scale
+ * @param zoom      linear scale of the raster, vs the 768x768 frame size; the
+ *                   drawing, the caption and the die frame all scale with it
  */
 void writeFrameRaster(const std::string &path, const Graph &g, const std::vector<float> &x,
                       const std::vector<float> &y, const BBox &dieBox, std::size_t step,
                       std::size_t numSteps, double hpwl, double hpwlInitial, double resid,
                       const std::string &note, const constraintMgr *constraints = nullptr,
-                      bool fixedView = false);
+                      bool fixedView = false, double zoom = 1.0);
+
+/**
+ * @brief Render the final placement as a high-resolution raster still.
+ *
+ * A single static picture of the finished placement at @p zoom times the frame
+ * resolution (768x768 at zoom 1), intended as the "look at the result" image
+ * after a run: the animation frames are small by design, because a GIF has to
+ * be, and a big design's cells collapse to a pixel or two in them. At zoom 4
+ * the same drawing is 3072x3072 and every cell resolves to a few pixels with
+ * its rim visible.
+ *
+ * Every cell is drawn, as in every other frame here. The caption reads "final
+ * placement" and carries no health metrics: it is the end of the run, not a CG
+ * step.
+ *
+ * The output format follows the extension of @p path, exactly as in
+ * writeFrameRaster(). Use ".png" for this one: the file is meant to be looked
+ * at, and no image viewer opens a ".ppm".
+ *
+ * @param path      output image file
+ * @param g         graph (for cell dimensions, names, fixed flag); the vertices
+ *                  are expected to already hold the finished placement
+ * @param constraints  placement regions to draw as fences; may be null
+ * @param zoom      linear scale factor vs the 768x768 frame resolution
+ */
+void writeFinalFrameRaster(const std::string &path, const Graph &g,
+                           const constraintMgr *constraints = nullptr, double zoom = 4.0);
 
 /**
  * @brief Assemble the per-iteration raster stills in @p dir into one animated
@@ -125,8 +148,12 @@ void writeFrameRaster(const std::string &path, const Graph &g, const std::vector
  *
  * Collects "frame_NNNN.ppm", which is what writeFrameRaster() produces under the
  * frame naming convention. The stills are read back from disk rather than
- * buffered, so memory stays flat however many iterations there are, and they
- * remain on afterwards as a browsable per-iteration record.
+ * buffered, so memory stays flat however many iterations there are.
+ *
+ * Once the GIF is written the stills are deleted: they are the encoder's
+ * scratch space, and a long run leaves several hundred megabytes of P6 files
+ * that nothing can open. If the encode fails they are left alone, since they
+ * are then the only record of the run's frames.
  *
  * @param dir       directory holding the stills
  * @param gifName   output file name, created inside @p dir

@@ -269,16 +269,6 @@ void Canvas::fillRect(int x, int y, int w, int h, int idx, double alpha) {
     }
 }
 
-void Canvas::strokeRect(int x, int y, int w, int h, int idx) {
-    if (w <= 0 || h <= 0) {
-        return;
-    }
-    hLine(x, x + w - 1, y, idx);
-    hLine(x, x + w - 1, y + h - 1, idx);
-    vLine(y, y + h - 1, x, idx);
-    vLine(y, y + h - 1, x + w - 1, idx);
-}
-
 void Canvas::hLine(int x0, int x1, int y, int idx) {
     if (x1 < x0) {
         std::swap(x0, x1);

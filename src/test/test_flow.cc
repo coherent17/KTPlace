@@ -377,5 +377,5 @@ BOOST_AUTO_TEST_CASE(flow_exits_when_the_design_files_are_missing) {
             FlowMgr flow;
             flow.run("absent", dir.str(), dir.file("x.pl").string());
         },
-        "Cannot open nodes file");
+        "cannot open the nodes file");
 }

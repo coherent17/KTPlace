@@ -99,8 +99,8 @@ struct Region {
 /**
  * @brief Owns the region constraints for one design.
  *
- * A default-constructed manager has no regions and reports `hasConstraints()
- * == false`, so the placer can keep its fast unconstrained path.
+ * A default-constructed manager has no regions, so the placer can keep its fast
+ * unconstrained path.
  */
 class constraintMgr {
 public:
@@ -132,16 +132,6 @@ public:
      * @return number of instances assigned
      */
     std::size_t assignByPrefix(int regionId, const std::string &prefix, Graph &graph);
-
-    /// @return true when at least one region exists
-    [[nodiscard]] bool hasConstraints() const {
-        return !regions_.empty();
-    }
-
-    /// @return true when (x, y) falls inside any region
-    [[nodiscard]] bool insideAnyRegionPublic(double x, double y) const {
-        return insideAnyRegion(x, y);
-    }
 
     /// @return number of regions
     [[nodiscard]] std::size_t numRegions() const {

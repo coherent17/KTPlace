@@ -216,14 +216,6 @@ const std::string &kt_option::getPlotDir() const {
     return pImpl->plotDir;
 }
 
-bool kt_option::isHelpRequested() const {
-    return pImpl->helpRequested;
-}
-
-bool kt_option::isVersionRequested() const {
-    return pImpl->versionRequested;
-}
-
 void kt_option::printUsage(const char *programName) {
     constexpr const char *kUsage = R"(KTPlace - Know Thyself Placement Engine v{}
 Usage: {} <input_base_name> <input_dir> <output_path> [options]
