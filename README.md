@@ -126,18 +126,61 @@ quadratic surrogate `w = alpha` for the paper's Manhattan-distance penalty.
 
 ### Reported results, and where we stand
 
-The paper's Table 1, ISPD 2005, HPWL in units of 10^6:
+The paper's Table 1, ISPD 2005, HPWL in units of 10^6. The paper's figures are
+after FastPlace-DP, so they are comparable with a full run of this tool.
 
-| design | cells | SimPL (paper) | this implementation |
-| --- | --- | --- | --- |
-| adaptec1 | 211 K | 77.42 | 405.4 |
-| adaptec2 | 255 K | 91.01 | see `output/` runs |
+| design | cells | SimPL (paper) | this implementation | ratio |
+| --- | --- | --- | --- | --- |
+| adaptec1 | 211 K | 77.42 | 355.9 | 4.6x |
+| adaptec2 | 255 K | 91.01 | see `output/_logs/suite.log` | |
 
-The paper also reports that only 33-45 iterations are needed on this suite; ours
-converges in 25 on adaptec1, which is fewer, not more. The iteration count is
-therefore not the problem; the wirelength is. See the comments in
-`kt_simpl.cc` at `enforceFences` and the alpha schedule for the two mechanisms
-identified so far, neither of which is fixed.
+The gap is in the look-ahead legalization, not in the solver, and the per-iteration
+trace says so. On adaptec1 the *lower* bound -- the unconstrained quadratic
+solution -- matches the paper closely: 6.8e+07 at iteration 11 against the
+paper's 6.8e+07 at iteration 20. The *upper* bound, which is the lower bound put
+through look-ahead legalization, is where it goes wrong: ours is 4.1e+08 where
+the paper's is 9.2e+07. Legalization is costing a factor of about five, and
+because the upper bound is what the run returns and what the next iteration's
+anchors are built from, that cost is paid back on every subsequent iteration.
+
+The signature of the fault is in how the lower bound evolves. The paper's stays
+flat -- 4.5e+07 at initial placement, 6.8e+07 at iteration 20, a factor of 1.5.
+Ours grows 8.07e+07 to 6.86e+08, a factor of 8.5, monotonically. A lower bound
+that grows like that is being dragged outward by its anchors every iteration,
+which is what happens when the legalization moves cells much further than the
+paper's does and the pseudonets then pull the next solve out to meet them.
+
+Three things have been found and fixed so far, and none of them is the whole of
+it:
+
+- **The die was defined twice and inconsistently.** The placer used the
+  fixed-cell bounding box, the checker the same, and neither consulted the rows
+  -- but the rows are the authoritative statement of where a cell may go, and for
+  adaptec3 they reach past the fixed cells. The placer's density grid therefore
+  saw 2.1e+07 units of placeable area where the design has 5.4e+07, thought the
+  design 327% full, and spread against a region less than half the real size.
+  `placementDieBox()` is now one definition, used by both.
+- **The initial placement ran one round instead of five to seven.** The result is
+  not thrown away -- it seeds the global loop, and the first anchors are its first
+  legalization -- so the cap was removing the step the paper says "can determine
+  the overall shape of the final placement solutions". One round gives 4.054e+08
+  on adaptec1, seven give 3.559e+08.
+- **Utilisation was reported against the wrong denominator**, charging the fixed
+  cells' area to the row area. adaptec1 read 89% when its movable demand is 58%
+  of the rows, which is the number to check when a placement comes out illegal.
+
+What is left is the over-spreading itself, and it is not a small change. The
+paper's legalization preserves the placement's shape: it sorts cells by distance
+from a cutline and packs them into stripes, which spreads without reordering.
+Ours follows that structure, but two of its choices push further than the
+paper's. The region a cluster is legalized into is the whole die once the cluster
+holds half the movable area (`globalClusterFrac`), which spreads a collapsed
+placement uniformly over the chip -- and the I/O pads ring the die, so that
+sends every cell to the wrong end of it. Using the paper's minimal region
+instead is not the fix either: measured on adaptec1 it is worse (7.69e+08),
+because confining a collapsed placement to the 58% of the die its cells strictly
+need leaves the rest of the chip empty. The paper gets both properties at once
+and the mechanism for it has not been identified here.
 
 ## Placement images
 
