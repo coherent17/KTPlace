@@ -714,6 +714,12 @@ bool FlowMgr::Impl::legalizeAndDetail(const std::string &plotDir, const constrai
                 // this resolution.
                 writeFinalFrameRaster(finalDir + "/final.png", db->getGraph(), fences, zoom,
                                       dres.hpwlAfter);
+                // The vector form of the same picture, and the one to open when a
+                // region has to be looked at closely. It is also the exact record
+                // of the drawing -- one <rect> per cell -- so "every cell is in
+                // the picture" is a count rather than an estimate, which is what
+                // the smoke test in CI checks.
+                writeFinalFrameSvg(finalDir + "/final.svg", db->getGraph(), fences, dres.hpwlAfter);
                 // The lossless copy beside it. At 6144x6144 that is 113 MB of
                 // raw pixels, so it is written only on request: the PNG is the
                 // artefact anyone looks at, and the PPM exists for tooling that

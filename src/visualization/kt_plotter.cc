@@ -1358,6 +1358,19 @@ void writeFinalFrameRaster(const std::string &path, const Graph &g,
                      constraints, /*fixedView=*/true, zoom);
 }
 
+void writeFinalFrameSvg(const std::string &path, const Graph &g, const constraintMgr *constraints,
+                        double hpwl) {
+    const std::size_t nv = g.getNumVertices();
+    std::vector<float> x(nv), y(nv);
+    for (std::size_t v = 0; v < nv; ++v) {
+        x[v] = static_cast<float>(g.getVertex(v).x);
+        y[v] = static_cast<float>(g.getVertex(v).y);
+    }
+    // Same picture as the raster still, so the two can be compared directly.
+    writeFrameSvg(path, g, x, y, fixedCellBBox(g), 0, 1, hpwl, /*hpwlInitial=*/0.0, 0.0,
+                  "final placement", constraints, /*fixedView=*/true);
+}
+
 namespace {
 // The stills one stage contributed, in frame order. Names are zero-padded, so
 // lexical order is frame order.

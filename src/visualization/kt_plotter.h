@@ -139,6 +139,24 @@ void writeFinalFrameRaster(const std::string &path, const Graph &g,
                            double hpwl = 0.0);
 
 /**
+ * @brief Write the finished placement as a vector SVG.
+ *
+ * The same picture as writeFinalFrameRaster() and in the same place: one image
+ * per run, of the placement that is actually being written out. The vector form
+ * is the one to open when a region has to be looked at closely, since it stays
+ * sharp at any magnification, and it is also the exact record of the drawing --
+ * one <rect> per cell, so "every cell is in the picture" is a count rather than
+ * an estimate.
+ *
+ * @param path      output .svg file
+ * @param g         graph holding the finished placement
+ * @param constraints  placement regions to draw as fences; may be null
+ * @param hpwl      the run's final wirelength, for the caption
+ */
+void writeFinalFrameSvg(const std::string &path, const Graph &g,
+                        const constraintMgr *constraints = nullptr, double hpwl = 0.0);
+
+/**
  * @brief Assemble the per-iteration raster stills in @p dir into one animated
  *        GIF.
  *

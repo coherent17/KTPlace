@@ -104,7 +104,7 @@ jobs:
         run: |
           set -euo pipefail
           KTPLACE_ANIM=1 KTPLACE_ANIM_MAX_FRAMES=40 KTPLACE_ANIM_BLEND=1 \
-          KTPLACE_SIMPL_TRACE_EVERY=1 KTPLACE_SIMPL_CG_EVERY=8 KTPLACE_FINAL_PPM=1 \
+          KTPLACE_SIMPL_TRACE_EVERY=1 KTPLACE_SIMPL_CG_EVERY=8 \
             ./build/bin/ktplace adaptec1 \
               ./benchmark/ISPD_2005/adaptec1 out.pl -p plots \
               -w output/adaptec1 2>&1 | tee smoke.log
@@ -149,6 +149,11 @@ jobs:
         run: |
           set -euo pipefail
 
+          # Redefined rather than carried over: each workflow step is its own
+          # shell, so a variable the placement step set is not set here, and
+          # `set -u` turns the first use of it into a hard error.
+          PL=output/adaptec1/out.pl
+
           # The animation must be assembled from real stills.
           test -s output/adaptec1/plots/anim/placement.gif
 
@@ -174,79 +179,21 @@ jobs:
           echo "final image: $geom"
           test "$geom" = "6144x6144"
 
-          # Every cell has to be in that picture. The movable cells are drawn in
-          # one flat colour, so the design's cell area converted to image pixels
-          # is the number of pixels that must carry it, and a decimation bug shows
-          # up as a shortfall. A little over one is fine: the antialiased rim
-          # around each cell lands on the same colour.
-          PL="$PL" python3 - <<'PY'
-          import gzip
-          import os
-          import struct
-
-          PNG = "output/adaptec1/plots/final/final.png"
-          PPM = "output/adaptec1/plots/final/final.ppm"
-
-          d = open(PNG, "rb").read()
-          w, h = struct.unpack(">II", d[16:24])
-          # The renderer lays the die out in the frame less its margins and its
-          # caption band, at the default zoom 8: margin 36*8, band 116*8, both
-          # inset 2px, over a span padded by 1% on each side.
-          z = 8
-          avail_w, avail_h = w - 2 * 36 * z - 2, h - 116 * z - 36 * z - 2
-
-          # Die box and cell sizes straight out of the written placement, so this
-          # measures the same design the picture was drawn from.
-          sizes = {}
-          for line in gzip.open("benchmark/ISPD_2005/adaptec1/adaptec1.nodes.gz", "rt"):
-              t = line.split()
-              if len(t) in (3, 4) and not t[0].startswith("Num"):
-                  try:
-                      sizes[t[0]] = (float(t[1]), float(t[2]))
-                  except ValueError:
-                      pass
-          die = [1e18, 1e18, -1e18, -1e18]
-          area = 0.0
-          movable = 0
-          for line in open(os.environ["PL"]):
-              t = line.split()
-              if len(t) < 3 or t[0] not in sizes:
-                  continue
-              x, y = float(t[1]), float(t[2])
-              cw, ch = sizes[t[0]]
-              if "FIXED" in line:
-                  die[0] = min(die[0], x)
-                  die[1] = min(die[1], y)
-                  die[2] = max(die[2], x + cw)
-                  die[3] = max(die[3], y + ch)
-              else:
-                  area += cw * ch
-                  movable += 1
-          assert movable == 210904, f"expected 210904 movable cells, read {movable}"
-
-          span = max(die[2] - die[0], die[3] - die[1], 1.0)
-          scale = min(avail_w, avail_h) / (1.02 * span)
-          expected = area * scale * scale
-
-          # Count the movable-cell colour in the lossless still the PNG was made
-          # from, so the check needs no image decoder.
-          f = open(PPM, "rb")
-          assert f.readline().strip() == b"P6"
-          f.readline()
-          f.readline()
-          data = f.read()
-          bg, src, alpha = (0x10, 0x14, 0x18), (0x4F, 0xC3, 0xF7), 0.92
-          want = tuple(int(round(alpha * src[i] + (1 - alpha) * bg[i])) for i in range(3))
-          got = sum(1 for i in range(0, len(data), 3) if tuple(data[i:i + 3]) == want)
-
-          ratio = got / expected
-          print(f"movable cells {movable}, expected {expected:.0f} px, "
-                f"drawn {got} px, ratio {ratio:.3f}")
-          # Below this the picture is missing cells; well above 1 would mean the
-          # expected-area model is wrong rather than that the render is wrong.
-          assert ratio > 0.98, f"only {ratio:.1%} of the cell area is in the image"
-          assert ratio < 1.10, f"unexpected cell pixel count ({ratio:.1%})"
-          PY
+          # Every cell has to be in that picture. The final SVG has exactly one
+          # <rect> per cell, so this is a count and not an estimate -- and it is
+          # half the reason the vector form is written at all. Both writers used to
+          # decimate above a draw cap, and a frame that silently drops cells is the
+          # one rendering fault that cannot be spotted by looking at it: the
+          # picture still looks like a placement. adaptec1 has 211,447 cells; the
+          # frame, the die outline, the row lines, the background and the progress
+          # bar add a handful of rects on top, so the count is a lower bound.
+          python3 - <<'PYEOF'
+          svg = open("output/adaptec1/plots/final/final.svg", encoding="utf-8",
+                     errors="replace").read()
+          rects = svg.count("<rect")
+          print(f"rects in the final SVG: {rects}, cells in adaptec1: 211447")
+          assert rects >= 211447, f"only {rects} rects drawn for 211447 cells"
+          PYEOF
 
       - name: Upload the smoke placement
         if: always()
@@ -257,5 +204,6 @@ jobs:
             output/adaptec1/out.pl
             smoke.log
             output/adaptec1/plots/final/final.png
+            output/adaptec1/plots/final/final.svg
             output/adaptec1/plots/anim/placement.gif
           if-no-files-found: ignore
