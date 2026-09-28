@@ -683,9 +683,13 @@ bool FlowMgr::Impl::legalizeAndDetail(const std::string &plotDir, const constrai
     // animation frames are kept small because a GIF has to be, and at that size
     // a big design's cells collapse to a pixel each, so the "look at the result"
     // picture is rendered separately at a larger scale. The zoom applies to both
-    // image axes, so zoom 4 turns the 768x768 frame into a 3072x3072 still.
+    // image axes, so the default of 8 turns the 768x768 frame into a
+    // 6144x6144 still -- on adaptec1 that is about fourteen pixels across for a
+    // standard cell, which is the point at which the cells stop being a texture
+    // and start being cells. It is written once per run and compresses to a
+    // couple of megabytes as a PNG, so the resolution costs disk, not time.
     if (!plotDir.empty()) {
-        double zoom = 4.0;
+        double zoom = 8.0;
         if (const char *e = std::getenv("KTPLACE_FINAL_ZOOM")) {
             const double v = std::atof(e);
             if (v >= 1.0) {
@@ -703,13 +707,21 @@ bool FlowMgr::Impl::legalizeAndDetail(const std::string &plotDir, const constrai
                     "No high-resolution final still written.",
                     finalDir, ec.message());
             } else {
-                // The finished placement is the picture worth keeping, and a PPM is not one:
-                // no browser and no image viewer opens it. So the final still is
-                // written as a PNG -- which is also small, since a placement frame
-                // is flat colour and compresses well -- and the PPM beside it is
-                // the lossless copy the animation path reads back.
-                writeFinalFrameRaster(finalDir + "/final.png", db->getGraph(), fences, zoom);
-                writeFinalFrameRaster(finalDir + "/final.ppm", db->getGraph(), fences, zoom);
+                // The finished placement is the picture worth keeping, and a PPM is
+                // not one: no browser and no image viewer opens it. So the final
+                // still is written as a PNG, which is also small -- a placement
+                // frame is flat colour and compresses to a couple of megabytes at
+                // this resolution.
+                writeFinalFrameRaster(finalDir + "/final.png", db->getGraph(), fences, zoom,
+                                      dres.hpwlAfter);
+                // The lossless copy beside it. At 6144x6144 that is 113 MB of
+                // raw pixels, so it is written only on request: the PNG is the
+                // artefact anyone looks at, and the PPM exists for tooling that
+                // wants to measure the image rather than view it.
+                if (std::getenv("KTPLACE_FINAL_PPM") != nullptr) {
+                    writeFinalFrameRaster(finalDir + "/final.ppm", db->getGraph(), fences, zoom,
+                                          dres.hpwlAfter);
+                }
                 ktlog.echo("final high-resolution image: {}/final.png ({}x{})", finalDir,
                            static_cast<int>(std::lround(zoom * 768.0)),
                            static_cast<int>(std::lround(zoom * 768.0)));
@@ -755,10 +767,18 @@ bool FlowMgr::Impl::runPlacement(const std::string &algorithm, const std::string
     // lets the legalizer and the detailed placer add frames to the same GIF the
     // placer started.
     if (!plotDir.empty() && std::getenv("KTPLACE_ANIM") != nullptr) {
+        // 1200 frames by default, raised from 300. The budget is what decides how
+        // much of the run the animation actually shows: global placement records a
+        // frame per solve iteration and detailed placement one per pass, and at 300
+        // a run of a few dozen iterations spends the lot before legalization
+        // begins, so the GIF stops where it becomes interesting. Frames cost
+        // encoding time and file size, not correctness, so the trade is made in
+        // favour of showing the run -- and KTPLACE_ANIM_MAX_FRAMES still caps it
+        // for a quick look.
         const std::size_t maxFrames =
             std::getenv("KTPLACE_ANIM_MAX_FRAMES")
                 ? static_cast<std::size_t>(std::atoll(std::getenv("KTPLACE_ANIM_MAX_FRAMES")))
-                : std::size_t{300};
+                : std::size_t{1200};
         // 12 centiseconds (120 ms) per frame. The default 6 was quick enough that
         // a 300-frame animation flashed past in under two seconds, which is not
         // long enough to follow a placement moving.
@@ -769,7 +789,20 @@ bool FlowMgr::Impl::runPlacement(const std::string &algorithm, const std::string
         // placement itself, which is what turns a per-iteration jump into motion.
         const int blend =
             std::getenv("KTPLACE_ANIM_BLEND") ? std::atoi(std::getenv("KTPLACE_ANIM_BLEND")) : 3;
-        PlacementAnimator::instance().configure(plotDir + "/anim", maxFrames, delayCs, blend);
+        // Animation frame scale, against the 768x768 frame size. Two is the
+        // default: on an ISPD 2005 design that is a few pixels across for a
+        // standard cell instead of one, and a GIF's 256-colour palette is a
+        // limit on the number of distinct colours, not on the size of the frame,
+        // so the only cost is a larger file.
+        double animZoom = 3.0;
+        if (const char *e = std::getenv("KTPLACE_ANIM_ZOOM")) {
+            const double v = std::atof(e);
+            if (v >= 1.0) {
+                animZoom = v;
+            }
+        }
+        PlacementAnimator::instance().configure(plotDir + "/anim", maxFrames, delayCs, blend,
+                                                animZoom);
     } else {
         PlacementAnimator::instance().reset();
     }
@@ -782,8 +815,16 @@ bool FlowMgr::Impl::runPlacement(const std::string &algorithm, const std::string
         const std::size_t total =
             std::getenv("KTPLACE_ANIM_MAX_FRAMES")
                 ? static_cast<std::size_t>(std::atoll(std::getenv("KTPLACE_ANIM_MAX_FRAMES")))
-                : std::size_t{480};
-        PlacementAnimator::instance().holdBack(total / 5);
+                : std::size_t{600};
+        // Two fifths held back, rather than the fifth it used to be. Global
+        // placement records a frame per solve iteration, so on a run of a few
+        // dozen iterations it can spend anything it is given and leave nothing:
+        // with a fifth held back the legalizer and the detailed placer -- the two
+        // stages that actually turn a legal-looking placement into a legal one --
+        // were getting a handful of frames between them, and the animation ended
+        // exactly where it becomes interesting. Two fifths gives the later stages
+        // room to be seen while still leaving global placement the majority.
+        PlacementAnimator::instance().holdBack(total * 2 / 5);
     }
 
     if (algorithm == "simpl") {

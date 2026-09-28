@@ -56,8 +56,13 @@ public:
      * @param delayCs   delay between GIF frames, in hundredths of a second
      * @param blend     in-between frames emitted per recorded placement; values
      *                  below 2 disable interpolation. See blend().
+     * @param zoom      linear scale of the frames, against the 768x768 frame
+     *                  size. Above 1 the cells resolve instead of merging into a
+     *                  texture, at the cost of a larger file; the GIF palette is
+     *                  unaffected either way.
      */
-    void configure(const std::string &outDir, std::size_t maxFrames, int delayCs, int blend = 3);
+    void configure(const std::string &outDir, std::size_t maxFrames, int delayCs, int blend = 3,
+                   double zoom = 1.0);
 
     /// Forget the current run. Recorded frames are left on disk.
     void reset();
@@ -157,6 +162,11 @@ private:
     std::size_t maxFrames_ = 480;
     int delayCs_ = 12;
     int blend_ = 3;
+    /// Linear scale of the animation frames, against the 768x768 frame size.
+    /// A GIF's 256-colour palette is no obstacle to a larger frame -- the palette
+    /// is per pixel value, not per pixel count -- so a bigger animation is simply
+    /// a bigger, slower-to-encode file with cells that resolve.
+    double zoom_ = 1.0;
     /// The previous recorded placement, kept only to interpolate from.
     std::vector<float> prevX_, prevY_;
     bool havePrev_ = false;

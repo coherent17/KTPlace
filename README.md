@@ -139,13 +139,46 @@ therefore not the problem; the wirelength is. See the comments in
 `kt_simpl.cc` at `enforceFences` and the alpha schedule for the two mechanisms
 identified so far, neither of which is fixed.
 
+## Placement images
+
+A run with `-p plots` writes, per stage, SVG frames (vector, so they stay sharp
+at any zoom) and a per-iteration HPWL/overflow curve, and — if `KTPLACE_ANIM` is
+set — an animated GIF assembled from those frames. On top of that, every run
+writes one high-resolution still of the *finished* placement to
+`plots/final/final.png`: 6144x6144 by default, which on an ISPD 2005 design is
+about fourteen pixels across for a standard cell. The animation frames are
+deliberately small, because a GIF has to be, and at that size a 200k-cell design
+is a texture rather than a placement; the still is the one meant to be looked at.
+It is a PNG because a PPM — the only format the raster path could always write —
+is not a thing any viewer opens. The PNG encoder is in-process on top of zlib,
+which the build already links; CImg's own PNG support needs libpng headers that
+are not installed here.
+
+Both are self-contained: no external tool, no image library beyond the vendored
+CImg, and the result is reproducible from `ktplace` alone.
+
+| variable | effect |
+|----------|--------|
+| `KTPLACE_ANIM` | enable the animation |
+| `KTPLACE_ANIM_MAX_FRAMES` | frame budget for the whole run (default 1200) |
+| `KTPLACE_ANIM_ZOOM` | animation frame scale, vs 768x768 (default 3, so 2304x2304) |
+| `KTPLACE_ANIM_BLEND` | in-between frames per placement (default 3) |
+| `KTPLACE_ANIM_DELAY_CS` | GIF frame delay, in hundredths of a second |
+| `KTPLACE_FINAL_ZOOM` | final still scale, vs 768x768 (default 8, so 6144x6144) |
+| `KTPLACE_FINAL_PPM` | also write the lossless 113 MB PPM beside the PNG |
+
+Rows are drawn behind the cells on any frame whose placement is genuinely on a
+row grid, and are left out when it is not — see `rowBands()` in
+`src/visualization/kt_plotter.cc` for how that is decided from the cells alone.
+
 ## Third-party code
 
 `src/visualization/CImg.h` is the [CImg](https://cimg.eu) library, vendored as a
 single header. It is dual-licensed by its author under CeCILL-C and CeCILL; see
 the header for the full terms. It is used only to rasterise animation frames and
 writes no files of its own — the GIF container, its LZW stream and the palette
-quantiser are all in `src/visualization/kt_gif.cc`. Everything else in this
+quantiser are all in `src/visualization/kt_gif.cc`, and the PNG writer is in
+`src/visualization/kt_plotter.cc` on top of zlib. Everything else in this
 repository is original work under the MIT license in `LICENSE`.
 
 ## Benchmarks

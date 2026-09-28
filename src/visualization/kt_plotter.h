@@ -132,9 +132,11 @@ void writeFrameRaster(const std::string &path, const Graph &g, const std::vector
  *                  are expected to already hold the finished placement
  * @param constraints  placement regions to draw as fences; may be null
  * @param zoom      linear scale factor vs the 768x768 frame resolution
+ * @param hpwl      the run's final wirelength, for the caption
  */
 void writeFinalFrameRaster(const std::string &path, const Graph &g,
-                           const constraintMgr *constraints = nullptr, double zoom = 4.0);
+                           const constraintMgr *constraints = nullptr, double zoom = 4.0,
+                           double hpwl = 0.0);
 
 /**
  * @brief Assemble the per-iteration raster stills in @p dir into one animated

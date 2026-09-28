@@ -663,6 +663,140 @@ BOOST_AUTO_TEST_CASE(a_higher_zoom_makes_a_bigger_frame_not_a_stretched_one) {
     BOOST_TEST(big.size() > small.size() * 8u);
 }
 
+BOOST_AUTO_TEST_CASE(a_legal_row_is_drawn_at_its_true_size_and_not_wider) {
+    // The defect this pins down is one that can only be seen by looking at a real
+    // placement: cells drawn wider than they are. Edges used to be rounded to
+    // whole pixels whenever a cell was small, so every cell grew or shrank by up
+    // to a pixel on each side, the errors did not cancel between neighbours, and a
+    // field of cells that touch exactly in the placement overlapped in the
+    // drawing. Across a long row the errors accumulate, so the row comes out
+    // visibly wider than it is -- a picture of overlapping cells.
+    //
+    // The cells here are sized so each is a few pixels across, which is where the
+    // rounding used to bite, and there are enough of them that a per-cell error
+    // adds up to something measurable.
+    const ScratchDir dir("exactsize");
+    Graph g;
+    const std::size_t id = g.addVertex(VertexType::Cell, "anchor");
+    Vertex &a = g.getVertex(id);
+    a.x = 0.0;
+    a.y = 0.0;
+    a.width = 400.0;
+    a.height = 400.0;
+    a.isFixed = true;
+    a.isTerminal = true;
+    constexpr int kCells = 50;
+    constexpr double kW = 2.0;  // about three pixels at the scale below
+    constexpr double kH = 2.0;
+    for (int i = 0; i < kCells; ++i) {
+        const std::size_t c = g.addVertex(VertexType::Cell, "c" + std::to_string(i));
+        Vertex &v = g.getVertex(c);
+        v.x = 20.0 + i * kW;  // exactly edge to edge, no gap and no overlap
+        v.y = 20.0;
+        v.width = kW;
+        v.height = kH;
+    }
+    writeFrameRaster((dir.file("row.ppm")).string(), g, sampleX(g), sampleY(g), fixedCellBBox(g), 0,
+                     1, 1.0, 1.0, 0.0, "", nullptr, /*fixedView=*/true, /*zoom=*/1.0);
+
+    const std::string ppm = readAll(dir.file("row.ppm"));
+    BOOST_TEST(contains(ppm, "768 768"));
+    const std::size_t headerEnd = ppm.find("255\n");
+    BOOST_TEST_REQUIRE(headerEnd != std::string::npos);
+    const std::size_t off = headerEnd + 4;
+    const int w = 768, h = 768;
+    auto px = [&](int x, int y) {
+        const std::size_t i = off + (static_cast<std::size_t>(y) * w + x) * 3;
+        return std::array<std::uint8_t, 3>{static_cast<std::uint8_t>(ppm[i]),
+                                           static_cast<std::uint8_t>(ppm[i + 1]),
+                                           static_cast<std::uint8_t>(ppm[i + 2])};
+    };
+    // "Any blue", not "exactly the flat blue". These cells are a few pixels
+    // across, so most of them have no pixel at full coverage and the outer ones
+    // are antialiased; matching one exact colour would count only the cells that
+    // happen to land on a whole pixel and report a row far shorter than the one
+    // drawn. The movable fill is strongly blue and the row lines are neutral grey,
+    // so a margin on blue-over-red separates them without depending on coverage.
+    const auto isBlue = [&](int x, int y) {
+        const auto p = px(x, y);
+        return p[2] > p[0] + 24;
+    };
+
+    // Scanned below the caption band only: the key draws a swatch in the movable
+    // colour, so a scan over the whole frame would measure the legend as well as
+    // the placement and report a span wider than the cells.
+    constexpr int kBelowCaption = 160;
+    int firstX = -1, lastX = -1, rowsHit = 0;
+    for (int y = kBelowCaption; y < h; ++y) {
+        int lo = -1, hi = -1;
+        for (int x = 0; x < w; ++x) {
+            if (isBlue(x, y)) {
+                if (lo < 0) {
+                    lo = x;
+                }
+                hi = x;
+            }
+        }
+        if (lo >= 0) {
+            ++rowsHit;
+            if (firstX < 0) {
+                firstX = lo;
+            }
+            lastX = hi;
+        }
+    }
+    BOOST_TEST_REQUIRE(firstX >= 0);
+    BOOST_TEST(rowsHit > 0);
+
+    // The drawn span must be the span the cells occupy, and not a pixel more. The
+    // viewport lays a 400-unit die into a 768px frame less its 36px margins and
+    // 116px caption band, padded by 1% on each side. With per-edge rounding the
+    // error is up to half a pixel per edge per cell, so over fifty cells it would
+    // be tens of pixels; the tolerance here is a few, which is the antialiasing on
+    // the two outer edges.
+    const double avail = std::min(768.0 - 2 * 36.0 - 2.0, 768.0 - 116.0 - 36.0 - 2.0);
+    const double scale = avail / (1.02 * 400.0);
+    const double expected = kCells * kW * scale;
+    const double drawn = static_cast<double>(lastX - firstX + 1);
+    BOOST_TEST_CONTEXT("expected " << expected << " px, drawn " << drawn);
+    BOOST_TEST(drawn <= expected + 3.0);
+    BOOST_TEST(drawn >= expected - 5.0);
+}
+
+BOOST_AUTO_TEST_CASE(the_rows_are_drawn_when_there_are_rows) {
+    // A frame that says nothing about rows cannot show whether a placement is
+    // legal, so the row lines are part of the picture. They are recovered from
+    // the cells, which only works once a placement is on the rows: two distinct y
+    // levels are two rows.
+    const ScratchDir dir("rows");
+    Graph g;
+    const std::size_t id = g.addVertex(VertexType::Cell, "anchor");
+    Vertex &a = g.getVertex(id);
+    a.x = 0.0;
+    a.y = 0.0;
+    a.width = 200.0;
+    a.height = 400.0;
+    a.isFixed = true;
+    a.isTerminal = true;
+    for (int r = 0; r < 8; ++r) {
+        for (int c = 0; c < 4; ++c) {
+            const std::size_t v = g.addVertex(VertexType::Cell, "c" + std::to_string(r * 4 + c));
+            Vertex &vert = g.getVertex(v);
+            vert.x = 20.0 + c * 8.0;
+            vert.y = 20.0 + r * 40.0;  // exactly row pitch apart
+            vert.width = 8.0;
+            vert.height = 12.0;
+        }
+    }
+    writeFrameSvg((dir.file("rows.svg")).string(), g, sampleX(g), sampleY(g), fixedCellBBox(g), 0,
+                  1, 1.0, 1.0, 0.0, "");
+    const std::string svg = readAll(dir.file("rows.svg"));
+    // The legend names the row count, which is the observable part of "rows were
+    // found", and the lines themselves are drawn under the cells.
+    BOOST_TEST(contains(svg, "row (8)"));
+    BOOST_TEST(contains(svg, "<line "));
+}
+
 BOOST_AUTO_TEST_CASE(every_cell_reaches_every_frame) {
     // A frame that silently drops cells is the one rendering failure that cannot
     // be spotted by looking at it, because the picture still looks like a

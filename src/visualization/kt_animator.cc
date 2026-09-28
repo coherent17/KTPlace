@@ -30,11 +30,12 @@ PlacementAnimator &PlacementAnimator::instance() {
 }
 
 void PlacementAnimator::configure(const std::string &outDir, std::size_t maxFrames, int delayCs,
-                                  int blend) {
+                                  int blend, double zoom) {
     dir_ = outDir;
     maxFrames_ = maxFrames > 0 ? maxFrames : 1;
     delayCs_ = delayCs;
     blend_ = blend > 1 ? blend : 1;
+    zoom_ = zoom >= 1.0 ? zoom : 1.0;
     frame_ = 0;
     havePrev_ = false;
     prevX_.clear();
@@ -98,7 +99,7 @@ void PlacementAnimator::record(const Graph &g, const std::vector<float> &x,
         // picture that gets looked at was missing the regions the placement was
         // required to respect.
         writeFrameRaster(path, g, ix, iy, die, step, total, hpwl, hpwlInitial, resid, note,
-                         constraints, /*fixedView=*/true);
+                         constraints, /*fixedView=*/true, zoom_);
         ++frame_;
         return frame_ < limit;
     };

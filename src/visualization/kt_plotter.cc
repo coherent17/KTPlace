@@ -198,6 +198,98 @@ Rgb24 blendOnBg(const Rgb24 &c, double alpha) {
 }
 
 /**
+ * @brief The placement rows, as a y interval each, recovered from the cells.
+ *
+ * A frame wants to draw the rows behind the cells -- it is the one thing in the
+ * picture that says whether the placement is legal, because a cell that is on a
+ * row and a cell that is not look identical otherwise -- and the renderer is
+ * handed a graph and a set of coordinates, not a row list.
+ *
+ * The rows are recovered from the cells instead, which works because a legal
+ * placement is defined by it: every cell in a row has the same y. The distinct y
+ * values are clustered with a tolerance of a fraction of the cell height, and
+ * each cluster becomes one row. Before legalization there is no row structure to
+ * recover -- the y values are continuous and the cluster count explodes -- so a
+ * cluster count that is not plausible is reported as "no rows" and nothing is
+ * drawn, rather than a frame covered in thousands of lines that mean nothing.
+ *
+ * @return one {yBottom, yTop} per row, empty when no row structure is present
+ */
+std::vector<std::array<double, 2>> rowBands(const Graph &g, const std::vector<float> &y,
+                                            double cellHeight) {
+    std::vector<double> ys;
+    std::vector<double> heights;
+    const std::size_t nv = g.getNumVertices();
+    for (std::size_t v = 0; v < nv; ++v) {
+        const Vertex &vert = g.getVertex(v);
+        if (vert.type == VertexType::Cell && !vert.isFixed && !vert.isTerminal) {
+            ys.push_back(static_cast<double>(y[v]));
+            heights.push_back(vert.height);
+        }
+    }
+    if (ys.empty()) {
+        return {};
+    }
+    std::sort(ys.begin(), ys.end());
+    // Two y values are the same row if they are within a small fraction of a row
+    // height. Large enough to absorb the float rounding in a coordinate that has
+    // been through a solve, small enough that neighbouring rows never merge.
+    //
+    // The tolerance is scaled by the *median* cell height, not the largest. The
+    // largest is the wrong number by a wide margin: a design with a handful of
+    // multi-row cells has a maximum several rows tall, and a tolerance taken from
+    // it swallows that many rows at once, so the whole placement collapses into
+    // one band and no rows are found at all.
+    std::sort(heights.begin(), heights.end());
+    const double tol = std::max(heights[heights.size() / 2], 1e-9) * 0.25;
+    std::vector<std::array<double, 2>> bands;
+    double lo = ys.front();
+    double hi = ys.front();
+    for (std::size_t i = 1; i < ys.size(); ++i) {
+        if (ys[i] - hi <= tol) {
+            hi = ys[i];
+            continue;
+        }
+        bands.push_back({lo, hi});
+        lo = hi = ys[i];
+    }
+    bands.push_back({lo, hi});
+    // The rows have to be evenly spaced, and that is the check that makes this
+    // safe to run on every frame rather than only the last one. A legalized
+    // placement puts its cells on a row grid, so consecutive bands are a whole
+    // number of row pitches apart. Before legalization the y values are whatever
+    // the solve produced: they still form clusters, because a solution tends to
+    // settle onto levels, and a count alone cannot tell those apart from real
+    // rows. Their spacing, though, is irregular, so they are rejected and the
+    // frame gets no row lines rather than several hundred meaningless ones.
+    if (bands.size() < 2 || bands.size() > 8192) {
+        return {};
+    }
+    // Median gap, which a couple of odd rows cannot move.
+    std::vector<double> gaps;
+    gaps.reserve(bands.size() - 1);
+    for (std::size_t i = 1; i < bands.size(); ++i) {
+        gaps.push_back(bands[i][0] - bands[i - 1][0]);
+    }
+    std::sort(gaps.begin(), gaps.end());
+    const double pitch = gaps[gaps.size() / 2];
+    if (pitch <= tol) {
+        return {};
+    }
+    // Every gap a whole number of pitches, to within a tenth of one. A legal row
+    // grid has no gap that is not; an empty row is two pitches and is fine, but a
+    // cluster decomposition of an unlegalized placement is not a multiple of
+    // anything.
+    for (const double gap : gaps) {
+        const double k = std::round(gap / pitch);
+        if (k < 1.0 || std::fabs(gap - k * pitch) > 0.1 * pitch) {
+            return {};
+        }
+    }
+    return bands;
+}
+
+/**
  * @brief Shared colour table for a whole animation.
  *
  * GIF stores palette indices, so an animation is only correct if every frame
@@ -514,16 +606,22 @@ void strokeRectAA(CImg<unsigned char> &img, double x0, double y0, double x1, dou
 // below it the cell is snapped to whole pixels exactly as the SVG draws it.
 void fillCellRect(CImg<unsigned char> &img, double x0, double yTop, double x1, double yBot,
                   const std::uint8_t *rgb, const std::uint8_t *rim) {
-    constexpr double kAaMinPixels = 4.0;
-    const bool big = (x1 - x0) >= kAaMinPixels && (yBot - yTop) >= kAaMinPixels;
-    if (!big) {
-        fillRectAA(img, std::round(x0), std::round(yTop), std::round(x1), std::round(yBot), rgb,
-                   1.0);
-        return;
-    }
+    // Always antialiased, at every size.
+    //
+    // The obvious optimisation is to snap a small cell to whole pixels -- it is
+    // cheaper and, at two or three pixels across, the antialiasing is arguably
+    // counterproductive. It is also exactly what makes a legal placement look
+    // like an overlapping one. Snapping rounds each edge, so every cell grows or
+    // shrinks by up to half a pixel on each side; the errors do not cancel, so
+    // neighbouring cells overlap in the drawing by up to a pixel while the
+    // placement they are drawn from has them exactly touching. A run of 200k such
+    // cells fills in the gaps between them and the placement reads as a solid
+    // field, which is a picture of overlapping cells and nothing like the
+    // placement. Drawing the true fractional edges is the only way the picture
+    // can show the cells the same size and position as the ones being written out.
     fillRectAA(img, x0, yTop, x1, yBot, rgb, 1.0);
-    // A darker rim, inset half a pixel so it lies inside the cell rather than
-    // eating into its neighbour.
+    // A darker rim, inset so it lies inside the cell rather than eating into its
+    // neighbour.
     //
     // Standard cells in a dense placement abut each other exactly -- that is what
     // legal placement means -- so with one flat fill the eye cannot find where one
@@ -531,7 +629,21 @@ void fillCellRect(CImg<unsigned char> &img, double x0, double yTop, double x1, d
     // The rim is what makes a packed placement legible: it costs one outline per
     // cell and it is the difference between "a picture of a placement" and "a
     // picture of cells".
-    strokeRectAA(img, x0 + 0.5, yTop + 0.5, x1 - 0.5, yBot - 0.5, 1.0, rim, 1.0);
+    //
+    // Its width is capped hard, and this is the difference between a picture of a
+    // placement and a picture of boxes. A legal standard cell is one row tall, so
+    // at any useful resolution it is only a handful of pixels tall, and a rim
+    // sized as a fixed fraction of the cell -- or, worse, a full pixel -- eats a
+    // large part of it: every cell becomes a dark frame around a thin bright core
+    // and a whole row of them reads as a stack of horizontal bars rather than as
+    // cells. So the rim is at most a hairline, and it is skipped entirely on a
+    // cell too small to carry one, where the rim would be most of the cell.
+    constexpr double kMaxRim = 0.55;  // pixels
+    const double w = std::min({kMaxRim, (x1 - x0) * 0.18, (yBot - yTop) * 0.18});
+    if (w < 0.2) {
+        return;  // a cell too small to outline without hollowing it out
+    }
+    strokeRectAA(img, x0 + w / 2, yTop + w / 2, x1 - w / 2, yBot - w / 2, w, rim, 1.0);
 }
 }  // namespace
 
@@ -621,36 +733,43 @@ CImg<unsigned char> renderFrameCImg(const Graph &g, const std::vector<float> &x,
 
     const CImgList<unsigned char> &font =
         CImgList<unsigned char>::font(static_cast<unsigned int>(std::lround(13.0 * zoom)));
-    const auto drawMovable = [&](const char *hex, double alpha, bool fenced) {
-        const Rgb24 flat = blendOnBg(hexColor(hex), alpha);
-        const std::uint8_t *c = pal.ptr(flat);
-        const std::uint8_t *rim = pal.ptr(darken(flat, 0.45));
-        for (std::size_t v = 0; v < nv; ++v) {
-            const Vertex &vert = g.getVertex(v);
-            if (vert.type != VertexType::Cell || vert.isFixed || vert.isTerminal) {
-                continue;
-            }
-            if ((vert.regionId != constraintMgr::kNoRegion) != fenced) {
-                continue;
-            }
-            // Fractional edges, so a cell narrower than a pixel still shows up as
-            // a faint tint instead of being rounded away or jumping to a whole
-            // pixel. The 1.0 floor keeps a sub-pixel cell visible at all.
-            // toPxY is inverted -- world +y is pixel -y -- so the cell's TOP edge
-            // is the smaller pixel row. Getting that backwards makes every cell
-            // an empty box and the frame comes out blank.
-            const double x0 = toPxX(vp, x[v]);
-            const double x1 = x0 + std::max(1.0, vert.width * vp.sx);
-            const double yTop = toPxY(vp, y[v] + vert.height);
-            const double yBot = toPxY(vp, y[v]);
-            fillCellRect(img, x0, yTop, x1, yBot, c, rim);
+
+    // The rows, drawn under the cells. They are recovered from the cells, so
+    // there is nothing to pass in and a frame of a design with no row structure
+    // simply gets none.
+    const std::vector<std::array<double, 2>> rows = rowBands(g, y, 0.0);
+
+    // Row lines, at the very back. Faint, and only every eighth row, which turns
+    // them from a hatch into a ruler: a line at every row pitch on a design with a
+    // thousand rows is a line every five pixels, the whole placement reads as
+    // stripes, and the cells disappear into the ruling. Every eighth still shows
+    // the row structure and the pitch, and leaves the picture alone.
+    if (!rows.empty()) {
+        const Rgb24 line = blendOnBg(hexColor("#8fa3b8"), 0.34);
+        int rx0, rx1, ry0, ry1;
+        pixelSpan(toPxX(vp, dieBox[0]), toPxX(vp, dieBox[2]), rx0, rx1);
+        constexpr std::size_t kEvery = 8;
+        for (std::size_t i = 0; i < rows.size(); i += kEvery) {
+            // The top edge of the row is the line that matters: a cell sitting in
+            // this row has its bottom exactly there.
+            pixelSpan(toPxY(vp, rows[i][1]), toPxY(vp, rows[i][1]), ry0, ry1);
+            fillRectAA(img, rx0, ry0, rx1, std::max(ry0 + 1, ry1), pal.ptr(line), 1.0);
         }
-    };
-    // I/O pads / terminals are decimated, there can be tens of thousands.
+    }
+
+    // Draw order is macros first and movable cells over them, which is the reverse
+    // of the obvious. It matters only where the two overlap, and they overlap
+    // exactly where there is something to see: before legalization the placer has
+    // no reason to keep a cell out of a macro, so a global-placement frame is full
+    // of cells sitting on top of the macros. Painting the macros last buried every
+    // one of them, and the movable cells -- the thing the frame is about --
+    // disappeared under the fixed geometry. The macros stay legible: they are the
+    // larger shape, and a cell drawn over one shows the macro's extent by the part
+    // of it that nothing covers.
     {
         const Rgb24 flat = blendOnBg(hexColor("#ef5350"), 0.9);
         const std::uint8_t *c = pal.ptr(flat);
-        const std::uint8_t *rim = pal.ptr(darken(flat, 0.45));
+        const std::uint8_t *rim = pal.ptr(darken(flat, 0.72));
         const auto drawFixed = [&](std::size_t v) {
             const Vertex &vert = g.getVertex(v);
             const double x0 = toPxX(vp, x[v]);
@@ -673,11 +792,39 @@ CImg<unsigned char> renderFrameCImg(const Graph &g, const std::vector<float> &x,
         }
     }
 
-    // Nearly the pure hue rather than half-mixed into the background: the SVG now
-    // draws these opaque, and a raster fill that is half background reads as a
-    // transparency the vector frame does not have.
-    drawMovable("#4fc3f7", 0.92, false);
-    drawMovable("#00e676", 0.95, true);
+    // Movable cells in one flat blue with a dark rim, over everything else. The rim
+    // is the part that makes a legal placement readable: a legal placement is a
+    // field of cells abutting exactly, so with one flat fill the eye cannot find
+    // where one stops and the next begins and a whole region reads as a single
+    // blob. The rim costs one outline per cell and it is the difference between "a
+    // picture of a placement" and "a picture of cells".
+    {
+        const Rgb24 flat = blendOnBg(hexColor("#4fc3f7"), 0.92);
+        const std::uint8_t *c = pal.ptr(flat);
+        const std::uint8_t *rim = pal.ptr(darken(flat, 0.72));
+        for (std::size_t v = 0; v < nv; ++v) {
+            const Vertex &vert = g.getVertex(v);
+            if (vert.type != VertexType::Cell || vert.isFixed || vert.isTerminal) {
+                continue;
+            }
+            // Fractional edges, so the cell covers exactly the pixels it covers in
+            // the placement. Rounding each edge to a whole pixel -- or widening a
+            // sub-pixel cell to a minimum of one -- is what makes a picture of a
+            // legal placement look like an overlapping one: every cell grows by up
+            // to a pixel and 200k of them no longer fit side by side. At this
+            // resolution a standard cell is several pixels across, so the exact
+            // size is both available and what the eye needs. The 0.75 floor only
+            // guards a cell narrower than a pixel, which would otherwise vanish.
+            // toPxY is inverted -- world +y is pixel -y -- so the cell's TOP edge
+            // is the smaller pixel row. Getting that backwards makes every cell
+            // an empty box and the frame comes out blank.
+            const double x0 = toPxX(vp, x[v]);
+            const double x1 = x0 + std::max(0.75, vert.width * vp.sx);
+            const double yTop = toPxY(vp, y[v] + vert.height);
+            const double yBot = toPxY(vp, y[v]);
+            fillCellRect(img, x0, yTop, x1, yBot, c, rim);
+        }
+    }
 
     // Captions.
     const int tx = static_cast<int>(zoom * kMargin / 3);
@@ -687,7 +834,12 @@ CImg<unsigned char> renderFrameCImg(const Graph &g, const std::vector<float> &x,
     img.draw_text(tx, static_cast<int>(std::lround(16.0 * zoom)), title.c_str(),
                   pal.ptr(hexColor("#ffffff")), 0, 1.0f, &font);
 
-    const std::string wl = "HPWL = " + fmt(hpwl, 3) + "  (initial " + fmt(hpwlInitial, 3) + ")";
+    // The initial figure is shown only when there is a meaningful one. A finished
+    // placement has no initial, and printing "HPWL = 4.9e+08 (initial 4.9e+08)"
+    // is worse than printing nothing: it reads like a broken number rather than
+    // like the absence of a comparison.
+    const std::string wl = "HPWL = " + fmt(hpwl, 3) +
+                           (hpwlInitial > 0.0 ? "  (initial " + fmt(hpwlInitial, 3) + ")" : "");
     img.draw_text(tx, static_cast<int>(std::lround(36.0 * zoom)), wl.c_str(),
                   pal.ptr(hexColor("#90caf9")), 0, 1.0f, &font);
 
@@ -698,23 +850,54 @@ CImg<unsigned char> renderFrameCImg(const Graph &g, const std::vector<float> &x,
         legendY += lineH;
     }
 
-    // Legend: a colour swatch plus a label for each cell category.
+    // Legend: a swatch and a count for each category of cell, so the picture says
+    // how much of what is in it, and a swatch for the row lines.
     {
-        struct Item {
-            const char *hex;
-            const char *label;
-        };
-        static const Item kItems[] = {
-            {"#4fc3f7", "movable"}, {"#00e676", "fence-assigned"}, {"#ef5350", "fixed macro"}};
+        const int barH = static_cast<int>(std::lround(11.0 * zoom));
+        const int swatchW = static_cast<int>(std::lround(20.0 * zoom));
+        const int barY = legendY + static_cast<int>(2 * zoom);
         int cx = tx;
-        for (const Item &it : kItems) {
-            const Rgb24 flat = blendOnBg(hexColor(it.hex), 0.9);
-            img.draw_rectangle(cx, legendY + static_cast<int>(2 * zoom),
-                               cx + static_cast<int>(10 * zoom),
-                               legendY + static_cast<int>(12 * zoom), pal.ptr(flat), 1.0f);
-            cx += static_cast<int>(14 * zoom);
-            img.draw_text(cx, legendY, it.label, pal.ptr(hexColor("#90caf9")), 0, 1.0f, &font);
-            cx += textWidth(font, it.label) + static_cast<int>(12 * zoom);
+        std::size_t movable = 0, fixed = 0, pads = 0;
+        for (std::size_t v = 0; v < nv; ++v) {
+            const Vertex &vert = g.getVertex(v);
+            if (vert.type != VertexType::Cell) {
+                continue;
+            }
+            if (vert.isFixed) {
+                ++fixed;
+            } else if (vert.isTerminal) {
+                ++pads;
+            } else {
+                ++movable;
+            }
+        }
+        const auto swatch = [&](const char *hex, double alpha, const std::string &label,
+                                std::size_t count) {
+            img.draw_rectangle(cx, barY, cx + swatchW, barY + barH,
+                               pal.ptr(blendOnBg(hexColor(hex), alpha)), 1.0f);
+            cx += swatchW + static_cast<int>(6 * zoom);
+            const std::string text = label + " " + std::to_string(count);
+            img.draw_text(cx, legendY, text.c_str(), pal.ptr(hexColor("#90caf9")), 0, 1.0f, &font);
+            cx += textWidth(font, text.c_str()) + static_cast<int>(18 * zoom);
+        };
+        swatch("#4fc3f7", 0.92, "movable", movable);
+        // A category with nothing in it is not a legend entry; a design whose
+        // terminals are all fixed has no I/O pads of its own, and listing them as
+        // zero is clutter that says the drawing is broken.
+        if (fixed > 0) {
+            swatch("#ef5350", 0.9, "fixed macro", fixed);
+        }
+        if (pads > 0) {
+            swatch("#ef5350", 0.9, "I/O pad", pads);
+        }
+        if (!rows.empty()) {
+            // The row lines are drawn behind the cells, so the key shows them as a
+            // faint outline rather than a fill.
+            img.draw_rectangle(cx, barY, cx + swatchW, barY + barH,
+                               pal.ptr(blendOnBg(hexColor("#5c6b7a"), 0.9)), 1.0f);
+            cx += swatchW + static_cast<int>(6 * zoom);
+            const std::string text = "row (" + std::to_string(rows.size()) + ")";
+            img.draw_text(cx, legendY, text.c_str(), pal.ptr(hexColor("#90caf9")), 0, 1.0f, &font);
         }
     }
 
@@ -968,6 +1151,23 @@ void writeFrameSvg(const std::string &path, const Graph &g, const std::vector<fl
         << fmt((dieBox[3] - dieBox[1]) * vp.sy)
         << "\" fill=\"none\" stroke=\"#bdbdbd\" stroke-width=\"1\"/>\n";
 
+    // The rows, under the cells, as in the raster frame. Recovered from the cells
+    // rather than passed in, so a frame of a design with no row structure -- an
+    // unlegalized placement -- simply has none.
+    const std::vector<std::array<double, 2>> rows = rowBands(g, y, 0.0);
+    if (!rows.empty()) {
+        // Every eighth row, for the same reason as in the raster renderer: a line
+        // at every pitch hatches the whole placement.
+        constexpr std::size_t kEvery = 8;
+        out << "<g stroke=\"#8fa3b8\" stroke-opacity=\"0.34\" stroke-width=\"1\">\n";
+        for (std::size_t i = 0; i < rows.size(); i += kEvery) {
+            out << "<line x1=\"" << fmt(toPxX(vp, dieBox[0])) << "\" y1=\""
+                << fmt(toPxY(vp, rows[i][1])) << "\" x2=\"" << fmt(toPxX(vp, dieBox[2]))
+                << "\" y2=\"" << fmt(toPxY(vp, rows[i][1])) << "\"/>\n";
+        }
+        out << "</g>\n";
+    }
+
     // Fence regions, drawn under the cells so the placement stays readable.
     // Each region is a union of rectangles, so every piece is outlined and
     // filled; the name is labelled at the region's lower-left corner.
@@ -991,7 +1191,9 @@ void writeFrameSvg(const std::string &path, const Graph &g, const std::vector<fl
     }
 
     // Fixed macros: never decimate, so hard cells match the DEF floorplan.
-    out << "<g fill=\"#ef5350\" stroke=\"#000000\" stroke-opacity=\"0.55\""
+    // Fixed macros: near-white, matching the raster renderer, so a macro is
+    // outside the density ramp in both representations of a frame.
+    out << "<g fill=\"#ef5350\" stroke=\"#5c1a1a\" stroke-opacity=\"0.75\""
         << " stroke-width=\"0.7\">\n";
     for (std::size_t v = 0; v < nv; ++v) {
         const Vertex &vert = g.getVertex(v);
@@ -1016,36 +1218,33 @@ void writeFrameSvg(const std::string &path, const Graph &g, const std::vector<fl
             << fmt(toPxY(vp, y[v] + vert.height)) << "\" width=\"" << fmt(w, 3) << "\" height=\""
             << fmt(h, 3) << "\"/>\n";
     }
-    // Movable cells, split by whether the cell is tied to a placement region.
-    // Fence-assigned cells are drawn opaque green over the ordinary blue, so a
-    // glance shows whether a group's cells actually ended up in their fence.
-    // Opaque, with a dark rim. The cells used to be drawn at 0.55 opacity, which
-    // is what made a frame disagree with the GIF: the raster path cannot composite
-    // per-pixel against an unknown backdrop, so it pre-mixed the colour toward the
-    // background instead, and the two representations of the same frame came out
-    // looking like different pictures. A solid fill plus a rim is unambiguous, and
-    // the rim is what keeps abutting cells distinguishable in a legal placement.
-    const auto drawMovable = [&](const char *color, bool fenced) {
-        out << "<g fill=\"" << color << "\" stroke=\"#000000\" stroke-opacity=\"0.55\""
-            << " stroke-width=\"0.7\">\n";
+    // Movable cells, one flat blue, matching the raster renderer so the two
+    // representations of a frame are the same picture. One <g> for the whole set
+    // rather than one per cell: a 200k-cell frame with per-cell grouping carries
+    // 200k elements of markup for nothing.
+    //
+    // The rim is what keeps abutting cells apart. A legal placement is cells
+    // touching exactly, so without it a whole region reads as one blue shape; the
+    // opacity is kept low and the width small, because a heavy outline turns the
+    // placement into a diagram of boxes rather than a picture of cells.
+    {
+        out << "<g fill=\"#4fc3f7\" stroke=\"#0b3d54\" stroke-opacity=\"0.75\""
+            << " stroke-width=\"0.6\">\n";
         for (std::size_t v = 0; v < nv; ++v) {
             const Vertex &vert = g.getVertex(v);
             if (vert.type != VertexType::Cell || vert.isFixed || vert.isTerminal) {
                 continue;
             }
-            if ((vert.regionId != constraintMgr::kNoRegion) != fenced) {
-                continue;
-            }
-            const double w = std::max(1.0, vert.width * vp.sx);
-            const double h = std::max(1.0, vert.height * vp.sy);
+            // Exact size, as in the raster path, so the two agree and so a cell is
+            // never drawn wider than it is.
+            const double w = std::max(0.75, vert.width * vp.sx);
+            const double h = std::max(0.75, vert.height * vp.sy);
             out << "<rect x=\"" << fmt(toPxX(vp, x[v])) << "\" y=\""
                 << fmt(toPxY(vp, y[v] + vert.height)) << "\" width=\"" << fmt(w, 3)
                 << "\" height=\"" << fmt(h, 3) << "\"/>\n";
         }
         out << "</g>\n";
-    };
-    drawMovable("#4fc3f7", false);
-    drawMovable("#00e676", true);
+    }
 
     out << "</g>\n";
 
@@ -1054,18 +1253,60 @@ void writeFrameSvg(const std::string &path, const Graph &g, const std::vector<fl
         << step << " / " << (numSteps - 1) << " — " << note << "</text>\n";
     out << "<text x=\"" << kMargin / 3
         << "\" y=\"44\" fill=\"#90caf9\" font-family=\"monospace\" font-size=\"13\">"
-        << "HPWL = " << fmt(hpwl, 3) << "  (initial " << fmt(hpwlInitial, 3) << ")</text>\n";
+        << "HPWL = " << fmt(hpwl, 3)
+        << (hpwlInitial > 0.0 ? "  (initial " + fmt(hpwlInitial, 3) + ")" : "") << "</text>\n";
     if (resid > 0.0) {
         out << "<text x=\"" << kMargin / 3
             << "\" y=\"62\" fill=\"#ffeb3b\" font-family=\"monospace\" font-size=\"12\">"
             << "density overflow = " << sci(resid) << "</text>\n";
     }
-    // Legend for the cell colours.
-    out << "<text x=\"" << kMargin / 3 << "\" y=\"" << (resid > 0.0 ? 80 : 62)
-        << "\" fill=\"#90caf9\" font-family=\"monospace\" font-size=\"12\">"
-        << "<tspan fill=\"#4fc3f7\">&#9632;</tspan> movable"
-        << "   <tspan fill=\"#00e676\">&#9632;</tspan> fence-assigned"
-        << "   <tspan fill=\"#ef5350\">&#9632;</tspan> fixed macro</text>\n";
+    // Legend: a swatch and a count per category, matching the raster frame.
+    {
+        const int legendY = resid > 0.0 ? 80 : 62;
+        int cx = static_cast<int>(kMargin / 3);
+        std::size_t movable = 0, fixed = 0, pads = 0;
+        for (std::size_t v = 0; v < nv; ++v) {
+            const Vertex &vert = g.getVertex(v);
+            if (vert.type != VertexType::Cell) {
+                continue;
+            }
+            if (vert.isFixed) {
+                ++fixed;
+            } else if (vert.isTerminal) {
+                ++pads;
+            } else {
+                ++movable;
+            }
+        }
+        const auto swatch = [&](const char *fill, const std::string &label, std::size_t count) {
+            out << "<rect x=\"" << cx << "\" y=\"" << legendY - 10 << "\" width=\"10\""
+                << " height=\"12\" fill=\"" << fill << "\"/>\n";
+            cx += 16;
+            const std::string text = label + " " + std::to_string(count);
+            out << "<text x=\"" << cx << "\" y=\"" << legendY
+                << "\" fill=\"#90caf9\" font-family=\"monospace\" font-size=\"12\">" << text
+                << "</text>\n";
+            cx += static_cast<int>(text.size()) * 7 + 14;
+        };
+        swatch("#4fc3f7", "movable", movable);
+        // Only categories that exist; see the note in the raster renderer.
+        if (fixed > 0) {
+            swatch("#ef5350", "fixed macro", fixed);
+        }
+        if (pads > 0) {
+            swatch("#ef5350", "I/O pad", pads);
+        }
+        if (!rows.empty()) {
+            out << "<rect x=\"" << cx << "\" y=\"" << legendY - 10
+                << "\" width=\"10\" height=\"12\" fill=\"none\" stroke=\"#8fa3b8\""
+                << " stroke-opacity=\"0.5\"/>\n";
+            cx += 16;
+            const std::string text = "row (" + std::to_string(rows.size()) + ")";
+            out << "<text x=\"" << cx << "\" y=\"" << legendY
+                << "\" fill=\"#90caf9\" font-family=\"monospace\" font-size=\"12\">" << text
+                << "</text>\n";
+        }
+    }
     out << "</svg>\n";
     out.close();
 }
@@ -1099,7 +1340,7 @@ void writeFrameRaster(const std::string &path, const Graph &g, const std::vector
 }
 
 void writeFinalFrameRaster(const std::string &path, const Graph &g,
-                           const constraintMgr *constraints, double zoom) {
+                           const constraintMgr *constraints, double zoom, double hpwl) {
     // The finished placement lives in the vertices' stored coordinates, which is
     // what the frame writers get passed as x/y; here the graph is the payload.
     const std::size_t nv = g.getNumVertices();
@@ -1111,8 +1352,10 @@ void writeFinalFrameRaster(const std::string &path, const Graph &g,
     const BBox die = fixedCellBBox(g);
     // fixedView pins the viewport to the die, which for one final still is the
     // right frame: the anchor scene the whole run has been using.
-    writeFrameRaster(path, g, x, y, die, 0, 1, 0.0, 0.0, 0.0, "final placement", constraints,
-                     /*fixedView=*/true, zoom);
+    // The finished placement has no "initial" to compare against, so none is
+    // passed: the caption then shows one number instead of repeating one.
+    writeFrameRaster(path, g, x, y, die, 0, 1, hpwl, /*hpwlInitial=*/0.0, 0.0, "final placement",
+                     constraints, /*fixedView=*/true, zoom);
 }
 
 namespace {

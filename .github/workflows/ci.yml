@@ -104,7 +104,7 @@ jobs:
         run: |
           set -euo pipefail
           KTPLACE_ANIM=1 KTPLACE_ANIM_MAX_FRAMES=40 KTPLACE_ANIM_BLEND=1 \
-          KTPLACE_SIMPL_TRACE_EVERY=1 KTPLACE_SIMPL_CG_EVERY=8 \
+          KTPLACE_SIMPL_TRACE_EVERY=1 KTPLACE_SIMPL_CG_EVERY=8 KTPLACE_FINAL_PPM=1 \
             ./build/bin/ktplace adaptec1 \
               ./benchmark/ISPD_2005/adaptec1 out.pl -p plots \
               -w output/adaptec1 2>&1 | tee smoke.log
@@ -163,15 +163,16 @@ jobs:
           head -c 8 output/adaptec1/plots/final/final.png |
             od -An -tx1 | tr -d ' \n' | grep -qx '89504e470d0a1a0a'
 
-          # Zoom 4 of a 768x768 frame is 3072x3072, big enough that a standard
-          # cell is several pixels across instead of one.
+          # The default final still is zoom 8 of a 768x768 frame, so 6144x6144:
+          # about fourteen pixels across for a standard cell, which is the point
+          # at which the placement stops being a texture.
           geom=$(python3 -c '
           import struct
           d = open("output/adaptec1/plots/final/final.png", "rb").read()
           w, h = struct.unpack(">II", d[16:24])
           print(f"{w}x{h}")')
           echo "final image: $geom"
-          test "$geom" = "3072x3072"
+          test "$geom" = "6144x6144"
 
           # Every cell has to be in that picture. The movable cells are drawn in
           # one flat colour, so the design's cell area converted to image pixels
@@ -189,9 +190,10 @@ jobs:
           d = open(PNG, "rb").read()
           w, h = struct.unpack(">II", d[16:24])
           # The renderer lays the die out in the frame less its margins and its
-          # caption band, at zoom 4: margin 36*4, band 116*4, both inset 2px,
-          # over a span padded by 1% on each side.
-          avail_w, avail_h = w - 2 * 144 - 2, h - 464 - 144 - 2
+          # caption band, at the default zoom 8: margin 36*8, band 116*8, both
+          # inset 2px, over a span padded by 1% on each side.
+          z = 8
+          avail_w, avail_h = w - 2 * 36 * z - 2, h - 116 * z - 36 * z - 2
 
           # Die box and cell sizes straight out of the written placement, so this
           # measures the same design the picture was drawn from.
