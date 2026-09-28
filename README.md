@@ -109,19 +109,35 @@ table.emit();
 ## The algorithm
 
 SimPL is implemented from the paper, which is the reference for every design
-decision in `src/placer/simpl/` — the pseudonet weight law, the alpha schedule,
+decision in `src/placer/simpl/` -- the pseudonet weight law, the alpha schedule,
 and the convergence rule:
 
-> J. Zhu, Y. Li, P. Palazzoli, W. P. Malna, H. Wang, J. Cong.
-> *SimPL: An Algorithm for Placing VLSI Circuits.* DAC 2022.
+> M.-C. Kim, D.-J. Lee, I. L. Markov. *SimPL: An Algorithm for Placing VLSI
+> Circuits.* Communications of the ACM 56(6), June 2013. DOI
+> 10.1145/2461256.2461279.
 
 The paper is paywalled and is not redistributed here. Where this implementation
 departs from it, the departure is stated in a comment at the site of the
-decision, with the paper text quoted, so the two can be compared rather than taken
-on trust. Two known departures: the returned placement is the best upper bound
-rather than the last (our upper bound rises where the paper's oscillates and then
-improves, so "last" would be worse), and the pseudonet weight is the quadratic
-surrogate `w = alpha` for the paper's Manhattan-distance penalty.
+decision, with the paper text quoted, so the two can be compared rather than
+taken on trust. Two known departures: the returned placement is the best upper
+bound rather than the last (our upper bound rises where the paper's oscillates
+and then improves, so "last" would be worse), and the pseudonet weight is the
+quadratic surrogate `w = alpha` for the paper's Manhattan-distance penalty.
+
+### Reported results, and where we stand
+
+The paper's Table 1, ISPD 2005, HPWL in units of 10^6:
+
+| design | cells | SimPL (paper) | this implementation |
+| --- | --- | --- | --- |
+| adaptec1 | 211 K | 77.42 | 405.4 |
+| adaptec2 | 255 K | 91.01 | see `output/` runs |
+
+The paper also reports that only 33-45 iterations are needed on this suite; ours
+converges in 25 on adaptec1, which is fewer, not more. The iteration count is
+therefore not the problem; the wirelength is. See the comments in
+`kt_simpl.cc` at `enforceFences` and the alpha schedule for the two mechanisms
+identified so far, neither of which is fixed.
 
 ## Third-party code
 
