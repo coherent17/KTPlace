@@ -166,7 +166,7 @@ private:
 
     // --- net model and solver ----------------------------------------------
     void buildB2B(const std::vector<double> &px, const std::vector<double> &py, double alpha,
-                  bool useAnchors);
+                  bool useAnchors, SimplParams::NetModel model);
     void solve(const std::string &tag, bool allowFrames);
     double hpwl(const std::vector<double> &px, const std::vector<double> &py) const;
 
@@ -720,7 +720,7 @@ void SimplePlacer::Impl::seedUniform(std::uint64_t seed) {
 // ---------------------------------------------------------------------------
 
 void SimplePlacer::Impl::buildB2B(const std::vector<double> &px, const std::vector<double> &py,
-                                  double alpha, bool useAnchors) {
+                                  double alpha, bool useAnchors, SimplParams::NetModel model) {
     // Pin coordinates per cell, fixed ones included: a B2B edge to a fixed cell is
     // built exactly like one to a movable cell and then eliminated into the
     // diagonal and the right-hand side.
@@ -797,6 +797,37 @@ void SimplePlacer::Impl::buildB2B(const std::vector<double> &px, const std::vect
             for (std::size_t q = 0; q < k; ++q) {
                 pinCoord[q] = coord[ni.cell[q]] + off[q];
             }
+
+            // Star model: every pin wired to a free virtual centre, and the centre
+            // minimised out analytically.
+            //
+            // The cost is w * sum_i (x_i - x_c)^2, minimised at x_c = mean(x). What
+            // is left is
+            //     w * [ sum_i x_i^2 - (sum_i x_i)^2 / k ]
+            //       = (w/k) * [ k * sum_i x_i^2 - (sum_i x_i)^2 ]
+            // and the bracket is exactly the clique form sum over pairs of (x_i-x_j)^2.
+            // So the star model is a clique with weight w/k, and it is built here as
+            // one. Eliminating the centre is what keeps the system the same size --
+            // a centre per net would be an extra unknown per net, and the solve is
+            // over cells only.
+            //
+            // Unlike B2B the weights do not depend on where the pins currently are,
+            // so the matrix does not have to be rebuilt as the placement moves. That
+            // is the reason to use it for the initial placement, where the paper's
+            // alternating solve/rebuild is pure overhead: there are no anchors and
+            // no spreading, only the wirelength objective, and the star model is the
+            // better-conditioned approximation of it -- a clique preserves ordering
+            // better than a bounding box does when cells are still piled up.
+            if (model == SimplParams::NetModel::Star) {
+                const double w = ni.weight / static_cast<double>(k);
+                for (std::size_t q = 0; q < k; ++q) {
+                    for (std::size_t r = q + 1; r < k; ++r) {
+                        addEdge(ni.cell[q], pinCoord[q], ni.cell[r], pinCoord[r], w);
+                    }
+                }
+                continue;
+            }
+
             std::size_t lo = 0;
             std::size_t hi = 0;
             for (std::size_t q = 1; q < k; ++q) {
@@ -1934,6 +1965,28 @@ void SimplePlacer::Impl::describe(const std::vector<double> &px, const std::vect
 
 namespace {
 
+/// Parse "star" / "b2b" into the model enum, keeping @p fallback on anything else.
+///
+/// An unknown value warns rather than dies: the model is a tuning choice, and a
+/// typo in it should not throw away a run that has already been going for ten
+/// minutes. It is still loud, because a placer silently running the other model
+/// than the one asked for produces a plausible result that does not match.
+SimplParams::NetModel netModelFor(const char *name, SimplParams::NetModel fallback) {
+    if (name == nullptr) {
+        return fallback;
+    }
+    const std::string v(name);
+    if (v == "star") {
+        return SimplParams::NetModel::Star;
+    }
+    if (v == "b2b" || v == "B2B") {
+        return SimplParams::NetModel::B2B;
+    }
+    ktlog.warning("unknown net model '{}', keeping {}", v,
+                  fallback == SimplParams::NetModel::Star ? "star" : "b2b");
+    return fallback;
+}
+
 /// Zero-padded step number, so a directory listing sorts in run order instead of
 /// alphabetically. Frames are meant to be flipped through in sequence, and
 /// "it9" sorting after "it10" breaks that.
@@ -2235,6 +2288,12 @@ SimplResult SimplePlacer::Impl::run(const SimplParams &P, const std::string &plo
     fencePushes_ = 0;
     // Debugging cap: the legalizer is the expensive part, so a short run is
     // needed to iterate on it. Unset in normal use.
+    if (const char *e = std::getenv("KTPLACE_SIMPL_INIT_NET")) {
+        par_.initNetModel = netModelFor(e, par_.initNetModel);
+    }
+    if (const char *e = std::getenv("KTPLACE_SIMPL_LSS_NET")) {
+        par_.lssNetModel = netModelFor(e, par_.lssNetModel);
+    }
     if (const char *e = std::getenv("KTPLACE_SIMPL_INIT_ITERS")) {
         par_.initMaxIters = static_cast<std::size_t>(std::atoll(e));
     }
@@ -2457,7 +2516,7 @@ SimplResult SimplePlacer::Impl::run(const SimplParams &P, const std::string &plo
         for (std::size_t it = 0; it < par_.initMaxIters; ++it) {
             // The B2B model is placement-dependent, so the graph is rebuilt
             // from the current locations before every solve.
-            buildB2B(lower, lowerY, 0.0, false);
+            buildB2B(lower, lowerY, 0.0, false, par_.initNetModel);
             solX_ = lower;
             solY_ = lowerY;
             // The warm-up solves are part of the run, so their iterates belong in
@@ -2849,7 +2908,7 @@ SimplResult SimplePlacer::Impl::run(const SimplParams &P, const std::string &plo
         // solve was pure interconnect minimisation, which is why the lower bound
         // never moved, why lower-bound HPWL only drifted, and why every pass
         // re-legalised the same collapsed input to the same result.
-        buildB2B(lower, lowerY, alpha, true);
+        buildB2B(lower, lowerY, alpha, true, par_.lssNetModel);
         buildAcc += bTimer.elapsedSeconds();
         bTimer.lap();
         ScopedTimer sTimer("simpl-solve");

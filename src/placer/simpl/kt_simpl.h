@@ -80,6 +80,7 @@ struct SimplParams {
     /// overall shape of the final placement solutions". Measured on adaptec1,
     /// one round gives 4.054e+08 and seven give 3.559e+08.
     std::size_t initMaxIters = 7;
+
     /// Stop the warm-up when a round improves HPWL by less than this fraction.
     /// The paper's Section 4.1 says only "until HPWL stops improving", which as
     /// written means any non-improvement at all ends it -- and a quadratic solve
@@ -184,6 +185,63 @@ struct SimplParams {
         ConstantStiffness,  ///< w = alpha -- the paper's law, as a quadratic surrogate
         InverseLength,      ///< w = alpha / max(distance, floor) -- not the paper's
     };
+
+    /**
+     * @brief Which quadratic model a net is expanded into for a solve.
+     *
+     * Star and B2B are two approximations of the same HPWL, and which is better
+     * depends on the state of the placement being approximated -- which is why
+     * they are chosen per stage rather than globally.
+     *
+     * B2B (Spindler et al.) wires each net's extreme pins to each other and to
+     * every internal pin, with weight 1/length. It is placement-dependent, so the
+     * matrix has to be rebuilt as the placement moves, and it preserves the
+     * bounding box rather than the ordering: for cells that are still piled on
+     * top of each other it is a poor model of what the net will actually cost.
+     *
+     * Star wires every pin to a free virtual centre. The centre is minimised out
+     * analytically and what remains is a clique of weight w/k, so it builds the
+     * same matrix with no position dependence at all. A clique is the better
+     * approximation while cells are unspread, because it is the one that keeps
+     * the ordering of the pins, and it needs no rebuild.
+     *
+     * So: star for the initial placement, which is the unspread solve, and B2B for
+     * the global-placement solves, which approximate an already-spread placement
+     * and need the bounding box to track the spreading.
+     */
+    enum class NetModel {
+        Star,  ///< clique of weight w/k; weights independent of the placement
+        B2B,   ///< extremes plus extremes-to-internal, weighted 1/length
+    };
+
+    /// Net model for the initial placement, and for the global-placement solves.
+    ///
+    /// Star for the first, B2B for the second; see NetModel for why they differ.
+    /// The initial placement is the solve that decides the shape everything else is
+    /// built on, and a clique holds the ordering of cells that are still piled up
+    /// better than a bounding box does. The global-placement solves approximate an
+    /// already-spread placement, where the bounding box is the better model and
+    /// the paper uses it.
+    ///
+    /// Measured on adaptec1, and worth reading before trusting the first half of
+    /// that: the star initial placement is BETTER -- 6.59e+07 against 8.07e+07 for
+    /// B2B, against the paper's 4.48e+07 -- and the finished placement is WORSE,
+    /// 5.63e+08 against 3.56e+08. The two are consistent, and the reason is the
+    /// look-ahead legalizer rather than either model. A tighter initial placement
+    /// has a higher peak density, and the legalizer spreads until every bin is at
+    /// the density limit, so it pushes the cells further to reach it. The
+    /// over-spreading is the known gap against the paper (see the README), and it
+    /// is large enough to swallow a 19% improvement in the solve that precedes it.
+    /// Once that is fixed, the better initial placement is what should be wanted
+    /// here, so this stays the default.
+    ///
+    /// More iterations do not help the star model, and the reason is structural: its
+    /// weights do not depend on the placement, so the matrix is identical on every
+    /// round and the iteration count is a CG tolerance and nothing else. B2B
+    /// rebuilds each round from the new positions, which is why the paper alternates
+    /// solve and rebuild there and why initMaxIters matters for it.
+    NetModel initNetModel = NetModel::Star;
+    NetModel lssNetModel = NetModel::B2B;
     // The paper, on this, verbatim: "we control cell movement and iteration
     // convergence by multiplying each pseudonet weight by an additional factor
     // alpha > 0 computed as alpha = 0.01 x (1 + Iteration_Number) ... The relevant
