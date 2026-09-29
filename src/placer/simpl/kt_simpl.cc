@@ -1303,6 +1303,9 @@ void SimplePlacer::Impl::nonlinearScale(const std::vector<std::uint32_t> &cells,
     // Stripe geometry and capacity.
     std::vector<double> stripeLo(nStripes), stripeHi(nStripes), stripeCap(nStripes),
         stripeUsed(nStripes, 0.0);
+    // Available area per stripe, kept for the scaling below: it is what decides how
+    // far the stripe's cells have to spread, and it is not the geometric width.
+    std::vector<double> stripeAvail(nStripes, 0.0);
     const double axisLo = vertical ? g.x0 : g.y0;
     const double dAxis = vertical ? g.dx : g.dy;
     for (std::size_t s = 0; s < nStripes; ++s) {
@@ -1319,6 +1322,7 @@ void SimplePlacer::Impl::nonlinearScale(const std::vector<std::uint32_t> &cells,
                 sa += g.avail[vertical ? g.at(t, u) : g.at(u, t)];
             }
         }
+        stripeAvail[s] = sa;
         stripeCap[s] = g_ * sa;
     }
     // Furthest stripe from the cutline first, as in Figure 4(iii).
@@ -1374,33 +1378,40 @@ void SimplePlacer::Impl::nonlinearScale(const std::vector<std::uint32_t> &cells,
         stripeUsed[chosen] += area_[i];
     }
 
-    // (iv) Cell locations within each stripe are linearly scaled from their
-    // current locations. Different stripes get different scale factors, and that
-    // is the whole source of the nonlinearity.
+    // (iv) Cell locations within each stripe are linearly scaled from their current
+    // locations, and different stripes get different factors -- which is where the
+    // nonlinearity comes from.
+    //
+    // The factor is the one that brings the stripe's assigned area down to the
+    // density limit, so it is derived from the stripe's AVAILABLE area and not from
+    // its geometric extent. That distinction is the correctness of the step: a
+    // stripe half covered by a fixed macro has half the room, and scaling its cells
+    // to the full geometric width spreads them straight through the blockage -- the
+    // overlap this legalizer exists to remove, put back by the step meant to remove
+    // it. Cells are scaled about the cutline, which keeps each cell's distance from
+    // it proportional and so keeps the ordering the stripes were assigned by, and
+    // the result is clamped to the stripe so a factor above one cannot throw a cell
+    // into a neighbour.
     for (std::size_t s = 0; s < nStripes; ++s) {
         if (packed[s].empty()) {
             continue;
         }
-        double pLo = std::numeric_limits<double>::max();
-        double pHi = -std::numeric_limits<double>::max();
+        double assigned = 0.0;
         for (const std::uint32_t i : packed[s]) {
-            const double p = vertical ? pinX_[i] : pinY_[i];
-            pLo = std::min(pLo, p);
-            pHi = std::max(pHi, p);
+            assigned += area_[i];
         }
-        // Keep a small inset so cells do not end up exactly on a stripe edge.
-        const double inset = 0.05 * (stripeHi[s] - stripeLo[s]);
-        const double sLo = stripeLo[s] + inset;
-        const double sHi = stripeHi[s] - inset;
-        const double span = pHi - pLo;
+        if (!(assigned > 0.0)) {
+            continue;
+        }
+        const double room = g_ * std::max(stripeAvail[s], 0.0);
+        // At or below the density limit already: leave the cells where they are
+        // rather than compressing a sparse stripe down onto a target it meets.
+        const double factor = (room > 0.0 && room < assigned) ? std::sqrt(room / assigned) : 1.0;
         for (const std::uint32_t i : packed[s]) {
             double &target = vertical ? pinX_[i] : pinY_[i];
-            if (span > degEps_) {
-                const double p = (vertical ? pinX_[i] : pinY_[i]) - pLo;
-                target = sLo + p * (sHi - sLo) / span;
-            } else {
-                target = 0.5 * (sLo + sHi);
-            }
+            const double p = vertical ? pinX_[i] : pinY_[i];
+            const double q = (factor == 1.0) ? p : cutCoord + (p - cutCoord) * factor;
+            target = std::clamp(q, stripeLo[s], stripeHi[s]);
             // Keep the bin index exact for the blocks that run next.
             std::size_t nx2, ny2;
             grid_.locate(pinX_[i], pinY_[i], nx2, ny2);
