@@ -1404,9 +1404,26 @@ void SimplePlacer::Impl::nonlinearScale(const std::vector<std::uint32_t> &cells,
             continue;
         }
         const double room = g_ * std::max(stripeAvail[s], 0.0);
-        // At or below the density limit already: leave the cells where they are
-        // rather than compressing a sparse stripe down onto a target it meets.
-        const double factor = (room > 0.0 && room < assigned) ? std::sqrt(room / assigned) : 1.0;
+        // How far the stripe has to spread to bring its assigned cells down to the
+        // density limit. The paper says cells are "linearly scaled from current
+        // locations" and does not give the factor, and the two natural readings
+        // disagree about its sign -- a stripe that is over capacity compresses
+        // under one and spreads under nothing at all. So it is a mode and it is
+        // measured, rather than assumed and defended.
+        double factor = 1.0;
+        if (room > 0.0) {
+            const double raw = std::sqrt(room / assigned);
+            switch (par_.stripeScaleMode) {
+                case SimplParams::StripeScale::Both:
+                    factor = raw;
+                    break;
+                case SimplParams::StripeScale::Tight:
+                    factor = (raw < 1.0) ? raw : 1.0;
+                    break;
+                case SimplParams::StripeScale::None:
+                    break;
+            }
+        }
         for (const std::uint32_t i : packed[s]) {
             double &target = vertical ? pinX_[i] : pinY_[i];
             const double p = vertical ? pinX_[i] : pinY_[i];
@@ -2350,6 +2367,18 @@ SimplResult SimplePlacer::Impl::run(const SimplParams &P, const std::string &plo
     fencePushes_ = 0;
     // Debugging cap: the legalizer is the expensive part, so a short run is
     // needed to iterate on it. Unset in normal use.
+    if (const char *e = std::getenv("KTPLACE_SIMPL_STRIPE_SCALE")) {
+        const std::string v(e);
+        if (v == "tight") {
+            par_.stripeScaleMode = SimplParams::StripeScale::Tight;
+        } else if (v == "both") {
+            par_.stripeScaleMode = SimplParams::StripeScale::Both;
+        } else if (v == "none") {
+            par_.stripeScaleMode = SimplParams::StripeScale::None;
+        } else {
+            ktlog.warning("unknown stripe scale mode '{}', keeping tight", v);
+        }
+    }
     if (const char *e = std::getenv("KTPLACE_SIMPL_INIT_NET")) {
         par_.initNetModel = netModelFor(e, par_.initNetModel);
     }

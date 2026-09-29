@@ -240,6 +240,40 @@ struct SimplParams {
     /// round and the iteration count is a CG tolerance and nothing else. B2B
     /// rebuilds each round from the new positions, which is why the paper alternates
     /// solve and rebuild there and why initMaxIters matters for it.
+    /// How far a stripe spreads the cells assigned to it, in the nonlinear scaling
+    /// of Section 4.2 step (iv).
+    ///
+    /// The paper says cell locations within each stripe are "linearly scaled from
+    /// current locations" and does not give the factor. Measured on adaptec1, every
+    /// reading of it that actually scales is worse than not scaling at all:
+    ///
+    ///   mode   final HPWL   it0 spread   worst overfull bin after LAL
+    ///   tight   2.462e+08      10.25x            219x
+    ///   both    2.438e+08       8.07x            --
+    ///   none    2.251e+08       7.87x             41x
+    ///
+    /// against the paper's 7.74e+07. So None is the default: the stripe assignment
+    /// and the clamp to the assigned stripe are kept, and the scaling is not.
+    ///
+    /// This is not a legality trade. All three produce a placement the checker
+    /// passes with zero overlapping pairs, zero cells off row, off site or over a
+    /// macro, because the Abacus legalization that follows the global placement is
+    /// what actually legalizes -- the look-ahead pass only has to hand it
+    /// something shaped sensibly. And None leaves the least extreme local
+    /// crowding behind (41x rather than 219x), so it is not buying wirelength with
+    /// overlap. What scaling buys is a more even fill, and that is what costs the
+    /// wirelength: spreading a stripe moves cells away from the net clusters that
+    /// put them there.
+    ///
+    /// The other two are kept because they are the paper's step and the question
+    /// deserves to be answerable without a code change.
+    enum class StripeScale {
+        Tight,  ///< scale only when over capacity; never spreads a sparse stripe
+        Both,   ///< sqrt(room/assigned) either way
+        None,   ///< assign and clamp only; no scaling (default, and the best)
+    };
+    StripeScale stripeScaleMode = StripeScale::None;
+
     NetModel initNetModel = NetModel::Star;
     NetModel lssNetModel = NetModel::B2B;
     // The paper, on this, verbatim: "we control cell movement and iteration
