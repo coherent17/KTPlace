@@ -43,7 +43,13 @@ run_one() {
   g=$(ls -la "output/$name/plots/anim/placement.gif" 2>/dev/null | awk '{print $5}')
   local v u p
   v=$(grep -oE "verdict *\| *[A-Z]+" "output/$name/ktplace.log" 2>/dev/null | grep -oE "[A-Z]+$")
-  u=$(grep -oE "utilisation *\| *[0-9.]+%" "output/$name/ktplace.log" 2>/dev/null | grep -oE "[0-9.]+%")
+  # Matched on the row's full name, not on the bare word "utilisation": that
+  # word is now the start of two rows, "utilisation (movable / rows)" and
+  # "utilisation (incl. fixed cells)", and grepping for the prefix silently
+  # matched neither once the labels were disambiguated -- the suite printed
+  # util=? and nobody could tell a naming change from a real regression.
+  u=$(grep -oE "utilisation \(movable / rows\) *\| *[0-9.]+%" \
+        "output/$name/ktplace.log" 2>/dev/null | grep -oE "[0-9.]+%" | head -1)
   # The high-resolution final still, when one was written.
   p=$(ls -la "output/$name/plots/final/final.png" 2>/dev/null | awk '{print $5}')
 
