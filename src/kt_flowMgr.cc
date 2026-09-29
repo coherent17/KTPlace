@@ -178,6 +178,13 @@ public:
     /// placement. Split out of runPlacement because RePlAce and SimPL both end
     /// here, and the reporting is identical -- a second copy would drift.
     bool legalizeAndDetail(const std::string &plotDir, const constraintMgr *fences);
+
+    /// HPWL after legalization and detailed placement -- the number the paper
+    /// reports, and the only one that ranks two global-placement runs. Kept so
+    /// the summary can show it next to SimPL's own upper bound, because the two
+    /// differ by more than the differences being compared: the upper bound is
+    /// the look-ahead legalized placement, taken before either stage runs.
+    double hpwlFinalPlaced_ = -1.0;
     bool writePlacement(const std::string &outputPath, const std::string &format = "bookshelf");
     PlacementDB &getPlacementDB();
     const PlacementDB &getPlacementDB() const;
@@ -642,6 +649,7 @@ bool FlowMgr::Impl::legalizeAndDetail(const std::string &plotDir, const constrai
     dsummary.addRow({"reorder moves", fmt::format("{}", dres.reorderMoves)});
     dsummary.addRow({"cluster moves", fmt::format("{}", dres.clusterMoves)});
     dsummary.addRow({"HPWL before", fmt::format("{:.6}", dres.hpwlBefore)});
+    hpwlFinalPlaced_ = dres.hpwlAfter;
     dsummary.addRow({"HPWL after", fmt::format("{:.6}", dres.hpwlAfter)});
     dsummary.addRow({"HPWL change",
                      fmt::format("{:.2}%", 100.0 * (dres.hpwlAfter - dres.hpwlBefore) /
@@ -917,6 +925,22 @@ bool FlowMgr::Impl::runPlacement(const std::string &algorithm, const std::string
         summary.emit();
 
         legalizeAndDetail(plotDir, regions);
+        if (hpwlFinalPlaced_ > 0.0) {
+            // Rankable result, beside the bound it is derived from, so a change
+            // can be judged on the metric the paper publishes rather than on the
+            // intermediate upper bound, which moves for reasons that do not
+            // survive legalization.
+            ktReportTable placed("Placement quality (after legalization and detail placement)");
+            placed.setHeaders({"metric", "value"});
+            placed.addRow({"HPWL detailed", fmt::format("{:.6}", hpwlFinalPlaced_)});
+            placed.addRow({"HPWL global upper bound", fmt::format("{:.6}", res.hpwlFinal)});
+            placed.addRow({"legalization + detail change",
+                           fmt::format("{:.2}%",
+                                       100.0 * (hpwlFinalPlaced_ - res.hpwlFinal) /
+                                           (res.hpwlFinal > 0.0 ? res.hpwlFinal : 1.0))});
+            placed.addRow({"paper reference (adaptec1)", "77410738"});
+            placed.emit();
+        }
         return true;
 
     } else {
