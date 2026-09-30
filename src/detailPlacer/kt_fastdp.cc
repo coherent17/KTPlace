@@ -1115,6 +1115,37 @@ void FastDetailedPlacer::Impl::selfCheck(DetailPlaceResult &res) const {
     // independent check found o87670 sitting inside o169225. A self-check that
     // reports a clean bill of health for an illegal placement is worse than no
     // check, because it is the number the run is judged on.
+    // A second, brute-force count straight off the cell arrays, sorted by row and
+    // then by x. It shares no code and no invariants with the per-span sweep above,
+    // so if the two disagree the span view is the thing that is wrong, and which of
+    // the two is telling the truth becomes a measurement instead of an argument.
+    {
+        std::vector<std::size_t> all(mov_.size());
+        std::iota(all.begin(), all.end(), 0u);
+        std::sort(all.begin(), all.end(), [&](std::size_t a, std::size_t b) {
+            if (y_[a] != y_[b]) {
+                return y_[a] < y_[b];
+            }
+            return x_[a] < x_[b];
+        });
+        std::size_t brute = 0;
+        for (std::size_t k = 1; k < all.size(); ++k) {
+            const std::size_t a = all[k - 1], b = all[k];
+            if (y_[a] == y_[b] && x_[a] + w_[a] > x_[b] + 1e-6) {
+                ++brute;
+            }
+        }
+        ktlog.echo("  detail-place overlap counts: brute-force {}, per-span {} (spans {})", brute,
+                   res.overlappingPairs, spans_.size());
+        if (brute != res.overlappingPairs) {
+            ktlog.warning(
+                "the per-span overlap sweep and a brute-force sweep over the cell "
+                "arrays disagree ({} vs {}): the spans do not partition the cells "
+                "the way the sweep assumes",
+                brute, res.overlappingPairs);
+        }
+        res.overlappingPairs = std::max(res.overlappingPairs, brute);
+    }
     std::vector<std::size_t> byX;
     for (const Span &sp : spans_) {
         if (sp.cells.size() < 2) {
