@@ -1098,6 +1098,17 @@ void SimplePlacer::Impl::solve(const std::string &tag, bool allowFrames) {
     setup(ay, Ay_, rhsY_, solY_);
 
     for (std::size_t it = 0; it < par_.cgMaxIter; ++it) {
+        // Overridable, because on this system the residual has a floor: every
+        // solve runs the full cgMaxIter and finishes between 1e-3 and 5e-3, so
+        // cgTol = 1e-3 is below what Jacobi preconditioning reaches and the cap is
+        // the only thing stopping it. That makes cgMaxIter, not the tolerance, the
+        // real stopping rule, and it is why a 100-iteration run costs 20 minutes.
+        if (const char *e = std::getenv("KTPLACE_SIMPL_CG_TOL")) {
+            const double v = std::atof(e);
+            if (v > 0.0) {
+                par_.cgTol = v;
+            }
+        }
         const bool liveX = ax.active && ax.resid > par_.cgTol;
         const bool liveY = ay.active && ay.resid > par_.cgTol;
         if (!liveX && !liveY) {
