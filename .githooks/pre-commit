@@ -49,14 +49,13 @@ else
 fi
 
 # ------------------------------------------------- compilation database
-# Stale entries are worse than none: clangd would then report diagnostics from
-# flags the build no longer uses, and the mistake is invisible because the file
-# is present. Regenerated and compared rather than merely required to exist.
+# Only checked for being generatable, not for being committed: the file is
+# ignored because its include paths are absolute, so there is nothing in the
+# index to compare against. The value is that a broken generator is caught here
+# rather than as a silently empty database in the editor.
 if ! make compile-commands >/dev/null 2>&1; then
     echo "pre-commit: could not generate compile_commands.json (is python3 present?)"
     fail=1
-elif ! git diff --quiet -- compile_commands.json 2>/dev/null; then
-    echo "pre-commit: compile_commands.json is not tracked, nothing to compare."
 fi
 
 # --------------------------------------------------------------------- tests

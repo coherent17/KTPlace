@@ -513,22 +513,14 @@ void SimplePlacer::Impl::buildGrid(const SimplParams &P) {
     std::size_t nby = P.binsY;
     if (nbx == 0 || nby == 0) {
         // ~51 cells per bin: adaptec1 lands on 64x64.
-        // A few cells per bin keeps the BFS clustering and the cutline search
-        // cheap while still resolving the density of a large design.
-        // Cells per bin. Coarser than it looks: at 4 the grid is finer than the
-        // LAL can use, and on adaptec1 a 229x229 grid leaves only 28190 of 52441
-        // bins with any available area, so the density map is dominated by bins a
-        // fixed cell covers entirely. Measured over 64..700 on adaptec1, the coarse
-        // end is the balanced one -- 64 gives the lowest scaled overflow (0.22) and
-        // the least lopsided placement (LAL0 x-centroid 0.459 against 0.335 for the
-        // fine grid), which is what the density map wants to be.
+        //
+        // Measured over 64..700 on adaptec1, the coarse end is the balanced one:
+        // 64 gives the lowest scaled overflow (0.206 against 0.305 at 229) and the
+        // least lopsided placement, for 4.07e+08 against 5.40e+08 end to end.
+        // KTPLACE_SIMPL_GRID overrides it; 700 is better still on wirelength alone.
         double t =
             std::clamp(std::sqrt(static_cast<double>(std::max<std::size_t>(numMovable_, 1)) / 51.0),
                        16.0, 256.0);
-        // Overridable, because the resolution is a real trade rather than a
-        // constant: adaptec1 also scores better on wirelength at a much finer grid
-        // (700 gave 3.53e+08 against 64's 4.56e+08), and which of the two wins is
-        // not settled by a single run.
         if (const char *e = std::getenv("KTPLACE_SIMPL_GRID")) {
             const long v = std::strtol(e, nullptr, 10);
             if (v >= 8 && v <= 1024) {
