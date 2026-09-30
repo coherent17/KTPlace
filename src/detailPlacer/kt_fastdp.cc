@@ -831,12 +831,33 @@ std::size_t FastDetailedPlacer::Impl::medianReorder() {
         if (sp.cells.size() < 2) {
             continue;
         }
-        // One pass left to right, then one right to left: a cell's median depends
-        // on where its neighbours in the span are, so a single sweep leaves every
-        // move made early in the pass stale for the cells after it.
+        // The pass walks a SNAPSHOT of the span's cells, not the span itself.
+        //
+        // It used to index sp.cells directly, while each accepted move called
+        // resort() and re-sorted that same vector. The index therefore referred to
+        // a different cell after every move, so the pass was not the left-to-right
+        // sweep it claimed to be: it revisited cells it had already handled and
+        // skipped others, in an order that changed underneath it. The result was a
+        // placement with an overlapping pair -- o87670 sitting five units inside
+        // o169225, both in one row -- and the run reported FAIL on adaptec1 at the
+        // 64-cell-per-bin grid.
+        //
+        // The legality gate was not the problem: canPlace() was consulted before
+        // every commit, and it does reject a move onto a neighbour. Walking a
+        // container that the loop mutates is simply not a defined traversal, and
+        // nothing downstream can be trusted once the pass has done it.
+        //
+        // One pass left to right over the snapshot, then one right to left: a
+        // cell's median depends on where its neighbours in the span are, so a
+        // single sweep leaves every move made early in the pass stale for the cells
+        // after it.
+        const std::vector<std::size_t> snapshot = sp.cells;
         for (int dir = 0; dir < 2; ++dir) {
-            for (std::size_t i = 0; i < sp.cells.size(); ++i) {
-                const std::size_t c = sp.cells[dir ? sp.cells.size() - 1 - i : i];
+            for (std::size_t i = 0; i < snapshot.size(); ++i) {
+                const std::size_t c = snapshot[dir ? snapshot.size() - 1 - i : i];
+                if (spanOf_[c] != s) {
+                    continue;  // a cell that has since been rehomed
+                }
                 const double cur = x_[c];
                 const double want = std::clamp(medianX(c), sp.xlo, sp.xhi);
                 if (std::fabs(want - cur) < 1e-9) {
@@ -1084,9 +1105,26 @@ void FastDetailedPlacer::Impl::selfCheck(DetailPlaceResult &res) const {
             ++res.offSite;
         }
     }
+    // Sorted by x before the sweep, rather than trusted to be.
+    //
+    // This walks consecutive pairs, which is only correct if the span's cell list
+    // is in x order -- and that is an invariant of the passes, not a property of
+    // the data. Any technique that commits a move without re-sorting breaks it, and
+    // the check then under-counts instead of reporting the fault: on adaptec1 both
+    // the legalizer and this placer reported zero overlapping pairs while the
+    // independent check found o87670 sitting inside o169225. A self-check that
+    // reports a clean bill of health for an illegal placement is worse than no
+    // check, because it is the number the run is judged on.
+    std::vector<std::size_t> byX;
     for (const Span &sp : spans_) {
-        for (std::size_t k = 1; k < sp.cells.size(); ++k) {
-            const std::size_t a = sp.cells[k - 1], b = sp.cells[k];
+        if (sp.cells.size() < 2) {
+            continue;
+        }
+        byX = sp.cells;
+        std::sort(byX.begin(), byX.end(),
+                  [&](std::size_t a, std::size_t b) { return x_[a] < x_[b]; });
+        for (std::size_t k = 1; k < byX.size(); ++k) {
+            const std::size_t a = byX[k - 1], b = byX[k];
             if (x_[a] + w_[a] > x_[b] + eps) {
                 ++res.overlappingPairs;
             }
@@ -1239,7 +1277,9 @@ DetailPlaceResult FastDetailedPlacer::Impl::place(const DetailPlaceParams &param
 
     sweep("global", params.globalSwapPasses, res.globalSwaps, &Impl::globalSwap);
     sweep("vertical", params.verticalSwapPasses, res.verticalSwaps, &Impl::verticalSwap);
-    sweep("median", params.localReorderPasses, res.medianMoves, &Impl::medianReorder);
+    if (std::getenv("KTPLACE_DP_NO_MEDIAN") == nullptr) {
+        sweep("median", params.localReorderPasses, res.medianMoves, &Impl::medianReorder);
+    }
     sweep("reorder", params.localReorderPasses, res.reorderMoves, &Impl::localReorder);
     sweep("cluster", params.clusterPasses, res.clusterMoves, &Impl::singleSegmentCluster);
 
