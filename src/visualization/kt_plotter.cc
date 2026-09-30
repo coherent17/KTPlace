@@ -837,10 +837,15 @@ CImg<unsigned char> renderFrameCImg(const Graph &g, const std::vector<float> &x,
     // placement has no initial, and printing "HPWL = 4.9e+08 (initial 4.9e+08)"
     // is worse than printing nothing: it reads like a broken number rather than
     // like the absence of a comparison.
-    const std::string wl = "HPWL = " + fmt(hpwl, 3) +
-                           (hpwlInitial > 0.0 ? "  (initial " + fmt(hpwlInitial, 3) + ")" : "");
-    img.draw_text(tx, static_cast<int>(std::lround(36.0 * zoom)), wl.c_str(),
-                  pal.ptr(hexColor("#90caf9")), 0, 1.0f, &font);
+    // A non-positive HPWL means "not measured for this frame", not zero, so the
+    // line is left out rather than printed as 0.000: a frame that says its
+    // wirelength is zero is a frame that looks broken.
+    if (hpwl > 0.0) {
+        const std::string wl = "HPWL = " + fmt(hpwl, 3) +
+                               (hpwlInitial > 0.0 ? "  (initial " + fmt(hpwlInitial, 3) + ")" : "");
+        img.draw_text(tx, static_cast<int>(std::lround(36.0 * zoom)), wl.c_str(),
+                      pal.ptr(hexColor("#90caf9")), 0, 1.0f, &font);
+    }
 
     int legendY = static_cast<int>(std::lround(56.0 * zoom));
     if (resid > 0.0) {
@@ -1111,7 +1116,8 @@ BBox fixedCellBBox(const Graph &g) {
 void writeFrameSvg(const std::string &path, const Graph &g, const std::vector<float> &x,
                    const std::vector<float> &y, const BBox &dieBox, std::size_t step,
                    std::size_t numSteps, double hpwl, double hpwlInitial, double resid,
-                   const std::string &note, const constraintMgr *constraints, bool fixedView) {
+                   const std::string &note, const constraintMgr *constraints, bool fixedView,
+                   bool worldUnits) {
     const std::size_t nv = g.getNumVertices();
     // By default the view auto-fits the data, which is right for a single frame but
     // makes a sequence impossible to read: a collapsed iteration 0 and a spread
@@ -1120,15 +1126,45 @@ void writeFrameSvg(const std::string &path, const Graph &g, const std::vector<fl
     // frame in a sequence is directly comparable.
     // SVG is resolution-independent, so it always draws at zoom 1; zoom applies to
     // the raster path, where the pixel size is set at render time.
-    const ViewPort vp =
+    //
+    // worldUnits writes the final still in world units with the die as the viewBox,
+    // rather than pre-scaling it to 768. SVG is resolution independent, so baking a
+    // frame-size scale into the coordinates buys nothing and costs the precision:
+    // at 768 over a 10692-unit die one site is 0.07 of a unit, which one decimal
+    // place cannot represent, so cells a site apart round onto each other and the
+    // "exact one rect per cell" artefact stops being exact. In world units it is
+    // exact at any size, and still opens at a sensible size because width/height
+    // carry the on-screen size separately from the viewBox.
+    ViewPort vp =
         fixedView ? dieViewPort(dieBox, /*zoom=*/1.0) : makeViewPort(g, x, y, dieBox, /*zoom=*/1.0);
+    double vbX = 0.0, vbY = 0.0, vbW = kImageW, vbH = kImageH;
+    int prec = 1;
+    if (worldUnits) {
+        const double spanX = dieBox[2] - dieBox[0];
+        const double spanY = dieBox[3] - dieBox[1];
+        vp.minX = dieBox[0];
+        vp.minY = dieBox[1];
+        vp.sx = 1.0;
+        vp.sy = 1.0;
+        vp.margin = 0.0;
+        vp.height = spanY;
+        // toPxX and toPxY already subtract the die's lower-left corner, so the
+        // emitted coordinates already run 0..span. The viewBox has to start at the
+        // origin to match, or the whole drawing sits one die offset off-canvas.
+        vbX = 0.0;
+        vbY = 0.0;
+        vbW = spanX;
+        vbH = spanY;
+        prec = 3;  // well under a site at the finest pitch these designs use
+    }
 
     std::ofstream out(path);
     if (!out.is_open()) {
         return;
     }
     out << "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"" << kImageW << "\" height=\""
-        << kImageH << "\" viewBox=\"0 0 " << kImageW << " " << kImageH << "\">\n";
+        << kImageH << "\" viewBox=\"" << fmt(vbX, prec) << " " << fmt(vbY, prec) << " " << fmt(vbW, prec)
+        << " " << fmt(vbH, prec) << "\">\n";
     out << "<rect width=\"100%\" height=\"100%\" fill=\"#101418\"/>\n";
     out << "<title>step " << step << ": " << note << "</title>\n";
 
@@ -1145,7 +1181,7 @@ void writeFrameSvg(const std::string &path, const Graph &g, const std::vector<fl
         << (kImageW - 2 * kMargin / 3) * pct / 100.0 << "\" height=\"6\" fill=\"#4fc3f7\"/>\n";
 
     // Die (fixed-pad) frame.
-    out << "<rect x=\"" << fmt(toPxX(vp, dieBox[0])) << "\" y=\"" << fmt(toPxY(vp, dieBox[3]))
+    out << "<rect x=\"" << fmt(toPxX(vp, dieBox[0]), prec) << "\" y=\"" << fmt(toPxY(vp, dieBox[3]), prec)
         << "\" width=\"" << fmt((dieBox[2] - dieBox[0]) * vp.sx) << "\" height=\""
         << fmt((dieBox[3] - dieBox[1]) * vp.sy)
         << "\" fill=\"none\" stroke=\"#bdbdbd\" stroke-width=\"1\"/>\n";
@@ -1160,9 +1196,9 @@ void writeFrameSvg(const std::string &path, const Graph &g, const std::vector<fl
         constexpr std::size_t kEvery = 8;
         out << "<g stroke=\"#8fa3b8\" stroke-opacity=\"0.34\" stroke-width=\"1\">\n";
         for (std::size_t i = 0; i < rows.size(); i += kEvery) {
-            out << "<line x1=\"" << fmt(toPxX(vp, dieBox[0])) << "\" y1=\""
-                << fmt(toPxY(vp, rows[i][1])) << "\" x2=\"" << fmt(toPxX(vp, dieBox[2]))
-                << "\" y2=\"" << fmt(toPxY(vp, rows[i][1])) << "\"/>\n";
+            out << "<line x1=\"" << fmt(toPxX(vp, dieBox[0]), prec) << "\" y1=\""
+                << fmt(toPxY(vp, rows[i][1]), prec) << "\" x2=\"" << fmt(toPxX(vp, dieBox[2]), prec)
+                << "\" y2=\"" << fmt(toPxY(vp, rows[i][1]), prec) << "\"/>\n";
         }
         out << "</g>\n";
     }
@@ -1177,7 +1213,7 @@ void writeFrameSvg(const std::string &path, const Graph &g, const std::vector<fl
             const Region &reg = *constraints->region(static_cast<int>(ri));
             const char *color = kFenceColors[ri % (sizeof(kFenceColors) / sizeof(char *))];
             for (const Rect &r : reg.rects) {
-                out << "<rect x=\"" << fmt(toPxX(vp, r.lo.x)) << "\" y=\"" << fmt(toPxY(vp, r.hi.y))
+                out << "<rect x=\"" << fmt(toPxX(vp, r.lo.x), prec) << "\" y=\"" << fmt(toPxY(vp, r.hi.y), prec)
                     << "\" width=\"" << fmt((r.hi.x - r.lo.x) * vp.sx) << "\" height=\""
                     << fmt((r.hi.y - r.lo.y) * vp.sy) << "\" fill=\"" << color
                     << "\" fill-opacity=\"0.13\" stroke=\"" << color
@@ -1201,9 +1237,9 @@ void writeFrameSvg(const std::string &path, const Graph &g, const std::vector<fl
         }
         const double w = std::max(2.0, vert.width * vp.sx);
         const double h = std::max(2.0, vert.height * vp.sy);
-        out << "<rect x=\"" << fmt(toPxX(vp, x[v])) << "\" y=\""
-            << fmt(toPxY(vp, y[v] + vert.height)) << "\" width=\"" << fmt(w, 3) << "\" height=\""
-            << fmt(h, 3) << "\"/>\n";
+        out << "<rect x=\"" << fmt(toPxX(vp, x[v]), prec) << "\" y=\""
+            << fmt(toPxY(vp, y[v] + vert.height), prec) << "\" width=\"" << fmt(w, prec) << "\" height=\""
+            << fmt(h, prec) << "\"/>\n";
     }
     // I/O pads / terminals: never decimated; every pad is drawn.
     for (std::size_t v = 0; v < nv; ++v) {
@@ -1213,9 +1249,9 @@ void writeFrameSvg(const std::string &path, const Graph &g, const std::vector<fl
         }
         const double w = std::max(2.0, vert.width * vp.sx);
         const double h = std::max(2.0, vert.height * vp.sy);
-        out << "<rect x=\"" << fmt(toPxX(vp, x[v])) << "\" y=\""
-            << fmt(toPxY(vp, y[v] + vert.height)) << "\" width=\"" << fmt(w, 3) << "\" height=\""
-            << fmt(h, 3) << "\"/>\n";
+        out << "<rect x=\"" << fmt(toPxX(vp, x[v]), prec) << "\" y=\""
+            << fmt(toPxY(vp, y[v] + vert.height), prec) << "\" width=\"" << fmt(w, prec) << "\" height=\""
+            << fmt(h, prec) << "\"/>\n";
     }
     // Movable cells, one flat blue, matching the raster renderer so the two
     // representations of a frame are the same picture. One <g> for the whole set
@@ -1238,9 +1274,9 @@ void writeFrameSvg(const std::string &path, const Graph &g, const std::vector<fl
             // never drawn wider than it is.
             const double w = std::max(0.75, vert.width * vp.sx);
             const double h = std::max(0.75, vert.height * vp.sy);
-            out << "<rect x=\"" << fmt(toPxX(vp, x[v])) << "\" y=\""
-                << fmt(toPxY(vp, y[v] + vert.height)) << "\" width=\"" << fmt(w, 3)
-                << "\" height=\"" << fmt(h, 3) << "\"/>\n";
+            out << "<rect x=\"" << fmt(toPxX(vp, x[v]), prec) << "\" y=\""
+                << fmt(toPxY(vp, y[v] + vert.height), prec) << "\" width=\"" << fmt(w, prec)
+                << "\" height=\"" << fmt(h, prec) << "\"/>\n";
         }
         out << "</g>\n";
     }
@@ -1250,10 +1286,14 @@ void writeFrameSvg(const std::string &path, const Graph &g, const std::vector<fl
     out << "<text x=\"" << kMargin / 3
         << "\" y=\"24\" fill=\"#ffffff\" font-family=\"monospace\" font-size=\"14\">" << "CG step "
         << step << " / " << (numSteps - 1) << " — " << note << "</text>\n";
-    out << "<text x=\"" << kMargin / 3
-        << "\" y=\"44\" fill=\"#90caf9\" font-family=\"monospace\" font-size=\"13\">"
-        << "HPWL = " << fmt(hpwl, 3)
-        << (hpwlInitial > 0.0 ? "  (initial " + fmt(hpwlInitial, 3) + ")" : "") << "</text>\n";
+    // Omitted when unmeasured, for the same reason as the raster caption.
+    if (hpwl > 0.0) {
+        out << "<text x=\"" << kMargin / 3
+            << "\" y=\"44\" fill=\"#90caf9\" font-family=\"monospace\" font-size=\"13\">"
+            << "HPWL = " << fmt(hpwl, prec)
+            << (hpwlInitial > 0.0 ? "  (initial " + fmt(hpwlInitial, prec) + ")" : "")
+            << "</text>\n";
+    }
     if (resid > 0.0) {
         out << "<text x=\"" << kMargin / 3
             << "\" y=\"62\" fill=\"#ffeb3b\" font-family=\"monospace\" font-size=\"12\">"
@@ -1366,8 +1406,10 @@ void writeFinalFrameSvg(const std::string &path, const Graph &g, const constrain
         y[v] = static_cast<float>(g.getVertex(v).y);
     }
     // Same picture as the raster still, so the two can be compared directly.
+    // worldUnits: the die is the viewBox and coordinates are world units, so the
+    // file is exact rather than a 768-wide picture of the placement.
     writeFrameSvg(path, g, x, y, fixedCellBBox(g), 0, 1, hpwl, /*hpwlInitial=*/0.0, 0.0,
-                  "final placement", constraints, /*fixedView=*/true);
+                  "final placement", constraints, /*fixedView=*/true, /*worldUnits=*/true);
 }
 
 namespace {

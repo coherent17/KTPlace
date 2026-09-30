@@ -90,7 +90,8 @@ struct SimplParams {
     double initTolFrac = 5e-3;
     /// Consecutive rounds below initTolFrac before the warm-up is called done.
     /// One, because the warm-up is meant to be rough.
-    std::size_t initPatience = 1;
+    /// 0 disables the early exit entirely: every round in initMaxIters runs.
+    std::size_t initPatience = 0;
 
     // --- look-ahead legalization --------------------------------------------
     /// Run look-ahead legalization. Turning this off returns the raw lower bound,

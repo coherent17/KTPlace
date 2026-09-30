@@ -60,7 +60,7 @@ void writeFrameSvg(const std::string &path, const Graph &g, const std::vector<fl
                    const std::vector<float> &y, const BBox &dieBox, std::size_t step,
                    std::size_t numSteps, double hpwl, double hpwlInitial, double resid,
                    const std::string &note, const constraintMgr *constraints = nullptr,
-                   bool fixedView = false);
+                   bool fixedView = false, bool worldUnits = false);
 
 /**
  * @brief Write an HTML gallery page that embeds all frames and the curve.

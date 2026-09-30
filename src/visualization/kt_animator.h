@@ -146,7 +146,7 @@ public:
     void record(const Graph &g, const std::vector<float> &x, const std::vector<float> &y,
                 const BBox &die, std::size_t step, std::size_t total, double hpwl,
                 double hpwlInitial, double resid, const std::string &note,
-                const constraintMgr *constraints = nullptr);
+                const constraintMgr *constraints = nullptr, bool mandatory = false);
 
     /**
      * @brief Write the collected stills as one animated GIF.
@@ -171,6 +171,13 @@ private:
     std::vector<float> prevX_, prevY_;
     bool havePrev_ = false;
     std::size_t frame_ = 0;
+    /// Frames offered since the last reset, and the spacing between the ones
+    /// actually kept. The stride doubles when the budget runs out instead of the
+    /// animator stopping: hard-stopping spent the whole budget on the opening
+    /// rounds of the initial placement and left the legalizer and the detailed
+    /// placer -- the stages the animation exists to show -- with nothing.
+    std::size_t offered_ = 0;
+    std::size_t stride_ = 1;
     std::size_t held_ = 0;
     bool enabled_ = false;
     bool capped_ = false;

@@ -5,6 +5,8 @@
 
 #include "detailPlacer/kt_fastdp.h"
 
+#include <chrono>
+
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -92,6 +94,7 @@ private:
     std::size_t globalSwap();
     std::size_t verticalSwap();
     std::size_t localReorder();
+    std::size_t medianReorder();
     std::size_t singleSegmentCluster();
     void selfCheck(DetailPlaceResult &res) const;
     void writeFrame(const std::string &path, const char *note) const;
@@ -115,6 +118,17 @@ private:
                              std::size_t offOld, double hpOld);
     /// Spans in the rows immediately above and below each row, built once.
     std::vector<std::vector<std::size_t>> rowsNear_;
+    /// Fixed boxes bucketed by y, so testing a cell against them costs the boxes
+    /// in its own row band rather than every macro in the design. The flat scan
+    /// this replaces was cells times macros -- 114 million box tests on adaptec1
+    /// and about 33 of detail placement's 54 seconds.
+    std::vector<std::vector<std::size_t>> fixedByBand_;
+    double bandY_ = 0.0, bandY0_ = 0.0;
+    /// Index of the first span in each row, so locate() starts at the spans of the
+    /// cell's own row instead of at span 0. A cell is in exactly one row, and the
+    /// spans are grouped by row, so the candidate set is a handful and the test is
+    /// not a walk over the whole design.
+    std::vector<std::size_t> spanRowStart_;
     void removeFromSpan(std::size_t c);
     /// Could cell c legally sit at nx in span s, ignoring the cells in `ignore`?
     /// This is checked *before* any mutation so an exchange never has to be
@@ -182,24 +196,59 @@ void FastDetailedPlacer::Impl::buildSpans() {
         });
     }
 
-    // Index of the spans in the rows immediately above and below each row, so a
+    // Index the spans in the rows immediately above and below each row, so a
     // vertical swap does not have to walk the whole design per cell.
+    //
+    // Built by walking the spans once and bucketing them by row, rather than by
+    // walking every span for every span. The nested version was quadratic in the
+    // span count and, worse, appended from inside the outer loop: a row with k
+    // spans put the same neighbour into rowsNear_ k times, so the list every
+    // vertical swap then walked held each candidate span k times over and the
+    // identical trial was re-evaluated k times.
+    std::vector<std::vector<std::size_t>> spansInRow(rows.size());
+    for (std::size_t t = 0; t < spans_.size(); ++t) {
+        spansInRow[spans_[t].row].push_back(t);
+    }
     rowsNear_.assign(rows.size(), {});
-    for (std::size_t s = 0; s < spans_.size(); ++s) {
-        const std::size_t r = spans_[s].row;
+    for (std::size_t r = 0; r < rows.size(); ++r) {
         if (r > 0) {
-            for (std::size_t t = 0; t < spans_.size(); ++t) {
-                if (spans_[t].row + 1 == r) {
-                    rowsNear_[r].push_back(t);
-                }
-            }
+            rowsNear_[r].insert(rowsNear_[r].end(), spansInRow[r - 1].begin(),
+                                spansInRow[r - 1].end());
         }
         if (r + 1 < rows.size()) {
-            for (std::size_t t = 0; t < spans_.size(); ++t) {
-                if (spans_[t].row == r + 1) {
-                    rowsNear_[r].push_back(t);
-                }
+            rowsNear_[r].insert(rowsNear_[r].end(), spansInRow[r + 1].begin(),
+                                spansInRow[r + 1].end());
+        }
+    }
+
+    // First span of each row, over the row-ordered span list, so locate() can jump
+    // to the cell's own row.
+    spanRowStart_.assign(rows.size() + 1, spans_.size());
+    {
+        std::size_t s = 0;
+        for (std::size_t r = 0; r < rows.size(); ++r) {
+            spanRowStart_[r] = s;
+            while (s < spans_.size() && spans_[s].row == r) {
+                ++s;
             }
+        }
+        spanRowStart_[rows.size()] = spans_.size();
+    }
+
+    // Fixed boxes by y band, one row pitch tall, so a cell only meets the macros
+    // that can actually reach it.
+    bandY_ = rows.empty() ? 1.0 : std::max(1e-9, rows[0].height);
+    bandY0_ = rows.empty() ? 0.0 : rows.front().coordinate;
+    const std::size_t nBands = rows.empty() ? 1 : rows.size() + 2;
+    fixedByBand_.assign(nBands, {});
+    for (std::size_t i = 0; i < fixed_.size(); ++i) {
+        const FixedBox &f = fixed_[i];
+        long b0 = static_cast<long>(std::floor((f.y0 - bandY0_) / bandY_));
+        long b1 = static_cast<long>(std::floor((f.y1 - bandY0_) / bandY_));
+        b0 = std::max<long>(b0, 0);
+        b1 = std::min<long>(b1, static_cast<long>(nBands) - 1);
+        for (long b = b0; b <= b1; ++b) {
+            fixedByBand_[static_cast<std::size_t>(b)].push_back(i);
         }
     }
 }
@@ -295,8 +344,15 @@ double FastDetailedPlacer::Impl::hpwl() const {
             bx = std::max(bx, px);
             if (p.slot != kNoSlot) {
                 anyMovable = true;
-                ay = std::min(ay, y_[p.slot]);
-                by = std::max(by, y_[p.slot] + h_[p.slot]);
+                // The pin's own y, not the cell's box. HPWL is a wirelength between
+                // pins, and the .nets offsets are up to 1420 units against a
+                // 12-unit row: taking the cell's bottom and top edges instead
+                // inflates every net's vertical extent by up to a full cell
+                // height, and the result is not the quantity SimPL and the
+                // legalizer report. deltaSwap() already used the pin's y, so the
+                // two disagreed with each other as well.
+                ay = std::min(ay, y_[p.slot] + p.offY);
+                by = std::max(by, y_[p.slot] + p.offY);
             }
         }
         // Both axes: the legalizer measures HPWL the same way, so the two stages
@@ -758,6 +814,55 @@ std::size_t FastDetailedPlacer::Impl::verticalSwap() {
     return moves;
 }
 
+std::size_t FastDetailedPlacer::Impl::medianReorder() {
+    // The classic median move, over every span: for each cell, take the x that
+    // minimises its own net spans and move it there if the span still fits it.
+    //
+    // This is what the exhaustive window search in localReorder() is trying to
+    // approximate, at a fraction of the cost. localReorder enumerates all 2^k
+    // orderings of a k=12 cell window and evaluates segmentHpwl() for each, which
+    // on adaptec1 is about 3.6e9 evaluations spread over 17575 windows; it
+    // returns roughly 31000 moves. Here each cell costs one median and one
+    // legality check, so the same ground is covered in time proportional to
+    // cells times net degree.
+    std::size_t moves = 0;
+    for (std::size_t s = 0; s < spans_.size(); ++s) {
+        Span &sp = spans_[s];
+        if (sp.cells.size() < 2) {
+            continue;
+        }
+        // One pass left to right, then one right to left: a cell's median depends
+        // on where its neighbours in the span are, so a single sweep leaves every
+        // move made early in the pass stale for the cells after it.
+        for (int dir = 0; dir < 2; ++dir) {
+            for (std::size_t i = 0; i < sp.cells.size(); ++i) {
+                const std::size_t c = sp.cells[dir ? sp.cells.size() - 1 - i : i];
+                const double cur = x_[c];
+                const double want = std::clamp(medianX(c), sp.xlo, sp.xhi);
+                if (std::fabs(want - cur) < 1e-9) {
+                    continue;
+                }
+                if (!canPlace(c, want)) {
+                    continue;
+                }
+                const double before = segmentHpwl(sp.cells);
+                if (!canPlace(c, cur)) {
+                    continue;  // the median is blocked; leave the cell where it is
+                }
+                commit(c, want);
+                const double after = segmentHpwl(sp.cells);
+                if (after < before - 1e-9) {
+                    ++moves;
+                } else {
+                    commit(c, cur);
+                }
+                resort(s);
+            }
+        }
+    }
+    return moves;
+}
+
 std::size_t FastDetailedPlacer::Impl::localReorder() {
     // For each window of consecutive cells in a span, find the best left-to-right
     // ordering exactly. With the order fixed and the cells packed from the
@@ -988,7 +1093,11 @@ void FastDetailedPlacer::Impl::selfCheck(DetailPlaceResult &res) const {
         }
     }
     for (std::size_t i = 0; i < mov_.size(); ++i) {
-        for (const FixedBox &f : fixed_) {
+        const long b = std::clamp<long>(
+            static_cast<long>(std::floor((y_[i] - bandY0_) / bandY_)), 0,
+            static_cast<long>(fixedByBand_.size()) - 1);
+        for (const std::size_t fi : fixedByBand_[static_cast<std::size_t>(b)]) {
+            const FixedBox &f = fixed_[fi];
             if (x_[i] + w_[i] > f.x0 + eps && x_[i] < f.x1 - eps && y_[i] + h_[i] > f.y0 + eps &&
                 y_[i] < f.y1 - eps) {
                 ++res.overFixed;
@@ -1002,6 +1111,16 @@ DetailPlaceResult FastDetailedPlacer::Impl::place(const DetailPlaceParams &param
     DetailPlaceResult res;
     ScopedTimer timer("detail-place");
     localWindow_ = params.localReorderWindow;
+    // The subset DP costs 2^k per window, so the window is the one knob that sets
+    // the price of re-ordering. Measured on adaptec1: k=8 costs about 36 of 52
+    // seconds for a few tenths of a percent. Overridable so the curve can be
+    // walked without a rebuild.
+    if (const char *e = std::getenv("KTPLACE_DP_WINDOW")) {
+        const long v = std::strtol(e, nullptr, 10);
+        if (v >= 2 && v <= 14) {
+            localWindow_ = static_cast<std::size_t>(v);
+        }
+    }
     constraints_ = params.constraints;
 
     // place() is a normal call, not a one-shot: the same object may be run
@@ -1039,9 +1158,21 @@ DetailPlaceResult FastDetailedPlacer::Impl::place(const DetailPlaceParams &param
     }
     const BBox d = fixedCellBBox(graph_);
     die_ = BBox{d[0], d[1], d[2], d[3]};
-    buildSpans();
-    buildNetlist();
-    res.hpwlBefore = hpwl();
+    {
+        const auto t0 = std::chrono::steady_clock::now();
+        buildSpans();
+        const auto t1 = std::chrono::steady_clock::now();
+        buildNetlist();
+        const auto t2 = std::chrono::steady_clock::now();
+        res.hpwlBefore = hpwl();
+        const auto t3 = std::chrono::steady_clock::now();
+        ktlog.echo("  detail-place build-spans  {:>8.3f}s",
+                   std::chrono::duration<double>(t1 - t0).count());
+        ktlog.echo("  detail-place build-nets   {:>8.3f}s",
+                   std::chrono::duration<double>(t2 - t1).count());
+        ktlog.echo("  detail-place hpwl-in      {:>8.3f}s",
+                   std::chrono::duration<double>(t3 - t2).count());
+    }
 
     if (!params.plotDir.empty()) {
         // The frames are a diagnostic. create_directories without an error_code
@@ -1069,9 +1200,19 @@ DetailPlaceResult FastDetailedPlacer::Impl::place(const DetailPlaceParams &param
     // both branches increment the same field, so the totals still looked sane.
     const auto sweep = [&](const char *name, std::size_t limit, std::size_t &counter,
                            std::size_t (Impl::*technique)()) {
+        double phaseSeconds = 0.0;
         for (std::size_t k = 0; k < limit; ++k) {
             const std::size_t before = counter;
+            // std::chrono rather than ScopedTimer: that one registers its interval
+            // in a shared table under a name, and these are per-phase, per-pass.
+            const auto phaseStart = std::chrono::steady_clock::now();
             counter = (this->*technique)();
+            // Accumulate across passes: each phase runs up to `limit` passes and
+            // timing only the last one made reorder look like 18 of 52 seconds when
+            // it is nearly half.
+            phaseSeconds += std::chrono::duration<double>(std::chrono::steady_clock::now() -
+                                                          phaseStart)
+                                .count();
             const double now = hpwl();
             char note[128];
             std::snprintf(note, sizeof(note), "%s pass %zu (hpwl %.6g)", name, k, now);
@@ -1089,18 +1230,31 @@ DetailPlaceResult FastDetailedPlacer::Impl::place(const DetailPlaceParams &param
             prev = now;
             (void)before;
         }
+        // Per-phase time. The techniques overlap in what they touch, so the total
+        // alone does not say where the time goes: the window search and the median
+        // pass both cover every span, and which one dominates is a property of the
+        // design's row occupancy, not something to be guessed at.
+        ktlog.echo("  detail-place {:<8} {:>8.3f}s", name, phaseSeconds);
     };
 
     sweep("global", params.globalSwapPasses, res.globalSwaps, &Impl::globalSwap);
     sweep("vertical", params.verticalSwapPasses, res.verticalSwaps, &Impl::verticalSwap);
+    sweep("median", params.localReorderPasses, res.medianMoves, &Impl::medianReorder);
     sweep("reorder", params.localReorderPasses, res.reorderMoves, &Impl::localReorder);
     sweep("cluster", params.clusterPasses, res.clusterMoves, &Impl::singleSegmentCluster);
 
+    const auto t4 = std::chrono::steady_clock::now();
     res.hpwlAfter = hpwl();
     for (std::size_t i = 0; i < mov_.size(); ++i) {
         db_.setCellPosition(mov_[i], x_[i], y_[i]);
     }
+    const auto t5 = std::chrono::steady_clock::now();
     selfCheck(res);
+    const auto t6 = std::chrono::steady_clock::now();
+    ktlog.echo("  detail-place write-back   {:>8.3f}s",
+               std::chrono::duration<double>(t5 - t4).count());
+    ktlog.echo("  detail-place self-check   {:>8.3f}s",
+               std::chrono::duration<double>(t6 - t5).count());
     res.seconds = timer.elapsedSeconds();
     ktlog.echo(
         "FastDP: {:.3f}s, HPWL {:.6e} -> {:.6e} ({:+.2f}%), swaps {} global / {} vertical, "

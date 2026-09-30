@@ -790,7 +790,19 @@ bool FlowMgr::Impl::runPlacement(const std::string &algorithm, const std::string
     // after the last. Configuring it here, rather than inside a stage, is what
     // lets the legalizer and the detailed placer add frames to the same GIF the
     // placer started.
-    if (!plotDir.empty() && std::getenv("KTPLACE_ANIM") != nullptr) {
+    // Set from the byte target below, and read again where the budget is split
+    // between the stages. Declared here so both uses see the same number: the
+    // split used to fall back to a hardcoded 600 while the animator was
+    // configured from a different count, so the two could disagree about how many
+    // frames the run was allowed.
+    std::size_t animFrameBudget = 0;
+    // The value is read, not just its presence. KTPLACE_ANIM=0 tested as
+    // "variable exists", so every experiment run with it off still spent the
+    // encode time writing a 40-120 MB GIF -- and the GIF it wrote was the run's
+    // output, so a directory kept a GIF from a run that had asked for none.
+    const char *animEnv = std::getenv("KTPLACE_ANIM");
+    const bool animOn = animEnv != nullptr && std::atoi(animEnv) != 0;
+    if (!plotDir.empty() && animOn) {
         // 1200 frames by default, raised from 300. The budget is what decides how
         // much of the run the animation actually shows: global placement records a
         // frame per solve iteration and detailed placement one per pass, and at 300
@@ -799,10 +811,52 @@ bool FlowMgr::Impl::runPlacement(const std::string &algorithm, const std::string
         // encoding time and file size, not correctness, so the trade is made in
         // favour of showing the run -- and KTPLACE_ANIM_MAX_FRAMES still caps it
         // for a quick look.
+        // Resolved before the budget, because the budget is derived from it.
+        //
+        // Animation frame scale, against the 768x768 frame size, and two rather
+        // than three. Every conjugate-gradient iterate of every solve is now kept,
+        // which on adaptec1 is a few hundred frames rather than 12; at 2304 each
+        // one costs ~0.6 MB and the file passes 150 MB, which no browser opens. Two
+        // is the largest scale at which the full sequence still fits the byte
+        // budget below, and it keeps a standard cell at a couple of pixels rather
+        // than one. KTPLACE_ANIM_ZOOM overrides it if the trade is worth making.
+        double animZoom = 2.0;
+        if (const char *e = std::getenv("KTPLACE_ANIM_ZOOM")) {
+            const double v = std::atof(e);
+            if (v >= 1.0) {
+                animZoom = v;
+            }
+        }
+        // Byte target for the finished GIF, overridable. 64 MB opens in a browser
+        // and in a file manager's preview.
+        const std::size_t animGifByteCap =
+            std::getenv("KTPLACE_ANIM_MAX_BYTES")
+                ? static_cast<std::size_t>(std::atoll(std::getenv("KTPLACE_ANIM_MAX_BYTES")))
+                : std::size_t{96} << 20;
+
+        // Budget the GIF by the bytes it will actually be, not by a frame count.
+        // The frames are nearly incompressible -- a placement frame is flat
+        // colour and GIF's LZW still needs about 0.9 bits per pixel on it -- so
+        // the file size is essentially width * height * frames / 8, and a frame
+        // count alone cannot keep it in bounds. At 2304x2304 the old 1200-frame
+        // budget allowed 8 GB; the run that produced 208 frames wrote 122 MB,
+        // which no browser will open. Sizing the budget to a byte target keeps the
+        // resolution, which is what makes the animation worth looking at, and cuts
+        // the frame count instead.
+        const double animW = 768.0 * animZoom;
+        const double animH = 768.0 * animZoom;
+        const double kBytesPerPixel = 0.9 / 8.0;  // measured, not assumed
+        // bytes = width * height * bytesPerPixel * frames, so the frame count that
+        // fills the budget divides it out. Multiplying by the bytes-per-pixel
+        // instead gave 12 frames, which is a flicker and not an animation.
+        const std::size_t sizeCapFrames =
+            static_cast<std::size_t>(static_cast<double>(animGifByteCap) /
+                                     (animW * animH * kBytesPerPixel));
         const std::size_t maxFrames =
             std::getenv("KTPLACE_ANIM_MAX_FRAMES")
                 ? static_cast<std::size_t>(std::atoll(std::getenv("KTPLACE_ANIM_MAX_FRAMES")))
-                : std::size_t{1200};
+                : std::max<std::size_t>(12, sizeCapFrames);
+        animFrameBudget = maxFrames;
         // 12 centiseconds (120 ms) per frame. The default 6 was quick enough that
         // a 300-frame animation flashed past in under two seconds, which is not
         // long enough to follow a placement moving.
@@ -813,18 +867,6 @@ bool FlowMgr::Impl::runPlacement(const std::string &algorithm, const std::string
         // placement itself, which is what turns a per-iteration jump into motion.
         const int blend =
             std::getenv("KTPLACE_ANIM_BLEND") ? std::atoi(std::getenv("KTPLACE_ANIM_BLEND")) : 3;
-        // Animation frame scale, against the 768x768 frame size. Two is the
-        // default: on an ISPD 2005 design that is a few pixels across for a
-        // standard cell instead of one, and a GIF's 256-colour palette is a
-        // limit on the number of distinct colours, not on the size of the frame,
-        // so the only cost is a larger file.
-        double animZoom = 3.0;
-        if (const char *e = std::getenv("KTPLACE_ANIM_ZOOM")) {
-            const double v = std::atof(e);
-            if (v >= 1.0) {
-                animZoom = v;
-            }
-        }
         PlacementAnimator::instance().configure(plotDir + "/anim", maxFrames, delayCs, blend,
                                                 animZoom);
     } else {
@@ -836,10 +878,7 @@ bool FlowMgr::Impl::runPlacement(const std::string &algorithm, const std::string
     // detailed placement, which are the stages that turn a legal-looking but
     // unusable placement into a real one.
     if (PlacementAnimator::instance().enabled()) {
-        const std::size_t total =
-            std::getenv("KTPLACE_ANIM_MAX_FRAMES")
-                ? static_cast<std::size_t>(std::atoll(std::getenv("KTPLACE_ANIM_MAX_FRAMES")))
-                : std::size_t{600};
+        const std::size_t total = animFrameBudget;
         // Two fifths held back, rather than the fifth it used to be. Global
         // placement records a frame per solve iteration, so on a run of a few
         // dozen iterations it can spend anything it is given and leave nothing:
@@ -882,11 +921,12 @@ bool FlowMgr::Impl::runPlacement(const std::string &algorithm, const std::string
         if (const char *e = std::getenv("KTPLACE_SIMPL_TRACE_EVERY")) {
             params.traceEvery = static_cast<std::size_t>(std::atoll(e));
         }
-        // A frame every N conjugate-gradient iterations inside each solve. On by
-        // default now: a per-iteration record is what makes the animation show the
-        // solve converging rather than only the outer loop, and with blending in
-        // place the extra frames are what the motion is made of.
-        params.cgEvery = 5;
+        // A frame every N conjugate-gradient iterations inside each solve, and N is
+        // 1: every iteration of every round is offered to the animation, which is
+        // what makes the GIF show the solve converging rather than only the outer
+        // loop. The animator subsamples to fit the byte budget, so offering
+        // everything costs thinning, not truncation.
+        params.cgEvery = 1;
         if (const char *e = std::getenv("KTPLACE_SIMPL_CG_EVERY")) {
             params.cgEvery = static_cast<std::size_t>(std::atoll(e));
         }

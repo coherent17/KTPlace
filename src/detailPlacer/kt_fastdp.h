@@ -45,9 +45,12 @@ struct DetailPlaceParams {
     std::size_t verticalSwapPasses = 2;
     /// Number of local re-ordering passes.
     std::size_t localReorderPasses = 2;
-    /// Length of the window local re-ordering re-orders. Capped by the subset
-    /// dynamic program's 2^k cost.
-    std::size_t localReorderWindow = 8;
+    /// Length of the window local re-ordering re-orders, and the one knob that
+    /// sets its price: the subset dynamic program costs 2^k per window. Measured
+    /// on adaptec1, k=8 spends 44 of 61 seconds for -3.69% wirelength, k=6
+    /// spends 19 of 36 for -3.06%. The 0.66% between them is a fifth of what
+    /// legalization costs on the way in, so the bigger window is not worth it.
+    std::size_t localReorderWindow = 6;
     /// Number of single-segment clustering passes.
     std::size_t clusterPasses = 2;
     /// Stop early once a pass improves HPWL by less than this fraction.
@@ -62,6 +65,8 @@ struct DetailPlaceResult {
     std::size_t globalSwaps = 0;
     std::size_t verticalSwaps = 0;
     std::size_t reorderMoves = 0;
+    /// Median moves: the O(cells x degree) pass, as against the window search.
+    std::size_t medianMoves = 0;
     std::size_t clusterMoves = 0;
     double hpwlBefore = 0.0;
     double hpwlAfter = 0.0;
