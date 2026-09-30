@@ -1026,25 +1026,33 @@ void SimplePlacer::Impl::solve(const std::string &tag, bool allowFrames) {
             ax.invDiag[i] = 1.0 / A.diag[i];
         }
         A.matvec(x, ax.Ap);
-        double bNorm2 = 0.0;
-        for (std::size_t i = 0; i < n; ++i) {
-            ax.r[i] = b[i] - ax.Ap[i];
-            bNorm2 += b[i] * b[i];
-        }
-        ax.bNorm = std::sqrt(bNorm2);
+        // The norm of b, and then the initial residual r = b - A.x. The two are
+        // independent, so neither has to wait for the other: the original fused
+        // them into one loop, which meant the norm could not be a reduction and
+        // the residual could not be element-wise.
+        ax.bNorm = A.norm2(b);
+        tbb::parallel_for(tbb::blocked_range<std::size_t>(0, n, 4096),
+                          [&](const tbb::blocked_range<std::size_t> &r) {
+                              for (std::size_t i = r.begin(); i < r.end(); ++i) {
+                                  ax.r[i] = b[i] - ax.Ap[i];
+                              }
+                          });
+        ax.bNorm = std::sqrt(ax.bNorm);
         if (!(ax.bNorm > 0.0)) {
             return;  // nothing to solve; leave the axis where it is
         }
-        for (std::size_t i = 0; i < n; ++i) {
-            ax.z[i] = ax.invDiag[i] * ax.r[i];
-            ax.rho += ax.r[i] * ax.z[i];
-        }
+        // Jacobi preconditioner, then the r.z inner product. Assigned rather than
+        // accumulated: the accumulator form carried a value across calls if an axis
+        // were set up twice, and there is no call that wants that.
+        tbb::parallel_for(tbb::blocked_range<std::size_t>(0, n, 4096),
+                          [&](const tbb::blocked_range<std::size_t> &r) {
+                              for (std::size_t i = r.begin(); i < r.end(); ++i) {
+                                  ax.z[i] = ax.invDiag[i] * ax.r[i];
+                              }
+                          });
+        ax.rho = A.dot(ax.r, ax.z);
         ax.p = ax.z;
-        double rs = 0.0;
-        for (std::size_t i = 0; i < n; ++i) {
-            rs += ax.r[i] * ax.r[i];
-        }
-        ax.resid = std::sqrt(rs) / ax.bNorm;
+        ax.resid = std::sqrt(A.norm2(ax.r)) / ax.bNorm;
         ax.active = true;
     };
 
@@ -1054,36 +1062,44 @@ void SimplePlacer::Impl::solve(const std::string &tag, bool allowFrames) {
     const auto step = [](Axis &ax) {
         const std::size_t n = ax.A->n;
         ax.A->matvec(ax.p, ax.Ap);
-        double pAp = 0.0;
-        for (std::size_t i = 0; i < n; ++i) {
-            pAp += ax.p[i] * ax.Ap[i];
-        }
+        const double pAp = ax.A->dot(ax.p, ax.Ap);
         if (!(pAp > 0.0)) {
             return false;
         }
         const double alpha = ax.rho / pAp;
-        double rs = 0.0;
-        for (std::size_t i = 0; i < n; ++i) {
-            (*ax.x)[i] += alpha * ax.p[i];
-            ax.r[i] -= alpha * ax.Ap[i];
-            rs += ax.r[i] * ax.r[i];
-        }
-        ax.resid = std::sqrt(rs) / ax.bNorm;
+        // Element-wise, so it parallelises exactly: every index touches its own
+        // slot and nothing is shared. The residual norm is the matrix's own
+        // parallel reduction rather than a hand-rolled serial sum in the same loop,
+        // because a reduction carried alongside the update forces the whole update
+        // to stay serial.
+        tbb::parallel_for(tbb::blocked_range<std::size_t>(0, n, 4096),
+                          [&](const tbb::blocked_range<std::size_t> &r) {
+                              for (std::size_t i = r.begin(); i < r.end(); ++i) {
+                                  (*ax.x)[i] += alpha * ax.p[i];
+                                  ax.r[i] -= alpha * ax.Ap[i];
+                              }
+                          });
+        ax.resid = std::sqrt(ax.A->norm2(ax.r)) / ax.bNorm;
         if (ax.itersToTol == 0 && ax.resid <= 1e-3) {
             ax.itersToTol = ax.iters;
         }
-        double rhoNew = 0.0;
-        for (std::size_t i = 0; i < n; ++i) {
-            ax.z[i] = ax.invDiag[i] * ax.r[i];
-            rhoNew += ax.r[i] * ax.z[i];
-        }
+        tbb::parallel_for(tbb::blocked_range<std::size_t>(0, n, 4096),
+                          [&](const tbb::blocked_range<std::size_t> &r) {
+                              for (std::size_t i = r.begin(); i < r.end(); ++i) {
+                                  ax.z[i] = ax.invDiag[i] * ax.r[i];
+                              }
+                          });
+        const double rhoNew = ax.A->dot(ax.r, ax.z);
         if (!(rhoNew > 0.0)) {
             return false;
         }
         const double beta = rhoNew / ax.rho;
-        for (std::size_t i = 0; i < n; ++i) {
-            ax.p[i] = ax.z[i] + beta * ax.p[i];
-        }
+        tbb::parallel_for(tbb::blocked_range<std::size_t>(0, n, 4096),
+                          [&](const tbb::blocked_range<std::size_t> &r) {
+                              for (std::size_t i = r.begin(); i < r.end(); ++i) {
+                                  ax.p[i] = ax.z[i] + beta * ax.p[i];
+                              }
+                          });
         ax.rho = rhoNew;
         return true;
     };

@@ -120,8 +120,11 @@ private:
  */
 class ScopedTimer {
 public:
-    /// Start measuring under @p name.
-    explicit ScopedTimer(std::string name);
+    /// Start measuring under @p name. Defaults to the enclosing function, which is
+    /// what a scope timer almost always wants to be called: naming a region by
+    /// hand is a chance to spell it two ways in two places, and the name then stops
+    /// matching anything a reader can find.
+    explicit ScopedTimer(std::string name = __func__);
 
     ScopedTimer(const ScopedTimer &) = delete;
     ScopedTimer &operator=(const ScopedTimer &) = delete;

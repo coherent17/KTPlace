@@ -38,6 +38,8 @@
 
 namespace ktplace {
 
+
+
 /**
  * @brief Logger writing to a transcript file plus stderr.
  *

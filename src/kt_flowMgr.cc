@@ -800,8 +800,12 @@ bool FlowMgr::Impl::runPlacement(const std::string &algorithm, const std::string
     // "variable exists", so every experiment run with it off still spent the
     // encode time writing a 40-120 MB GIF -- and the GIF it wrote was the run's
     // output, so a directory kept a GIF from a run that had asked for none.
+    // On by default. The value is read rather than merely tested for presence --
+    // KTPLACE_ANIM=0 used to enable the animation, because "the variable exists"
+    // was the whole test -- and the default is on because the frames and the GIF
+    // are how a run is inspected, while a caller who wants them gone sets 0.
     const char *animEnv = std::getenv("KTPLACE_ANIM");
-    const bool animOn = animEnv != nullptr && std::atoi(animEnv) != 0;
+    const bool animOn = animEnv == nullptr || std::atoi(animEnv) != 0;
     if (!plotDir.empty() && animOn) {
         // 1200 frames by default, raised from 300. The budget is what decides how
         // much of the run the animation actually shows: global placement records a
