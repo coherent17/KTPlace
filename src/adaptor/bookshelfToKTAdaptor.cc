@@ -1,10 +1,5 @@
-/**
- * @file bookshelfToKTAdaptor.cc
- * @brief Implementation of Bookshelf format adapter
- *
- * - Boosts Iostreams (gzip_decompressor) transparently decompresses .gz inputs
- * - oneTBB (parallel_for / blocked_range) parallelizes the node and net parsing
- */
+// @file bookshelfToKTAdaptor.cc// Implementation of Bookshelf format adapter// - Boosts Iostreams (gzip_decompressor) transparently decompresses .gz inputs// - oneTBB (parallel_for / blocked_range) parallelizes the node and net parsing
+
 
 #include "adaptor/bookshelfToKTAdaptor.h"
 

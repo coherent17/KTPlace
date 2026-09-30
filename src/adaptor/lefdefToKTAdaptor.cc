@@ -1,18 +1,5 @@
-/**
- * @file lefdefToKTAdaptor.cc
- * @brief Implementation of the LEF/DEF format adapter
- *
- * Parses the contest-style LEF/DEF benchmark format:
- *   - LEF MACRO blocks provide cell dimensions (microns) and pin
- *     locations/directions.
- *   - The DEF file provides the die area, row sites, the instance list
- *     (components) with their placement status, the I/O pads (pins), and
- *     the flat signal netlist (nets).
- *
- * DEF coordinates already use the DEF unit scale (UNITS DISTANCE MICRONS);
- * LEF dimensions, which are in microns, are scaled by that factor so both
- * live in the same coordinate frame.
- */
+// @file lefdefToKTAdaptor.cc// Implementation of the LEF/DEF format adapter// Parses the contest-style LEF/DEF benchmark format:// - LEF MACRO blocks provide cell dimensions (microns) and pin// locations/directions.// - The DEF file provides the die area, row sites, the instance list// (components) with their placement status, the I/O pads (pins), and// the flat signal netlist (nets).// DEF coordinates already use the DEF unit scale (UNITS DISTANCE MICRONS);// LEF dimensions, which are in microns, are scaled by that factor so both// live in the same coordinate frame.
+
 
 #include "adaptor/lefdefToKTAdaptor.h"
 

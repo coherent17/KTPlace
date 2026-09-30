@@ -1,26 +1,5 @@
-/**
- * @file kt_reportTable.h
- * @brief Aligned text tables, rendered through the logger
- *
- * A small builder for the summary tables the engine prints at the end of a
- * run (netlist statistics, solver results, phase timings). It measures the
- * content to size every column, right-aligns cells that look numeric so digits
- * line up, and hands the finished block to `ktlog` in one record rather than a
- * stream of separately timestamped lines.
- *
- * Cells are always explicit, so text is never re-flowed: a row is either one
- * formatted cell (`row`) or a list of them (`addRow`).
- *
- * Usage:
- * @code
- *   ktReportTable table("Netlist");
- *   table.setHeaders({"metric", "value"});
- *   table.add("cells", fmt::format("{}", numCells));
- *   table.addRow({"nets", fmt::format("{}", numNets)});
- *   table.emit();          // echo level, through ktlog
- *   table.emitVerbose();   // trace level, through ktlog
- * @endcode
- */
+// @file kt_reportTable.h// Aligned text tables, rendered through the logger// A small builder for the summary tables the engine prints at the end of a// run (netlist statistics, solver results, phase timings). It measures the// content to size every column, right-aligns cells that look numeric so digits// line up, and hands the finished block to `ktlog` in one record rather than a// stream of separately timestamped lines.// Cells are always explicit, so text is never re-flowed: a row is either one// formatted cell (`row`) or a list of them (`addRow`).// Usage:// ktReportTable table("Netlist");// table.setHeaders({"metric", "value"});// table.add("cells", fmt::format("{}", numCells));// table.addRow({"nets", fmt::format("{}", numNets)});// table.emit();          // echo level, through ktlog// table.emitVerbose();   // trace level, through ktlog
+
 
 #pragma once
 

@@ -1,7 +1,5 @@
-/**
- * @file kt_abacus.cc
- * @brief Abacus legalization, DP-over-clusters form. See kt_abacus.h.
- */
+// @file kt_abacus.cc// Abacus legalization, DP-over-clusters form. See kt_abacus.h.
+
 
 #include "legalizer/kt_abacus.h"
 

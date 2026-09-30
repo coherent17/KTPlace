@@ -1,7 +1,5 @@
-/**
- * @file kt_option.cc
- * @brief Implementation of command-line option parser
- */
+// @file kt_option.cc// Implementation of command-line option parser
+
 
 #include "kt_option.h"
 #include "util/kt_log.h"

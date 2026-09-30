@@ -1,7 +1,5 @@
-/**
- * @file kt_log.cc
- * @brief Implementation of the KTPlace logger
- */
+// @file kt_log.cc// Implementation of the KTPlace logger
+
 
 #include "util/kt_log.h"
 

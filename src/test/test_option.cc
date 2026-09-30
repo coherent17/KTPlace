@@ -1,13 +1,6 @@
 // SPDX-License-Identifier: BSD-3-Clause
-/**
- * @file test_option.cc
- * @brief Unit tests for the command-line option parser
- *
- * The parser has one job beyond reading flags: deciding where artifacts land.
- * That resolution is the part worth pinning, because a relative path silently
- * written to the wrong directory is the kind of bug that survives a test run
- * and then loses a whole placement result.
- */
+// @file test_option.cc// Unit tests for the command-line option parser// The parser has one job beyond reading flags: deciding where artifacts land.// That resolution is the part worth pinning, because a relative path silently// written to the wrong directory is the kind of bug that survives a test run// and then loses a whole placement result.
+
 
 #define BOOST_TEST_MODULE ktplace_option
 

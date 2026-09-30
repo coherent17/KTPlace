@@ -1,12 +1,5 @@
-/**
- * @file kt_assert.cc
- * @brief Out-of-line pieces of the assertion facility.
- *
- * The macro and the exception need no code of their own; what lives here is the
- * one thing that is worth having somewhere to call, which is turning a failure
- * into a line of log so an assertion thrown deep inside a solve is visible in the
- * run's own output and not only in whatever caught it.
- */
+// @file kt_assert.cc// Out-of-line pieces of the assertion facility.// The macro and the exception need no code of their own; what lives here is the// one thing that is worth having somewhere to call, which is turning a failure// into a line of log so an assertion thrown deep inside a solve is visible in the// run's own output and not only in whatever caught it.
+
 
 #include "util/kt_assert.h"
 

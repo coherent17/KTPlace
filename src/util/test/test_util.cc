@@ -1,17 +1,5 @@
-/**
- * @file test_util.cc
- * @brief Tests for the logging and timing utilities
- *
- * The logger and the timer registry are process-wide singletons, so these tests
- * are about observable behaviour -- what lands in the transcript, what reaches
- * the console, and what a summary reports -- rather than internal state.
- *
- * The two sinks are checked separately, because they are deliberately different:
- * the transcript is plain text so it can be grepped and diffed, and only the
- * console view is coloured. A test that only looked at one of them would pass
- * even if the other regressed, and the regression that matters most here is a
- * warning that is invisible in a log file.
- */
+// @file test_util.cc// Tests for the logging and timing utilities// The logger and the timer registry are process-wide singletons, so these tests// are about observable behaviour -- what lands in the transcript, what reaches// the console, and what a summary reports -- rather than internal state.// The two sinks are checked separately, because they are deliberately different:// the transcript is plain text so it can be grepped and diffed, and only the// console view is coloured. A test that only looked at one of them would pass// even if the other regressed, and the regression that matters most here is a// warning that is invisible in a log file.
+
 
 #define BOOST_TEST_MODULE ktplace_util
 #define BOOST_TEST_DYN_LINK

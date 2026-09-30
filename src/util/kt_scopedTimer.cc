@@ -1,7 +1,5 @@
-/**
- * @file kt_scopedTimer.cc
- * @brief Implementation of the KTPlace elapsed-time measurement
- */
+// @file kt_scopedTimer.cc// Implementation of the KTPlace elapsed-time measurement
+
 
 #include "util/kt_scopedTimer.h"
 #include "util/kt_reportTable.h"

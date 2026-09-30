@@ -1,23 +1,5 @@
-/**
- * @file kt_gif.h
- * @brief Self-contained indexed-colour canvas and GIF89a writer
- *
- * RePlAce renders each global-placement iteration to a JPEG with CImg and then
- * shells out to ImageMagick (`makegif.sh`: `convert -delay 20 cGP2D*.jpg
- * animated.gif`). CImg is not vendored in that repository -- `module/CImg` is
- * empty and the code is behind `ENABLE_CIMG_LIB` -- so reproducing it here
- * would mean adding a header-only imaging library plus libjpeg to a build that
- * currently plots with none, and still needing an external `convert`.
- *
- * A placement snapshot is a good fit for GIF's native format: flat colour over
- * a handful of categories (movable, fenced, fixed macro, pad, overlay), no
- * gradients, no anti-aliasing. So this writes GIF directly. The output is the
- * same artifact RePlAce produces -- one animated GIF of the iteration sequence
- * -- with no external process and no new link-time dependencies.
- *
- * Two pieces are here because nothing in the standard library provides them:
- * LZW compression, and a 5x7 bitmap font for the per-frame labels.
- */
+// @file kt_gif.h// Self-contained indexed-colour canvas and GIF89a writer// RePlAce renders each global-placement iteration to a JPEG with CImg and then// shells out to ImageMagick (`makegif.sh`: `convert -delay 20 cGP2D*.jpg// animated.gif`). CImg is not vendored in that repository -- `module/CImg` is// empty and the code is behind `ENABLE_CIMG_LIB` -- so reproducing it here// would mean adding a header-only imaging library plus libjpeg to a build that// currently plots with none, and still needing an external `convert`.// A placement snapshot is a good fit for GIF's native format: flat colour over// a handful of categories (movable, fenced, fixed macro, pad, overlay), no// gradients, no anti-aliasing. So this writes GIF directly. The output is the// same artifact RePlAce produces -- one animated GIF of the iteration sequence// -- with no external process and no new link-time dependencies.// Two pieces are here because nothing in the standard library provides them:// LZW compression, and a 5x7 bitmap font for the per-frame labels.
+
 
 #pragma once
 
@@ -34,38 +16,16 @@ struct Rgb {
     std::uint8_t b = 0;
 };
 
-/**
- * @brief Indexed-colour raster image with the few primitives a placement plot
- *        needs: rectangles, lines and text.
- *
- * Alpha is resolved against whatever is already in the framebuffer by blending
- * in RGB and re-quantising to the nearest palette entry. That is not exact, but
- * the palette is flat and small, so the error is invisible -- and it keeps
- * every stored pixel a single byte, which is what GIF requires anyway.
- */
+// Indexed-colour raster image with the few primitives a placement plot// needs: rectangles, lines and text.// Alpha is resolved against whatever is already in the framebuffer by blending// in RGB and re-quantising to the nearest palette entry. That is not exact, but// the palette is flat and small, so the error is invisible -- and it keeps// every stored pixel a single byte, which is what GIF requires anyway.
+
 class Canvas {
 public:
-    /**
-     * @brief Create a frame that quantises drawn colours onto @p palette.
-     * @param w  image width in pixels
-     * @param h  image height in pixels
-     * @param palette  at most 256 colours; the image stores palette indices.
-     */
+    // Create a frame that quantises drawn colours onto @p palette.
+
     Canvas(int w, int h, const std::vector<Rgb> &palette);
 
-    /**
-     * @brief Adopt an already-quantised frame.
-     *
-     * Lets a caller that has already mapped pixels onto a palette -- an
-     * animation assembled from several frames, which must all share one table
-     * -- skip the index-to-colour search.
-     *
-     * @param w  image width in pixels
-     * @param h  image height in pixels
-     * @param indices  exactly w * h entries, one palette index per pixel,
-     *                 row-major
-     * @param palette  the table @p indices refer to; at most 256 colours
-     */
+    // Adopt an already-quantised frame.// Lets a caller that has already mapped pixels onto a palette -- an// animation assembled from several frames, which must all share one table// -- skip the index-to-colour search.// row-major
+
     Canvas(int w, int h, const std::vector<std::uint8_t> &indices, const std::vector<Rgb> &palette);
 
     int width() const {
@@ -111,27 +71,12 @@ private:
     std::vector<Rgb> palette_;
 };
 
-/**
- * @brief GIF's variable-width LZW, as a sequence of data sub-blocks ready to be
- *        appended to a file.
- * @param pixels  one palette index per pixel, row-major
- * @param minCodeSize  bits per pixel; 8 for a 256-colour image
- */
+// GIF's variable-width LZW, as a sequence of data sub-blocks ready to be// appended to a file.
+
 std::vector<std::uint8_t> gifCompress(const std::vector<std::uint8_t> &pixels, int minCodeSize);
 
-/**
- * @brief Write the canvases as one animated GIF89a.
- *
- * A single canvas yields a still image. The Netscape looping extension is
- * emitted so that multi-frame files loop forever in a browser, which is what
- * makes the sequence readable as an animation.
- *
- * @param path  output file, created or truncated
- * @param frames  the frames to write, in order; all must share one palette and
- *                one size, and a single frame yields a still image
- * @param delayCs  per-frame delay in centiseconds
- * @return false if the file could not be opened
- */
+// Write the canvases as one animated GIF89a.// A single canvas yields a still image. The Netscape looping extension is// emitted so that multi-frame files loop forever in a browser, which is what// makes the sequence readable as an animation.// one size, and a single frame yields a still image
+
 bool writeGif(const std::string &path, const std::vector<Canvas> &frames, int delayCs = 20);
 
 }  // namespace ktplace

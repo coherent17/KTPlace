@@ -1,7 +1,5 @@
-/**
- * @file kt_fastdp.cc
- * @brief Fast detailed placement. See kt_fastdp.h for the technique summary.
- */
+// @file kt_fastdp.cc// Fast detailed placement. See kt_fastdp.h for the technique summary.
+
 
 #include "detailPlacer/kt_fastdp.h"
 

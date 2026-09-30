@@ -1,7 +1,5 @@
-/**
- * @file kt_dm.h
- * @brief Core data model for placement database (PIMPL pattern)
- */
+// @file kt_dm.h// Core data model for placement database (PIMPL pattern)
+
 
 #pragma once
 
@@ -22,12 +20,8 @@ class Pin;
 class Row;
 class Graph;
 
-/**
- * @brief Main placement database class using PIMPL pattern
- * 
- * Stores all placement-related information including cells, nets, pins,
- * and placement constraints. Uses PIMPL to minimize compilation dependencies.
- */
+// Main placement database class using PIMPL pattern// Stores all placement-related information including cells, nets, pins,// and placement constraints. Uses PIMPL to minimize compilation dependencies.
+
 class PlacementDB {
 public:
     /// Default constructor
@@ -160,25 +154,8 @@ private:
     std::unique_ptr<Impl> pImpl;
 };
 
-/**
- * @brief The region a movable cell is allowed to occupy: {xMin, yMin, xMax, yMax}.
- *
- * One definition, shared by the placer and by the legality check, because the two
- * disagreeing is how a legal placement gets reported as illegal. It is the union
- * of three statements about the region, each of which may be absent:
- *
- *  - the bounding box of the fixed cells, which in a Bookshelf design is the I/O
- *    pad ring and is usually a good approximation of the die;
- *  - the declared die area, when the format carries one and it contains every
- *    fixed cell;
- *  - the rows, which are the authoritative statement of where a cell may go.
- *
- * The rows are unioned in rather than used only as a fallback, because for adaptec3
- * they reach past the fixed cells -- its rows start at y=58 while its fixed cells
- * start at y=82 -- so a box built from the fixed cells alone excludes the bottom
- * row, and every cell the legalizer correctly put in that row is then reported as
- * outside the die.
- */
+// The region a movable cell is allowed to occupy: {xMin, yMin, xMax, yMax}.// One definition, shared by the placer and by the legality check, because the two// disagreeing is how a legal placement gets reported as illegal. It is the union// of three statements about the region, each of which may be absent:// - the bounding box of the fixed cells, which in a Bookshelf design is the I/O// pad ring and is usually a good approximation of the die;// - the declared die area, when the format carries one and it contains every// fixed cell;// - the rows, which are the authoritative statement of where a cell may go.// The rows are unioned in rather than used only as a fallback, because for adaptec3// they reach past the fixed cells -- its rows start at y=58 while its fixed cells// start at y=82 -- so a box built from the fixed cells alone excludes the bottom// row, and every cell the legalizer correctly put in that row is then reported as// outside the die.
+
 [[nodiscard]] std::array<double, 4> placementDieBox(const PlacementDB &db);
 
 }  // namespace ktplace

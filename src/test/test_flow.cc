@@ -1,10 +1,5 @@
-/**
- * @file test_flow.cc
- * @brief End-to-end tests for the load -> place -> write flow
- *
- * These drive FlowMgr exactly the way main() does, on tiny synthetic designs,
- * so the whole pipeline is covered without any benchmark data on disk.
- */
+// @file test_flow.cc// End-to-end tests for the load -> place -> write flow// These drive FlowMgr exactly the way main() does, on tiny synthetic designs,// so the whole pipeline is covered without any benchmark data on disk.
+
 
 #define BOOST_TEST_MODULE ktplace_flow
 #define BOOST_TEST_DYN_LINK

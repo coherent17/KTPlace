@@ -1,14 +1,5 @@
-/**
- * @file lefdefToKTAdaptor.h
- * @brief LEF/DEF format adapter using the Adapter pattern
- * 
- * Parses industry-standard LEF (physical library) and DEF (design) files
- * and converts them into the internal PlacementDB.  Supports the ISPD /
- * ICCAD placement-contest style inputs (floorplan.def + cells.lef +
- * tech.lef + design.v), where every standard cell is "UNPLACED", macros
- * and I/O pads are placed/fixed, and net connectivity comes from the
- * DEF NETS section.
- */
+// @file lefdefToKTAdaptor.h// LEF/DEF format adapter using the Adapter pattern// Parses industry-standard LEF (physical library) and DEF (design) files// and converts them into the internal PlacementDB.  Supports the ISPD /// ICCAD placement-contest style inputs (floorplan.def + cells.lef +// tech.lef + design.v), where every standard cell is "UNPLACED", macros// and I/O pads are placed/fixed, and net connectivity comes from the// DEF NETS section.
+
 
 #pragma once
 
@@ -21,17 +12,8 @@
 
 namespace ktplace {
 
-/**
- * @brief Adapter for LEF/DEF format input files
- * 
- *  - cells.lef            -> cell sizes, pin locations/directions (micron)
- *  - tech.lef             -> ignored (no MACROs)
- *  - floorplan.def        -> die area, rows, placed/fixed macros, I/O pads,
- *                            and the flat component netlist
- * 
- * DEF coordinate units (UNITS DISTANCE MICRONS) are respected: LEF sizes,
- * which are in microns, are scaled into the DEF coordinate frame.
- */
+// Adapter for LEF/DEF format input files// - cells.lef            -> cell sizes, pin locations/directions (micron)// - tech.lef             -> ignored (no MACROs)// - floorplan.def        -> die area, rows, placed/fixed macros, I/O pads,// and the flat component netlist// DEF coordinate units (UNITS DISTANCE MICRONS) are respected: LEF sizes,// which are in microns, are scaled into the DEF coordinate frame.
+
 class LefDefInputAdapter {
 public:
     /// Constructor
@@ -48,25 +30,17 @@ public:
     LefDefInputAdapter(LefDefInputAdapter &&) noexcept;
     LefDefInputAdapter &operator=(LefDefInputAdapter &&) noexcept;
 
-    /**
-     * @brief Auto-detect and read the LEF/DEF files from a directory
-     * @param dirPath Directory containing floorplan.def/cells.lef/etc.
-     * @return true if successful, false otherwise
-     */
+    // Auto-detect and read the LEF/DEF files from a directory
+
     [[nodiscard]] bool readFromDirectory(const std::string &dirPath);
 
-    /**
-     * @brief Read LEF/DEF format from explicit files
-     * @param defFile Path to the .def file (can be gzipped)
-     * @param lefFiles Paths to .lef library files (can be gzipped)
-     * @return true if successful, false otherwise
-     */
+    // Read LEF/DEF format from explicit files
+
     [[nodiscard]] bool readFromFiles(const std::string &defFile,
                                      const std::vector<std::string> &lefFiles);
 
-    /**
-     * @brief Get the PlacementDB object
-     */
+    // Get the PlacementDB object
+
     [[nodiscard]] PlacementDB &getPlacementDB() {
         return *db;
     }
@@ -74,14 +48,10 @@ public:
         return *db;
     }
 
-    /**
-     * @brief Release ownership of the PlacementDB
-     */
-    /**
-     * @brief Placement region ("fence") constraints read from the DEF.
-     *
-     * Empty when the design declares no REGIONS/GROUPS.
-     */
+    // Release ownership of the PlacementDB
+
+    // Placement region ("fence") constraints read from the DEF.// Empty when the design declares no REGIONS/GROUPS.
+
     [[nodiscard]] const constraintMgr &getConstraints() const {
         return constraints;
     }

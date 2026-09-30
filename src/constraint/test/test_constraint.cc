@@ -1,14 +1,6 @@
 // SPDX-License-Identifier: BSD-3-Clause
-/**
- * @file test_constraint.cc
- * @brief Unit tests for the placement-region (fence) constraints
- *
- * A fence is the one part of the data model where a "correct" answer is easy to
- * get subtly wrong, so these tests pin the geometric contract rather than just
- * calling each accessor once: rectangles come in pairs, a region is a union and
- * not an outline, containment includes the boundary, and escaping must land
- * outside *every* fence, not just the one that caught the point.
- */
+// @file test_constraint.cc// Unit tests for the placement-region (fence) constraints// A fence is the one part of the data model where a "correct" answer is easy to// get subtly wrong, so these tests pin the geometric contract rather than just// calling each accessor once: rectangles come in pairs, a region is a union and// not an outline, containment includes the boundary, and escaping must land// outside *every* fence, not just the one that caught the point.
+
 
 #define BOOST_TEST_MODULE ktplace_constraint
 

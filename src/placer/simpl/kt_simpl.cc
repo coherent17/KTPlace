@@ -1,8 +1,5 @@
-/**
- * @file kt_simpl.cc
- * @brief SimPL global placement. See kt_simpl.h for the algorithm summary and
- *        the bibliographic reference.
- */
+// @file kt_simpl.cc// SimPL global placement. See kt_simpl.h for the algorithm summary and// the bibliographic reference.
+
 
 #include "placer/simpl/kt_simpl.h"
 

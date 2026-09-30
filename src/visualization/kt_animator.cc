@@ -1,7 +1,5 @@
-/**
- * @file kt_animator.cc
- * @brief Implementation of PlacementAnimator
- */
+// @file kt_animator.cc// Implementation of PlacementAnimator
+
 
 #include "visualization/kt_animator.h"
 #include "constraint/kt_constraintMgr.h"

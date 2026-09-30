@@ -1,7 +1,5 @@
-/**
- * @file kt_reportTable.cc
- * @brief Implementation of the aligned table renderer
- */
+// @file kt_reportTable.cc// Implementation of the aligned table renderer
+
 
 #include "util/kt_reportTable.h"
 #include "util/kt_log.h"

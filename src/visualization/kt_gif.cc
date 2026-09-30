@@ -1,7 +1,5 @@
-/**
- * @file kt_gif.cc
- * @brief Indexed canvas, 5x7 font, and GIF89a writer. See kt_gif.h.
- */
+// @file kt_gif.cc// Indexed canvas, 5x7 font, and GIF89a writer. See kt_gif.h.
+
 
 #include "kt_gif.h"
 

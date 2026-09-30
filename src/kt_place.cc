@@ -1,10 +1,5 @@
-/**
- * @file kt_place.cc
- * @brief Main entry point for KTPlace placement engine
- *
- * The entry point has no public interface, so it deliberately has no
- * matching header.
- */
+// @file kt_place.cc// Main entry point for KTPlace placement engine// The entry point has no public interface, so it deliberately has no// matching header.
+
 
 #include "kt_flowMgr.h"
 #include "kt_option.h"

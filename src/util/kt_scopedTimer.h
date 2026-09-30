@@ -1,43 +1,5 @@
-/**
- * @file kt_scopedTimer.h
- * @brief Elapsed-time measurement for KTPlace
- *
- * This is a stopwatch facility only: it answers "how long did this take?".
- * It is deliberately *not* a circuit-delay calculator -- cell delay, net delay
- * and slack need a timing graph plus standard-cell libraries and must be
- * recomputed as the placement moves, so they belong in a separate timing
- * engine. Such an engine can use `ScopedTimer` to report its own cost, which
- * is the only intended overlap between the two.
- *
- * Two pieces:
- *   - `ScopedTimer`  : RAII stopwatch; records on scope exit (exception safe).
- *   - `TimerRegistry`: process-wide named totals, so a loop can accumulate
- *                      many short intervals and report one summary table.
- *
- * Each interval is recorded twice: wall-clock time, which is what the user
- * waits for, and processor time summed over all threads. The ratio is the
- * effective parallelism, which is the number worth watching in a parallel
- * solve. (A phase that is quietly serial shows a ratio near 1.0.)
- *
- * Wall durations use `std::chrono::steady_clock`, which is monotonic and so
- * immune to wall-clock adjustments; processor time uses `std::clock()`.
- * Human-readable timestamps in the log use the system clock, as the logger
- * already does.
- *
- * Usage:
- * @code
- *   using namespace ktplace;
- *   {
- *       ScopedTimer t("load");
- *       runLoad();
- *   }                                   // records on destruction
- *   for (int i = 0; i < n; ++i) {
- *       ScopedTimer lap("outer-iter");  // accumulates across iterations
- *       step();
- *   }
- *   TimerRegistry::instance().report(); // one summary block via ktlog
- * @endcode
- */
+// @file kt_scopedTimer.h// Elapsed-time measurement for KTPlace// This is a stopwatch facility only: it answers "how long did this take?".// It is deliberately *not* a circuit-delay calculator -- cell delay, net delay// and slack need a timing graph plus standard-cell libraries and must be// recomputed as the placement moves, so they belong in a separate timing// engine. Such an engine can use `ScopedTimer` to report its own cost, which// is the only intended overlap between the two.// Two pieces:// - `ScopedTimer`  : RAII stopwatch; records on scope exit (exception safe).// - `TimerRegistry`: process-wide named totals, so a loop can accumulate// many short intervals and report one summary table.// Each interval is recorded twice: wall-clock time, which is what the user// waits for, and processor time summed over all threads. The ratio is the// effective parallelism, which is the number worth watching in a parallel// solve. (A phase that is quietly serial shows a ratio near 1.0.)// Wall durations use `std::chrono::steady_clock`, which is monotonic and so// immune to wall-clock adjustments; processor time uses `std::clock()`.// Human-readable timestamps in the log use the system clock, as the logger// already does.// Usage:// using namespace ktplace;// {// ScopedTimer t("load");// runLoad();// }                                   // records on destruction// for (int i = 0; i < n; ++i) {// ScopedTimer lap("outer-iter");  // accumulates across iterations// step();// }// TimerRegistry::instance().report(); // one summary block via ktlog
+
 
 #pragma once
 
@@ -51,14 +13,8 @@
 
 namespace ktplace {
 
-/**
- * @brief Accumulated statistics for one timer name.
- *
- * Wall time is what the user waits for; CPU time is the processor time the
- * process consumed, summed over all threads. Their ratio is the effective
- * parallelism: near 1.0 means the work was serial, and a ratio of N means it
- * used roughly N cores on average.
- */
+// Accumulated statistics for one timer name.// Wall time is what the user waits for; CPU time is the processor time the// process consumed, summed over all threads. Their ratio is the effective// parallelism: near 1.0 means the work was serial, and a ratio of N means it// used roughly N cores on average.
+
 struct TimerStats {
     double wallSeconds = 0.0;  ///< summed wall-clock intervals
     double cpuSeconds = 0.0;   ///< summed processor time over all threads
@@ -111,13 +67,8 @@ private:
     std::map<std::string, bool> enabled;
 };
 
-/**
- * @brief RAII stopwatch that records its interval on destruction.
- *
- * A timer is safe to use from several threads for *measuring*, but recording
- * into the registry takes a mutex, so keep these out of tight parallel
- * regions unless the name is disabled.
- */
+// RAII stopwatch that records its interval on destruction.// A timer is safe to use from several threads for *measuring*, but recording// into the registry takes a mutex, so keep these out of tight parallel// regions unless the name is disabled.
+
 class ScopedTimer {
 public:
     /// Start measuring under @p name. Defaults to the enclosing function, which is

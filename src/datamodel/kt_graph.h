@@ -1,7 +1,5 @@
-/**
- * @file kt_graph.h
- * @brief Graph data structure for placement netlist
- */
+// @file kt_graph.h// Graph data structure for placement netlist
+
 
 #pragma once
 
@@ -13,19 +11,16 @@
 
 namespace ktplace {
 
-/**
- * @brief Vertex types in the placement graph
- */
+// Vertex types in the placement graph
+
 enum class VertexType { Cell, Net };
 
-/**
- * @brief Edge (Pin) direction
- */
+// Edge (Pin) direction
+
 enum class PinDirection { Input, Output };
 
-/**
- * @brief Graph vertex data
- */
+// Graph vertex data
+
 class Vertex {
 public:
     std::size_t id = 0;
@@ -51,9 +46,8 @@ public:
     std::vector<std::size_t> inEdges;
 };
 
-/**
- * @brief Graph edge (Pin) data
- */
+// Graph edge (Pin) data
+
 class Edge {
 public:
     std::size_t id = 0;
@@ -64,14 +58,8 @@ public:
     double offsetY = 0.0;
 };
 
-/**
- * @brief Graph structure for placement netlist
- * 
- * Represents the placement netlist as a directed bipartite graph:
- * - Cell vertices: represent circuit cells
- * - Net vertices: represent nets (connections)
- * - Edges: represent pins connecting cells to nets
- */
+// Graph structure for placement netlist// Represents the placement netlist as a directed bipartite graph:// - Cell vertices: represent circuit cells// - Net vertices: represent nets (connections)// - Edges: represent pins connecting cells to nets
+
 class Graph {
 public:
     /// Constructor

@@ -1,7 +1,5 @@
-/**
- * @file kt_animator.h
- * @brief One animation sink for a whole placement run.
- */
+// @file kt_animator.h// One animation sink for a whole placement run.
+
 
 #pragma once
 
@@ -13,33 +11,8 @@
 
 namespace ktplace {
 
-/**
- * @brief Collects placement stills from every stage of a run into one GIF.
- *
- * A placement run is global placement, then legalization, then detailed
- * placement, and each of those moves cells for a different reason. Watching
- * only the first and being told the run finished is not much of a record: the
- * interesting part is often the legalizer pulling a scattered placement back
- * onto its rows, which happens after the placer has stopped drawing.
- *
- * So the animation belongs to the run, not to any one stage. Every stage hands
- * its frames here and the frames come out in the order they were recorded,
- * whoever produced them. That has one concrete consequence worth stating: there
- * is a single frame counter for the whole run, so a design that records a
- * conjugate-gradient iterate every iteration of every outer iteration runs out
- * of budget during global placement and contributes nothing from legalization.
- * The per-stage counters this replaces would each have had a full budget, and
- * the tail of the run -- the part that actually made the placement legal --
- * would have been the part to get squeezed out. The cap is therefore reported
- * loudly rather than absorbed quietly.
- *
- * This is a process-wide singleton because it is a property of the run, not of
- * any component: the three stages are constructed independently and have no
- * common owner to pass it through. It holds no state until configure() is
- * called, and configure() resets the counter, so a run that never configures it
- * -- every unit test, a run with no plot directory -- simply records nothing.
- * A second configure() in the same process is a fresh run, not an append.
- */
+// Collects placement stills from every stage of a run into one GIF.// A placement run is global placement, then legalization, then detailed// placement, and each of those moves cells for a different reason. Watching// only the first and being told the run finished is not much of a record: the// interesting part is often the legalizer pulling a scattered placement back// onto its rows, which happens after the placer has stopped drawing.// So the animation belongs to the run, not to any one stage. Every stage hands// its frames here and the frames come out in the order they were recorded,// whoever produced them. That has one concrete consequence worth stating: there// is a single frame counter for the whole run, so a design that records a// conjugate-gradient iterate every iteration of every outer iteration runs out// of budget during global placement and contributes nothing from legalization.// The per-stage counters this replaces would each have had a full budget, and// the tail of the run -- the part that actually made the placement legal --// would have been the part to get squeezed out. The cap is therefore reported// loudly rather than absorbed quietly.// This is a process-wide singleton because it is a property of the run, not of// any component: the three stages are constructed independently and have no// common owner to pass it through. It holds no state until configure() is// called, and configure() resets the counter, so a run that never configures it// -- every unit test, a run with no plot directory -- simply records nothing.// A second configure() in the same process is a fresh run, not an append.
+
 class PlacementAnimator {
 public:
     /// The run's animator. Configured by the flow, fed by every stage.
@@ -48,39 +21,16 @@ public:
     PlacementAnimator(const PlacementAnimator &) = delete;
     PlacementAnimator &operator=(const PlacementAnimator &) = delete;
 
-    /**
-     * @brief Start a new animation.
-     *
-     * @param outDir    directory the GIF is created in; created if missing
-     * @param maxFrames ceiling on recorded stills for the whole run
-     * @param delayCs   delay between GIF frames, in hundredths of a second
-     * @param blend     in-between frames emitted per recorded placement; values
-     *                  below 2 disable interpolation. See blend().
-     * @param zoom      linear scale of the frames, against the 768x768 frame
-     *                  size. Above 1 the cells resolve instead of merging into a
-     *                  texture, at the cost of a larger file; the GIF palette is
-     *                  unaffected either way.
-     */
+    // Start a new animation.// below 2 disable interpolation. See blend().// size. Above 1 the cells resolve instead of merging into a// texture, at the cost of a larger file; the GIF palette is// unaffected either way.
+
     void configure(const std::string &outDir, std::size_t maxFrames, int delayCs, int blend = 3,
                    double zoom = 1.0);
 
     /// Forget the current run. Recorded frames are left on disk.
     void reset();
 
-    /**
-     * @brief In-between frames emitted per recorded placement.
-     *
-     * Consecutive solves move cells by a small fraction of a cell width, so a
-     * frame per iteration is a series of near-identical images separated by a
-     * jump, and the motion reads as a flicker rather than as cells travelling.
-     * Blending renders the straight line between two placements, which at these
-     * displacements is indistinguishable from the motion being interpolated, and
-     * turns the jump into movement.
-     *
-     * Implemented by holding only the previous placement, so the cost is one
-     * extra copy of the coordinates and `blend` times the rendering -- not
-     * `blend` times the memory.
-     */
+    // In-between frames emitted per recorded placement.// Consecutive solves move cells by a small fraction of a cell width, so a// frame per iteration is a series of near-identical images separated by a// jump, and the motion reads as a flicker rather than as cells travelling.// Blending renders the straight line between two placements, which at these// displacements is indistinguishable from the motion being interpolated, and// turns the jump into movement.// Implemented by holding only the previous placement, so the cost is one// extra copy of the coordinates and `blend` times the rendering -- not// `blend` times the memory.
+
     [[nodiscard]] int blend() const {
         return blend_;
     }
@@ -100,23 +50,8 @@ public:
         return frame_;
     }
 
-    /**
-     * @brief Hold frames back from the stage that is about to run.
-     *
-     * A cap that is first-come-first-served spends itself on whichever stage
-     * records the most frames, which for a real design is global placement: a
-     * conjugate-gradient iterate every few iterations of every outer iteration
-     * is thousands of stills, and it will consume the entire budget before the
-     * legalizer draws anything. The result is an animation that stops exactly
-     * where the placement stops being interesting -- all of the spreading, none
-     * of the legalizing.
-     *
-     * So the flow holds back a share of the budget while the placer runs and
-     * releases it before legalization, which guarantees the tail is always
-     * representable no matter how fine the placer's cadence is.
-     *
-     * @param n frames to keep in reserve; 0 means no reservation
-     */
+    // Hold frames back from the stage that is about to run.// A cap that is first-come-first-served spends itself on whichever stage// records the most frames, which for a real design is global placement: a// conjugate-gradient iterate every few iterations of every outer iteration// is thousands of stills, and it will consume the entire budget before the// legalizer draws anything. The result is an animation that stops exactly// where the placement stops being interesting -- all of the spreading, none// of the legalizing.// So the flow holds back a share of the budget while the placer runs and// releases it before legalization, which guarantees the tail is always// representable no matter how fine the placer's cadence is.
+
     void holdBack(std::size_t n);
 
     /// Frames still recordable, ignoring any hold-back.
@@ -124,35 +59,15 @@ public:
         return frame_ >= maxFrames_ ? 0 : maxFrames_ - frame_;
     }
 
-    /**
-     * @brief Rasterise the current placement as the next frame of the run.
-     *
-     * @param g           graph the coordinates index into
-     * @param x           per-vertex x, one entry per graph vertex
-     * @param y           per-vertex y, one entry per graph vertex
-     * @param die         die box the frame is drawn to
-     * @param step        iteration this frame depicts, for the caption
-     * @param total       iteration count, for the caption
-     * @param hpwl        wirelength of the placement, for the caption
-     * @param hpwlInitial wirelength the run is measured against, for the caption
-     * @param resid       overflow of the placement, for the caption
-     * @param note        human-readable stage label, drawn into the frame
-     * @param constraints placement fences to draw, or null
-     *
-     * A no-op when the animator is not configured, when the cap is reached, or
-     * when @p x and @p y are not one entry per graph vertex. The cap is checked
-     * before the work, not after, so a capped run costs nothing.
-     */
+    // Rasterise the current placement as the next frame of the run.// A no-op when the animator is not configured, when the cap is reached, or// when @p x and @p y are not one entry per graph vertex. The cap is checked// before the work, not after, so a capped run costs nothing.
+
     void record(const Graph &g, const std::vector<float> &x, const std::vector<float> &y,
                 const BBox &die, std::size_t step, std::size_t total, double hpwl,
                 double hpwlInitial, double resid, const std::string &note,
                 const constraintMgr *constraints = nullptr, bool mandatory = false);
 
-    /**
-     * @brief Write the collected stills as one animated GIF.
-     *
-     * @return true if at least two stills were found and the GIF was written
-     */
+    // Write the collected stills as one animated GIF.
+
     [[nodiscard]] bool finish(const std::string &gifName = "placement.gif") const;
 
 private:

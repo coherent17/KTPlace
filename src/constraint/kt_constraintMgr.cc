@@ -1,7 +1,5 @@
-/**
- * @file kt_constraintMgr.cc
- * @brief Implementation of the placement region constraints
- */
+// @file kt_constraintMgr.cc// Implementation of the placement region constraints
+
 
 #include "constraint/kt_constraintMgr.h"
 

@@ -1,10 +1,5 @@
-/**
- * @file test_adaptor.cc
- * @brief Unit tests for the Bookshelf and LEF/DEF input adapters
- *
- * Every test writes a tiny synthetic design into a scratch directory, so the
- * suite needs no benchmark data on disk.
- */
+// @file test_adaptor.cc// Unit tests for the Bookshelf and LEF/DEF input adapters// Every test writes a tiny synthetic design into a scratch directory, so the// suite needs no benchmark data on disk.
+
 
 #define BOOST_TEST_MODULE ktplace_adaptor
 #define BOOST_TEST_DYN_LINK

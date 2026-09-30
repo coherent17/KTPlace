@@ -1,0 +1,73 @@
+#!/usr/bin/env bash
+# Pre-commit hook: refuse a commit that is unformatted or breaks the tests.
+#
+# Tracked in the repository and activated by `make hooks`, which points
+# core.hooksPath at this directory, so everyone gets the same hook rather than
+# each copying it into .git/hooks by hand.
+
+set -uo pipefail
+
+root="$(git rev-parse --show-toplevel)"
+cd "$root" || exit 1
+
+# A commit made while amending a fix, or a WIP, should not be held up by this.
+# Set KTPLACE_SKIP_HOOKS=1 to bypass; the message says so rather than failing
+# silently, because a hook that can be bypassed without trace is worse than none.
+if [ "${KTPLACE_SKIP_HOOKS:-0}" != "0" ]; then
+    echo "pre-commit: skipped (KTPLACE_SKIP_HOOKS set)"
+    exit 0
+fi
+
+fail=0
+
+# ---------------------------------------------------------------- formatting
+# Only the staged files, not the tree. The tree predates .clang-format and is
+# not clean, so checking all of it would refuse every commit forever. Checking
+# what is about to be committed keeps the hook useful now and lets the rest of
+# the tree converge as its files are next touched.
+staged_cpp="$(git diff --cached --name-only --diff-filter=ACMR \
+    | grep -E '\.(cc|h)$' || true)"
+
+if [ -n "$staged_cpp" ] && command -v clang-format >/dev/null 2>&1; then
+    # clang-format's own exit code, not a grep for "warning:". --Werror turns its
+    # diagnostics into "error:" lines, so a grep for warnings silently matched
+    # nothing and the hook passed a file that is obviously unformatted.
+    violations="$(printf '%s\n' "$staged_cpp" \
+        | xargs --no-run-if-empty clang-format --dry-run --Werror 2>&1 \
+        | grep -cE 'error: code should be clang-formatted' || true)"
+    if ! printf '%s\n' "$staged_cpp" \
+        | xargs --no-run-if-empty clang-format --dry-run --Werror >/dev/null 2>&1; then
+        echo "pre-commit: ${violations:-?} formatting problem(s) in the staged sources."
+        echo "            Run 'make format', or clang-format -i on:"
+        printf '              %s\n' $staged_cpp | head -5
+        fail=1
+    fi
+else
+    if [ -n "$staged_cpp" ] && ! command -v clang-format >/dev/null 2>&1; then
+        echo "pre-commit: clang-format not found, skipping the format check."
+    fi
+fi
+
+# --------------------------------------------------------------------- tests
+# Skippable, because the suite is not instant and not every commit deserves it.
+# KTPLACE_HOOK_TESTS=0 turns it off for the commits where the tests are known
+# unchanged, and the default is on because "it built on my machine" is how a
+# broken tree reaches main.
+run_tests="${KTPLACE_HOOK_TESTS:-1}"
+if [ "$run_tests" != "0" ]; then
+    echo "pre-commit: running the unit tests (KTPLACE_HOOK_TESTS=0 to skip)..."
+    if ! make -j"$(nproc)" test >/tmp/ktplace-hook-test.log 2>&1; then
+        echo "pre-commit: tests failed. Tail of /tmp/ktplace-hook-test.log:"
+        tail -20 /tmp/ktplace-hook-test.log
+        fail=1
+    fi
+fi
+
+if [ "$fail" -ne 0 ]; then
+    echo
+    echo "pre-commit: refusing the commit. Bypass with KTPLACE_SKIP_HOOKS=1 if this is"
+    echo "            a deliberate partial commit."
+    exit 1
+fi
+
+exit 0

@@ -1,7 +1,5 @@
-/**
- * @file bookshelfToKTAdaptor.h
- * @brief Bookshelf format adapter using Adapter pattern
- */
+// @file bookshelfToKTAdaptor.h// Bookshelf format adapter using Adapter pattern
+
 
 #pragma once
 
@@ -15,14 +13,8 @@ namespace ktplace {
 
 // Forward declaration of base adapter interface
 
-/**
- * @brief Adapter for Bookshelf format input files
- * 
- * Parses Bookshelf format files (.nodes, .nets, .pl, .scl, .wts) and
- * converts them into the internal PlacementDB format.
- * 
- * Uses the Adapter pattern to convert from Bookshelf format to unified data model.
- */
+// Adapter for Bookshelf format input files// Parses Bookshelf format files (.nodes, .nets, .pl, .scl, .wts) and// converts them into the internal PlacementDB format.// Uses the Adapter pattern to convert from Bookshelf format to unified data model.
+
 class BookshelfInputAdapter {
 public:
     /// Constructor
@@ -39,32 +31,19 @@ public:
     BookshelfInputAdapter(BookshelfInputAdapter &&) noexcept;
     BookshelfInputAdapter &operator=(BookshelfInputAdapter &&) noexcept;
 
-    /**
-     * @brief Read Bookshelf format from directory
-     * @param baseName Base name of the files (e.g., "adaptec2" for adaptec2.nodes, adaptec2.nets, etc.)
-     * @param dirPath Directory path containing the files
-     * @return true if successful, false otherwise
-     */
+    // Read Bookshelf format from directory
+
     [[nodiscard]] bool readFromDirectory(const std::string &baseName, const std::string &dirPath);
 
-    /**
-     * @brief Read Bookshelf format from individual files
-     * @param nodesFile Path to .nodes file (can be gzipped)
-     * @param netsFile Path to .nets file (can be gzipped)
-     * @param plFile Path to .pl file (optional, can be gzipped)
-     * @param sclFile Path to .scl file (optional, can be gzipped)
-     * @param wtsFile Path to .wts file (optional, can be gzipped)
-     * @return true if successful, false otherwise
-     */
+    // Read Bookshelf format from individual files
+
     [[nodiscard]] bool readFromFiles(const std::string &nodesFile, const std::string &netsFile,
                                      const std::string &plFile = "",
                                      const std::string &sclFile = "",
                                      const std::string &wtsFile = "");
 
-    /**
-     * @brief Get the PlacementDB object
-     * @return Reference to the internal PlacementDB
-     */
+    // Get the PlacementDB object
+
     [[nodiscard]] PlacementDB &getPlacementDB() {
         return *db;
     }
@@ -72,10 +51,8 @@ public:
         return *db;
     }
 
-    /**
-     * @brief Release ownership of the PlacementDB
-     * @return Unique pointer to the PlacementDB
-     */
+    // Release ownership of the PlacementDB
+
     [[nodiscard]] std::unique_ptr<PlacementDB> releasePlacementDB() {
         return std::move(db);
     }

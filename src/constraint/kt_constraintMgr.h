@@ -1,36 +1,5 @@
-/**
- * @file kt_constraintMgr.h
- * @brief Placement region ("fence") constraints
- *
- * Some benchmarks, notably the ISPD 2015 mixed-size designs, fence off parts
- * of the die and require a named group of instances to stay inside them. In
- * DEF that is a `REGIONS` section of rectangles plus a `GROUPS` section binding
- * each region to a set of instances:
- *
- * @code
- * REGIONS 1 ;
- *    - er0 ( 47200 252000 ) ( 297800 300000 ) ( ... ) + TYPE FENCE ;
- * END REGIONS
- * GROUPS 1 ;
- *    - er0 eh0/<star>
- *       + REGION er0 ;
- * END GROUPS
- * @endcode
- *
- * This class owns that geometry and the instance-to-region mapping, and knows
- * how to answer the two questions the placer asks: which region must this cell
- * be in, and where is the nearest legal position for it. The per-vertex
- * assignment is cached in `Vertex::regionId` so the hot loops pay only an int
- * compare.
- *
- * Per the ISPD 2015 benchmark description, a region is "one or more rectangles
- * specified by pairs of coordinate points (lower-left, upper-right)", and those
- * rectangles "might not create a contiguous rectilinear region, i.e. in some
- * cases a region may be disconnected". A region is therefore stored as a union
- * of axis-aligned rectangles: containment is a per-rectangle test and clamping
- * snaps to the nearest rectangle. Notably the point pairs are *not* a polygon
- * traversal, so treating them as one outline is incorrect.
- */
+// @file kt_constraintMgr.h// Placement region ("fence") constraints// Some benchmarks, notably the ISPD 2015 mixed-size designs, fence off parts// of the die and require a named group of instances to stay inside them. In// DEF that is a `REGIONS` section of rectangles plus a `GROUPS` section binding// each region to a set of instances:// REGIONS 1 ;// - er0 ( 47200 252000 ) ( 297800 300000 ) ( ... ) + TYPE FENCE ;// END REGIONS// GROUPS 1 ;// - er0 eh0/<star>// + REGION er0 ;// END GROUPS// This class owns that geometry and the instance-to-region mapping, and knows// how to answer the two questions the placer asks: which region must this cell// be in, and where is the nearest legal position for it. The per-vertex// assignment is cached in `Vertex::regionId` so the hot loops pay only an int// compare.// Per the ISPD 2015 benchmark description, a region is "one or more rectangles// specified by pairs of coordinate points (lower-left, upper-right)", and those// rectangles "might not create a contiguous rectilinear region, i.e. in some// cases a region may be disconnected". A region is therefore stored as a union// of axis-aligned rectangles: containment is a per-rectangle test and clamping// snaps to the nearest rectangle. Notably the point pairs are *not* a polygon// traversal, so treating them as one outline is incorrect.
+
 
 #pragma once
 
@@ -65,13 +34,8 @@ struct Rect {
     }
 };
 
-/**
- * @brief One placement region: a name plus the rectangles that make it up.
- *
- * A region is disconnected in general, so the rectangles are kept separately
- * rather than merged into a single outline. The rectangles of the ISPD 2015
- * fences do not overlap, so the area is their sum.
- */
+// One placement region: a name plus the rectangles that make it up.// A region is disconnected in general, so the rectangles are kept separately// rather than merged into a single outline. The rectangles of the ISPD 2015// fences do not overlap, so the area is their sum.
+
 struct Region {
     std::string name;         ///< DEF region name, e.g. "er0"
     std::vector<Rect> rects;  ///< union of rectangles forming the region
@@ -96,12 +60,8 @@ struct Region {
     }
 };
 
-/**
- * @brief Owns the region constraints for one design.
- *
- * A default-constructed manager has no regions, so the placer can keep its fast
- * unconstrained path.
- */
+// Owns the region constraints for one design.// A default-constructed manager has no regions, so the placer can keep its fast// unconstrained path.
+
 class constraintMgr {
 public:
     /// Sentinel for "not constrained to any region".
@@ -109,28 +69,12 @@ public:
 
     constraintMgr() = default;
 
-    /**
-     * @brief Add a placement region.
-     *
-     * @param name   region name as written in the DEF
-     * @param points fence corners, taken two at a time as the lower-left and
-     *               upper-right corners of one rectangle
-     * @return the new region id, or kNoRegion if no usable rectangle remains
-     */
+    // Add a placement region.// upper-right corners of one rectangle
+
     int addRegion(std::string name, const std::vector<Point> &points);
 
-    /**
-     * @brief Assign every instance whose name starts with @p prefix to @p regionId.
-     *
-     * DEF writes group membership as a name pattern ("eh0/<star>"), so matching is
-     * by prefix. Unknown names are ignored, which lets a caller assign groups
-     * before or after loading the netlist.
-     *
-     * Matching cells are stamped with the region id in `Vertex::regionId`,
-     * which is what the placer's hot loops read.
-     *
-     * @return number of instances assigned
-     */
+    // Assign every instance whose name starts with @p prefix to @p regionId.// DEF writes group membership as a name pattern ("eh0/<star>"), so matching is// by prefix. Unknown names are ignored, which lets a caller assign groups// before or after loading the netlist.// Matching cells are stamped with the region id in `Vertex::regionId`,// which is what the placer's hot loops read.
+
     std::size_t assignByPrefix(int regionId, const std::string &prefix, Graph &graph);
 
     /// @return number of regions
@@ -149,48 +93,21 @@ public:
         return regions_;
     }
 
-    /**
-     * @brief Is (x, y) inside the region?
-     *
-     * @param id  region id; kNoRegion always counts as inside.
-     * @param x  query x coordinate
-     * @param y  query y coordinate
-     */
+    // Is (x, y) inside the region?
+
     [[nodiscard]] bool contains(int id, double x, double y) const;
 
-    /**
-     * @brief Move (x, y) to the nearest position inside its region.
-     *
-     * Inside positions are returned unchanged. Positions outside are clamped
-     * into the nearest rectangle of the region, so a caller can use this as a
-     * hard fence.
-     */
+    // Move (x, y) to the nearest position inside its region.// Inside positions are returned unchanged. Positions outside are clamped// into the nearest rectangle of the region, so a caller can use this as a// hard fence.
+
     void clampToRegion(int id, double &x, double &y) const;
 
-    /**
-     * @brief Move (x, y) out of every region it happens to sit in.
-     *
-     * A fence is reserved for the cells assigned to it, so a cell belonging to
-     * no region has to stay out. Positions already outside every region are
-     * returned unchanged; a position inside is moved to the nearest point of the
-     * boundary of the smallest region rectangle containing it, which for
-     * touching fences may take a few passes.
-     *
-     * Fences frequently hug the die border, so an exit that leaves the die is
-     * no use: the caller would clamp the cell straight back in. Passing the die
-     * bounds makes the search prefer an escape that stays on-chip.
-     *
-     * @return true when the position had to be moved
-     */
+    // Move (x, y) out of every region it happens to sit in.// A fence is reserved for the cells assigned to it, so a cell belonging to// no region has to stay out. Positions already outside every region are// returned unchanged; a position inside is moved to the nearest point of the// boundary of the smallest region rectangle containing it, which for// touching fences may take a few passes.// Fences frequently hug the die border, so an exit that leaves the die is// no use: the caller would clamp the cell straight back in. Passing the die// bounds makes the search prefer an escape that stays on-chip.
+
     bool pushOutOfRegions(double &x, double &y, double dieMinX, double dieMinY, double maxX,
                           double maxY) const;
 
-    /**
-     * @brief Count instances currently outside their region.
-     * @param positions  x and y per movable index, in solver order
-     * @param regionIds  region id per movable index (kNoRegion for unconstrained)
-     * @return number of violations
-     */
+    // Count instances currently outside their region.
+
     [[nodiscard]] std::size_t countViolations(const std::vector<double> &positions,
                                               const std::vector<int> &regionIds) const;
 

@@ -1,7 +1,5 @@
-/**
- * @file kt_flowMgr.cc
- * @brief Implementation of FlowMgr
- */
+// @file kt_flowMgr.cc// Implementation of FlowMgr
+
 
 #include "kt_flowMgr.h"
 #include "util/kt_reportTable.h"

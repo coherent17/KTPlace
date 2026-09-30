@@ -1,7 +1,5 @@
-/**
- * @file test_datamodel.cc
- * @brief Unit tests for PlacementDB and the placement graph
- */
+// @file test_datamodel.cc// Unit tests for PlacementDB and the placement graph
+
 
 #define BOOST_TEST_MODULE ktplace_datamodel
 #define BOOST_TEST_DYN_LINK

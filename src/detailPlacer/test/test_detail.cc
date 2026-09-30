@@ -1,19 +1,6 @@
 // SPDX-License-Identifier: BSD-3-Clause
-/**
- * @file test_detail.cc
- * @brief Unit tests for the fast detailed placer
- *
- * Detailed placement's whole contract is that it may only make a legal
- * placement legaler-and-shorter. So the assertions here are mostly about the
- * invariant rather than the optimisation: whatever the four techniques do, the
- * result has to be on-site, in-row, clear of the fixed cells, and never worse
- * on HPWL than the input. An optimiser that reports a swap count but leaves the
- * design illegal has failed at the only thing that matters.
- *
- * The four techniques are then exercised one at a time, with pass counts of
- * zero for the others, so a failure names the move that broke legality rather
- * than "something in place()".
- */
+// @file test_detail.cc// Unit tests for the fast detailed placer// Detailed placement's whole contract is that it may only make a legal// placement legaler-and-shorter. So the assertions here are mostly about the// invariant rather than the optimisation: whatever the four techniques do, the// result has to be on-site, in-row, clear of the fixed cells, and never worse// on HPWL than the input. An optimiser that reports a swap count but leaves the// design illegal has failed at the only thing that matters.// The four techniques are then exercised one at a time, with pass counts of// zero for the others, so a failure names the move that broke legality rather// than "something in place()".
+
 
 #define BOOST_TEST_MODULE ktplace_detail
 

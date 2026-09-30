@@ -1,7 +1,5 @@
-/**
- * @file kt_option.h
- * @brief Command-line option parser for KTPlace
- */
+// @file kt_option.h// Command-line option parser for KTPlace
+
 
 #pragma once
 
@@ -10,12 +8,8 @@
 
 namespace ktplace {
 
-/**
- * @brief Command-line option parser using PIMPL pattern
- * 
- * Handles parsing of command-line arguments and provides
- * access to configuration options.
- */
+// Command-line option parser using PIMPL pattern// Handles parsing of command-line arguments and provides// access to configuration options.
+
 class kt_option {
 public:
     /// Constructor
@@ -32,18 +26,8 @@ public:
     kt_option(kt_option &&) noexcept;
     kt_option &operator=(kt_option &&) noexcept;
 
-    /**
-     * @brief Parse command-line arguments
-     * After parsing, relative output and plot paths are resolved against the
-     * work directory, and the log path defaults to "<work-dir>/ktplace.log"
-     * (its trace companion lives next to it). Absolute paths are used as
-     * given. The work directory itself defaults to the current directory.
-     *
-     * @param argc Argument count
-     * @param argv Argument vector
-     * @return true if parsing successful, false if help/version shown
-     * @throws std::runtime_error if parsing fails
-     */
+    // Parse command-line arguments// After parsing, relative output and plot paths are resolved against the// work directory, and the log path defaults to "<work-dir>/ktplace.log"// (its trace companion lives next to it). Absolute paths are used as// given. The work directory itself defaults to the current directory.
+
     bool parse_option(int argc, char *argv[]);
 
     // Accessors for parsed options
@@ -58,21 +42,16 @@ public:
 
     [[nodiscard]] const std::string &getWorkDir() const;
 
-    /**
-     * @brief Check if verbose (trace-level) logging was requested
-     * @return true if -v/--verbose was given
-     */
+    // Check if verbose (trace-level) logging was requested
+
     [[nodiscard]] bool isVerbose() const;
 
-    /**
-     * @brief Print usage information
-     * @param programName Program name for usage output
-     */
+    // Print usage information
+
     static void printUsage(const char *programName);
 
-    /**
-     * @brief Print version information
-     */
+    // Print version information
+
     static void printVersion();
 
 private:

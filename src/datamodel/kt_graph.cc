@@ -1,7 +1,5 @@
-/**
- * @file kt_graph.cc
- * @brief Implementation of Graph
- */
+// @file kt_graph.cc// Implementation of Graph
+
 
 #include "datamodel/kt_graph.h"
 #include <stdexcept>

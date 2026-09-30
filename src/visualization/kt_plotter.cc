@@ -1,7 +1,5 @@
-/**
- * @file kt_plotter.cc
- * @brief Implementation of the SVG/HTML/CSV/PNG/GIF placement visualization helpers
- */
+// @file kt_plotter.cc// Implementation of the SVG/HTML/CSV/PNG/GIF placement visualization helpers
+
 
 #include "visualization/kt_plotter.h"
 
@@ -197,24 +195,8 @@ Rgb24 blendOnBg(const Rgb24 &c, double alpha) {
     return o;
 }
 
-/**
- * @brief The placement rows, as a y interval each, recovered from the cells.
- *
- * A frame wants to draw the rows behind the cells -- it is the one thing in the
- * picture that says whether the placement is legal, because a cell that is on a
- * row and a cell that is not look identical otherwise -- and the renderer is
- * handed a graph and a set of coordinates, not a row list.
- *
- * The rows are recovered from the cells instead, which works because a legal
- * placement is defined by it: every cell in a row has the same y. The distinct y
- * values are clustered with a tolerance of a fraction of the cell height, and
- * each cluster becomes one row. Before legalization there is no row structure to
- * recover -- the y values are continuous and the cluster count explodes -- so a
- * cluster count that is not plausible is reported as "no rows" and nothing is
- * drawn, rather than a frame covered in thousands of lines that mean nothing.
- *
- * @return one {yBottom, yTop} per row, empty when no row structure is present
- */
+// The placement rows, as a y interval each, recovered from the cells.// A frame wants to draw the rows behind the cells -- it is the one thing in the// picture that says whether the placement is legal, because a cell that is on a// row and a cell that is not look identical otherwise -- and the renderer is// handed a graph and a set of coordinates, not a row list.// The rows are recovered from the cells instead, which works because a legal// placement is defined by it: every cell in a row has the same y. The distinct y// values are clustered with a tolerance of a fraction of the cell height, and// each cluster becomes one row. Before legalization there is no row structure to// recover -- the y values are continuous and the cluster count explodes -- so a// cluster count that is not plausible is reported as "no rows" and nothing is// drawn, rather than a frame covered in thousands of lines that mean nothing.
+
 std::vector<std::array<double, 2>> rowBands(const Graph &g, const std::vector<float> &y) {
     std::vector<double> ys;
     std::vector<double> heights;
@@ -288,14 +270,8 @@ std::vector<std::array<double, 2>> rowBands(const Graph &g, const std::vector<fl
     return bands;
 }
 
-/**
- * @brief Shared colour table for a whole animation.
- *
- * GIF stores palette indices, so an animation is only correct if every frame
- * indexes the same table. Indices are therefore handed out on first use and the
- * table is kept alive across all frames; the renderer asks for a colour by value
- * and always gets the same index back.
- */
+// Shared colour table for a whole animation.// GIF stores palette indices, so an animation is only correct if every frame// indexes the same table. Indices are therefore handed out on first use and the// table is kept alive across all frames; the renderer asks for a colour by value// and always gets the same index back.
+
 /// Pack a colour into a map key.
 std::uint32_t packRgb(std::uint8_t r, std::uint8_t g, std::uint8_t b) {
     return (static_cast<std::uint32_t>(r) << 16) | (static_cast<std::uint32_t>(g) << 8) | b;
@@ -503,13 +479,8 @@ int textWidth(const CImgList<unsigned char> &font, const char *s) {
     return total;
 }
 
-/**
- * @brief Raster counterpart of writeFrameSvg(), drawn with CImg.
- *
- * Mirrors the SVG renderer's layout, colours and draw order so the two
- * representations of a frame agree. Everything is drawn flat (see blendOnBg)
- * so the result maps onto the GIF palette without any colour reduction.
- */
+// Raster counterpart of writeFrameSvg(), drawn with CImg.// Mirrors the SVG renderer's layout, colours and draw order so the two// representations of a frame agree. Everything is drawn flat (see blendOnBg)// so the result maps onto the GIF palette without any colour reduction.
+
 namespace {
 // Analytic anti-aliased fill of an axis-aligned rectangle, in fractional pixel
 // coordinates, blended over what is already there.
@@ -982,25 +953,8 @@ void putChunk(std::vector<std::uint8_t> &out, const char *type, const std::uint8
     putBe32(out, static_cast<std::uint32_t>(crc));
 }
 
-/**
- * @brief Write interleaved 8-bit RGB @p rgb as a truecolour PNG.
- *
- * Self-contained, like the GIF writer: the container, the CRC and the deflate are
- * all produced in-process, and the only dependency is zlib, which the build
- * already links. CImg cannot do this -- it writes PNG through libpng, whose
- * headers are not installed here -- and a PPM, the one format the raster path can
- * always write, is not something a browser or an image viewer will open. So a
- * final still that is meant to be looked at is written as a PNG instead.
- *
- * The scanlines are stored with filter type 0 (None). PNG's predictors are a
- * size optimisation and a placement frame is mostly flat colour, which deflate
- * already handles; picking a real filter per scanline would buy a few percent for
- * a pass over every pixel that this image is written exactly once.
- *
- * @param path  output .png file
- * @param w,h   image size in pixels
- * @param rgb   w*h*3 bytes, red-green-blue per pixel
- */
+// Write interleaved 8-bit RGB @p rgb as a truecolour PNG.// Self-contained, like the GIF writer: the container, the CRC and the deflate are// all produced in-process, and the only dependency is zlib, which the build// already links. CImg cannot do this -- it writes PNG through libpng, whose// headers are not installed here -- and a PPM, the one format the raster path can// always write, is not something a browser or an image viewer will open. So a// final still that is meant to be looked at is written as a PNG instead.// The scanlines are stored with filter type 0 (None). PNG's predictors are a// size optimisation and a placement frame is mostly flat colour, which deflate// already handles; picking a real filter per scanline would buy a few percent for// a pass over every pixel that this image is written exactly once.
+
 bool writePng(const std::string &path, int w, int h, const std::vector<std::uint8_t> &rgb) {
     if (w <= 0 || h <= 0 || rgb.size() < static_cast<std::size_t>(w) * h * 3) {
         return false;

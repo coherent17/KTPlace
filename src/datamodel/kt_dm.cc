@@ -1,7 +1,5 @@
-/**
- * @file kt_dm.cc
- * @brief Implementation of PlacementDB using PIMPL pattern with kt_graph
- */
+// @file kt_dm.cc// Implementation of PlacementDB using PIMPL pattern with kt_graph
+
 
 #include "datamodel/kt_dm.h"
 #include "datamodel/kt_graph.h"

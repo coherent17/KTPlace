@@ -1,20 +1,6 @@
 // SPDX-License-Identifier: BSD-3-Clause
-/**
- * @file test_viz.cc
- * @brief Unit tests for the canvas/GIF writer and the SVG/raster renderers
- *
- * The GIF writer is the reason these tests read bytes instead of comparing
- * pictures. A GIF that is almost right -- a bad code width, a missing loop
- * extension, a truncated block chain -- still opens in some viewers and shows
- * as garbage in others, so the assertions here walk the container structure
- * rather than trusting that "a file appeared".
- *
- * The renderers are checked for well-formed output and for the specific
- * things that would misinform a reader: the die box falling back to 1x1 when
- * there are no fixed cells, coordinates indexing the wrong vertex, and frames
- * named so that collectFrames() sorts them in run order rather than
- * lexicographic order (frame_10 before frame_9).
- */
+// @file test_viz.cc// Unit tests for the canvas/GIF writer and the SVG/raster renderers// The GIF writer is the reason these tests read bytes instead of comparing// pictures. A GIF that is almost right -- a bad code width, a missing loop// extension, a truncated block chain -- still opens in some viewers and shows// as garbage in others, so the assertions here walk the container structure// rather than trusting that "a file appeared".// The renderers are checked for well-formed output and for the specific// things that would misinform a reader: the die box falling back to 1x1 when// there are no fixed cells, coordinates indexing the wrong vertex, and frames// named so that collectFrames() sorts them in run order rather than// lexicographic order (frame_10 before frame_9).
+
 
 #define BOOST_TEST_MODULE ktplace_viz
 
