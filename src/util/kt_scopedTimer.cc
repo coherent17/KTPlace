@@ -3,7 +3,7 @@
 
 #include "util/kt_scopedTimer.h"
 #include "util/kt_reportTable.h"
-#include "util/kt_log.h"
+
 #include <ctime>
 
 namespace ktplace {

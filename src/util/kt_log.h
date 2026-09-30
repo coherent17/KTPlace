@@ -17,7 +17,6 @@
 namespace ktplace {
 
 
-
 // Logger writing to a transcript file plus stderr.// Calls are safe from multiple threads: each record is emitted under one// mutex, so output from TBB workers cannot interleave within a line. Copying// is disabled so the global `ktlog` instance below is the only logger.
 
 class Logger {

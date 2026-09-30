@@ -14,11 +14,11 @@
 #include <memory>
 #include <numeric>
 
-#include "datamodel/kt_graph.h"
+
 #include "util/kt_log.h"
 #include "util/kt_scopedTimer.h"
 #include "visualization/kt_animator.h"
-#include "visualization/kt_plotter.h"
+
 
 namespace ktplace {
 
@@ -1150,8 +1150,9 @@ void FastDetailedPlacer::Impl::selfCheck(DetailPlaceResult &res) const {
             continue;
         }
         byX = sp.cells;
-        std::sort(byX.begin(), byX.end(),
-                  [&](std::size_t a, std::size_t b) { return x_[a] < x_[b]; });
+        std::sort(byX.begin(), byX.end(), [&](std::size_t a, std::size_t b) {
+            return x_[a] < x_[b];
+        });
         for (std::size_t k = 1; k < byX.size(); ++k) {
             const std::size_t a = byX[k - 1], b = byX[k];
             if (x_[a] + w_[a] > x_[b] + eps) {
@@ -1160,9 +1161,8 @@ void FastDetailedPlacer::Impl::selfCheck(DetailPlaceResult &res) const {
         }
     }
     for (std::size_t i = 0; i < mov_.size(); ++i) {
-        const long b = std::clamp<long>(
-            static_cast<long>(std::floor((y_[i] - bandY0_) / bandY_)), 0,
-            static_cast<long>(fixedByBand_.size()) - 1);
+        const long b = std::clamp<long>(static_cast<long>(std::floor((y_[i] - bandY0_) / bandY_)),
+                                        0, static_cast<long>(fixedByBand_.size()) - 1);
         for (const std::size_t fi : fixedByBand_[static_cast<std::size_t>(b)]) {
             const FixedBox &f = fixed_[fi];
             if (x_[i] + w_[i] > f.x0 + eps && x_[i] < f.x1 - eps && y_[i] + h_[i] > f.y0 + eps &&
@@ -1277,9 +1277,9 @@ DetailPlaceResult FastDetailedPlacer::Impl::place(const DetailPlaceParams &param
             // Accumulate across passes: each phase runs up to `limit` passes and
             // timing only the last one made reorder look like 18 of 52 seconds when
             // it is nearly half.
-            phaseSeconds += std::chrono::duration<double>(std::chrono::steady_clock::now() -
-                                                          phaseStart)
-                                .count();
+            phaseSeconds +=
+                std::chrono::duration<double>(std::chrono::steady_clock::now() - phaseStart)
+                    .count();
             const double now = hpwl();
             char note[128];
             std::snprintf(note, sizeof(note), "%s pass %zu (hpwl %.6g)", name, k, now);

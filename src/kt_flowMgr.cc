@@ -4,13 +4,13 @@
 #include "kt_flowMgr.h"
 #include "util/kt_reportTable.h"
 #include "visualization/kt_animator.h"
-#include "visualization/kt_plotter.h"
+
 #include "util/kt_scopedTimer.h"
 #include "util/kt_log.h"
 #include "detailPlacer/kt_fastdp.h"
 #include "legalizer/kt_abacus.h"
 #include "placer/simpl/kt_simpl.h"
-#include "datamodel/kt_graph.h"
+
 #include "adaptor/bookshelfToKTAdaptor.h"
 #include "adaptor/lefdefToKTAdaptor.h"
 #include <map>
@@ -851,9 +851,8 @@ bool FlowMgr::Impl::runPlacement(const std::string &algorithm, const std::string
         // bytes = width * height * bytesPerPixel * frames, so the frame count that
         // fills the budget divides it out. Multiplying by the bytes-per-pixel
         // instead gave 12 frames, which is a flicker and not an animation.
-        const std::size_t sizeCapFrames =
-            static_cast<std::size_t>(static_cast<double>(animGifByteCap) /
-                                     (animW * animH * kBytesPerPixel));
+        const std::size_t sizeCapFrames = static_cast<std::size_t>(
+            static_cast<double>(animGifByteCap) / (animW * animH * kBytesPerPixel));
         const std::size_t maxFrames =
             std::getenv("KTPLACE_ANIM_MAX_FRAMES")
                 ? static_cast<std::size_t>(std::atoll(std::getenv("KTPLACE_ANIM_MAX_FRAMES")))
@@ -977,9 +976,8 @@ bool FlowMgr::Impl::runPlacement(const std::string &algorithm, const std::string
             placed.addRow({"HPWL detailed", fmt::format("{:.6}", hpwlFinalPlaced_)});
             placed.addRow({"HPWL global upper bound", fmt::format("{:.6}", res.hpwlFinal)});
             placed.addRow({"legalization + detail change",
-                           fmt::format("{:.2}%",
-                                       100.0 * (hpwlFinalPlaced_ - res.hpwlFinal) /
-                                           (res.hpwlFinal > 0.0 ? res.hpwlFinal : 1.0))});
+                           fmt::format("{:.2}%", 100.0 * (hpwlFinalPlaced_ - res.hpwlFinal) /
+                                                     (res.hpwlFinal > 0.0 ? res.hpwlFinal : 1.0))});
             placed.addRow({"paper reference (adaptec1)", "77410738"});
             placed.emit();
         }

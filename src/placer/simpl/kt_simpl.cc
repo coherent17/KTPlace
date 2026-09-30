@@ -22,7 +22,7 @@
 #include <vector>
 
 #include "util/kt_log.h"
-#include "visualization/kt_plotter.h"
+
 
 namespace ktplace {
 
@@ -522,9 +522,9 @@ void SimplePlacer::Impl::buildGrid(const SimplParams &P) {
         // end is the balanced one -- 64 gives the lowest scaled overflow (0.22) and
         // the least lopsided placement (LAL0 x-centroid 0.459 against 0.335 for the
         // fine grid), which is what the density map wants to be.
-        double t = std::clamp(std::sqrt(static_cast<double>(
-                                  std::max<std::size_t>(numMovable_, 1)) / 51.0),
-                              16.0, 256.0);
+        double t =
+            std::clamp(std::sqrt(static_cast<double>(std::max<std::size_t>(numMovable_, 1)) / 51.0),
+                       16.0, 256.0);
         // Overridable, because the resolution is a real trade rather than a
         // constant: adaptec1 also scores better on wirelength at a much finer grid
         // (700 gave 3.53e+08 against 64's 4.56e+08), and which of the two wins is

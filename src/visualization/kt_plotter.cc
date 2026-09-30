@@ -1117,8 +1117,8 @@ void writeFrameSvg(const std::string &path, const Graph &g, const std::vector<fl
         return;
     }
     out << "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"" << kImageW << "\" height=\""
-        << kImageH << "\" viewBox=\"" << fmt(vbX, prec) << " " << fmt(vbY, prec) << " " << fmt(vbW, prec)
-        << " " << fmt(vbH, prec) << "\">\n";
+        << kImageH << "\" viewBox=\"" << fmt(vbX, prec) << " " << fmt(vbY, prec) << " "
+        << fmt(vbW, prec) << " " << fmt(vbH, prec) << "\">\n";
     out << "<rect width=\"100%\" height=\"100%\" fill=\"#101418\"/>\n";
     out << "<title>step " << step << ": " << note << "</title>\n";
 
@@ -1135,9 +1135,9 @@ void writeFrameSvg(const std::string &path, const Graph &g, const std::vector<fl
         << (kImageW - 2 * kMargin / 3) * pct / 100.0 << "\" height=\"6\" fill=\"#4fc3f7\"/>\n";
 
     // Die (fixed-pad) frame.
-    out << "<rect x=\"" << fmt(toPxX(vp, dieBox[0]), prec) << "\" y=\"" << fmt(toPxY(vp, dieBox[3]), prec)
-        << "\" width=\"" << fmt((dieBox[2] - dieBox[0]) * vp.sx) << "\" height=\""
-        << fmt((dieBox[3] - dieBox[1]) * vp.sy)
+    out << "<rect x=\"" << fmt(toPxX(vp, dieBox[0]), prec) << "\" y=\""
+        << fmt(toPxY(vp, dieBox[3]), prec) << "\" width=\"" << fmt((dieBox[2] - dieBox[0]) * vp.sx)
+        << "\" height=\"" << fmt((dieBox[3] - dieBox[1]) * vp.sy)
         << "\" fill=\"none\" stroke=\"#bdbdbd\" stroke-width=\"1\"/>\n";
 
     // The rows, under the cells, as in the raster frame. Recovered from the cells
@@ -1167,8 +1167,9 @@ void writeFrameSvg(const std::string &path, const Graph &g, const std::vector<fl
             const Region &reg = *constraints->region(static_cast<int>(ri));
             const char *color = kFenceColors[ri % (sizeof(kFenceColors) / sizeof(char *))];
             for (const Rect &r : reg.rects) {
-                out << "<rect x=\"" << fmt(toPxX(vp, r.lo.x), prec) << "\" y=\"" << fmt(toPxY(vp, r.hi.y), prec)
-                    << "\" width=\"" << fmt((r.hi.x - r.lo.x) * vp.sx) << "\" height=\""
+                out << "<rect x=\"" << fmt(toPxX(vp, r.lo.x), prec) << "\" y=\""
+                    << fmt(toPxY(vp, r.hi.y), prec) << "\" width=\""
+                    << fmt((r.hi.x - r.lo.x) * vp.sx) << "\" height=\""
                     << fmt((r.hi.y - r.lo.y) * vp.sy) << "\" fill=\"" << color
                     << "\" fill-opacity=\"0.13\" stroke=\"" << color
                     << "\" stroke-width=\"1.5\" stroke-opacity=\"0.9\"/>\n";
@@ -1192,8 +1193,8 @@ void writeFrameSvg(const std::string &path, const Graph &g, const std::vector<fl
         const double w = std::max(2.0, vert.width * vp.sx);
         const double h = std::max(2.0, vert.height * vp.sy);
         out << "<rect x=\"" << fmt(toPxX(vp, x[v]), prec) << "\" y=\""
-            << fmt(toPxY(vp, y[v] + vert.height), prec) << "\" width=\"" << fmt(w, prec) << "\" height=\""
-            << fmt(h, prec) << "\"/>\n";
+            << fmt(toPxY(vp, y[v] + vert.height), prec) << "\" width=\"" << fmt(w, prec)
+            << "\" height=\"" << fmt(h, prec) << "\"/>\n";
     }
     // I/O pads / terminals: never decimated; every pad is drawn.
     for (std::size_t v = 0; v < nv; ++v) {
@@ -1204,8 +1205,8 @@ void writeFrameSvg(const std::string &path, const Graph &g, const std::vector<fl
         const double w = std::max(2.0, vert.width * vp.sx);
         const double h = std::max(2.0, vert.height * vp.sy);
         out << "<rect x=\"" << fmt(toPxX(vp, x[v]), prec) << "\" y=\""
-            << fmt(toPxY(vp, y[v] + vert.height), prec) << "\" width=\"" << fmt(w, prec) << "\" height=\""
-            << fmt(h, prec) << "\"/>\n";
+            << fmt(toPxY(vp, y[v] + vert.height), prec) << "\" width=\"" << fmt(w, prec)
+            << "\" height=\"" << fmt(h, prec) << "\"/>\n";
     }
     // Movable cells, one flat blue, matching the raster renderer so the two
     // representations of a frame are the same picture. One <g> for the whole set

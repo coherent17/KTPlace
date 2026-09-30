@@ -76,9 +76,15 @@ LIB_OBJS := $(filter-out $(OBJ_DIR)/kt_place.o,$(ALL_OBJS))
 # Phony targets
 # ============================================================================
 
-.PHONY: all clean rebuild lib test test-build check $(SUBDIRS) dirs help
+.PHONY: all clean rebuild lib test test-build check $(SUBDIRS) dirs help print-subdirs
 
 # Default target
+# Print the subdirectory list, one per line. The top-level Makefile asks for it
+# when building compile_commands.json, so the database lists the same directories
+# the build recurses into rather than a second copy of the list that can drift.
+print-subdirs:
+	@for d in $(SUBDIRS); do echo $$d; done
+
 all: dirs $(SUBDIRS) $(TARGET) env
 
 # Static library

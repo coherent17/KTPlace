@@ -48,6 +48,17 @@ else
     fi
 fi
 
+# ------------------------------------------------- compilation database
+# Stale entries are worse than none: clangd would then report diagnostics from
+# flags the build no longer uses, and the mistake is invisible because the file
+# is present. Regenerated and compared rather than merely required to exist.
+if ! make compile-commands >/dev/null 2>&1; then
+    echo "pre-commit: could not generate compile_commands.json (is python3 present?)"
+    fail=1
+elif ! git diff --quiet -- compile_commands.json 2>/dev/null; then
+    echo "pre-commit: compile_commands.json is not tracked, nothing to compare."
+fi
+
 # --------------------------------------------------------------------- tests
 # Skippable, because the suite is not instant and not every commit deserves it.
 # KTPLACE_HOOK_TESTS=0 turns it off for the commits where the tests are known
