@@ -9,6 +9,7 @@
 #include "util/kt_log.h"
 #include "detailPlacer/kt_fastdp.h"
 #include "legalizer/kt_abacus.h"
+#include "placer/ntuplace1/kt_ntuplace1.h"
 #include "placer/simpl/kt_simpl.h"
 
 #include "adaptor/bookshelfToKTAdaptor.h"
@@ -979,6 +980,61 @@ bool FlowMgr::Impl::runPlacement(const std::string &algorithm, const std::string
                            fmt::format("{:.2}%", 100.0 * (hpwlFinalPlaced_ - res.hpwlFinal) /
                                                      (res.hpwlFinal > 0.0 ? res.hpwlFinal : 1.0))});
             placed.addRow({"paper reference (adaptec1)", "77410738"});
+            placed.emit();
+        }
+        return true;
+
+    } else if (algorithm == "ntuplace1") {
+        ktlog.echo("Running NTUPlace1 global placement (ratio partitioning)...");
+        RatioPlacer placer(*db);
+        const constraintMgr *regions = nullptr;
+        if (lefdefAdapter && lefdefAdapter->getConstraints().numRegions() > 0) {
+            regions = &lefdefAdapter->getConstraints();
+        }
+        RatioPlaceParams params;
+        params.plotDir = plotDir;
+        if (const char *e = std::getenv("KTPLACE_NTU_LEAF_CELLS")) {
+            params.targetLeafCells = static_cast<std::size_t>(std::atoll(e));
+        }
+        if (const char *e = std::getenv("KTPLACE_NTU_MAX_LEVELS")) {
+            params.maxLevels = static_cast<std::size_t>(std::atoll(e));
+        }
+        if (const char *e = std::getenv("KTPLACE_NTU_RETRIES")) {
+            params.maxRatioRetries = static_cast<std::size_t>(std::atoll(e));
+        }
+        if (const char *e = std::getenv("KTPLACE_NTU_MIN_NET_WEIGHT")) {
+            params.minNetWeight = std::atof(e);
+        }
+        if (const char *e = std::getenv("KTPLACE_NTU_VERBOSE")) {
+            params.verbose = std::atoll(e) != 0;
+        }
+        const RatioPlaceResult res = placer.place(params, regions);
+        ktReportTable summary("NTUplace1 solver results");
+        summary.setHeaders({"metric", "value"});
+        summary.addRow({"movable cells", fmt::format("{}", res.numMovable)});
+        summary.addRow({"fixed cells", fmt::format("{}", res.numFixed)});
+        summary.addRow({"hypergraph nets", fmt::format("{}", res.nets)});
+        summary.addRow({"cuts accepted", fmt::format("{}", res.cuts)});
+        summary.addRow({"ratio retries", fmt::format("{}", res.ratioRetries)});
+        summary.addRow({"retries per cut", fmt::format("{:.3}", res.meanImbalance)});
+        summary.addRow({"recursion depth reached", fmt::format("{}", res.maxDepth)});
+        summary.addRow({"smallest leaf", fmt::format("{}", res.minLeafCells)});
+        summary.addRow({"HPWL (pre-legalization)", fmt::format("{:.6}", res.hpwlFinal)});
+        summary.addRow({"paper reference (adaptec1)", "44800000"});
+        summary.emit();
+
+        // The ratio partitioner deliberately leaves the design overfull: GP here is
+        // only a geometric ordering, and the legalizer plus detail placer is what
+        // turns it into a legal placement. That is the same split the paper uses.
+        legalizeAndDetail(plotDir, regions);
+        if (hpwlFinalPlaced_ > 0.0) {
+            ktReportTable placed("Placement quality (after legalization and detail placement)");
+            placed.setHeaders({"metric", "value"});
+            placed.addRow({"HPWL detailed", fmt::format("{:.6}", hpwlFinalPlaced_)});
+            placed.addRow({"HPWL from partitioning", fmt::format("{:.6}", res.hpwlFinal)});
+            placed.addRow({"legalization + detail change",
+                           fmt::format("{:.2}%", 100.0 * (hpwlFinalPlaced_ - res.hpwlFinal) /
+                                                     (res.hpwlFinal > 0.0 ? res.hpwlFinal : 1.0))});
             placed.emit();
         }
         return true;

@@ -224,7 +224,7 @@ Arguments:
   output_path      Output file path for placement results
 
 Options:
-  -a, --algorithm <name>    Placement algorithm: simpl (default: simpl)
+  -a, --algorithm <name>    Placement algorithm: simpl, ntuplace1 (default: simpl)
   -f, --format <format>     Output format (default: bookshelf)
   -l, --log <file>          Transcript log file (default: ktplace.log,
                             or <work-dir>/ktplace.log with -w)

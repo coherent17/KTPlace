@@ -18,7 +18,7 @@ override INCLUDES := -I..
 OBJ_DIR ?= ../build/obj/placer
 
 # Source files in this directory
-SRCS := simpl/kt_simpl.cc
+SRCS := simpl/kt_simpl.cc ntuplace1/kt_ntuplace1.cc
 
 # Only include files that exist
 EXISTING_SRCS := $(foreach src,$(SRCS),$(if $(wildcard $(src)),$(src),))

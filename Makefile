@@ -5,7 +5,7 @@
 
 # Default target - build from src directory
 all:
-	@$(MAKE) -C src -f Master.make
+	@$(MAKE) -C src -f Master.make all
 
 # Clean
 clean:
