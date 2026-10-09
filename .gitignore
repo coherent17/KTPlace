@@ -33,17 +33,29 @@ benchmark/*
 !benchmark/fetch_benchmarks.py
 !benchmark/README.md
 
-# adaptec1 is the exception, and it is deliberate. It is the CI smoke design, and
-# the ISPD 2005 suite has no download URL that still works -- the UMich mirror
-# 404s and the UT Austin tarball 403s -- so a job that has to fetch it would just
-# be a red build waiting to happen. The suite is redistributed by dozens of
-# placement papers without a canonical home, and the whole design is 5.4 MB
-# already gzipped, which is a fair price for a smoke test that cannot break on
-# someone else's uptime. Only this one design is tracked; the other seven stay
-# ignored, and `output/run_ispd2005.sh` skips any design it cannot find.
+# Two designs are the exceptions, and both are deliberate: one per feature that
+# CI has to be able to test without depending on a download.
+#
+# adaptec1 is the smoke design, and the ISPD 2005 suite has no download URL that
+# still works -- the UMich mirror 404s and the UT Austin tarball 403s -- so a job
+# that has to fetch it would just be a red build waiting to happen. The suite is
+# redistributed by dozens of placement papers without a canonical home, and the
+# whole design is 5.4 MB already gzipped, which is a fair price for a smoke test
+# that cannot break on someone else's uptime. The other seven stay ignored, and
+# `output/run_ispd2005.sh` skips any design it cannot find.
 !benchmark/ISPD_2005/
 benchmark/ISPD_2005/*
 !benchmark/ISPD_2005/adaptec1/
+
+# ibm01 is the multi-row legalization design: 120 of its movable cells are taller
+# than a row, so it is the only benchmark here that exercises that path at all,
+# and the only one whose legality CI can assert deterministically (12,380 cells,
+# under a second to legalize). Its suite *is* fetchable, but a fetch of 23 designs
+# to get one is a bad trade for a CI job that has to run on every push. Gzipped
+# it is 436 KB, a sixth of adaptec1.
+!benchmark/ICCAD04/
+benchmark/ICCAD04/*
+!benchmark/ICCAD04/ibm01/
 
 # Editor / OS noise
 *.swp

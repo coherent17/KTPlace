@@ -149,6 +149,47 @@ jobs:
           test -n "$final"
           awk -v v="$final" 'BEGIN { exit !(v < 0.5) }'
 
+      - name: Multi-row legalization smoke placement
+        # ibm01 is the only benchmark in the tree with cells taller than a row --
+        # 120 of its 12,380 movable cells -- so it is the only design that reaches
+        # MultiRowLegalizer. It is vendored (see .gitignore) because it is what
+        # holds that path to its contract, and it is small enough to assert on:
+        # adaptec1's verdict moves with the machine, so the step above declines to
+        # gate on it, whereas ibm01 legalizes in well under a second and lands on
+        # zero overlapping pairs every run. Unlike the adaptec1 step, the legality
+        # verdict *is* asserted here, and so is that the tall cells were placed at
+        # all -- a multi-row legalizer that quietly skipped them would leave the
+        # design illegal but could still report zero overlaps among what it placed.
+        run: |
+          set -euo pipefail
+
+          source ktplace.sh
+
+          KTPLACE_ANIM=0             ktplace ./benchmark/ICCAD04/ibm01               -w output/ibm01 2>&1 | tee smoke-multirow.log
+
+          PL=output/ibm01/placed.pl
+
+          grep -q "Loaded: 12752 cells (246 terminals), 14111 nets, 50566 pins, 144 rows"             smoke-multirow.log
+          test "$(grep -c 'Placement completed successfully' smoke-multirow.log)" -eq 1
+          test "$(wc -l < "$PL")" -eq 12752
+
+          # The multi-row legalizer must be the path taken, not Abacus.
+          grep -q "Running multi-row legalization (120 cell(s) taller than a row)" \
+            smoke-multirow.log
+
+          # Every cell placed, and the 120 tall ones among them.
+          test "$(awk -F'|' '/^\| cells placed/ {gsub(/ /,"",$3); print $3}' \
+            smoke-multirow.log)" -eq 12380
+          test "$(awk -F'|' '/^\| cells unplaced/ {gsub(/ /,"",$3); print $3}' \
+            smoke-multirow.log)" -eq 0
+          test "$(awk -F'|' '/^\| of those, placed/ {gsub(/ /,"",$3); print $3}' \
+            smoke-multirow.log)" -eq 120
+
+          # Both stage checks must pass: legalization on its own, and the
+          # placement that actually gets written.
+          test "$(grep -c 'verdict *| *PASS' smoke-multirow.log)" -eq 2
+          test "$(grep -c 'verdict *| *FAIL' smoke-multirow.log || true)" -eq 0
+
       - name: Smoke placement draws every cell
         # The frames are the run's own report of the placement, and a frame that
         # silently drops cells is the one rendering fault that cannot be spotted by

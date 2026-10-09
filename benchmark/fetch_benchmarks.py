@@ -145,7 +145,11 @@ def bookshelf_files(design: pathlib.Path) -> list[pathlib.Path]:
 
 
 def design_is_installed(target: pathlib.Path) -> bool:
-    return target.is_dir() and any(target.glob("*.nodes"))
+    # ".nodes.gz" as well as ".nodes": the two vendored designs are committed
+    # gzipped, and without this the fetcher judged them missing, downloaded the
+    # whole archive, and replaced them with the unpacked copies -- silently
+    # turning a tracked design into an untracked one on the next run.
+    return target.is_dir() and (any(target.glob("*.nodes")) or any(target.glob("*.nodes.gz")))
 
 
 def install_flat(staging: pathlib.Path, dest: pathlib.Path, spec: dict,
