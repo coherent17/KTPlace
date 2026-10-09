@@ -47,5 +47,10 @@ ReflowComments: false
 MaxEmptyLinesToKeep: 2
 KeepEmptyLinesAtTheStartOfBlocks: false
 
+# Every file ends with exactly one newline. `make format` adds it and
+# `make format-check` fails without it, so a missing EOF newline cannot slip in
+# through an edit that only touched the last line.
+InsertNewlineAtEOF: true
+
 BinPackArguments: true
 BinPackParameters: true
