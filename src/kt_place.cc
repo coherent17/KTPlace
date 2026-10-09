@@ -2,7 +2,6 @@
 #include "kt_option.h"
 
 #include "util/kt_log.h"
-#include "util/kt_reportTable.h"
 
 #include <exception>
 
@@ -18,41 +17,21 @@ int main(int argc, char *argv[]) {
 
         ktlog.configure(options.getLogFile(), options.verbose);
         ktlog.trace("ktplace start: argc={}", argc);
-
-        ktlog.echo("KTPlace - Know Thyself Placement Engine");
+        ktlog.echo("KTPlace - Know Thyself Placement Engine v{}", VERSION);
         ktlog.echo("========================================");
-        ktReportTable config("Configuration");
-        config.add("input directory", options.inputPath);
-        config.add("work directory", options.workDir);
-        config.add("output path", options.getOutputPath());
-        config.add("plot directory", options.getPlotDir());
-        config.add("log file", options.getLogFile());
-        config.add("algorithm", options.algorithm);
-        if (ktlog.verbose()) {
-            config.add("trace file", ktlog.traceFilePath());
-        }
-        config.emit();
-        ktlog.echo("");
+        options.report();
 
         FlowMgr flowMgr;
-
         ktlog.echo("Starting placement flow...");
-        flowMgr.run(options.inputPath, options.getOutputPath(), options.algorithm,
-                    options.getPlotDir());
-
-        ktlog.echo("");
+        flowMgr.run(options);
         ktlog.echo("Placement completed successfully!");
         ktlog.echo("Results written to: {}", options.getOutputPath());
-
-        ktlog.trace("ktplace finished normally: {} records", ktlog.recordCount());
         ktlog.shutdown();
         return 0;
 
     } catch (const std::exception &e) {
-        ktlog.echo("");
         ktlog.fatal("Error: {}", e.what());
     } catch (...) {
-        ktlog.echo("");
         ktlog.fatal("Error: unknown exception");
     }
 }

@@ -3,6 +3,8 @@
 
 #include "kt_flowMgr.h"
 
+#include "kt_option.h"
+
 #include "adaptor/bookshelfToKTAdaptor.h"
 #include "adaptor/lefdefToKTAdaptor.h"
 #include "detailPlacer/kt_fastdp.h"
@@ -202,6 +204,10 @@ FlowMgr::~FlowMgr() = default;
 
 FlowMgr::FlowMgr(FlowMgr &&) noexcept = default;
 FlowMgr &FlowMgr::operator=(FlowMgr &&) noexcept = default;
+
+void FlowMgr::run(const kt_option &options) {
+    run(options.inputPath, options.getOutputPath(), options.algorithm, options.getPlotDir());
+}
 
 void FlowMgr::run(const std::string &inputDirPath, const std::string &outputPath,
                   const std::string &algorithm, const std::string &plotDir) {

@@ -1,6 +1,7 @@
 #include "kt_option.h"
 
 #include "util/kt_log.h"
+#include "util/kt_reportTable.h"
 
 #include <filesystem>
 #include <fmt/format.h>
@@ -63,6 +64,20 @@ bool kt_option::parse(int argc, char *argv[]) {
     }
 
     return true;
+}
+
+void kt_option::report() const {
+    ktReportTable config("Configuration");
+    config.add("input directory", inputPath);
+    config.add("work directory", workDir);
+    config.add("output path", getOutputPath());
+    config.add("plot directory", getPlotDir());
+    config.add("log file", getLogFile());
+    config.add("algorithm", algorithm);
+    if (verbose) {
+        config.add("trace file", Logger::tracePathFor(getLogFile()));
+    }
+    config.emit();
 }
 
 void kt_option::printUsage() {

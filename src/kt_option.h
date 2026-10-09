@@ -29,6 +29,8 @@ public:
 
     bool parse(int argc, char *argv[]);
 
+    void report() const;
+
     static void printUsage();
     static void printVersion();
 };
