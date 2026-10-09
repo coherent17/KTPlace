@@ -45,7 +45,8 @@ jobs:
           # Vendored third-party code is exempt: CImg.h is a 3.4 MB upstream
           # single-header library, and reformatting it would bury the vendored
           # copy in a diff that makes it impossible to compare against upstream or
-          # to update. Doxygen already excludes it for the same reason.
+          # to update. The vendored header is also the one file the formatter
+          # target skips.
           status=0
           for f in $(git ls-files 'src/*.cc' 'src/*.h' | grep -v '^src/visualization/CImg.h$'); do
             if ! clang-format --dry-run --Werror "$f" > /dev/null 2>&1; then
