@@ -4,6 +4,7 @@
 #include "legalizer/kt_abacus.h"
 
 #include "util/kt_log.h"
+#include "util/kt_reportTable.h"
 #include "util/kt_scopedTimer.h"
 #include "visualization/kt_animator.h"
 
@@ -817,8 +818,46 @@ AbacusLegalizer::AbacusLegalizer(PlacementDB &db) : pImpl(std::make_unique<Impl>
 
 AbacusLegalizer::~AbacusLegalizer() = default;
 
-LegalizeResult AbacusLegalizer::legalize(const LegalizeParams &params) {
-    return pImpl->run(params);
+namespace {
+
+void report(const LegalizeResult &r) {
+    ktReportTable t("Legalization (Abacus)");
+    t.setHeaders({"metric", "value"});
+    t.addRow({"cells placed", fmt::format("{}", r.cellsPlaced)});
+    t.addRow({"cells unplaced", fmt::format("{}", r.unplaced)});
+    t.addRow({"squared displacement", fmt::format("{:.6}", r.totalSquaredDisplacement)});
+    t.addRow({"max displacement", fmt::format("{:.6}", r.maxDisplacement)});
+    t.addRow({"HPWL before", fmt::format("{:.6}", r.hpwlBefore)});
+    t.addRow({"HPWL after", fmt::format("{:.6}", r.hpwlAfter)});
+    t.addRow({"time (s)", fmt::format("{:.6}", r.seconds)});
+    t.addRow({"overlapping pairs", fmt::format("{}", r.overlappingPairs)});
+    t.addRow({"cells off row", fmt::format("{}", r.offRow)});
+    t.addRow({"cells off site", fmt::format("{}", r.offSite)});
+    t.addRow({"cells over macro", fmt::format("{}", r.overFixed)});
+    t.addRow({"cells out of rows", fmt::format("{}", r.outOfRows)});
+    t.addRow({"commit failures", fmt::format("{}", r.commitFailures)});
+    t.emit();
+
+    if (r.overlappingPairs != 0 || r.offRow != 0 || r.overFixed != 0) {
+        ktlog.warning("legalization is not legal; see the counts above");
+    }
+    // Abacus places into single rows, so a cell taller than one row stays where
+    // global placement left it, overlapping. There is no multi-row legalizer in
+    // this build, so the affected cells are named rather than left to be inferred
+    // from a count. Reported after the table so the two can be compared.
+    if (r.outOfRows > 0) {
+        ktlog.warning(
+            "{} cell(s) taller than one row could not be placed and are still at their global "
+            "placement positions. The placement is not legal; see \"cells out of rows\" above.",
+            r.outOfRows);
+    }
 }
 
+}  // namespace
+
+LegalizeResult AbacusLegalizer::legalize(const LegalizeParams &params) {
+    LegalizeResult result = pImpl->run(params);
+    report(result);
+    return result;
+}
 }  // namespace ktplace

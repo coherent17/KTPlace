@@ -4,6 +4,7 @@
 #include "detailPlacer/kt_fastdp.h"
 
 #include "util/kt_log.h"
+#include "util/kt_reportTable.h"
 #include "util/kt_scopedTimer.h"
 #include "visualization/kt_animator.h"
 
@@ -1338,8 +1339,37 @@ FastDetailedPlacer::FastDetailedPlacer(PlacementDB &db) : pImpl(std::make_unique
 
 FastDetailedPlacer::~FastDetailedPlacer() = default;
 
+namespace {
+
+void report(const DetailPlaceResult &r) {
+    ktReportTable t("Detailed placement (FastDP)");
+    t.setHeaders({"metric", "value"});
+    t.addRow({"global swaps", fmt::format("{}", r.globalSwaps)});
+    t.addRow({"vertical swaps", fmt::format("{}", r.verticalSwaps)});
+    t.addRow({"reorder moves", fmt::format("{}", r.reorderMoves)});
+    t.addRow({"cluster moves", fmt::format("{}", r.clusterMoves)});
+    t.addRow({"HPWL before", fmt::format("{:.6}", r.hpwlBefore)});
+    t.addRow({"HPWL after", fmt::format("{:.6}", r.hpwlAfter)});
+    t.addRow({"HPWL change", fmt::format("{:.2}%", 100.0 * (r.hpwlAfter - r.hpwlBefore) /
+                                                       (r.hpwlBefore > 0.0 ? r.hpwlBefore : 1.0))});
+    t.addRow({"time (s)", fmt::format("{:.6}", r.seconds)});
+    t.addRow({"overlapping pairs", fmt::format("{}", r.overlappingPairs)});
+    t.addRow({"cells off row", fmt::format("{}", r.offRow)});
+    t.addRow({"cells off site", fmt::format("{}", r.offSite)});
+    t.addRow({"cells over macro", fmt::format("{}", r.overFixed)});
+    t.emit();
+
+    if (r.overlappingPairs != 0 || r.offRow != 0 || r.overFixed != 0) {
+        ktlog.warning("detailed placement broke legality; see the counts above");
+    }
+}
+
+}  // namespace
+
 DetailPlaceResult FastDetailedPlacer::place(const DetailPlaceParams &params) {
-    return pImpl->place(params);
+    DetailPlaceResult result = pImpl->place(params);
+    report(result);
+    return result;
 }
 
 }  // namespace ktplace

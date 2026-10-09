@@ -15,6 +15,7 @@
 #include "util/kt_reportTable.h"
 #include "util/kt_scopedTimer.h"
 #include "visualization/kt_animator.h"
+#include "visualization/kt_plotOptions.h"
 
 #include <algorithm>
 #include <cstdlib>
@@ -33,18 +34,18 @@ public:
 
 private:
     std::unique_ptr<PlacementDB> db;
+    PlotOptions plot;
 
     void loadDesign(const std::string &dirPath);
     void reportDesign();
     void placeDesign(const kt_option &options);
     void writeDesign(const std::string &outputPath);
-    void runPlacement(const std::string &algorithm, const std::string &plotDir,
-                      const std::string &snapshotDir);
-    void legalizeDesign(const std::string &plotDir);
-    void detailPlaceDesign(const std::string &plotDir);
+    void runPlacement(const std::string &algorithm);
+    void legalizeDesign();
+    void detailPlaceDesign();
     void checkDesign();
-    void renderFinalImage(const std::string &plotDir);
-    void finishAnimation(const std::string &plotDir);
+    void renderFinalImage();
+    void finishAnimation();
 };
 
 
@@ -59,14 +60,17 @@ void FlowMgr::run(const kt_option &options) {
 
 
 void FlowMgr::Impl::run(const kt_option &options) {
+    plot = options.plot ? PlotOptions::fromEnvironment() : PlotOptions{};
+    plot.dir = options.getPlotDir();
+
     loadDesign(options.inputPath);
     reportDesign();
     placeDesign(options);
-    legalizeDesign(options.getPlotDir());
-    detailPlaceDesign(options.getPlotDir());
+    legalizeDesign();
+    detailPlaceDesign();
     checkDesign();
-    renderFinalImage(options.getPlotDir());
-    finishAnimation(options.getPlotDir());
+    renderFinalImage();
+    finishAnimation();
     writeDesign(options.getOutputPath());
     TimerRegistry::instance().report();
 }
@@ -103,92 +107,41 @@ void FlowMgr::Impl::reportDesign() {
 
 void FlowMgr::Impl::placeDesign(const kt_option &options) {
     ScopedTimer timer("place");
-    const std::filesystem::path out(options.getOutputPath());
-    const std::string snapshotDir = out.parent_path().empty() ? "." : out.parent_path().string();
-
-    runPlacement(options.algorithm, options.getPlotDir(), snapshotDir);
+    runPlacement(options.algorithm);
 }
 
-void FlowMgr::Impl::runPlacement(const std::string &algorithm, const std::string &plotDir,
-                                 const std::string &snapshotDir) {
+void FlowMgr::Impl::runPlacement(const std::string &algorithm) {
     if (!db) {
         ktlog.fatal("No placement database loaded");
     }
 
     // Configured here rather than inside a stage, so the legalizer and the
-    // detailed placer add to the same GIF. Declared before both the animator setup
-    // and the budget split below, which used to disagree about the frame count.
+    // detailed placer add to the same GIF.
     std::size_t animFrameBudget = 0;
-    // The value is read, not just its presence: KTPLACE_ANIM=0 used to enable the
-    // animation, so every run meant to skip it still spent the encode time.
-    const char *animEnv = std::getenv("KTPLACE_ANIM");
-    const bool animOn = animEnv == nullptr || std::atoi(animEnv) != 0;
-    if (!plotDir.empty() && animOn) {
-        // The budget decides how much of the run the GIF shows. At 300 a run of a
-        // few dozen iterations spent the lot before legalization began, so it
-        // stopped where it gets interesting. Frames cost time and size, not
-        // correctness. KTPLACE_ANIM_MAX_FRAMES still caps it for a quick look.
-        //
-        // Frame scale against the 768x768 frame size. Two is the largest at which
-        // a few hundred CG frames still fit the byte budget below and a standard
-        // cell stays a couple of pixels rather than one.
-        double animZoom = 2.0;
-        if (const char *e = std::getenv("KTPLACE_ANIM_ZOOM")) {
-            const double v = std::atof(e);
-            if (v >= 1.0) {
-                animZoom = v;
-            }
-        }
-        // Byte target for the finished GIF, overridable. 64 MB opens in a browser
-        // and in a file manager's preview.
-        const std::size_t animGifByteCap =
-            std::getenv("KTPLACE_ANIM_MAX_BYTES")
-                ? static_cast<std::size_t>(std::atoll(std::getenv("KTPLACE_ANIM_MAX_BYTES")))
-                : std::size_t{96} << 20;
-
+    if (plot.enabled() && plot.animate) {
         // Budget by bytes, not by frame count. Placement frames are nearly
         // incompressible, so size is essentially w * h * frames / 8: a frame count
         // alone allowed an 8 GB file. Sizing to a byte target keeps the resolution
         // and cuts the frame count instead.
-        const double animW = 768.0 * animZoom;
-        const double animH = 768.0 * animZoom;
+        const double animW = 768.0 * plot.frameZoom;
         const double kBytesPerPixel = 0.9 / 8.0;  // measured, not assumed
-        // bytes = width * height * bytesPerPixel * frames, so the frame count that
-        // fills the budget divides it out. Multiplying by the bytes-per-pixel
-        // instead gave 12 frames, which is a flicker and not an animation.
         const std::size_t sizeCapFrames = static_cast<std::size_t>(
-            static_cast<double>(animGifByteCap) / (animW * animH * kBytesPerPixel));
+            static_cast<double>(plot.gifByteCap) / (animW * animW * kBytesPerPixel));
         const std::size_t maxFrames =
-            std::getenv("KTPLACE_ANIM_MAX_FRAMES")
-                ? static_cast<std::size_t>(std::atoll(std::getenv("KTPLACE_ANIM_MAX_FRAMES")))
-                : std::max<std::size_t>(12, sizeCapFrames);
+            std::max<std::size_t>(12, std::min(plot.frameBudget, sizeCapFrames));
         animFrameBudget = maxFrames;
-        // 12 centiseconds (120 ms) per frame. The default 6 was quick enough that
-        // a 300-frame animation flashed past in under two seconds, which is not
-        // long enough to follow a placement moving.
-        const int delayCs = std::getenv("KTPLACE_ANIM_DELAY_CS")
-                                ? std::atoi(std::getenv("KTPLACE_ANIM_DELAY_CS"))
-                                : 12;
-        // Three frames per recorded placement: the two in-between plus the
-        // placement itself, which is what turns a per-iteration jump into motion.
-        const int blend =
-            std::getenv("KTPLACE_ANIM_BLEND") ? std::atoi(std::getenv("KTPLACE_ANIM_BLEND")) : 3;
-        PlacementAnimator::instance().configure(plotDir + "/anim", maxFrames, delayCs, blend,
-                                                animZoom);
+        PlacementAnimator::instance().configure(plot.sub("anim"), maxFrames, plot.frameDelayCs,
+                                                plot.blendFrames, plot.frameZoom);
     } else {
         PlacementAnimator::instance().reset();
     }
 
     // Global placement is by far the most frame-hungry stage, so it does not get
-    // to spend the whole budget: a quarter is held back for legalization and
-    // detailed placement, which are the stages that turn a legal-looking but
-    // unusable placement into a real one.
+    // to spend the whole budget: two fifths are held back for legalization and
+    // detailed placement, the stages that turn a legal-looking placement into a
+    // real one.
     if (PlacementAnimator::instance().enabled()) {
-        const std::size_t total = animFrameBudget;
-        // Two fifths held back. Global placement records a frame per solve
-        // iteration and can spend anything it is given; with a fifth held back the
-        // stages that make the placement legal got a handful of frames.
-        PlacementAnimator::instance().holdBack(total * 2 / 5);
+        PlacementAnimator::instance().holdBack(animFrameBudget * 2 / 5);
     }
 
     if (algorithm == "simpl") {
@@ -208,22 +161,7 @@ void FlowMgr::Impl::runPlacement(const std::string &algorithm, const std::string
             ktlog.echo("SimPL: fence enforcement DISABLED by KTPLACE_SIMPL_FENCES=0");
         }
         SimplParams params;
-        params.traceEvery = 5;
-        // Per-iteration frames, for watching the LSS/LAL interaction.
-        if (const char *e = std::getenv("KTPLACE_SIMPL_TRACE_EVERY")) {
-            params.traceEvery = static_cast<std::size_t>(std::atoll(e));
-        }
-        // Every CG iteration of every round is offered to the animation, so the GIF
-        // shows the solve converging and not just the outer loop. The animator
-        // subsamples to fit its budget, so this costs thinning, not truncation.
-        params.cgEvery = 1;
-        if (const char *e = std::getenv("KTPLACE_SIMPL_CG_EVERY")) {
-            params.cgEvery = static_cast<std::size_t>(std::atoll(e));
-        }
-        if (const char *e = std::getenv("KTPLACE_SIMPL_DENSITY_MAPS")) {
-            params.densityMaps = std::atoll(e) != 0;
-        }
-        const SimplResult res = placer.place(params, plotDir, snapshotDir, fencesOn);
+        const SimplResult res = placer.place(params, plot.dir, fencesOn);
         reportSimpl(res);
         return;
 
@@ -231,7 +169,7 @@ void FlowMgr::Impl::runPlacement(const std::string &algorithm, const std::string
         ktlog.echo("Running NTUPlace1 global placement (ratio partitioning)...");
         RatioPlacer placer(*db);
         RatioPlaceParams params;
-        params.plotDir = plotDir;
+        params.plotDir = plot.dir;
         if (const char *e = std::getenv("KTPLACE_NTU_LEAF_CELLS")) {
             params.targetLeafCells = static_cast<std::size_t>(std::atoll(e));
         }
@@ -256,63 +194,27 @@ void FlowMgr::Impl::runPlacement(const std::string &algorithm, const std::string
     }
 }
 
-void FlowMgr::Impl::legalizeDesign(const std::string &plotDir) {
+void FlowMgr::Impl::legalizeDesign() {
     // Whatever the placer reserved is released, so the later stages get the whole
     // remaining budget.
     if (PlacementAnimator::instance().enabled()) {
         PlacementAnimator::instance().holdBack(0);
     }
 
-    // Abacus removes the overlap global placement left, with the least movement
-    // it can, and self-checks so a legalization bug surfaces as a count.
     ktlog.echo("Running Abacus legalization...");
     AbacusLegalizer legalizer(*db);
     LegalizeParams lparams;
     if (const char *e = std::getenv("KTPLACE_ABACUS_MAX_ROW_DIST")) {
         lparams.maxRowDistance = static_cast<std::size_t>(std::atoll(e));
     }
-    if (!plotDir.empty()) {
-        lparams.plotDir = plotDir + "/legalize";
-        lparams.frameEvery =
-            std::getenv("KTPLACE_ABACUS_FRAME_EVERY")
-                ? static_cast<std::size_t>(std::atoll(std::getenv("KTPLACE_ABACUS_FRAME_EVERY")))
-                : 20000;
+    if (plot.enabled()) {
+        lparams.plotDir = plot.sub("legalize");
+        lparams.frameEvery = 20000;
     }
-    const LegalizeResult lres = legalizer.legalize(lparams);
-    ktReportTable lsummary("Legalization (Abacus)");
-    lsummary.setHeaders({"metric", "value"});
-    lsummary.addRow({"cells placed", fmt::format("{}", lres.cellsPlaced)});
-    lsummary.addRow({"cells unplaced", fmt::format("{}", lres.unplaced)});
-    lsummary.addRow({"squared displacement", fmt::format("{:.6}", lres.totalSquaredDisplacement)});
-    lsummary.addRow({"max displacement", fmt::format("{:.6}", lres.maxDisplacement)});
-    lsummary.addRow({"HPWL before", fmt::format("{:.6}", lres.hpwlBefore)});
-    lsummary.addRow({"HPWL after", fmt::format("{:.6}", lres.hpwlAfter)});
-    lsummary.addRow({"time (s)", fmt::format("{:.6}", lres.seconds)});
-    lsummary.addRow({"overlapping pairs", fmt::format("{}", lres.overlappingPairs)});
-    lsummary.addRow({"cells off row", fmt::format("{}", lres.offRow)});
-    lsummary.addRow({"cells off site", fmt::format("{}", lres.offSite)});
-    lsummary.addRow({"cells over macro", fmt::format("{}", lres.overFixed)});
-    lsummary.addRow({"cells out of rows", fmt::format("{}", lres.outOfRows)});
-    lsummary.addRow({"commit failures", fmt::format("{}", lres.commitFailures)});
-    lsummary.emit();
-    if (lres.overlappingPairs != 0 || lres.offRow != 0 || lres.overFixed != 0) {
-        ktlog.warning("legalization is not legal; see the counts above");
-    }
-
-    // Abacus places into single rows, so a cell taller than one row stays where
-    // global placement left it, overlapping (120 on ibm01). There is no multi-row
-    // legalizer in this build, so the affected cells are named rather than left to
-    // be inferred from a count.
-    if (lres.outOfRows > 0) {
-        // After the fact, so the pre-flight estimate above can be checked.
-        ktlog.warning(
-            "{} cell(s) taller than one row could not be placed and are still at their global "
-            "placement positions. The placement is not legal; see \"cells out of rows\" above.",
-            lres.outOfRows);
-    }
+    legalizer.legalize(lparams);
 }
 
-void FlowMgr::Impl::detailPlaceDesign(const std::string &plotDir) {
+void FlowMgr::Impl::detailPlaceDesign() {
     // Abacus minimises displacement, not wirelength, so legalization usually
     // costs a little HPWL; detailed placement wins it back.
     ktlog.echo("Running FastDP detailed placement...");
@@ -321,30 +223,10 @@ void FlowMgr::Impl::detailPlaceDesign(const std::string &plotDir) {
     if (const char *e = std::getenv("KTPLACE_DP_WINDOW")) {
         dparams.localReorderWindow = static_cast<std::size_t>(std::atoll(e));
     }
-    if (!plotDir.empty()) {
-        dparams.plotDir = plotDir + "/detailplace";
+    if (plot.enabled()) {
+        dparams.plotDir = plot.sub("detailplace");
     }
-    const DetailPlaceResult dres = dp.place(dparams);
-    ktReportTable dsummary("Detailed placement (FastDP)");
-    dsummary.setHeaders({"metric", "value"});
-    dsummary.addRow({"global swaps", fmt::format("{}", dres.globalSwaps)});
-    dsummary.addRow({"vertical swaps", fmt::format("{}", dres.verticalSwaps)});
-    dsummary.addRow({"reorder moves", fmt::format("{}", dres.reorderMoves)});
-    dsummary.addRow({"cluster moves", fmt::format("{}", dres.clusterMoves)});
-    dsummary.addRow({"HPWL before", fmt::format("{:.6}", dres.hpwlBefore)});
-    dsummary.addRow({"HPWL after", fmt::format("{:.6}", dres.hpwlAfter)});
-    dsummary.addRow({"HPWL change",
-                     fmt::format("{:.2}%", 100.0 * (dres.hpwlAfter - dres.hpwlBefore) /
-                                               (dres.hpwlBefore > 0.0 ? dres.hpwlBefore : 1.0))});
-    dsummary.addRow({"time (s)", fmt::format("{:.6}", dres.seconds)});
-    dsummary.addRow({"overlapping pairs", fmt::format("{}", dres.overlappingPairs)});
-    dsummary.addRow({"cells off row", fmt::format("{}", dres.offRow)});
-    dsummary.addRow({"cells off site", fmt::format("{}", dres.offSite)});
-    dsummary.addRow({"cells over macro", fmt::format("{}", dres.overFixed)});
-    dsummary.emit();
-    if (dres.overlappingPairs != 0 || dres.offRow != 0 || dres.overFixed != 0) {
-        ktlog.warning("detailed placement broke legality; see the counts above");
-    }
+    dp.place(dparams);
 }
 
 void FlowMgr::Impl::checkDesign() {
@@ -378,22 +260,16 @@ void FlowMgr::Impl::checkDesign() {
     }
 }
 
-void FlowMgr::Impl::renderFinalImage(const std::string &plotDir) {
+void FlowMgr::Impl::renderFinalImage() {
     // A separate high-resolution still, because GIF frames have to stay small and
     // a big design's cells collapse to a pixel each at that size. The zoom is on
     // both axes: 8 turns a 768x768 frame into 6144x6144, about fourteen pixels
     // per standard cell. Written once, and it compresses to a couple of MB.
-    if (!plotDir.empty()) {
-        double zoom = 8.0;
-        if (const char *e = std::getenv("KTPLACE_FINAL_ZOOM")) {
-            const double v = std::atof(e);
-            if (v >= 1.0) {
-                zoom = v;
-            }
-        }
+    if (plot.enabled()) {
+        const double zoom = std::max(1.0, plot.finalZoom);
         {
             ScopedTimer finalTimer("final-image");
-            const std::string finalDir = plotDir + "/final";
+            const std::string finalDir = plot.sub("final");
             std::error_code ec;
             std::filesystem::create_directories(finalDir, ec);
             if (ec) {
@@ -413,7 +289,7 @@ void FlowMgr::Impl::renderFinalImage(const std::string &plotDir) {
                                    db->hpwl());
                 // 113 MB of raw pixels at this size, so only on request: the PNG is
                 // the artefact anyone looks at.
-                if (std::getenv("KTPLACE_FINAL_PPM") != nullptr) {
+                if (plot.writePpm) {
                     writeFinalFrameRaster(finalDir + "/final.ppm", db->getGraph(),
                                           &db->constraints(), zoom, db->hpwl());
                 }
@@ -425,7 +301,7 @@ void FlowMgr::Impl::renderFinalImage(const std::string &plotDir) {
     }
 }
 
-void FlowMgr::Impl::finishAnimation(const std::string &plotDir) {
+void FlowMgr::Impl::finishAnimation() {
     // Every stage has now contributed, so the run can be told as one animation.
     // Assembling it here, and not at the end of global placement, is the whole
     // point: the legalizer's pull back onto the rows is usually the most
@@ -439,7 +315,7 @@ void FlowMgr::Impl::finishAnimation(const std::string &plotDir) {
             ktlog.echo(
                 "animation: {} frames -> {}/anim/placement.gif (global placement, then "
                 "legalization, then detailed placement)",
-                anim.frameCount(), plotDir);
+                anim.frameCount(), plot.dir);
         } else {
             ktlog.echo(
                 "animation: {} frame(s) recorded, no GIF written (one animation needs at "
