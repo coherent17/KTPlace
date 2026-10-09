@@ -91,6 +91,12 @@ image library beyond the vendored CImg, no external tools.
 | `KTPLACE_ANIM_DELAY_CS` | GIF frame delay, in hundredths of a second |
 | `KTPLACE_FINAL_ZOOM` | final still scale, vs 768x768 (default 8) |
 | `KTPLACE_FINAL_PPM` | also write the lossless PPM beside the PNG (off) |
+| `KTPLACE_SIMPL_CG_EVERY` | SVG frame every N conjugate-gradient iterates; `0` turns them off |
+| `KTPLACE_SIMPL_TRACE_EVERY` | SVG frame every N global iterations; `0` turns them off |
+
+On a large design the frames are most of global placement's time. When only the
+placement matters, set both to `0` (the HPWL is the same), or pass `--no-plots`
+to skip every picture.
 
 Timing is measured with `ScopedTimer` (`src/util/kt_scopedTimer.h`), which
 records wall and processor time per named phase and reports the table once at
