@@ -1515,10 +1515,21 @@ void SimplePlacer::Impl::nonlinearScale(const std::vector<std::uint32_t> &cells,
                     break;
             }
         }
+        // Scale about the STRIPE's own centre, not the block's cutline. Scaling
+        // about the cutline looks right and is wrong: a stripe is a sub-range of
+        // the block, so for every stripe that does not contain the cutline a
+        // factor below one drags its cells toward the stripe's inner edge, and the
+        // clamp below then stacks them on that edge. The result is a hard-edged
+        // band of cells per stripe -- the streaks a look-ahead frame shows on
+        // adaptec1 -- rather than a stripe filled evenly. About the stripe centre
+        // a factor below one shrinks its contents symmetrically into the stripe,
+        // which is what "scaled from their current locations" has to mean for the
+        // cells to stay spread within the stripe they were assigned to.
+        const double centre = 0.5 * (stripeLo[s] + stripeHi[s]);
         for (const std::uint32_t i : packed[s]) {
             double &target = vertical ? pinX_[i] : pinY_[i];
             const double p = vertical ? pinX_[i] : pinY_[i];
-            const double q = (factor == 1.0) ? p : cutCoord + (p - cutCoord) * factor;
+            const double q = (factor == 1.0) ? p : centre + (p - centre) * factor;
             target = std::clamp(q, stripeLo[s], stripeHi[s]);
             // Keep the bin index exact for the blocks that run next.
             std::size_t nx2, ny2;
@@ -2692,6 +2703,14 @@ SimplResult SimplePlacer::Impl::run(const SimplParams &P, const std::string &plo
     // usefully establishes is the ordering of the cells, which the design's own
     // placement already has.
     if (!inputUsable) {
+        // The seed gets a frame of its own. It is the one moment the placement is
+        // uniform over the die, and every frame after it is a solve of the star
+        // model moving away from it, so without this the animation starts partway
+        // through the warm-up with nothing to compare against.
+        if (!frameDir_.empty()) {
+            writeFrame(frameDir_ + "/simpl_LSS_init_seed.svg", lower, lowerY, res_.hpwlSeed, 0.0,
+                       "initial placement: uniform seed, before any solve", 0, par_.initMaxIters);
+        }
         double bestInitHpwl = std::numeric_limits<double>::max();
         int initStale = 0;
         for (std::size_t it = 0; it < par_.initMaxIters; ++it) {
