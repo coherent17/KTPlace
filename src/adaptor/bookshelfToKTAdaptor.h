@@ -1,8 +1,9 @@
-// @file bookshelfToKTAdaptor.h// Bookshelf format adapter using Adapter pattern
-
+// @file bookshelfToKTAdaptor.h
+// Bookshelf format adapter
 
 #pragma once
 
+#include "adaptor/kt_inputReader.h"
 #include "datamodel/kt_dm.h"
 
 #include <memory>
@@ -12,17 +13,13 @@
 
 namespace ktplace {
 
-// Forward declaration of base adapter interface
-
-// Adapter for Bookshelf format input files// Parses Bookshelf format files (.nodes, .nets, .pl, .scl, .wts) and// converts them into the internal PlacementDB format.// Uses the Adapter pattern to convert from Bookshelf format to unified data model.
-
-class BookshelfInputAdapter {
+// Parses Bookshelf files (.nodes, .nets, .pl, .scl, .wts), named after the
+// directory they sit in, into the internal PlacementDB.
+class BookshelfInputAdapter final : public InputReader {
 public:
-    /// Constructor
     explicit BookshelfInputAdapter(std::unique_ptr<PlacementDB> db = nullptr);
 
-    /// Destructor
-    ~BookshelfInputAdapter();
+    ~BookshelfInputAdapter() override;
 
     // Copy semantics (deleted)
     BookshelfInputAdapter(const BookshelfInputAdapter &) = delete;
@@ -31,6 +28,12 @@ public:
     // Move semantics
     BookshelfInputAdapter(BookshelfInputAdapter &&) noexcept;
     BookshelfInputAdapter &operator=(BookshelfInputAdapter &&) noexcept;
+
+    [[nodiscard]] bool recognises(const std::string &dirPath) const override;
+    [[nodiscard]] std::unique_ptr<PlacementDB> read(const std::string &dirPath) override;
+    [[nodiscard]] std::string_view formatName() const override {
+        return "bookshelf";
+    }
 
     // Read Bookshelf format from directory
 

@@ -79,6 +79,9 @@ struct RatioPlaceResult {
     double meanImbalance = 0.0;
 };
 
+// The partitioner's own summary, emitted from the component that produced it.
+void reportNtuPlace1(const RatioPlaceResult &res);
+
 class RatioPlacer {
 public:
     explicit RatioPlacer(PlacementDB &db);

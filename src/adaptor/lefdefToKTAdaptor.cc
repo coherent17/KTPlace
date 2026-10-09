@@ -93,6 +93,23 @@ LefDefInputAdapter::~LefDefInputAdapter() = default;
 LefDefInputAdapter::LefDefInputAdapter(LefDefInputAdapter &&) noexcept = default;
 LefDefInputAdapter &LefDefInputAdapter::operator=(LefDefInputAdapter &&) noexcept = default;
 
+bool LefDefInputAdapter::recognises(const std::string &dirPath) const {
+    namespace fs = std::filesystem;
+    std::error_code ec;
+    for (fs::directory_iterator it(dirPath, fs::directory_options::skip_permission_denied, ec), end;
+         !ec && it != end; it.increment(ec)) {
+        const std::string name = it->path().filename().string();
+        if (fs::path(name).extension() == ".def") {
+            return true;
+        }
+    }
+    return false;
+}
+
+std::unique_ptr<PlacementDB> LefDefInputAdapter::read(const std::string &dirPath) {
+    return readFromDirectory(dirPath) ? releasePlacementDB() : nullptr;
+}
+
 bool LefDefInputAdapter::readFromDirectory(const std::string &dirPath) {
     namespace fs = std::filesystem;
 
@@ -503,8 +520,7 @@ bool LefDefInputAdapter::parseDefFile(const std::string &filePath) {
                     for (std::size_t i = 0; i + 1 < coords.size(); i += 2) {
                         polygon.push_back(Point{coords[i], coords[i + 1]});
                     }
-                    if (constraints.addRegion(name, std::move(polygon)) !=
-                        constraintMgr::kNoRegion) {
+                    if (fences.addRegion(name, std::move(polygon)) != constraintMgr::kNoRegion) {
                         ++numRegions;
                     }
                 }
@@ -801,8 +817,8 @@ bool LefDefInputAdapter::parseDefFile(const std::string &filePath) {
     // can only be applied now that every cell vertex exists.
     for (const auto &[regionName, pattern] : pendingGroups) {
         int regionId = constraintMgr::kNoRegion;
-        for (std::size_t i = 0; i < constraints.numRegions(); ++i) {
-            if (constraints.region(static_cast<int>(i))->name == regionName) {
+        for (std::size_t i = 0; i < fences.numRegions(); ++i) {
+            if (fences.region(static_cast<int>(i))->name == regionName) {
                 regionId = static_cast<int>(i);
                 break;
             }
@@ -810,7 +826,7 @@ bool LefDefInputAdapter::parseDefFile(const std::string &filePath) {
         if (regionId == constraintMgr::kNoRegion) {
             continue;
         }
-        const std::size_t assigned = constraints.assignByPrefix(regionId, pattern, db->getGraph());
+        const std::size_t assigned = fences.assignByPrefix(regionId, pattern, db->getGraph());
         numGroupedCells += assigned;
     }
 

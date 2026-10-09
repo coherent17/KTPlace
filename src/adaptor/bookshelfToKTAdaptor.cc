@@ -135,6 +135,22 @@ BookshelfInputAdapter::BookshelfInputAdapter(BookshelfInputAdapter &&) noexcept 
 BookshelfInputAdapter &BookshelfInputAdapter::operator=(BookshelfInputAdapter &&) noexcept =
     default;
 
+bool BookshelfInputAdapter::recognises(const std::string &dirPath) const {
+    // The design's files are named after the directory holding them.
+    const std::string stem = std::filesystem::path(dirPath).filename().string();
+    if (stem.empty()) {
+        return false;
+    }
+    namespace fs = std::filesystem;
+    std::error_code ec;
+    return fs::exists((fs::path(dirPath) / (stem + ".nodes")), ec) ||
+           fs::exists((fs::path(dirPath) / (stem + ".nodes.gz")), ec);
+}
+
+std::unique_ptr<PlacementDB> BookshelfInputAdapter::read(const std::string &dirPath) {
+    return readFromDirectory(dirPath) ? releasePlacementDB() : nullptr;
+}
+
 bool BookshelfInputAdapter::readFromDirectory(const std::string &dirPath) {
     // The design's files are named after the design, and the design after its
     // directory, so one name covers all five.

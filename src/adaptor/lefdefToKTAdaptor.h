@@ -1,8 +1,15 @@
-// @file lefdefToKTAdaptor.h// LEF/DEF format adapter using the Adapter pattern// Parses industry-standard LEF (physical library) and DEF (design) files// and converts them into the internal PlacementDB.  Supports the ISPD /// ICCAD placement-contest style inputs (floorplan.def + cells.lef +// tech.lef + design.v), where every standard cell is "UNPLACED", macros// and I/O pads are placed/fixed, and net connectivity comes from the// DEF NETS section.
-
+// @file lefdefToKTAdaptor.h
+// LEF/DEF format adapter
+//
+// Parses industry-standard LEF (physical library) and DEF (design) files into
+// the internal PlacementDB. Supports the ISPD / ICCAD placement-contest style
+// inputs (floorplan.def + cells.lef + tech.lef + design.v), where every standard
+// cell is "UNPLACED", macros and I/O pads are placed/fixed, and net connectivity
+// comes from the DEF NETS section.
 
 #pragma once
 
+#include "adaptor/kt_inputReader.h"
 #include "constraint/kt_constraintMgr.h"
 #include "datamodel/kt_dm.h"
 
@@ -13,15 +20,18 @@
 
 namespace ktplace {
 
-// Adapter for LEF/DEF format input files// - cells.lef            -> cell sizes, pin locations/directions (micron)// - tech.lef             -> ignored (no MACROs)// - floorplan.def        -> die area, rows, placed/fixed macros, I/O pads,// and the flat component netlist// DEF coordinate units (UNITS DISTANCE MICRONS) are respected: LEF sizes,// which are in microns, are scaled into the DEF coordinate frame.
-
-class LefDefInputAdapter {
+// - cells.lef     -> cell sizes, pin locations/directions (micron)
+// - tech.lef      -> ignored (no MACROs)
+// - floorplan.def -> die area, rows, placed/fixed macros, I/O pads, and the flat
+//                    component netlist
+//
+// DEF coordinate units (UNITS DISTANCE MICRONS) are respected: LEF sizes, which
+// are in microns, are scaled into the DEF coordinate frame.
+class LefDefInputAdapter final : public InputReader {
 public:
-    /// Constructor
     explicit LefDefInputAdapter(std::unique_ptr<PlacementDB> db = nullptr);
 
-    /// Destructor
-    ~LefDefInputAdapter();
+    ~LefDefInputAdapter() override;
 
     // Copy semantics (deleted)
     LefDefInputAdapter(const LefDefInputAdapter &) = delete;
@@ -31,7 +41,16 @@ public:
     LefDefInputAdapter(LefDefInputAdapter &&) noexcept;
     LefDefInputAdapter &operator=(LefDefInputAdapter &&) noexcept;
 
-    // Auto-detect and read the LEF/DEF files from a directory
+    [[nodiscard]] bool recognises(const std::string &dirPath) const override;
+    [[nodiscard]] std::unique_ptr<PlacementDB> read(const std::string &dirPath) override;
+    [[nodiscard]] std::string_view formatName() const override {
+        return "lefdef";
+    }
+    [[nodiscard]] const constraintMgr *constraints() const override {
+        return &getConstraints();
+    }
+
+    // Read the LEF/DEF files from a directory
 
     [[nodiscard]] bool readFromDirectory(const std::string &dirPath);
 
@@ -54,7 +73,7 @@ public:
     // Placement region ("fence") constraints read from the DEF.// Empty when the design declares no REGIONS/GROUPS.
 
     [[nodiscard]] const constraintMgr &getConstraints() const {
-        return constraints;
+        return fences;
     }
 
     [[nodiscard]] std::unique_ptr<PlacementDB> releasePlacementDB() {
@@ -94,7 +113,7 @@ private:
     double unitsPerMicron = 1.0;                             // DEF UNITS DISTANCE MICRONS
     double siteWidthMicrons = 0.0;                           // LEF SITE core size (micron)
     double siteHeightMicrons = 0.0;
-    constraintMgr constraints;  ///< REGIONS/GROUPS from the DEF
+    constraintMgr fences;  ///< REGIONS/GROUPS from the DEF
 };
 
 }  // namespace ktplace

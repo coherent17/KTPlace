@@ -355,6 +355,10 @@ struct SimplResult {
     std::size_t fenceClamps = 0;
     std::size_t fencePushes = 0;
     std::size_t fenceViolations = 0;
+    // Fences the design carried, and whether enforcement was on. Reported with
+    // the rest so the table can say "none" against "OFF (disabled)".
+    std::size_t fenceRegions = 0;
+    bool fencesEnabled = true;
 
     /// Scaled overflow per bin (Figure 7) of the final lower bound and of the
     /// returned placement.
@@ -368,6 +372,10 @@ struct SimplResult {
     /// Placement frames (LSS/LAL/CG/density) actually written.
     std::size_t framesWritten = 0;
 };
+
+// The solver's own summary, emitted from the component that produced the
+// numbers rather than by the caller that ran it.
+void reportSimpl(const SimplResult &res);
 
 class SimplePlacer {
 public:

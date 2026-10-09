@@ -4,8 +4,11 @@
 #include "datamodel/kt_dm.h"
 
 #include "datamodel/kt_graph.h"
+#include "util/kt_log.h"
+#include "util/kt_reportTable.h"
 
 #include <algorithm>
+#include <fmt/format.h>
 #include <limits>
 #include <stdexcept>
 
@@ -359,4 +362,115 @@ std::array<double, 4> placementDieBox(const PlacementDB &db) {
     return box;
 }
 
+
+PlacementDB::Utilisation PlacementDB::measureUtilisation() const {
+    Utilisation u;
+    const Graph &g = getGraph();
+    const std::size_t nv = g.getNumVertices();
+    for (std::size_t v = 0; v < nv; ++v) {
+        const Vertex &vert = g.getVertex(v);
+        if (vert.type != VertexType::Cell) {
+            continue;
+        }
+        const double a = vert.width * vert.height;
+        // A terminal is fixed area, not absent area. In the ISPD 2005 Bookshelf
+        // suites the macros *are* the terminals, so skipping them reports adaptec1
+        // as having no macros at all and understates the demand on the rows.
+        if (vert.isFixed || vert.isTerminal) {
+            u.fixedArea += a;
+        } else {
+            u.cellArea += a;
+            ++u.cells;
+        }
+    }
+    for (const RowInfo &r : getRows()) {
+        if (!(r.pitch() > 0.0) || !(r.height > 0.0)) {
+            continue;
+        }
+        u.rowHeight = std::max(u.rowHeight, r.height);
+        for (const SubrowInfo &si : r.subrows) {
+            if (si.xhi(r.pitch()) > si.xlo()) {
+                u.rowArea += (si.xhi(r.pitch()) - si.xlo()) * r.height;
+            }
+        }
+    }
+    // Cells that cannot fit a single row: the other way a design can be
+    // unplaceable at any density.
+    if (u.rowHeight > 0.0) {
+        for (std::size_t v = 0; v < nv; ++v) {
+            const Vertex &vert = g.getVertex(v);
+            if (vert.type == VertexType::Cell && !vert.isFixed && !vert.isTerminal &&
+                vert.height > u.rowHeight * 1.5) {
+                ++u.multiRow;
+            }
+        }
+    }
+    return u;
+}
+
+void PlacementDB::reportUtilisation() const {
+    const Utilisation u = measureUtilisation();
+    // Movable demand against the rows, which decides whether the design fits. The
+    // fixed cells already occupy the rows rather than compete for them, so
+    // charging their area here double-counts it (on adaptec1, 58% reads as 89%).
+    const double util = u.rowArea > 0.0 ? 100.0 * u.cellArea / u.rowArea : 0.0;
+    const double withFixed = u.rowArea > 0.0 ? 100.0 * (u.cellArea + u.fixedArea) / u.rowArea : 0.0;
+    ktReportTable t("Design utilisation (before placement)");
+    t.setHeaders({"measure", "value"});
+    t.addRow({"movable cell area", fmt::format("{:.6e}", u.cellArea)});
+    t.addRow({"fixed cell area", fmt::format("{:.6e}", u.fixedArea)});
+    t.addRow({"row (placeable) area", fmt::format("{:.6e}", u.rowArea)});
+    t.addRow({"utilisation (movable / rows)", fmt::format("{:.2}%", util)});
+    t.addRow({"utilisation (incl. fixed cells)", fmt::format("{:.2}%", withFixed)});
+    t.addRow({"movable cells", fmt::format("{}", u.cells)});
+    if (u.rowHeight > 0.0) {
+        t.addRow({"row height", fmt::format("{:.3}", u.rowHeight)});
+        t.addRow({"cells taller than one row", fmt::format("{}", u.multiRow)});
+    }
+    t.emit();
+    if (u.rowArea > 0.0 && util > 100.0) {
+        ktlog.warning(
+            "the design needs {:.6e} of movable cell area but only {:.6e} of row is placeable, "
+            "so it is {:.1f}% full. No legal placement exists for this input: the cells do not "
+            "fit, however the placer is retried.",
+            u.cellArea, u.rowArea, util);
+    }
+    if (u.multiRow > 0) {
+        ktlog.warning(
+            "{} cell(s) are taller than one row (row height {:.3}) and the legalizer only "
+            "places into single rows, so those cells will be left unplaced and the result will "
+            "not be legal. Legalizing this design needs a multi-height legalizer, which this "
+            "build does not have.",
+            u.multiRow, u.rowHeight);
+    }
+}
+
+void PlacementDB::report() const {
+    const auto [numCells, numNets] = getStats();
+    // What placement did the design ship with? Worth logging: if it is missing or
+    // degenerate every placer silently falls back to its own seed, which looks
+    // like a placer bug and is not one.
+    std::size_t moved = 0;
+    double lo = 1e300;
+    double hi = -1e300;
+    double loY = 1e300;
+    double hiY = -1e300;
+    const Graph &g = getGraph();
+    for (std::size_t v = 0; v < g.getNumVertices(); ++v) {
+        const Vertex &vert = g.getVertex(v);
+        if (vert.type != VertexType::Cell || vert.isFixed || vert.isTerminal) {
+            continue;
+        }
+        lo = std::min(lo, vert.x);
+        hi = std::max(hi, vert.x);
+        loY = std::min(loY, vert.y);
+        hiY = std::max(hiY, vert.y);
+        moved += (vert.x != 0.0 || vert.y != 0.0) ? 1 : 0;
+    }
+    ktlog.echo(
+        "Loaded placement: {}/{} cells carry a position, bbox x[{:.1f},{:.1f}] y[{:.1f},{:.1f}]",
+        moved, g.getNumVertices(), lo, hi, loY, hiY);
+    ktlog.echo("Loaded: {} cells ({} terminals), {} nets, {} pins, {} rows", numCells,
+               getNumTerminals(), numNets, getNumPins(), getNumRows());
+}
 }  // namespace ktplace

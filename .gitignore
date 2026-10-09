@@ -69,3 +69,8 @@ __pycache__/
 # The include paths are absolute, so a committed copy is wrong elsewhere, and a
 # stale one makes clangd report diagnostics from flags the build does not use.
 compile_commands.json
+
+# Default work-directory output: a run with no -w writes into the current
+# directory, so these land in the repo root.
+placed.pl
+plots/

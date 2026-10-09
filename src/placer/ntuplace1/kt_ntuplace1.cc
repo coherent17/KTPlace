@@ -4,6 +4,7 @@
 #include "placer/ntuplace1/kt_ntuplace1.h"
 
 #include "util/kt_log.h"
+#include "util/kt_reportTable.h"
 #include "visualization/kt_plotter.h"
 
 #include <algorithm>
@@ -656,4 +657,19 @@ RatioPlaceResult RatioPlacer::place(const RatioPlaceParams &params,
     return pImpl->place(params, constraints);
 }
 
+void reportNtuPlace1(const RatioPlaceResult &r) {
+    ktReportTable t("NTUplace1 solver results");
+    t.setHeaders({"metric", "value"});
+    t.addRow({"movable cells", fmt::format("{}", r.numMovable)});
+    t.addRow({"fixed cells", fmt::format("{}", r.numFixed)});
+    t.addRow({"hypergraph nets", fmt::format("{}", r.nets)});
+    t.addRow({"cuts accepted", fmt::format("{}", r.cuts)});
+    t.addRow({"ratio retries", fmt::format("{}", r.ratioRetries)});
+    t.addRow({"retries per cut", fmt::format("{:.3}", r.meanImbalance)});
+    t.addRow({"recursion depth reached", fmt::format("{}", r.maxDepth)});
+    t.addRow({"smallest leaf", fmt::format("{}", r.minLeafCells)});
+    t.addRow({"HPWL (pre-legalization)", fmt::format("{:.6}", r.hpwlFinal)});
+    t.addRow({"paper reference (adaptec1)", "44800000"});
+    t.emit();
+}
 }  // namespace ktplace

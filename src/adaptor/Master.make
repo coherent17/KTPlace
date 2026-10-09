@@ -12,7 +12,7 @@ override INCLUDES := -I..
 OBJ_DIR ?= ../build/obj/adaptor
 
 # Source files in this directory
-SRCS := bookshelfToKTAdaptor.cc lefdefToKTAdaptor.cc
+SRCS := bookshelfToKTAdaptor.cc lefdefToKTAdaptor.cc kt_inputReader.cc
 
 # Only include files that exist
 EXISTING_SRCS := $(foreach src,$(SRCS),$(if $(wildcard $(src)),$(src),))

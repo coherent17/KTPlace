@@ -144,7 +144,31 @@ public:
     void clear();
 
     // Statistics
-    [[nodiscard]] std::pair<std::size_t, std::size_t> getStats() const;  // (numCells, numNets)
+    [[nodiscard]] std::pair<std::size_t, std::size_t> getStats() const;
+
+    // Movable demand against the rows, which decides whether the design fits.
+    // Fixed cells already occupy the rows rather than compete for them, so their
+    // area is reported but is not demand.
+    struct Utilisation {
+        double cellArea = 0.0;
+        double fixedArea = 0.0;
+        double rowArea = 0.0;
+        double rowHeight = 0.0;
+        std::size_t multiRow = 0;
+        std::size_t cells = 0;
+    };
+
+    [[nodiscard]] Utilisation measureUtilisation() const;
+
+    // How the design loaded: what it contains, and what placement it shipped with.
+    void report() const;
+
+    // Said before placement runs, not after legalization fails. A legalizer handed
+    // a design that does not fit produces an illegal placement and a table of
+    // confident numbers; checking the arithmetic first turns "the legalizer is
+    // broken" into "this design is 102% full".
+    void reportUtilisation() const;
+    // (numCells, numNets)
 
 private:
     Graph &getGraphImpl();

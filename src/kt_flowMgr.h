@@ -4,7 +4,6 @@
 
 namespace ktplace {
 
-class BookshelfInputAdapter;
 class kt_option;
 
 class FlowMgr {

@@ -1,13 +1,11 @@
 // @file kt_flowMgr.cc
 // Implementation of FlowMgr
 
-
 #include "kt_flowMgr.h"
 
 #include "kt_option.h"
 
-#include "adaptor/bookshelfToKTAdaptor.h"
-#include "adaptor/lefdefToKTAdaptor.h"
+#include "adaptor/kt_inputReader.h"
 #include "datamodel/kt_dm.h"
 #include "detailPlacer/kt_fastdp.h"
 #include "legalizer/kt_abacus.h"
@@ -19,321 +17,121 @@
 #include "visualization/kt_animator.h"
 
 #include <algorithm>
-#include <chrono>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
 #include <map>
 #include <memory>
-#include <stdexcept>
 #include <string>
+#include <vector>
 
 namespace ktplace {
-
-namespace {
-// One-line report of a single timer, issued when the phase it names
-// completes, so a long run tells its cost as it goes rather than only in the
-// summary table at the end (TimerRegistry::report). The registry accumulates,
-// so this reports the phase's own totals at the moment they are final.
-void reportPhase(const std::string &name) {
-    if (const TimerStats *s = TimerRegistry::instance().find(name)) {
-        ktlog.echo("phase {}: {:.3f}s wall, {:.3f}s cpu, {} call(s)", name, s->wallSeconds,
-                   s->cpuSeconds, s->calls);
-    }
-}
-// Said before placement runs, not after legalization fails. A legalizer handed a
-// design that does not fit will produce an illegal placement and a table of
-// confident numbers; checking the arithmetic first turns "the legalizer is
-// broken" into "this design is 102% full".
-struct Utilisation {
-    double cellArea = 0.0;
-    double fixedArea = 0.0;
-    double rowArea = 0.0;
-    double rowHeight = 0.0;
-    std::size_t multiRow = 0;
-    std::size_t cells = 0;
-};
-
-Utilisation measureUtilisation(const PlacementDB &db) {
-    Utilisation u;
-    const Graph &g = db.getGraph();
-    const std::size_t nv = g.getNumVertices();
-    for (std::size_t v = 0; v < nv; ++v) {
-        const Vertex &vert = g.getVertex(v);
-        if (vert.type != VertexType::Cell) {
-            continue;
-        }
-        const double a = vert.width * vert.height;
-        // A terminal is fixed area, not absent area. In the ISPD 2005 Bookshelf
-        // suites the macros *are* the terminals, so skipping them reports adaptec1
-        // as having no macros at all and understates the demand on the rows.
-        if (vert.isFixed || vert.isTerminal) {
-            u.fixedArea += a;
-        } else {
-            u.cellArea += a;
-            ++u.cells;
-        }
-    }
-    double pitch = std::numeric_limits<double>::max();
-    for (const PlacementDB::RowInfo &r : db.getRows()) {
-        if (!(r.pitch() > 0.0) || !(r.height > 0.0)) {
-            continue;
-        }
-        u.rowHeight = std::max(u.rowHeight, r.height);
-        pitch = std::min(pitch, r.pitch());
-        for (const PlacementDB::SubrowInfo &si : r.subrows) {
-            if (si.xhi(r.pitch()) > si.xlo()) {
-                u.rowArea += (si.xhi(r.pitch()) - si.xlo()) * r.height;
-            }
-        }
-    }
-    // Cells that cannot fit a single row. Counted here because it is the other
-    // way a design can be unplaceable at any density.
-    if (u.rowHeight > 0.0) {
-        for (std::size_t v = 0; v < nv; ++v) {
-            const Vertex &vert = g.getVertex(v);
-            if (vert.type == VertexType::Cell && !vert.isFixed && !vert.isTerminal &&
-                vert.height > u.rowHeight * 1.5) {
-                ++u.multiRow;
-            }
-        }
-    }
-    (void)pitch;
-    return u;
-}
-
-void reportUtilisation(const PlacementDB &db) {
-    const Utilisation u = measureUtilisation(db);
-    // Movable demand against the rows, which decides whether the design fits. The
-    // fixed cells already occupy the rows rather than compete for them, so
-    // charging their area here double-counts it (on adaptec1, 58% reads as 89%).
-    // Macro area is still reported: it is real, it is not demand.
-    const double util = u.rowArea > 0.0 ? 100.0 * u.cellArea / u.rowArea : 0.0;
-    const double withFixed = u.rowArea > 0.0 ? 100.0 * (u.cellArea + u.fixedArea) / u.rowArea : 0.0;
-    ktReportTable t("Design utilisation (before placement)");
-    t.setHeaders({"measure", "value"});
-    t.addRow({"movable cell area", fmt::format("{:.6e}", u.cellArea)});
-    t.addRow({"fixed cell area", fmt::format("{:.6e}", u.fixedArea)});
-    t.addRow({"row (placeable) area", fmt::format("{:.6e}", u.rowArea)});
-    t.addRow({"utilisation (movable / rows)", fmt::format("{:.2}%", util)});
-    t.addRow({"utilisation (incl. fixed cells)", fmt::format("{:.2}%", withFixed)});
-    t.addRow({"movable cells", fmt::format("{}", u.cells)});
-    if (u.rowHeight > 0.0) {
-        t.addRow({"row height", fmt::format("{:.3}", u.rowHeight)});
-        t.addRow({"cells taller than one row", fmt::format("{}", u.multiRow)});
-    }
-    t.emit();
-    if (u.rowArea > 0.0 && util > 100.0) {
-        ktlog.warning(
-            "the design needs {:.6e} of movable cell area but only {:.6e} of row is placeable, "
-            "so it is {:.1f}% full. No legal placement exists for this input: the cells do not "
-            "fit, however the placer is retried.",
-            u.cellArea, u.rowArea, util);
-    }
-    if (u.multiRow > 0) {
-        // Said here, before placement runs, rather than only after legalization
-        // fails: this is a property of the input, so the reader learns it before
-        // spending several minutes on a global placement that cannot end legal.
-        ktlog.warning(
-            "{} cell(s) are taller than one row (row height {:.3}) and the legalizer only "
-            "places into single rows, so those cells will be left unplaced and the result will "
-            "not be legal. Legalizing this design needs a multi-height legalizer, which this "
-            "build does not have.",
-            u.multiRow, u.rowHeight);
-    }
-}
-}  // namespace
 
 class FlowMgr::Impl {
 public:
     std::unique_ptr<PlacementDB> db;
-    std::unique_ptr<BookshelfInputAdapter> bookshelfAdapter;
-    std::unique_ptr<LefDefInputAdapter> lefdefAdapter;
+    std::unique_ptr<InputReader> input;
     bool loaded = false;
     bool placed = false;
 
-    bool loadInput(const std::string &dirPath);
-    bool loadBookshelf(const std::string &dirPath);
-    bool loadBookshelfFromFiles(const std::string &nodesFile, const std::string &netsFile,
-                                const std::string &plFile = "", const std::string &sclFile = "",
-                                const std::string &wtsFile = "");
-    bool runPlacement(const std::string &algorithm = "simpl", const std::string &plotDir = "",
-                      const std::string &snapshotDir = "");
-    // Legalize and then detail-place, for the algorithms that stop at a global
-    // placement. Split out of runPlacement because RePlAce and SimPL both end
-    // here, and the reporting is identical -- a second copy would drift.
-    bool legalizeAndDetail(const std::string &plotDir, const constraintMgr *fences);
-
-    // HPWL after legalization and detailed placement -- the number the paper
-    // reports, and the only one that ranks two global-placement runs. Kept so
-    // the summary can show it next to SimPL's own upper bound, because the two
-    // differ by more than the differences being compared: the upper bound is
-    // the look-ahead legalized placement, taken before either stage runs.
+    void run(const kt_option &options);
+    void loadDesign(const std::string &dirPath);
+    void reportDesign();
+    const constraintMgr *fences() const;
+    void placeDesign(const kt_option &options);
+    void writeDesign(const std::string &outputPath);
+    void runPlacement(const std::string &algorithm, const std::string &plotDir,
+                      const std::string &snapshotDir);
+    void legalizeDesign(const std::string &plotDir, const constraintMgr *fences);
+    void detailPlaceDesign(const std::string &plotDir, const constraintMgr *fences);
+    void reportPlacementQuality();
+    void checkDesign(const constraintMgr *fences);
+    void renderFinalImage(const std::string &plotDir, const constraintMgr *fences);
+    void finishAnimation(const std::string &plotDir);
     double hpwlFinalPlaced_ = -1.0;
-    bool writePlacement(const std::string &outputPath);
-    PlacementDB &getPlacementDB();
-    const PlacementDB &getPlacementDB() const;
-    bool isLoaded() const;
+    double hpwlGlobalBound_ = -1.0;
+    void writePlacement(const std::string &outputPath);
     void clear();
 };
 
-
 FlowMgr::FlowMgr() : pImpl(std::make_unique<Impl>()) {
     pImpl->db = std::make_unique<PlacementDB>();
-    pImpl->bookshelfAdapter = std::make_unique<BookshelfInputAdapter>();
 }
 
 FlowMgr::~FlowMgr() = default;
-
 FlowMgr::FlowMgr(FlowMgr &&) noexcept = default;
 FlowMgr &FlowMgr::operator=(FlowMgr &&) noexcept = default;
 
 void FlowMgr::run(const kt_option &options) {
-    // Phase timers accumulate into the registry; the summary is reported once
-    // at the end of the run.
-    {
-        ScopedTimer timer("load");
-        if (!pImpl->loadInput(options.inputPath)) {
-            throw std::runtime_error("Failed to load input files");
-        }
-    }
-    reportPhase("load");
+    pImpl->run(options);
+}
 
-    {
-        PlacementDB &db = pImpl->getPlacementDB();
-        auto [numCells, numNets] = db.getStats();
-        // What placement did the design actually ship with? Worth logging: if it
-        // is missing or degenerate every placer silently falls back to its own
-        // seed, which looks like a placer bug and is not one.
-        {
-            std::size_t moved = 0;
-            double lo = 1e300, hi = -1e300, loY = 1e300, hiY = -1e300;
-            const Graph &g = db.getGraph();
-            for (std::size_t v = 0; v < g.getNumVertices(); ++v) {
-                const Vertex &vert = g.getVertex(v);
-                if (vert.type != VertexType::Cell || vert.isFixed || vert.isTerminal) {
-                    continue;
-                }
-                lo = std::min(lo, vert.x);
-                hi = std::max(hi, vert.x);
-                loY = std::min(loY, vert.y);
-                hiY = std::max(hiY, vert.y);
-                moved += (vert.x != 0.0 || vert.y != 0.0) ? 1 : 0;
-            }
-            ktlog.echo(
-                "Loaded placement: {}/{} cells carry a position, bbox "
-                "x[{:.1f},{:.1f}] y[{:.1f},{:.1f}]",
-                moved, g.getNumVertices(), lo, hi, loY, hiY);
-        }
-        ktlog.echo("Loaded: {} cells ({} terminals), {} nets, {} pins, {} rows", numCells,
-                   db.getNumTerminals(), numNets, db.getNumPins(), db.getNumRows());
-    }
-
-    {
-        ScopedTimer timer("place");
-        const std::string snapshotDir =
-            options.getOutputPath().find_last_of('/') == std::string::npos
-                ? std::string(".")
-                : options.getOutputPath().substr(0, options.getOutputPath().find_last_of('/'));
-        // Every run records per-iteration SVG frames and an HPWL curve, so an
-        // iteration can be inspected afterwards without asking for them.
-        const std::string effectivePlotDir =
-            !options.getPlotDir().empty() ? options.getPlotDir() : snapshotDir + "/plots";
-        // Before the placer, not after: once the solver is running, every number
-        // downstream is derived from a density model, and on an over-full design
-        // that model is describing an impossibility. The reader needs to know the
-        // design did not fit before they read a wirelength off it.
-        reportUtilisation(*pImpl->db);
-        if (!pImpl->runPlacement(options.algorithm, effectivePlotDir, snapshotDir)) {
-            throw std::runtime_error("Placement algorithm failed");
-        }
-    }
-    reportPhase("place");
-
-    {
-        ScopedTimer timer("write");
-        if (!pImpl->writePlacement(options.getOutputPath())) {
-            throw std::runtime_error("Failed to write output");
-        }
-    }
-    reportPhase("write");
-
+void FlowMgr::Impl::run(const kt_option &options) {
+    loadDesign(options.inputPath);
+    reportDesign();
+    placeDesign(options);
+    legalizeDesign(options.getPlotDir(), fences());
+    detailPlaceDesign(options.getPlotDir(), fences());
+    reportPlacementQuality();
+    checkDesign(fences());
+    renderFinalImage(options.getPlotDir(), fences());
+    finishAnimation(options.getPlotDir());
+    writeDesign(options.getOutputPath());
     TimerRegistry::instance().report();
 }
 
+const constraintMgr *FlowMgr::Impl::fences() const {
+    return input ? input->constraints() : nullptr;
+}
 
-bool FlowMgr::Impl::loadInput(const std::string &dirPath) {
-    // Auto-detect the input format: a directory containing LEF/DEF files is
-    // loaded through the LEF/DEF adapter; otherwise Bookshelf is assumed.
-    namespace fs = std::filesystem;
-    bool hasDef = false;
+void FlowMgr::Impl::reportDesign() {
+    // Said before the placer, not after: once the solver is running, every number
+    // downstream is derived from a density model, and on an over-full design that
+    // model is describing an impossibility.
+    db->report();
+    db->reportUtilisation();
+}
+
+void FlowMgr::Impl::loadDesign(const std::string &dirPath) {
+    ScopedTimer timer("load");
+    clear();
+
+    // A missing directory and an unrecognised one are different mistakes, and say
+    // different things to whoever has to fix it.
     std::error_code ec;
-    fs::directory_iterator it(dirPath, fs::directory_options::skip_permission_denied, ec);
-    const fs::directory_iterator end;
-    for (; !ec && it != end; it.increment(ec)) {
-        const std::string name = it->path().filename().string();
-        if ((name.size() >= 4 && name.rfind(".def") == name.size() - 4) ||
-            (name.size() >= 7 && name.rfind(".def.gz") == name.size() - 7)) {
-            hasDef = true;
-            break;
-        }
-    }
-    if (ec) {
-        ktlog.fatal("cannot scan input directory: {}", dirPath);
-    }
-    if (hasDef) {
-        ktlog.echo("Detected LEF/DEF input in {}", dirPath);
-        clear();
-        lefdefAdapter = std::make_unique<LefDefInputAdapter>(std::make_unique<PlacementDB>());
-        if (!lefdefAdapter->readFromDirectory(dirPath)) {
-            ktlog.fatal("Failed to load LEF/DEF format from {}", dirPath);
-        }
-        db = lefdefAdapter->releasePlacementDB();
-        loaded = true;
-        placed = false;
-        return true;
-    }
-    return loadBookshelf(dirPath);
-}
-
-bool FlowMgr::Impl::loadBookshelf(const std::string &dirPath) {
-    clear();
-
-    bookshelfAdapter = std::make_unique<BookshelfInputAdapter>(std::make_unique<PlacementDB>());
-
-    if (!bookshelfAdapter->readFromDirectory(dirPath)) {
-        ktlog.fatal("Failed to load Bookshelf format from {}", dirPath);
+    if (!std::filesystem::is_directory(dirPath, ec)) {
+        ktlog.fatal("cannot read input directory: {}", dirPath);
     }
 
-    db = bookshelfAdapter->releasePlacementDB();
+    input = makeInputReader(dirPath);
+    if (!input) {
+        ktlog.fatal("no input format recognises {}", dirPath);
+    }
+    ktlog.echo("Reading {} input from {}", input->formatName(), dirPath);
+
+    db = input->read(dirPath);
+    if (!db) {
+        ktlog.fatal("Failed to read {} design from {}", input->formatName(), dirPath);
+    }
     loaded = true;
-    placed = false;
-
-    return true;
 }
 
-bool FlowMgr::Impl::loadBookshelfFromFiles(const std::string &nodesFile,
-                                           const std::string &netsFile, const std::string &plFile,
-                                           const std::string &sclFile, const std::string &wtsFile) {
-    clear();
+void FlowMgr::Impl::placeDesign(const kt_option &options) {
+    ScopedTimer timer("place");
+    const std::filesystem::path out(options.getOutputPath());
+    const std::string snapshotDir = out.parent_path().empty() ? "." : out.parent_path().string();
 
-    bookshelfAdapter = std::make_unique<BookshelfInputAdapter>(std::make_unique<PlacementDB>());
-
-    if (!bookshelfAdapter->readFromFiles(nodesFile, netsFile, plFile, sclFile, wtsFile)) {
-        ktlog.fatal("Failed to load Bookshelf format files");
-    }
-
-    db = bookshelfAdapter->releasePlacementDB();
-    loaded = true;
-    placed = false;
-
-    return true;
+    runPlacement(options.algorithm, options.getPlotDir(), snapshotDir);
 }
 
+void FlowMgr::Impl::writeDesign(const std::string &outputPath) {
+    ScopedTimer timer("write");
+    writePlacement(outputPath);
+}
 
 namespace {
-// One thing wrong with a finished placement.
+
 struct Defect {
     std::string what;
     std::size_t count = 0;
@@ -506,7 +304,7 @@ std::vector<Defect> verifyPlacement(const PlacementDB &db, const constraintMgr *
 }
 }  // namespace
 
-bool FlowMgr::Impl::legalizeAndDetail(const std::string &plotDir, const constraintMgr *fences) {
+void FlowMgr::Impl::legalizeDesign(const std::string &plotDir, const constraintMgr *fences) {
     // Whatever the placer reserved is released, so the later stages get the whole
     // remaining budget.
     if (PlacementAnimator::instance().enabled()) {
@@ -530,7 +328,6 @@ bool FlowMgr::Impl::legalizeAndDetail(const std::string &plotDir, const constrai
                 : 20000;
     }
     const LegalizeResult lres = legalizer.legalize(lparams);
-    reportPhase("legalize");
     ktReportTable lsummary("Legalization (Abacus)");
     lsummary.setHeaders({"metric", "value"});
     lsummary.addRow({"cells placed", fmt::format("{}", lres.cellsPlaced)});
@@ -562,7 +359,9 @@ bool FlowMgr::Impl::legalizeAndDetail(const std::string &plotDir, const constrai
             "placement positions. The placement is not legal; see \"cells out of rows\" above.",
             lres.outOfRows);
     }
+}
 
+void FlowMgr::Impl::detailPlaceDesign(const std::string &plotDir, const constraintMgr *fences) {
     // Abacus minimises displacement, not wirelength, so legalization usually
     // costs a little HPWL; detailed placement wins it back.
     ktlog.echo("Running FastDP detailed placement...");
@@ -576,7 +375,6 @@ bool FlowMgr::Impl::legalizeAndDetail(const std::string &plotDir, const constrai
         dparams.plotDir = plotDir + "/detailplace";
     }
     const DetailPlaceResult dres = dp.place(dparams);
-    reportPhase("detail-place");
     ktReportTable dsummary("Detailed placement (FastDP)");
     dsummary.setHeaders({"metric", "value"});
     dsummary.addRow({"global swaps", fmt::format("{}", dres.globalSwaps)});
@@ -598,6 +396,31 @@ bool FlowMgr::Impl::legalizeAndDetail(const std::string &plotDir, const constrai
     if (dres.overlappingPairs != 0 || dres.offRow != 0 || dres.overFixed != 0) {
         ktlog.warning("detailed placement broke legality; see the counts above");
     }
+
+    // The last stage that moves cells has now run, so this is the finished
+    // placement and may be written.
+    placed = true;
+}
+
+void FlowMgr::Impl::reportPlacementQuality() {
+    if (hpwlFinalPlaced_ <= 0.0 || hpwlGlobalBound_ <= 0.0) {
+        return;
+    }
+    // Rankable result, beside the bound it is derived from, so a change can be
+    // judged on the metric the paper publishes rather than on the intermediate
+    // upper bound, which moves for reasons that do not survive legalization.
+    ktReportTable t("Placement quality (after legalization and detail placement)");
+    t.setHeaders({"metric", "value"});
+    t.addRow({"HPWL detailed", fmt::format("{:.6}", hpwlFinalPlaced_)});
+    t.addRow({"HPWL global upper bound", fmt::format("{:.6}", hpwlGlobalBound_)});
+    t.addRow({"legalization + detail change",
+              fmt::format("{:.2}%", 100.0 * (hpwlFinalPlaced_ - hpwlGlobalBound_) /
+                                        (hpwlGlobalBound_ > 0.0 ? hpwlGlobalBound_ : 1.0))});
+    t.addRow({"paper reference (adaptec1)", "77410738"});
+    t.emit();
+}
+
+void FlowMgr::Impl::checkDesign(const constraintMgr *fences) {
     // Last, so it sees the effect of both stages, and separate from their
     // self-checks, so a disagreement between what a stage claims and what the file
     // contains stays visible.
@@ -625,9 +448,10 @@ bool FlowMgr::Impl::legalizeAndDetail(const std::string &plotDir, const constrai
                 "the placement that will be written is not legal; see the placement check "
                 "above");
         }
-        reportPhase("place-check");
     }
+}
 
+void FlowMgr::Impl::renderFinalImage(const std::string &plotDir, const constraintMgr *fences) {
     // A separate high-resolution still, because GIF frames have to stay small and
     // a big design's cells collapse to a pixel each at that size. The zoom is on
     // both axes: 8 turns a 768x768 frame into 6144x6144, about fourteen pixels
@@ -654,25 +478,27 @@ bool FlowMgr::Impl::legalizeAndDetail(const std::string &plotDir, const constrai
                 // PNG, not PPM: no viewer opens a PPM, and flat colour compresses
                 // to a couple of megabytes at this resolution.
                 writeFinalFrameRaster(finalDir + "/final.png", db->getGraph(), fences, zoom,
-                                      dres.hpwlAfter);
+                                      hpwlFinalPlaced_);
                 // The vector form, and the one to open when a region needs looking
                 // at closely. One <rect> per cell, so "every cell is in the
                 // picture" is a count, which is what the CI smoke test checks.
-                writeFinalFrameSvg(finalDir + "/final.svg", db->getGraph(), fences, dres.hpwlAfter);
+                writeFinalFrameSvg(finalDir + "/final.svg", db->getGraph(), fences,
+                                   hpwlFinalPlaced_);
                 // 113 MB of raw pixels at this size, so only on request: the PNG is
                 // the artefact anyone looks at.
                 if (std::getenv("KTPLACE_FINAL_PPM") != nullptr) {
                     writeFinalFrameRaster(finalDir + "/final.ppm", db->getGraph(), fences, zoom,
-                                          dres.hpwlAfter);
+                                          hpwlFinalPlaced_);
                 }
                 ktlog.echo("final high-resolution image: {}/final.png ({}x{})", finalDir,
                            static_cast<int>(std::lround(zoom * 768.0)),
                            static_cast<int>(std::lround(zoom * 768.0)));
             }
         }
-        reportPhase("final-image");
     }
+}
 
+void FlowMgr::Impl::finishAnimation(const std::string &plotDir) {
     // Every stage has now contributed, so the run can be told as one animation.
     // Assembling it here, and not at the end of global placement, is the whole
     // point: the legalizer's pull back onto the rows is usually the most
@@ -693,13 +519,10 @@ bool FlowMgr::Impl::legalizeAndDetail(const std::string &plotDir, const constrai
                 "least two frames)",
                 anim.frameCount());
         }
-        reportPhase("anim-finish");
     }
-    placed = true;
-    return true;
 }
 
-bool FlowMgr::Impl::runPlacement(const std::string &algorithm, const std::string &plotDir,
+void FlowMgr::Impl::runPlacement(const std::string &algorithm, const std::string &plotDir,
                                  const std::string &snapshotDir) {
     if (!loaded) {
         ktlog.fatal("No placement database loaded");
@@ -787,10 +610,7 @@ bool FlowMgr::Impl::runPlacement(const std::string &algorithm, const std::string
         // Fences come from the LEF/DEF reader; Bookshelf carries none, so a null
         // pointer there means a correctly unconstrained design. Ignoring fences
         // scatters fenced cells across the die and draws no regions.
-        const constraintMgr *regions = nullptr;
-        if (lefdefAdapter && lefdefAdapter->getConstraints().numRegions() > 0) {
-            regions = &lefdefAdapter->getConstraints();
-        }
+        const constraintMgr *regions = input ? input->constraints() : nullptr;
         // KTPLACE_SIMPL_FENCES=0 shows the placement without them, which is the
         // only way to see what the constraint costs. Off means neither enforced
         // nor drawn, so the frames do not show regions that are not honoured.
@@ -817,61 +637,13 @@ bool FlowMgr::Impl::runPlacement(const std::string &algorithm, const std::string
             params.densityMaps = std::atoll(e) != 0;
         }
         const SimplResult res = placer.place(params, plotDir, snapshotDir, regions);
-        ktReportTable summary("Solver results");
-        summary.setHeaders({"metric", "initial", "final"});
-        summary.addRow({"movable cells", "", fmt::format("{}", res.numMovable)});
-        summary.addRow({"fixed cells", "", fmt::format("{}", res.numFixed)});
-        summary.addRow({"nets", "", fmt::format("{}", res.nets)});
-        summary.addRow({"init iterations", "", fmt::format("{}", res.initIters)});
-        summary.addRow({"global iterations", "", fmt::format("{}", res.globalIters)});
-        summary.addRow({"bin grid", "", fmt::format("{}x{}", res.binsX, res.binsY)});
-        summary.addRow({"matrix build (s)", "", fmt::format("{:.6}", res.buildSeconds)});
-        summary.addRow({"look-ahead (s)", "", fmt::format("{:.6}", res.spreadSeconds)});
-        summary.addRow({"linear solves (s)", "", fmt::format("{:.6}", res.solveSeconds)});
-        summary.addRow({"look-ahead legalization", "", res.usedLookAhead ? "on" : "OFF (raw LSS)"});
-        summary.addRow({"fence regions", "",
-                        regions == nullptr ? (fencesOn ? "none" : "OFF (disabled)")
-                                           : fmt::format("{}", regions->numRegions())});
-        summary.addRow({"cells held in fence", "", fmt::format("{}", res.fenceClamps)});
-        summary.addRow({"cells pushed out of a fence", "", fmt::format("{}", res.fencePushes)});
-        summary.addRow(
-            {"cells outside their fence at exit", "", fmt::format("{}", res.fenceViolations)});
-        summary.addRow({"HPWL seed", fmt::format("{:.6}", res.hpwlSeed), ""});
-        summary.addRow({"HPWL lower bound", "", fmt::format("{:.6}", res.hpwlLower)});
-        summary.addRow({"HPWL final", "", fmt::format("{:.6}", res.hpwlFinal)});
-        summary.addRow({"returned from iteration", "",
-                        fmt::format("{} of {}", res.bestIter, res.globalIters)});
-        summary.addRow({"bound gap", "", fmt::format("{:.6}", res.gap)});
-        summary.addRow({"scaled overflow (lower)", "", fmt::format("{:.6}", res.overflowLower)});
-        summary.addRow({"scaled overflow (final)", "", fmt::format("{:.6}", res.overflowFinal)});
-        summary.addRow({"SVG frames written", "", fmt::format("{}", res.framesWritten)});
-        summary.emit();
-
-        legalizeAndDetail(plotDir, regions);
-        if (hpwlFinalPlaced_ > 0.0) {
-            // Rankable result, beside the bound it is derived from, so a change
-            // can be judged on the metric the paper publishes rather than on the
-            // intermediate upper bound, which moves for reasons that do not
-            // survive legalization.
-            ktReportTable placed("Placement quality (after legalization and detail placement)");
-            placed.setHeaders({"metric", "value"});
-            placed.addRow({"HPWL detailed", fmt::format("{:.6}", hpwlFinalPlaced_)});
-            placed.addRow({"HPWL global upper bound", fmt::format("{:.6}", res.hpwlFinal)});
-            placed.addRow({"legalization + detail change",
-                           fmt::format("{:.2}%", 100.0 * (hpwlFinalPlaced_ - res.hpwlFinal) /
-                                                     (res.hpwlFinal > 0.0 ? res.hpwlFinal : 1.0))});
-            placed.addRow({"paper reference (adaptec1)", "77410738"});
-            placed.emit();
-        }
-        return true;
+        reportSimpl(res);
+        hpwlGlobalBound_ = res.hpwlFinal;
 
     } else if (algorithm == "ntuplace1") {
         ktlog.echo("Running NTUPlace1 global placement (ratio partitioning)...");
         RatioPlacer placer(*db);
-        const constraintMgr *regions = nullptr;
-        if (lefdefAdapter && lefdefAdapter->getConstraints().numRegions() > 0) {
-            regions = &lefdefAdapter->getConstraints();
-        }
+        const constraintMgr *regions = input ? input->constraints() : nullptr;
         RatioPlaceParams params;
         params.plotDir = plotDir;
         if (const char *e = std::getenv("KTPLACE_NTU_LEAF_CELLS")) {
@@ -890,42 +662,15 @@ bool FlowMgr::Impl::runPlacement(const std::string &algorithm, const std::string
             params.verbose = std::atoll(e) != 0;
         }
         const RatioPlaceResult res = placer.place(params, regions);
-        ktReportTable summary("NTUplace1 solver results");
-        summary.setHeaders({"metric", "value"});
-        summary.addRow({"movable cells", fmt::format("{}", res.numMovable)});
-        summary.addRow({"fixed cells", fmt::format("{}", res.numFixed)});
-        summary.addRow({"hypergraph nets", fmt::format("{}", res.nets)});
-        summary.addRow({"cuts accepted", fmt::format("{}", res.cuts)});
-        summary.addRow({"ratio retries", fmt::format("{}", res.ratioRetries)});
-        summary.addRow({"retries per cut", fmt::format("{:.3}", res.meanImbalance)});
-        summary.addRow({"recursion depth reached", fmt::format("{}", res.maxDepth)});
-        summary.addRow({"smallest leaf", fmt::format("{}", res.minLeafCells)});
-        summary.addRow({"HPWL (pre-legalization)", fmt::format("{:.6}", res.hpwlFinal)});
-        summary.addRow({"paper reference (adaptec1)", "44800000"});
-        summary.emit();
-
-        // The ratio partitioner deliberately leaves the design overfull: GP here is
-        // only a geometric ordering, and the legalizer plus detail placer is what
-        // turns it into a legal placement. That is the same split the paper uses.
-        legalizeAndDetail(plotDir, regions);
-        if (hpwlFinalPlaced_ > 0.0) {
-            ktReportTable placed("Placement quality (after legalization and detail placement)");
-            placed.setHeaders({"metric", "value"});
-            placed.addRow({"HPWL detailed", fmt::format("{:.6}", hpwlFinalPlaced_)});
-            placed.addRow({"HPWL from partitioning", fmt::format("{:.6}", res.hpwlFinal)});
-            placed.addRow({"legalization + detail change",
-                           fmt::format("{:.2}%", 100.0 * (hpwlFinalPlaced_ - res.hpwlFinal) /
-                                                     (res.hpwlFinal > 0.0 ? res.hpwlFinal : 1.0))});
-            placed.emit();
-        }
-        return true;
+        reportNtuPlace1(res);
+        hpwlGlobalBound_ = res.hpwlFinal;
 
     } else {
         ktlog.fatal("Unknown placement algorithm: {}", algorithm);
     }
 }
 
-bool FlowMgr::Impl::writePlacement(const std::string &outputPath) {
+void FlowMgr::Impl::writePlacement(const std::string &outputPath) {
     if (!placed) {
         ktlog.fatal("No placement result available");
     }
@@ -949,31 +694,12 @@ bool FlowMgr::Impl::writePlacement(const std::string &outputPath) {
         out << vert.name << '\t' << vert.x << '\t' << vert.y
             << "\t: " << (vert.isFixed ? "N /FIXED" : "N") << '\n';
     }
-    return true;
-}
-
-PlacementDB &FlowMgr::Impl::getPlacementDB() {
-    if (!db) {
-        throw std::runtime_error("PlacementDB not initialized");
-    }
-    return *db;
-}
-
-const PlacementDB &FlowMgr::Impl::getPlacementDB() const {
-    if (!db) {
-        throw std::runtime_error("PlacementDB not initialized");
-    }
-    return *db;
-}
-
-bool FlowMgr::Impl::isLoaded() const {
-    return loaded;
 }
 
 void FlowMgr::Impl::clear() {
+    // input before db: the reader owns the fences the placement is held to.
+    input.reset();
     db.reset();
-    bookshelfAdapter.reset();
-    lefdefAdapter.reset();
     loaded = false;
     placed = false;
 }

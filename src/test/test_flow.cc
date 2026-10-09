@@ -351,7 +351,7 @@ BOOST_AUTO_TEST_CASE(flow_exits_when_the_input_directory_is_missing) {
             FlowMgr flow;
             flow.run(optionsFor(dir, dir.str() + "/no_such_dir"));
         },
-        "cannot scan input directory");
+        "cannot read input directory");
 }
 
 BOOST_AUTO_TEST_CASE(flow_exits_when_the_design_files_are_missing) {
@@ -363,5 +363,5 @@ BOOST_AUTO_TEST_CASE(flow_exits_when_the_design_files_are_missing) {
             FlowMgr flow;
             flow.run(optionsFor(dir, dir.str()));
         },
-        "cannot open the nodes file");
+        "no input format recognises");
 }
