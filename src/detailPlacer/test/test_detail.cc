@@ -558,7 +558,6 @@ BOOST_AUTO_TEST_CASE(the_default_parameters_run_every_technique) {
     BOOST_TEST(p.localReorderWindow > 0u);
     BOOST_TEST(p.minImprovement >= 0.0);
     BOOST_TEST(p.plotDir.empty());
-    BOOST_TEST(p.constraints == nullptr);
 }
 
 BOOST_AUTO_TEST_CASE(a_local_reorder_window_of_zero_does_not_hang) {
@@ -689,10 +688,10 @@ BOOST_AUTO_TEST_CASE(fences_are_accepted_without_being_enforced) {
     addCell(db, "b", 2.0, 0);
     constraintMgr cstr;
     cstr.addRegion("er0", {Point{0.0, 0.0}, Point{1.0, 10.0}});
+    db.setConstraints(std::move(cstr));
 
     DetailPlaceParams p = none();
     p.globalSwapPasses = 2;
-    p.constraints = &cstr;
     FastDetailedPlacer dp(db);
     DetailPlaceResult r;
     BOOST_CHECK_NO_THROW(r = dp.place(p));

@@ -95,8 +95,7 @@ public:
     // Run global placement and write the result into the database. The placement
     // handed back is deliberately overfull: the paper's global placement is, and
     // the legalizer is a separate step in both this paper and in this flow.
-    RatioPlaceResult place(const RatioPlaceParams &params = {},
-                           const constraintMgr *constraints = nullptr);
+    RatioPlaceResult place(const RatioPlaceParams &params = {});
 
 private:
     class Impl;

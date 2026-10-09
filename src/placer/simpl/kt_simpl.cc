@@ -153,7 +153,7 @@ public:
     explicit Impl(PlacementDB &db) : db_(db), graph_(db.getGraph()) {}
 
     SimplResult run(const SimplParams &P, const std::string &plotDir,
-                    const std::string &snapshotDir, const constraintMgr *constraints);
+                    const std::string &snapshotDir, bool useFences);
 
 private:
     // --- setup -------------------------------------------------------------
@@ -2459,10 +2459,10 @@ void SimplePlacer::Impl::densityStats(const std::vector<double> &px, const std::
 // ---------------------------------------------------------------------------
 
 SimplResult SimplePlacer::Impl::run(const SimplParams &P, const std::string &plotDir,
-                                    const std::string &snapshotDir,
-                                    const constraintMgr *constraints) {
+                                    const std::string &snapshotDir, bool useFences) {
     par_ = P;
-    fences_ = constraints;
+    // The design's own fences, unless the run asked to measure their cost.
+    fences_ = useFences ? &db_.constraints() : nullptr;
     fenceClamps_ = 0;
     fencePushes_ = 0;
     // Debugging cap: the legalizer is the expensive part, so a short run is
@@ -2757,7 +2757,7 @@ SimplResult SimplePlacer::Impl::run(const SimplParams &P, const std::string &plo
                         h, bestInitHpwl,
                         bestInitHpwl > 0.0 ? 100.0 * (h - bestInitHpwl) / bestInitHpwl : 0.0,
                         initStale, par_.initPatience);
-            if (initStale >= static_cast<int>(par_.initPatience)) {
+            if (par_.initPatience > 0 && initStale >= static_cast<int>(par_.initPatience)) {
                 // Converged: further rounds are not paying for themselves.
                 break;
             }
@@ -3306,8 +3306,8 @@ SimplePlacer::SimplePlacer(SimplePlacer &&) noexcept = default;
 SimplePlacer &SimplePlacer::operator=(SimplePlacer &&) noexcept = default;
 
 SimplResult SimplePlacer::place(const SimplParams &params, const std::string &plotDir,
-                                const std::string &snapshotDir, const constraintMgr *constraints) {
-    return pImpl->run(params, plotDir, snapshotDir, constraints);
+                                const std::string &snapshotDir, bool useFences) {
+    return pImpl->run(params, plotDir, snapshotDir, useFences);
 }
 
 void reportSimpl(const SimplResult &r) {
@@ -3338,6 +3338,7 @@ void reportSimpl(const SimplResult &r) {
     t.addRow({"scaled overflow (lower)", "", fmt::format("{:.6}", r.overflowLower)});
     t.addRow({"scaled overflow (final)", "", fmt::format("{:.6}", r.overflowFinal)});
     t.addRow({"SVG frames written", "", fmt::format("{}", r.framesWritten)});
+    t.addRow({"paper reference (adaptec1)", "77410738"});
     t.emit();
 }
 

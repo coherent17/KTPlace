@@ -45,7 +45,7 @@ class RatioPlacer::Impl {
 public:
     explicit Impl(PlacementDB &db) : db_(db), graph_(db.getGraph()) {}
 
-    RatioPlaceResult place(const RatioPlaceParams &params, const constraintMgr *);
+    RatioPlaceResult place(const RatioPlaceParams &params);
 
 private:
     void build();
@@ -575,10 +575,9 @@ void RatioPlacer::Impl::divide(RatioRegion r) {
     divide(std::move(r1));
 }
 
-RatioPlaceResult RatioPlacer::Impl::place(const RatioPlaceParams &params,
-                                          const constraintMgr *constraints) {
+RatioPlaceResult RatioPlacer::Impl::place(const RatioPlaceParams &params) {
     params_ = params;
-    fences_ = constraints;
+    fences_ = &db_.constraints();
     build();
     if (mov_.empty()) {
         return res_;
@@ -652,9 +651,8 @@ RatioPlacer::~RatioPlacer() = default;
 RatioPlacer::RatioPlacer(RatioPlacer &&) noexcept = default;
 RatioPlacer &RatioPlacer::operator=(RatioPlacer &&) noexcept = default;
 
-RatioPlaceResult RatioPlacer::place(const RatioPlaceParams &params,
-                                    const constraintMgr *constraints) {
-    return pImpl->place(params, constraints);
+RatioPlaceResult RatioPlacer::place(const RatioPlaceParams &params) {
+    return pImpl->place(params);
 }
 
 void reportNtuPlace1(const RatioPlaceResult &r) {

@@ -3,14 +3,18 @@
 
 #include "datamodel/kt_dm.h"
 
+#include "constraint/kt_constraintMgr.h"
 #include "datamodel/kt_graph.h"
 #include "util/kt_log.h"
 #include "util/kt_reportTable.h"
 
 #include <algorithm>
+#include <cmath>
 #include <fmt/format.h>
 #include <limits>
+#include <map>
 #include <stdexcept>
+#include <utility>
 
 // oneTBB - parallel stats
 #include <oneapi/tbb/blocked_range.h>
@@ -47,6 +51,12 @@ public:
     double dieYMin = 0.0;
     double dieXMax = 0.0;
     double dieYMax = 0.0;
+
+    // Placement regions the design declared. Owned here because they are design
+    // data: the reader fills them in once, and every stage reads them off the
+    // database rather than being handed a pointer that has to be kept alive
+    // alongside it.
+    constraintMgr fences;
 };
 
 // PlacementDB implementation
@@ -445,6 +455,18 @@ void PlacementDB::reportUtilisation() const {
     }
 }
 
+const constraintMgr &PlacementDB::constraints() const {
+    return pImpl->fences;
+}
+
+void PlacementDB::setConstraints(constraintMgr fences) {
+    pImpl->fences = std::move(fences);
+}
+
+bool PlacementDB::hasFences() const {
+    return !pImpl->fences.regions().empty();
+}
+
 void PlacementDB::report() const {
     const auto [numCells, numNets] = getStats();
     // What placement did the design ship with? Worth logging: if it is missing or
@@ -473,4 +495,194 @@ void PlacementDB::report() const {
     ktlog.echo("Loaded: {} cells ({} terminals), {} nets, {} pins, {} rows", numCells,
                getNumTerminals(), numNets, getNumPins(), getNumRows());
 }
+
+std::vector<PlacementDB::Defect> PlacementDB::verify() const {
+    std::vector<Defect> defects;
+    const Graph &g = getGraph();
+
+    // The same notion of "the die" the placer used. Two different ones would fail
+    // a legal placement: the placer spreads over the union of the fixed geometry
+    // and the rows, so a checker built from the
+    // fixed geometry alone fails every cell in a row that reaches past the pads.
+    const std::array<double, 4> box = placementDieBox(*this);
+    std::size_t outOfDie = 0;
+    std::size_t offFence = 0;
+    const std::size_t nv = g.getNumVertices();
+    // Row height, for deciding what counts as a tall cell below.
+    double rowHeight = 0.0;
+    for (const PlacementDB::RowInfo &ri : getRows()) {
+        if (ri.height > rowHeight) {
+            rowHeight = ri.height;
+        }
+    }
+    for (std::size_t v = 0; v < nv; ++v) {
+        const Vertex &vert = g.getVertex(v);
+        if (vert.type != VertexType::Cell || vert.isFixed || vert.isTerminal) {
+            continue;
+        }
+        const double eps = 1e-6;
+        if (vert.x < box[0] - eps || vert.y < box[1] - eps || vert.x + vert.width > box[2] + eps ||
+            vert.y + vert.height > box[3] + eps) {
+            ++outOfDie;
+            continue;
+        }
+        if (hasFences() && vert.regionId != constraintMgr::kNoRegion) {
+            std::vector<double> flat{vert.x, vert.y};
+            std::vector<int> ids{vert.regionId};
+            offFence += constraints().countViolations(flat, ids);
+        }
+    }
+
+    // Overlaps. Bulk cells go in a grid with a bin sized for a typical cell, and
+    // each pair is examined once, in its bucket and the four forward neighbours.
+    // The bin must NOT be sized from the largest cell: ibm01 has one cell 12752
+    // units tall, so that makes the bin the size of the die and the check a
+    // 12500^2 comparison. Tall cells are outside the grid for the same reason and
+    // are compared against everything directly.
+    std::size_t overlaps = 0;
+    {
+        double bin = 0.0;
+        std::size_t nTall = 0;
+        for (std::size_t v = 0; v < nv; ++v) {
+            const Vertex &vert = g.getVertex(v);
+            if (vert.type != VertexType::Cell) {
+                continue;
+            }
+            // "Tall" against the rows, not an absolute height: a cell more than
+            // four rows high cannot be found by a standard-cell-sized bin.
+            const double rows = rowHeight > 0.0 ? vert.height / rowHeight : vert.height;
+            if (rows > 4.0) {
+                ++nTall;
+                continue;
+            }
+            bin += vert.width * vert.height;
+        }
+        const double meanArea = nv > 0 ? bin / std::max<std::size_t>(1, nv - nTall) : 0.0;
+        double cell = meanArea > 0.0 ? std::sqrt(meanArea) : 1.0;
+        const double dieW = std::max(box[2] - box[0], 1.0);
+        const double dieH = std::max(box[3] - box[1], 1.0);
+        // A few cells per bucket: enough that the map does not dominate, coarse
+        // enough that a standard cell does not span many bins (which is what made
+        // the original miss pairs).
+        const std::size_t target = 64;
+        cell = std::max(cell, std::max(dieW, dieH) / 512.0);
+        cell = std::max(cell, 1e-9);
+        (void)target;
+
+        std::map<std::pair<long long, long long>, std::vector<std::size_t>> buckets;
+        std::vector<std::size_t> tallCells;
+        std::vector<char> isTall(nv, 0);
+        for (std::size_t v = 0; v < nv; ++v) {
+            const Vertex &vert = g.getVertex(v);
+            if (vert.type != VertexType::Cell) {
+                continue;
+            }
+            const double rows = rowHeight > 0.0 ? vert.height / rowHeight : vert.height;
+            if (rows > 4.0) {
+                tallCells.push_back(v);
+                isTall[v] = 1;
+                continue;
+            }
+            const long long bx = static_cast<long long>(std::floor(vert.x / cell));
+            const long long by = static_cast<long long>(std::floor(vert.y / cell));
+            buckets[{bx, by}].push_back(v);
+        }
+        const double eps = 1e-9;
+        const auto hits = [&](std::size_t a, std::size_t b) {
+            const Vertex &p = g.getVertex(a);
+            const Vertex &q = g.getVertex(b);
+            // Two fixed cells overlapping is the input's business, not ours.
+            if (p.isFixed && q.isFixed) {
+                return false;
+            }
+            return p.x < q.x + q.width - eps && q.x < p.x + p.width - eps &&
+                   p.y < q.y + q.height - eps && q.y < p.y + p.height - eps;
+        };
+        // Only forward neighbours: all eight examines each cross-bucket pair twice.
+        static const int kFwd[4][2] = {{1, 0}, {-1, 1}, {0, 1}, {1, 1}};
+        for (const auto &kv : buckets) {
+            const std::vector<std::size_t> &mine = kv.second;
+            for (std::size_t a = 0; a < mine.size(); ++a) {
+                for (std::size_t b = a + 1; b < mine.size(); ++b) {
+                    overlaps += hits(mine[a], mine[b]) ? 1u : 0u;
+                }
+            }
+            for (const auto &d : kFwd) {
+                auto it = buckets.find({kv.first.first + d[0], kv.first.second + d[1]});
+                if (it == buckets.end()) {
+                    continue;
+                }
+                for (const std::size_t a : mine) {
+                    for (const std::size_t b : it->second) {
+                        overlaps += hits(a, b) ? 1u : 0u;
+                    }
+                }
+            }
+        }
+        // Tall cells against every vertex, not just those with a higher index.
+        // Restricting to b > a misses a tall cell paired with a lower-indexed
+        // normal cell, since the grid pairs normal cells with normal cells only
+        // (558 counted where a direct scan found 827). A tall-tall pair is still
+        // accepted only once, by index.
+        for (const std::size_t a : tallCells) {
+            for (std::size_t b = 0; b < nv; ++b) {
+                if (b == a) {
+                    continue;
+                }
+                const Vertex &q = g.getVertex(b);
+                if (q.type != VertexType::Cell) {
+                    continue;
+                }
+                // Both tall: the same pair is reached from both sides, so keep
+                // only the one where this is the lower vertex index.
+                if (isTall[b] && b < a) {
+                    continue;
+                }
+                if (hits(a, b)) {
+                    ++overlaps;
+                }
+            }
+        }
+    }
+
+    if (outOfDie > 0) {
+        defects.push_back({"cells outside the die", outOfDie});
+    }
+    if (overlaps > 0) {
+        defects.push_back({"overlapping cell pairs", overlaps});
+    }
+    if (offFence > 0) {
+        defects.push_back({"cells outside their fence", offFence});
+    }
+    return defects;
+}
+
+double PlacementDB::hpwl() const {
+    const Graph &g = getGraph();
+    double total = 0.0;
+    for (std::size_t v = 0; v < g.getNumVertices(); ++v) {
+        const Vertex &net = g.getVertex(v);
+        if (net.type != VertexType::Net || net.inEdges.size() < 2) {
+            continue;
+        }
+        double x0 = std::numeric_limits<double>::max();
+        double x1 = -std::numeric_limits<double>::max();
+        double y0 = std::numeric_limits<double>::max();
+        double y1 = -std::numeric_limits<double>::max();
+        for (const std::size_t eid : net.inEdges) {
+            const Edge &e = g.getEdge(eid);
+            const Vertex &pin = g.getVertex(e.source);
+            if (pin.type != VertexType::Cell) {
+                continue;
+            }
+            x0 = std::min(x0, pin.x + e.offsetX);
+            x1 = std::max(x1, pin.x + e.offsetX + pin.width);
+            y0 = std::min(y0, pin.y + e.offsetY);
+            y1 = std::max(y1, pin.y + e.offsetY + pin.height);
+        }
+        total += (x1 - x0) + (y1 - y0);
+    }
+    return total;
+}
+
 }  // namespace ktplace

@@ -1186,7 +1186,7 @@ DetailPlaceResult FastDetailedPlacer::Impl::place(const DetailPlaceParams &param
             localWindow_ = static_cast<std::size_t>(v);
         }
     }
-    constraints_ = params.constraints;
+    constraints_ = &db_.constraints();
 
     // place() is a normal call, not a one-shot: the same object may be run
     // again with different parameters. The per-run accumulators below append

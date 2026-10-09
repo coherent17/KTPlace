@@ -11,8 +11,6 @@
 
 namespace ktplace {
 
-class constraintMgr;
-
 // One input format.
 //
 // The flow chooses an adapter and then sees only this. Which format a directory
@@ -28,9 +26,9 @@ public:
     [[nodiscard]] virtual bool recognises(const std::string &dirPath) const = 0;
 
     // Reads the design and hands over its database, or returns nullptr if the
-    // design could not be read. The adapter stays alive after this: LEF/DEF
-    // fences live in the adapter, not in the database, so it has to outlive the
-    // placement it constrains.
+    // design could not be read. Anything the design declared beyond the netlist
+    // -- LEF/DEF fences, for one -- is installed into that database before it is
+    // returned, so the reader has no reason to outlive the call.
     [[nodiscard]] virtual std::unique_ptr<PlacementDB> read(const std::string &dirPath) = 0;
 
     [[nodiscard]] virtual std::string_view formatName() const = 0;

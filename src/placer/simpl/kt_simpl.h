@@ -387,11 +387,11 @@ public:
     SimplePlacer(SimplePlacer &&) noexcept;
     SimplePlacer &operator=(SimplePlacer &&) noexcept;
 
-    // Run global placement.// source of these; Bookshelf carries none. Non-null means fences are// enforced after every solve -- an assigned cell is held inside its own// region and an unassigned cell is held out of all of them -- and drawn// in the frames. Null leaves the placement unconstrained, which is// correct for a Bookshelf design rather than a silent omission.
-
+    // Run global placement. The fences are the design's own, read from the
+    // database; enforceFences turns them off for a run that wants to measure what
+    // they cost.
     SimplResult place(const SimplParams &params = {}, const std::string &plotDir = "",
-                      const std::string &snapshotDir = "",
-                      const constraintMgr *constraints = nullptr);
+                      const std::string &snapshotDir = "", bool useFences = true);
 
 private:
     class Impl;

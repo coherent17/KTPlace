@@ -26,7 +26,6 @@ struct LegalizeParams {
     /// Fence regions, for the frames only. The legalizer is not constrained by
     /// them -- it only draws them, so a frame of the legalizer's work shows the
     /// regions the result has to end up inside.
-    const constraintMgr *constraints = nullptr;
 };
 
 struct LegalizeResult {

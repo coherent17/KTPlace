@@ -46,9 +46,6 @@ public:
     [[nodiscard]] std::string_view formatName() const override {
         return "lefdef";
     }
-    [[nodiscard]] const constraintMgr *constraints() const override {
-        return &getConstraints();
-    }
 
     // Read the LEF/DEF files from a directory
 

@@ -579,7 +579,7 @@ LegalizeResult AbacusLegalizer::Impl::run(const LegalizeParams &params) {
     // so legalization appears in the flow's Timings table next to load, place
     // and write instead of reporting a private duration.
     ScopedTimer timer("legalize");
-    constraints_ = params.constraints;
+    constraints_ = &db_.constraints();
 
     for (std::size_t v = 0; v < graph_.getNumVertices(); ++v) {
         const Vertex &vert = graph_.getVertex(v);

@@ -13,6 +13,8 @@
 
 namespace ktplace {
 
+class constraintMgr;
+
 // Forward declarations
 class Cell;
 class Net;
@@ -37,6 +39,34 @@ public:
     // Move semantics
     PlacementDB(PlacementDB &&) noexcept;
     PlacementDB &operator=(PlacementDB &&) noexcept;
+
+    // Placement regions ("fences") the design declared. They belong to the
+    // design, so they live here rather than in whatever reader happened to
+    // produce it: the reader fills them in, and every stage reads them from the
+    // database instead of being handed a pointer. Empty when the format has none.
+    [[nodiscard]] const constraintMgr &constraints() const;
+    [[nodiscard]] bool hasFences() const;
+
+    // One way this placement is wrong.
+    struct Defect {
+        std::string what;
+        std::size_t count = 0;
+    };
+
+    // An independent pass over the placement as it will be written: overlaps,
+    // cells outside the die, cells outside their fence. The placement stages each
+    // self-check, but only for what they knew to ask about, and a stage reporting
+    // zero overlaps while the delivered file has them is the failure worth
+    // catching -- the file is what the next tool reads. Empty means it passed.
+    [[nodiscard]] std::vector<Defect> verify() const;
+
+    // Half-perimeter wirelength of the placement as it currently stands, pin to
+    // pin over every net. This is the number the paper reports, so it is measured
+    // once, here, rather than separately by each stage.
+    [[nodiscard]] double hpwl() const;
+
+    // Hands the design's fences over, for a reader that has just parsed them.
+    void setConstraints(constraintMgr fences);
 
     // Cell management
     [[nodiscard]] std::size_t addCell(const std::string &name, double width, double height,

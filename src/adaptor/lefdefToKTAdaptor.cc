@@ -11,6 +11,7 @@
 #include <filesystem>
 #include <fstream>
 #include <sstream>
+#include <utility>
 
 // Boost.Iostreams - transparent gzip input
 #include <boost/iostreams/device/file.hpp>
@@ -107,7 +108,14 @@ bool LefDefInputAdapter::recognises(const std::string &dirPath) const {
 }
 
 std::unique_ptr<PlacementDB> LefDefInputAdapter::read(const std::string &dirPath) {
-    return readFromDirectory(dirPath) ? releasePlacementDB() : nullptr;
+    if (!readFromDirectory(dirPath)) {
+        return nullptr;
+    }
+    std::unique_ptr<PlacementDB> database = releasePlacementDB();
+    // The fences go into the database, so the adapter does not have to outlive the
+    // placement it constrains.
+    database->setConstraints(std::move(fences));
+    return database;
 }
 
 bool LefDefInputAdapter::readFromDirectory(const std::string &dirPath) {

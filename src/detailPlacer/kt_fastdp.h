@@ -32,7 +32,6 @@ struct DetailPlaceParams {
     /// If non-empty, write an SVG frame per pass to this directory.
     std::string plotDir;
     /// Fence regions, drawn in the frames but not enforced by the optimiser.
-    const constraintMgr *constraints = nullptr;
 };
 
 struct DetailPlaceResult {
