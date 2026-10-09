@@ -30,6 +30,21 @@ Source the one for your shell and the engine is callable by name:
 source ktplace.sh
 ```
 
+### Docker (any OS)
+
+On macOS, Windows, or a Linux whose packages differ from CI's, build and run in
+a container with exactly CI's toolchain. The repository is mounted live, so you
+edit on the host and build in Linux:
+
+```sh
+scripts/devenv.sh up        # start the dev container and compile ktplace
+scripts/devenv.sh ssh       # shell in /workspace (or: ssh -p 2222 dev@127.0.0.1)
+docker compose up -d        # the same without bash, e.g. from PowerShell
+```
+
+`docker build -t ktplace .` builds and unit-tests a copy of the tree the way CI
+does.
+
 ## Usage
 
 ```sh
