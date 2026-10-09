@@ -1,29 +1,24 @@
-// @file kt_reportTable.cc// Implementation of the aligned table renderer
-
-
 #include "util/kt_reportTable.h"
 
 #include "util/kt_log.h"
 
 #include <algorithm>
+#include <utility>
 
 namespace ktplace {
 
 namespace {
 
-/// Visible width of a UTF-8 string (box drawing marks are multi-byte).
 std::size_t displayWidth(const std::string &text) {
     std::size_t width = 0;
-    for (unsigned char c : text) {
-        if ((c & 0xC0) != 0x80) {  // skip UTF-8 continuation bytes
+    for (const unsigned char c : text) {
+        if ((c & 0xC0) != 0x80) {
             ++width;
         }
     }
     return width;
 }
 
-/// True when every character could belong to a number, so the cell is right
-/// aligned to keep digit columns visually aligned.
 bool looksNumeric(const std::string &text) {
     if (text.empty()) {
         return false;
@@ -49,6 +44,13 @@ std::string pad(const std::string &text, std::size_t width, bool rightAlign) {
     return rightAlign ? fill + text : text + fill;
 }
 
+std::string withoutTrailingNewline(std::string text) {
+    if (!text.empty() && text.back() == '\n') {
+        text.pop_back();
+    }
+    return text;
+}
+
 }  // namespace
 
 ktReportTable::ktReportTable(std::string tableTitle) : title(std::move(tableTitle)) {}
@@ -71,7 +73,6 @@ void ktReportTable::clear() {
 }
 
 std::string ktReportTable::render() const {
-    // Column count: the widest row wins.
     std::size_t columns = headers.size();
     for (const auto &row : rows) {
         columns = std::max(columns, row.size());
@@ -80,11 +81,11 @@ std::string ktReportTable::render() const {
         return {};
     }
 
-    // Measure every column, treating a missing cell as empty.
     std::vector<std::size_t> widths(columns, 0);
+    const std::string empty;
     const auto measure = [&](const std::vector<std::string> &cells) {
         for (std::size_t i = 0; i < columns; ++i) {
-            const std::string &cell = i < cells.size() ? cells[i] : std::string();
+            const std::string &cell = i < cells.size() ? cells[i] : empty;
             widths[i] = std::max(widths[i], displayWidth(cell));
         }
     };
@@ -97,7 +98,6 @@ std::string ktReportTable::render() const {
 
     std::vector<bool> numeric(columns, false);
     for (std::size_t i = 0; i < columns; ++i) {
-        // A column is right aligned when every non-empty body cell is numeric.
         bool allNumeric = true;
         bool any = false;
         for (const auto &row : rows) {
@@ -128,7 +128,6 @@ std::string ktReportTable::render() const {
     const auto line = [&](const std::vector<std::string> &cells) {
         out += '|';
         for (std::size_t i = 0; i < columns; ++i) {
-            const std::string empty;
             const std::string &cell = i < cells.size() ? cells[i] : empty;
             out += ' ';
             out += pad(cell, widths[i], numeric[i]);
@@ -153,21 +152,11 @@ std::string ktReportTable::render() const {
     return out;
 }
 
-namespace {
-/// render() ends with a newline; the logger adds its own record terminator,
-/// so drop it to avoid a blank line after the table.
-std::string withoutTrailingNewline(std::string text) {
-    if (!text.empty() && text.back() == '\n') {
-        text.pop_back();
-    }
-    return text;
-}
-}  // namespace
-
 void ktReportTable::emit() const {
     const std::string text = withoutTrailingNewline(render());
     if (!text.empty()) {
         ktlog.echo("{}", text);
     }
 }
+
 }  // namespace ktplace

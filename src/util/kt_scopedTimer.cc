@@ -1,16 +1,11 @@
-// @file kt_scopedTimer.cc// Implementation of the KTPlace elapsed-time measurement
-
-
 #include "util/kt_scopedTimer.h"
 
 #include "util/kt_reportTable.h"
 
-#include <ctime>
+#include <fmt/format.h>
+#include <utility>
 
 namespace ktplace {
-namespace {
-/// Processor seconds consumed by this process so far, over all threads.
-}  // namespace
 
 TimerRegistry &TimerRegistry::instance() {
     static TimerRegistry registry;
@@ -22,9 +17,9 @@ void TimerRegistry::record(std::string name, double wallSeconds, double cpuSecon
         return;
     }
     std::lock_guard<std::mutex> lock(mutex);
-    auto it = enabled.find(name);
+    const auto it = enabled.find(name);
     if (it != enabled.end() && !it->second) {
-        return;  // measuring continues, recording is suppressed
+        return;
     }
     TimerStats &entry = stats[name];
     entry.wallSeconds += wallSeconds;
@@ -82,10 +77,10 @@ void TimerRegistry::report() const {
     if (all.empty()) {
         return;
     }
-    ktReportTable table(
-        fmt::format("Timings (wall {:.3f}s, cpu {:.3f}s, {:.2f}x parallelism)", totalWallSeconds(),
-                    totalCpuSeconds(),
-                    totalWallSeconds() > 0.0 ? totalCpuSeconds() / totalWallSeconds() : 0.0));
+    const double wall = totalWallSeconds();
+    const double cpu = totalCpuSeconds();
+    ktReportTable table(fmt::format("Timings (wall {:.3f}s, cpu {:.3f}s, {:.2f}x parallelism)",
+                                    wall, cpu, wall > 0.0 ? cpu / wall : 0.0));
     table.setHeaders({"phase", "wall", "cpu", "calls", "cpu/wall"});
     for (const auto &[name, entry] : all) {
         table.addRow({name, fmt::format("{:.3f}s", entry.wallSeconds),

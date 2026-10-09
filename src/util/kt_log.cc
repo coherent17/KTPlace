@@ -1,6 +1,3 @@
-// @file kt_log.cc// Implementation of the KTPlace logger
-
-
 #include "util/kt_log.h"
 
 #include <chrono>
@@ -11,7 +8,6 @@
 namespace ktplace {
 namespace {
 
-/// Local wall-clock timestamp, e.g. "2026-01-17 16:42:07.123".
 std::string timestamp() {
     using clock = std::chrono::system_clock;
     const auto now = clock::now();
@@ -49,8 +45,6 @@ const char *Logger::levelTag(Level tag) {
 }
 
 const char *Logger::levelColor(Level tag) {
-    // Yellow for a warning, red for a fatal. The transcript file never gets these
-    // codes: it stays plain text so it can be diffed, grepped and pasted.
     switch (tag) {
         case Level::Warning:
             return "\033[1;33m";
@@ -64,7 +58,7 @@ const char *Logger::levelColor(Level tag) {
 }
 
 Logger &Logger::instance() {
-    static Logger logger;  // constructed on first use
+    static Logger logger;
     return logger;
 }
 
@@ -77,14 +71,6 @@ void Logger::configure(std::string logFilePath, bool verbose) {
     closeFiles();
     reportedOpenFailure = false;
     path = std::move(logFilePath);
-    // The trace file is always opened. Trace records are where the per-iteration
-    // numbers live -- the lower/upper bounds, the overflow of each, the pseudonet
-    // and density shares -- and they are the only way to tell a converging run
-    // from one that is stuck. Gating that behind a flag meant the runs worth
-    // diagnosing were the runs nobody had thought to ask for a trace of, since
-    // whether a run needs diagnosing is not known until afterwards. The flag now
-    // only controls whether trace text also reaches the console; the file is
-    // always there.
     tracePath = tracePathFor(path);
     verboseEnabled = verbose;
 
@@ -95,7 +81,6 @@ void Logger::configure(std::string logFilePath, bool verbose) {
         stream.open(target, std::ios::out | std::ios::trunc);
         if (!stream.is_open() && !reportedOpenFailure) {
             reportedOpenFailure = true;
-            // Report on stderr: the file sink is exactly what just failed.
             std::cerr << "[ktlog] warning: cannot open log file '" << target
                       << "'; continuing with stderr only\n";
         }
@@ -110,7 +95,6 @@ std::string Logger::tracePathFor(const std::string &logFilePath) {
     }
     const std::size_t dot = logFilePath.rfind('.');
     const std::size_t slash = logFilePath.find_last_of("/\\");
-    // Only treat the dot as an extension when it is in the final path segment.
     if (dot == std::string::npos || (slash != std::string::npos && dot < slash)) {
         return logFilePath + "_trace";
     }
@@ -147,10 +131,6 @@ void Logger::emit(Level level, const std::string &message) {
     std::lock_guard<std::mutex> lock(mutex);
     ++records;
 
-    // Diagnostics live in their own file so the main transcript stays readable,
-    // and that file is always written: a trace record is how a run is explained
-    // after the fact, and whether a run turns out to need explaining is not known
-    // while it is still running.
     if (isTrace) {
         if (traceFile.is_open()) {
             traceFile << timestamp() << " [trace] " << body << '\n';
@@ -161,16 +141,10 @@ void Logger::emit(Level level, const std::string &message) {
         file.flush();
     }
 
-    // stderr is the interactive view: echo and fatal records always, and trace
-    // records only under -v. The trace file has them either way, so the console
-    // stays a summary and the file is the complete record.
     if (!isTrace || verboseEnabled) {
-        // Colour the stderr view only, and only the level marker, so the body of a
-        // long warning is not washed out in a yellow block. Echo and trace stay
-        // uncoloured: a transcript of an ordinary run should read as plain text.
-        if (const char *color = levelColor(level); *color != 0) {
-            std::cerr << color << '[' << levelTag(level) << "] " << "\033[0m" << ' ' << body
-                      << '\n';
+        const char *color = levelColor(level);
+        if (color[0] != '\0') {
+            std::cerr << color << '[' << levelTag(level) << "] \033[0m " << body << '\n';
         } else {
             std::cerr << body << '\n';
         }

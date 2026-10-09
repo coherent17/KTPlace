@@ -1,6 +1,3 @@
-// @file test_util.cc// Tests for the logging and timing utilities// The logger and the timer registry are process-wide singletons, so these tests// are about observable behaviour -- what lands in the transcript, what reaches// the console, and what a summary reports -- rather than internal state.// The two sinks are checked separately, because they are deliberately different:// the transcript is plain text so it can be grepped and diffed, and only the// console view is coloured. A test that only looked at one of them would pass// even if the other regressed, and the regression that matters most here is a// warning that is invisible in a log file.
-
-
 #define BOOST_TEST_MODULE ktplace_util
 #define BOOST_TEST_DYN_LINK
 #include "util/kt_log.h"
@@ -18,51 +15,47 @@
 #include <unistd.h>
 
 using namespace ktplace;
-namespace fs = std::filesystem;
 
 namespace {
 
-/// Redirect `std::cerr` into a string for the lifetime of the object.
 class CaptureCerr {
 public:
-    CaptureCerr() : original_(std::cerr.rdbuf(buffer_.rdbuf())) {}
+    CaptureCerr() : original(std::cerr.rdbuf(buffer.rdbuf())) {}
     ~CaptureCerr() {
-        std::cerr.rdbuf(original_);
+        std::cerr.rdbuf(original);
     }
     CaptureCerr(const CaptureCerr &) = delete;
     CaptureCerr &operator=(const CaptureCerr &) = delete;
 
     [[nodiscard]] std::string str() const {
-        return buffer_.str();
+        return buffer.str();
     }
 
 private:
-    std::ostringstream buffer_;
-    std::streambuf *original_;
+    std::ostringstream buffer;
+    std::streambuf *original;
 };
 
-/// A transcript file that removes itself, so a failing test leaves nothing behind.
 class TempLog {
 public:
     TempLog() {
         static int counter = 0;
-        path_ = std::filesystem::temp_directory_path() /
-                ("ktplace_log_" + std::to_string(++counter) + ".log");
+        path = std::filesystem::temp_directory_path() /
+               ("ktplace_log_" + std::to_string(++counter) + ".log");
     }
     ~TempLog() {
         std::error_code ec;
-        std::filesystem::remove(path_, ec);
+        std::filesystem::remove(path, ec);
     }
     TempLog(const TempLog &) = delete;
     TempLog &operator=(const TempLog &) = delete;
 
     [[nodiscard]] std::string str() const {
-        return path_.string();
+        return path.string();
     }
 
-    /// @return the transcript's contents, or "" when it was never written
     [[nodiscard]] std::string contents() const {
-        std::ifstream in(path_);
+        std::ifstream in(path);
         if (!in.is_open()) {
             return {};
         }
@@ -72,14 +65,11 @@ public:
     }
 
 private:
-    std::filesystem::path path_;
+    std::filesystem::path path;
 };
 
-/// SGR yellow, as the warning level uses.
 constexpr const char *kYellow = "\033[1;33m";
-/// SGR red, as the fatal level uses.
 constexpr const char *kRed = "\033[1;31m";
-/// SGR reset.
 constexpr const char *kReset = "\033[0m";
 
 }  // namespace
@@ -92,8 +82,6 @@ BOOST_AUTO_TEST_CASE(echo_reaches_both_sinks_without_colour) {
         CaptureCerr cap;
         ktlog.echo("plain record {}", 42);
         BOOST_TEST(cap.str().find("plain record 42") != std::string::npos);
-        // An ordinary record is uncoloured: a normal transcript should read as
-        // plain text, and escape codes in a log are noise at best.
         BOOST_TEST(cap.str().find(kYellow) == std::string::npos);
         BOOST_TEST(cap.str().find(kRed) == std::string::npos);
     }
@@ -112,15 +100,11 @@ BOOST_AUTO_TEST_CASE(warning_is_yellow_on_console_and_plain_in_the_transcript) {
         console = cap.str();
     }
 
-    // Yellow on the console, with the level named, so it cannot be mistaken for
-    // an ordinary line while the run is still going.
     BOOST_TEST(console.find(kYellow) != std::string::npos);
     BOOST_TEST(console.find("warning") != std::string::npos);
     BOOST_TEST(console.find(kReset) != std::string::npos);
     BOOST_TEST(console.find("cell 7 is taller than one row") != std::string::npos);
 
-    // Plain in the file: tagged, and with no escape bytes at all. A log that
-    // cannot be grepped is a log nobody reads.
     const std::string file = log.contents();
     BOOST_TEST(file.find("[warning]") != std::string::npos);
     BOOST_TEST(file.find("cell 7 is taller than one row") != std::string::npos);
@@ -129,9 +113,6 @@ BOOST_AUTO_TEST_CASE(warning_is_yellow_on_console_and_plain_in_the_transcript) {
 }
 
 BOOST_AUTO_TEST_CASE(warning_accepts_a_preassembled_message) {
-    // The overload for a runtime string, which cannot be a format string -- an
-    // exception's what(), for instance. It must reach the sinks unchanged rather
-    // than being treated as a format string with a stray brace in it.
     TempLog log;
     ktlog.configure(log.str(), false);
 
@@ -148,10 +129,6 @@ BOOST_AUTO_TEST_CASE(warning_accepts_a_preassembled_message) {
 }
 
 BOOST_AUTO_TEST_CASE(fatal_is_red_and_exits) {
-    // fatal() ends the process on purpose, so it is checked the only way it can
-    // be: in a forked child, reading back what that child wrote to both sinks.
-    // Fork rather than exec so no second binary and no run-time compilation is
-    // needed, and so the child exercises this exact build of the logger.
     TempLog log;
     const std::string transcript = log.str();
 
@@ -167,7 +144,7 @@ BOOST_AUTO_TEST_CASE(fatal_is_red_and_exits) {
         ktlog.configure(transcript, false);
         ktlog.fatal("cannot open {}", "x.nodes");
         std::fflush(nullptr);
-        ::_exit(EXIT_SUCCESS);  // only reached when fatal() did NOT terminate
+        ::_exit(EXIT_SUCCESS);
     }
 
     ::close(channel[1]);
@@ -182,15 +159,12 @@ BOOST_AUTO_TEST_CASE(fatal_is_red_and_exits) {
     int status = 0;
     ::waitpid(pid, &status, 0);
     BOOST_REQUIRE(WIFEXITED(status));
-    // A non-zero exit code is the contract: the run must not look successful.
     BOOST_REQUIRE(WEXITSTATUS(status) != 0);
 
-    // Red on the console, which is the sink a person reads when a run breaks.
     BOOST_TEST(console.find(kRed) != std::string::npos);
     BOOST_TEST(console.find("fatal") != std::string::npos);
     BOOST_TEST(console.find("cannot open x.nodes") != std::string::npos);
 
-    // Plain in the transcript, tagged, no escape bytes.
     const std::string file = log.contents();
     BOOST_TEST(file.find("[fatal]") != std::string::npos);
     BOOST_TEST(file.find("cannot open x.nodes") != std::string::npos);
@@ -226,8 +200,6 @@ BOOST_AUTO_TEST_CASE(a_scoped_timer_records_its_interval_on_scope_exit) {
 }
 
 BOOST_AUTO_TEST_CASE(repeated_intervals_accumulate_under_one_name) {
-    // A loop of short intervals reporting as one total is the whole point of the
-    // registry, so the accumulation is what needs a test.
     TimerRegistry::instance().reset();
     for (int i = 0; i < 5; ++i) {
         const ScopedTimer timer("unit-timer-b");
@@ -241,16 +213,14 @@ BOOST_AUTO_TEST_CASE(timer_totals_cover_every_recorded_name) {
     TimerRegistry::instance().reset();
     { const ScopedTimer a("unit-timer-c"); }
     { const ScopedTimer b("unit-timer-d"); }
-    TimerRegistry &reg = TimerRegistry::instance();
-    const auto snapshot = reg.snapshot();
+    TimerRegistry &registry = TimerRegistry::instance();
+    const auto snapshot = registry.snapshot();
     BOOST_TEST(snapshot.size() == 2U);
-    // snapshot() is ordered by name and is a copy taken under the lock, so it is
-    // the only safe way to read the registry while workers are still running.
     BOOST_TEST(snapshot[0].first == "unit-timer-c");
     BOOST_TEST(snapshot[1].first == "unit-timer-d");
-    BOOST_TEST(reg.totalWallSeconds() >= 0.0);
-    BOOST_TEST(reg.totalCpuSeconds() >= 0.0);
-    BOOST_TEST(reg.isEnabled("unit-timer-c"));
+    BOOST_TEST(registry.totalWallSeconds() >= 0.0);
+    BOOST_TEST(registry.totalCpuSeconds() >= 0.0);
+    BOOST_TEST(registry.isEnabled("unit-timer-c"));
 }
 
 BOOST_AUTO_TEST_CASE(reset_clears_statistics_but_keeps_names_known) {
@@ -259,8 +229,6 @@ BOOST_AUTO_TEST_CASE(reset_clears_statistics_but_keeps_names_known) {
     BOOST_TEST(TimerRegistry::instance().find("unit-timer-e") != nullptr);
     TimerRegistry::instance().reset();
     BOOST_TEST(TimerRegistry::instance().find("unit-timer-e") == nullptr);
-    // A name stays enabled after a reset, so a timer that is created later is
-    // still recorded rather than silently dropped.
     BOOST_TEST(TimerRegistry::instance().isEnabled("unit-timer-e"));
 }
 

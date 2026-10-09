@@ -16,6 +16,11 @@
 # Match the compiler the build actually uses. Without this clangd assumes clang,
 # and the built-ins it then believes in, and the language standard it assumes, are
 # not the ones g++ compiles with.
+#
+# `c++2b` is the same standard as the build's `c++23` (g++ 13 accepts both), but
+# it is the spelling every clang from 14 on understands. A `-std` clang rejects is
+# not merely ignored: clangd then throws away the whole command line, include paths
+# included, and the file reports its own headers as missing.
 CompileFlags:
   Compiler: g++
-  Add: [-std=c++23]
+  Add: [-std=c++2b]

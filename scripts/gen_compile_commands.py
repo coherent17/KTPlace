@@ -28,7 +28,16 @@ SRC = os.path.join(ROOT, "src")
 
 # Kept in step with src/Master.make. The coverage branch is not included: clangd
 # does not need it, and a flag it cannot parse is a flag it drops.
-FLAGS = "-std=c++23 -Wall -Wextra -Wpedantic -Wshadow -O2 -g -pthread"
+#
+# `c++2b` rather than `c++23`, though both name the same standard to g++ 13. The
+# distinction matters only to clangd, and there it is the difference between a
+# working database and none: clang rejects a `-std` value it does not know, and on
+# rejecting one it discards the rest of the command line too -- so every include
+# path goes with it and the file then reports its own headers as missing. clang 14
+# spells the flag `c++2b`; clang 16 and later accept `c++23` and would not need
+# this, but `c++2b` is accepted by every version from 14 on, so it is the one that
+# works for both.
+FLAGS = "-std=c++2b -Wall -Wextra -Wpedantic -Wshadow -O2 -g -pthread"
 
 
 def subdirs():
@@ -51,18 +60,16 @@ def sources():
 
 def main():
     os.chdir(ROOT)
-    dirs = ["."] + subdirs()
     db = []
     for f in sources():
-        # The translation unit's own directory decides -I depth, exactly as the
-        # per-directory Master.make files do: a file in src/placer/simpl includes
-        # the project root, one in src/util includes src/util's parent.
-        # `directory` is where the command runs and `file` is relative to it, which
-        # is the form clangd resolves. Anchoring both at the project root keeps the
-        # pair consistent -- a per-subdirectory `directory` with a root-relative
-        # `file` is a combination that resolves to nothing.
+        # `directory` is absolute rather than "." because clangd resolves the
+        # include paths it finds in `command` against it, and a relative one is
+        # measured from the editor's working directory rather than from the
+        # database's own location. Get that wrong and clangd silently falls back
+        # to a command with no -I at all, which reads as every project header
+        # being missing rather than as a database problem.
         db.append({
-            "directory": ".",
+            "directory": ROOT,
             "file": f,
             "command": "g++ %s -I%s -c %s" % (FLAGS, SRC, f),
         })
