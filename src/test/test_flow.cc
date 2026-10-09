@@ -6,6 +6,7 @@
 #include <boost/test/unit_test.hpp>
 // Death tests verify the ktlog::fatal paths, which end the process on purpose.
 #include "kt_flowMgr.h"
+#include "kt_option.h"
 
 #include <boost/test/unit_test_suite.hpp>
 #include <cstdio>
@@ -74,6 +75,16 @@ private:
 /// the reader takes the design name from.
 std::filesystem::path designDir(const ScratchDir &dir) {
     return dir.file("tiny");
+}
+
+/// The options a run under test gets: a design to read and a work directory to
+/// write into. The output and plot paths are derived from the latter, so tests
+/// read them back off the options rather than naming them twice.
+kt_option optionsFor(const ScratchDir &dir, const std::string &inputPath) {
+    kt_option opt;
+    opt.inputPath = inputPath;
+    opt.workDir = dir.str();
+    return opt;
 }
 
 void writeBookshelfDesign(const ScratchDir &dir) {
@@ -174,60 +185,68 @@ std::size_t countNonEmptyLines(const fs::path &file) {
 
 }  // namespace
 
+// One run, three properties of the one file it produces. These were three tests
+// and three runs of the same design, which is most of this suite's runtime.
 BOOST_AUTO_TEST_CASE(flow_places_a_bookshelf_design_and_writes_pl) {
     const ScratchDir dir("place");
     writeBookshelfDesign(dir);
-    const fs::path out = dir.file("result.pl");
+    const kt_option opt = optionsFor(dir, designDir(dir).string());
 
     FlowMgr flow;
-    flow.run(designDir(dir).string(), out.string());
+    flow.run(opt);
 
-    BOOST_REQUIRE(fs::exists(out));
+    BOOST_REQUIRE(fs::exists(opt.getOutputPath()));
     // One record per cell vertex, terminals included.
-    BOOST_TEST(countNonEmptyLines(out) == 6);
-}
+    BOOST_TEST(countNonEmptyLines(opt.getOutputPath()) == 6);
 
-BOOST_AUTO_TEST_CASE(flow_output_marks_pads_fixed_and_leaves_cells_movable) {
-    const ScratchDir dir("fixed");
-    writeBookshelfDesign(dir);
-    const fs::path out = dir.file("result.pl");
-
-    FlowMgr flow;
-    flow.run(designDir(dir).string(), out.string());
-
-    const auto lines = [&] {
-        std::ifstream in(out);
-        std::vector<std::string> result;
-        for (std::string line; std::getline(in, line);) {
-            result.push_back(line);
+    std::vector<std::string> lines;
+    double c0x = 0.0;
+    double c0y = 0.0;
+    std::ifstream placed(opt.getOutputPath());
+    for (std::string line; std::getline(placed, line);) {
+        lines.push_back(line);
+        std::istringstream fields(line);
+        std::string name;
+        double x = 0.0;
+        double y = 0.0;
+        fields >> name >> x >> y;
+        if (name == "c0") {
+            c0x = x;
+            c0y = y;
         }
-        return result;
-    }();
+    }
 
     int fixedPads = 0;
     int fixedCells = 0;
     for (const std::string &line : lines) {
         const bool isFixed = line.find("/FIXED") != std::string::npos;
         if (line.find("padA\t") == 0 || line.find("padB\t") == 0) {
-            if (isFixed) {
-                ++fixedPads;
-            }
+            fixedPads += isFixed;
         } else if (isFixed) {
             ++fixedCells;
         }
     }
     BOOST_TEST(fixedPads == 2);
     BOOST_TEST(fixedCells == 0);
+
+    // The Bookshelf seed is degenerate (every cell at the origin), so a movable
+    // cell has to have been given a real coordinate. c0 is seeded exactly where
+    // padA is and fixed cells are blockages, so it must also end up clear of padA
+    // (x in [0,1]); a non-zero y instead would be arbitrary, since sliding right
+    // off a pad legitimately leaves y at 0.
+    const bool movedFromSeed = c0x != 0.0 || c0y != 0.0;
+    BOOST_TEST(movedFromSeed);
+    BOOST_TEST(c0x >= 1.0);
 }
 
 BOOST_AUTO_TEST_CASE(flow_writes_visualization_output_when_asked) {
     const ScratchDir dir("plots");
     writeBookshelfDesign(dir);
-    const fs::path out = dir.file("result.pl");
-    const fs::path plots = dir.file("plots");
+    const kt_option opt = optionsFor(dir, designDir(dir).string());
+    const fs::path plots = opt.getPlotDir();
 
     FlowMgr flow;
-    flow.run(designDir(dir).string(), out.string(), "simpl", plots.string());
+    flow.run(opt);
 
     BOOST_REQUIRE(fs::exists(plots / "index.html"));
     // SimPL plots the LSS/HPWL bound it converges against, not the raw
@@ -302,49 +321,15 @@ NETS 2 ;
 END NETS
 END DESIGN
 )");
-    const fs::path out = dir.file("result.pl");
+    const kt_option opt = optionsFor(dir, dir.str());
 
     FlowMgr flow;
     // Format auto-detection picks LEF/DEF because the directory holds a .def.
-    flow.run(dir.str(), out.string());
+    flow.run(opt);
 
-    BOOST_REQUIRE(fs::exists(out));
-    BOOST_TEST(countNonEmptyLines(out) == 4);  // 3 components + 1 pad
+    BOOST_REQUIRE(fs::exists(opt.getOutputPath()));
+    BOOST_TEST(countNonEmptyLines(opt.getOutputPath()) == 4);  // 3 components + 1 pad
 }
-
-BOOST_AUTO_TEST_CASE(flow_moves_movable_cells_off_the_seed_point) {
-    const ScratchDir dir("spread");
-    writeBookshelfDesign(dir);
-    const fs::path out = dir.file("result.pl");
-
-    FlowMgr flow;
-    flow.run(designDir(dir).string(), out.string());
-
-    std::ifstream in(out);
-    std::vector<std::pair<double, double>> positions;
-    for (std::string line; std::getline(in, line);) {
-        std::istringstream fields(line);
-        std::string name;
-        double x = 0.0, y = 0.0;
-        fields >> name >> x >> y;
-        if (name == "c0") {
-            positions.emplace_back(x, y);
-        }
-    }
-    BOOST_REQUIRE_EQUAL(positions.size(), 1U);
-    // The Bookshelf seed is degenerate (every cell at the origin); after the
-    // flow a movable cell must have been given a real coordinate.
-    const bool movedFromSeed = positions.front().first != 0.0 || positions.front().second != 0.0;
-    BOOST_TEST(movedFromSeed);
-    // c0 is seeded exactly where padA is, and the flow treats fixed cells as
-    // blockages, so c0 has to end up clear of padA (which spans x in [0,1]).
-    // Requiring a non-zero y instead would be arbitrary: sliding off a pad to
-    // the right legitimately leaves y at 0.
-    BOOST_TEST(positions.front().first >= 1.0);
-}
-
-// Error paths deliberately end the process through ktlog::fatal, so they are
-// verified as death tests rather than by catching an exception.
 
 BOOST_AUTO_TEST_CASE(flow_exits_on_an_unknown_algorithm) {
     const ScratchDir dir("badalgo");
@@ -352,7 +337,9 @@ BOOST_AUTO_TEST_CASE(flow_exits_on_an_unknown_algorithm) {
     expectFatalExit(
         [&] {
             FlowMgr flow;
-            flow.run(designDir(dir).string(), dir.file("x.pl").string(), "no_such_algo");
+            kt_option opt = optionsFor(dir, designDir(dir).string());
+            opt.algorithm = "no_such_algo";
+            flow.run(opt);
         },
         "Unknown placement algorithm");
 }
@@ -362,7 +349,7 @@ BOOST_AUTO_TEST_CASE(flow_exits_when_the_input_directory_is_missing) {
     expectFatalExit(
         [&] {
             FlowMgr flow;
-            flow.run(dir.str() + "/no_such_dir", dir.file("x.pl").string());
+            flow.run(optionsFor(dir, dir.str() + "/no_such_dir"));
         },
         "cannot scan input directory");
 }
@@ -374,7 +361,7 @@ BOOST_AUTO_TEST_CASE(flow_exits_when_the_design_files_are_missing) {
     expectFatalExit(
         [&] {
             FlowMgr flow;
-            flow.run(dir.str(), dir.file("x.pl").string());
+            flow.run(optionsFor(dir, dir.str()));
         },
         "cannot open the nodes file");
 }

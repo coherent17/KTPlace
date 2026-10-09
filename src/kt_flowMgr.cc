@@ -1,4 +1,5 @@
-// @file kt_flowMgr.cc// Implementation of FlowMgr
+// @file kt_flowMgr.cc
+// Implementation of FlowMgr
 
 
 #include "kt_flowMgr.h"
@@ -7,6 +8,7 @@
 
 #include "adaptor/bookshelfToKTAdaptor.h"
 #include "adaptor/lefdefToKTAdaptor.h"
+#include "datamodel/kt_dm.h"
 #include "detailPlacer/kt_fastdp.h"
 #include "legalizer/kt_abacus.h"
 #include "placer/ntuplace1/kt_ntuplace1.h"
@@ -30,27 +32,20 @@
 namespace ktplace {
 
 namespace {
-/// One-line report of a single timer, issued when the phase named by @p name
-/// completes, so a long run tells its cost as it goes rather than only in the
-/// summary table at the end (TimerRegistry::report). The registry accumulates,
-/// so this reports the phase's own totals at the moment they are final.
+// One-line report of a single timer, issued when the phase it names
+// completes, so a long run tells its cost as it goes rather than only in the
+// summary table at the end (TimerRegistry::report). The registry accumulates,
+// so this reports the phase's own totals at the moment they are final.
 void reportPhase(const std::string &name) {
     if (const TimerStats *s = TimerRegistry::instance().find(name)) {
         ktlog.echo("phase {}: {:.3f}s wall, {:.3f}s cpu, {} call(s)", name, s->wallSeconds,
                    s->cpuSeconds, s->calls);
     }
 }
-/// Report what the design asks for before any placement runs, and say plainly when
-/// the ask is impossible.
-///
-/// A legalizer that cannot legalize is usually not broken, it is being handed
-/// something that does not fit. ibm01 packs its cells into 4.127e6 units of row
-/// but its cells total 4.23e6, and 245 of them are four to nine rows tall against
-/// a sixteen-unit row. Every downstream number -- overflow, the density term, the
-/// legalizer's region growth, the final overlap count -- is then a measurement of
-/// an impossible input, and the run finishes with an illegal placement and a
-/// report full of confident numbers. Checking the arithmetic first costs nothing
-/// and turns "the legalizer is broken" into "this design is 102% full".
+// Said before placement runs, not after legalization fails. A legalizer handed a
+// design that does not fit will produce an illegal placement and a table of
+// confident numbers; checking the arithmetic first turns "the legalizer is
+// broken" into "this design is 102% full".
 struct Utilisation {
     double cellArea = 0.0;
     double fixedArea = 0.0;
@@ -71,11 +66,8 @@ Utilisation measureUtilisation(const PlacementDB &db) {
         }
         const double a = vert.width * vert.height;
         // A terminal is fixed area, not absent area. In the ISPD 2005 Bookshelf
-        // suites the macros *are* the terminals -- adaptec1 carries no other fixed
-        // cell, and its .pl marks exactly the 543 terminals and nothing else. So
-        // skipping terminals here reported adaptec1's fixed area as zero, which
-        // reads as "this design has no macros" when it has hundreds of them, and
-        // understates the demand on the rows by all of their area.
+        // suites the macros *are* the terminals, so skipping them reports adaptec1
+        // as having no macros at all and understates the demand on the rows.
         if (vert.isFixed || vert.isTerminal) {
             u.fixedArea += a;
         } else {
@@ -113,15 +105,10 @@ Utilisation measureUtilisation(const PlacementDB &db) {
 
 void reportUtilisation(const PlacementDB &db) {
     const Utilisation u = measureUtilisation(db);
-    // Movable demand against the rows, which is the number that decides whether
-    // the design is placeable. The fixed cells are already placed: they are the
-    // macros and the I/O pad ring, and they obstruct the rows rather than compete
-    // for them, so charging their area to the row area double-counts it. On
-    // adaptec1 that inflated the figure from 58% to 89%, which reads as a design
-    // that barely fits when it has 40% of the rows to spare -- and it is the
-    // number a reader goes to when a placement is illegal and the design is not.
-    // Both are reported: the macro area is real and it is what makes a design hard,
-    // but it is not demand for rows.
+    // Movable demand against the rows, which decides whether the design fits. The
+    // fixed cells already occupy the rows rather than compete for them, so
+    // charging their area here double-counts it (on adaptec1, 58% reads as 89%).
+    // Macro area is still reported: it is real, it is not demand.
     const double util = u.rowArea > 0.0 ? 100.0 * u.cellArea / u.rowArea : 0.0;
     const double withFixed = u.rowArea > 0.0 ? 100.0 * (u.cellArea + u.fixedArea) / u.rowArea : 0.0;
     ktReportTable t("Design utilisation (before placement)");
@@ -158,7 +145,6 @@ void reportUtilisation(const PlacementDB &db) {
 }
 }  // namespace
 
-// PIMPL implementation
 class FlowMgr::Impl {
 public:
     std::unique_ptr<PlacementDB> db;
@@ -167,7 +153,6 @@ public:
     bool loaded = false;
     bool placed = false;
 
-    // Internal methods
     bool loadInput(const std::string &dirPath);
     bool loadBookshelf(const std::string &dirPath);
     bool loadBookshelfFromFiles(const std::string &nodesFile, const std::string &netsFile,
@@ -175,16 +160,16 @@ public:
                                 const std::string &wtsFile = "");
     bool runPlacement(const std::string &algorithm = "simpl", const std::string &plotDir = "",
                       const std::string &snapshotDir = "");
-    /// Legalize and then detail-place, for the algorithms that stop at a global
-    /// placement. Split out of runPlacement because RePlAce and SimPL both end
-    /// here, and the reporting is identical -- a second copy would drift.
+    // Legalize and then detail-place, for the algorithms that stop at a global
+    // placement. Split out of runPlacement because RePlAce and SimPL both end
+    // here, and the reporting is identical -- a second copy would drift.
     bool legalizeAndDetail(const std::string &plotDir, const constraintMgr *fences);
 
-    /// HPWL after legalization and detailed placement -- the number the paper
-    /// reports, and the only one that ranks two global-placement runs. Kept so
-    /// the summary can show it next to SimPL's own upper bound, because the two
-    /// differ by more than the differences being compared: the upper bound is
-    /// the look-ahead legalized placement, taken before either stage runs.
+    // HPWL after legalization and detailed placement -- the number the paper
+    // reports, and the only one that ranks two global-placement runs. Kept so
+    // the summary can show it next to SimPL's own upper bound, because the two
+    // differ by more than the differences being compared: the upper bound is
+    // the look-ahead legalized placement, taken before either stage runs.
     double hpwlFinalPlaced_ = -1.0;
     bool writePlacement(const std::string &outputPath);
     PlacementDB &getPlacementDB();
@@ -193,7 +178,6 @@ public:
     void clear();
 };
 
-// FlowMgr implementation
 
 FlowMgr::FlowMgr() : pImpl(std::make_unique<Impl>()) {
     pImpl->db = std::make_unique<PlacementDB>();
@@ -206,22 +190,16 @@ FlowMgr::FlowMgr(FlowMgr &&) noexcept = default;
 FlowMgr &FlowMgr::operator=(FlowMgr &&) noexcept = default;
 
 void FlowMgr::run(const kt_option &options) {
-    run(options.inputPath, options.getOutputPath(), options.algorithm, options.getPlotDir());
-}
-
-void FlowMgr::run(const std::string &inputDirPath, const std::string &outputPath,
-                  const std::string &algorithm, const std::string &plotDir) {
     // Phase timers accumulate into the registry; the summary is reported once
     // at the end of the run.
     {
         ScopedTimer timer("load");
-        if (!pImpl->loadInput(inputDirPath)) {
+        if (!pImpl->loadInput(options.inputPath)) {
             throw std::runtime_error("Failed to load input files");
         }
     }
     reportPhase("load");
 
-    // Report loaded statistics
     {
         PlacementDB &db = pImpl->getPlacementDB();
         auto [numCells, numNets] = db.getStats();
@@ -252,31 +230,30 @@ void FlowMgr::run(const std::string &inputDirPath, const std::string &outputPath
                    db.getNumTerminals(), numNets, db.getNumPins(), db.getNumRows());
     }
 
-    // Run placement
     {
         ScopedTimer timer("place");
-        const std::string snapshotDir = outputPath.find_last_of('/') == std::string::npos
-                                            ? std::string(".")
-                                            : outputPath.substr(0, outputPath.find_last_of('/'));
-        // By default every run records a per-iteration SVG frame + HPWL/galley
-        // report next to the result, so an iteration can be inspected without
-        // remembering the -p flag.  An explicit -p directory still wins.
-        const std::string effectivePlotDir = !plotDir.empty() ? plotDir : snapshotDir + "/plots";
+        const std::string snapshotDir =
+            options.getOutputPath().find_last_of('/') == std::string::npos
+                ? std::string(".")
+                : options.getOutputPath().substr(0, options.getOutputPath().find_last_of('/'));
+        // Every run records per-iteration SVG frames and an HPWL curve, so an
+        // iteration can be inspected afterwards without asking for them.
+        const std::string effectivePlotDir =
+            !options.getPlotDir().empty() ? options.getPlotDir() : snapshotDir + "/plots";
         // Before the placer, not after: once the solver is running, every number
         // downstream is derived from a density model, and on an over-full design
         // that model is describing an impossibility. The reader needs to know the
         // design did not fit before they read a wirelength off it.
         reportUtilisation(*pImpl->db);
-        if (!pImpl->runPlacement(algorithm, effectivePlotDir, snapshotDir)) {
+        if (!pImpl->runPlacement(options.algorithm, effectivePlotDir, snapshotDir)) {
             throw std::runtime_error("Placement algorithm failed");
         }
     }
     reportPhase("place");
 
-    // Write output
     {
         ScopedTimer timer("write");
-        if (!pImpl->writePlacement(outputPath)) {
+        if (!pImpl->writePlacement(options.getOutputPath())) {
             throw std::runtime_error("Failed to write output");
         }
     }
@@ -285,7 +262,6 @@ void FlowMgr::run(const std::string &inputDirPath, const std::string &outputPath
     TimerRegistry::instance().report();
 }
 
-// Implementation of Impl methods
 
 bool FlowMgr::Impl::loadInput(const std::string &dirPath) {
     // Auto-detect the input format: a directory containing LEF/DEF files is
@@ -324,15 +300,12 @@ bool FlowMgr::Impl::loadInput(const std::string &dirPath) {
 bool FlowMgr::Impl::loadBookshelf(const std::string &dirPath) {
     clear();
 
-    // Create adapter with the database
     bookshelfAdapter = std::make_unique<BookshelfInputAdapter>(std::make_unique<PlacementDB>());
 
-    // Read from directory
     if (!bookshelfAdapter->readFromDirectory(dirPath)) {
         ktlog.fatal("Failed to load Bookshelf format from {}", dirPath);
     }
 
-    // Transfer ownership of database
     db = bookshelfAdapter->releasePlacementDB();
     loaded = true;
     placed = false;
@@ -345,15 +318,12 @@ bool FlowMgr::Impl::loadBookshelfFromFiles(const std::string &nodesFile,
                                            const std::string &sclFile, const std::string &wtsFile) {
     clear();
 
-    // Create adapter with the database
     bookshelfAdapter = std::make_unique<BookshelfInputAdapter>(std::make_unique<PlacementDB>());
 
-    // Read from files
     if (!bookshelfAdapter->readFromFiles(nodesFile, netsFile, plFile, sclFile, wtsFile)) {
         ktlog.fatal("Failed to load Bookshelf format files");
     }
 
-    // Transfer ownership of database
     db = bookshelfAdapter->releasePlacementDB();
     loaded = true;
     placed = false;
@@ -363,33 +333,24 @@ bool FlowMgr::Impl::loadBookshelfFromFiles(const std::string &nodesFile,
 
 
 namespace {
-/// One thing wrong with a finished placement.
+// One thing wrong with a finished placement.
 struct Defect {
     std::string what;
     std::size_t count = 0;
 };
 
-/// Verify a finished placement against every constraint we know how to check.
-///
-/// The legalizer and the detailed placer each self-check, and their counts are
-/// reported, but those are the checks each stage knew to ask about. This is the
-/// independent pass over the placement as it will actually be written, and it asks
-/// the question a reader of the output file would ask: is this legal?
-///
-/// It is deliberately not a summary of the stages' own numbers. A stage reporting
-/// zero overlaps and the delivered file containing overlaps is exactly the failure
-/// a summary cannot catch, and it is the failure that matters, because the file is
-/// what the next tool reads. The stages' counters also cannot see a cell outside the
-/// die or outside its fence -- neither is its job -- so those two are only ever
-/// counted here.
+// Independent pass over the placement as it will be written. The stages each
+// self-check, but only for what they knew to ask about: a stage reporting zero
+// overlaps while the delivered file has them is the failure worth catching, since
+// the file is what the next tool reads. Off-die and out-of-fence cells are also
+// only counted here.
 std::vector<Defect> verifyPlacement(const PlacementDB &db, const constraintMgr *fences) {
     std::vector<Defect> defects;
     const Graph &g = db.getGraph();
 
-    // --- cells outside the die, and outside their fence -----------------------
-    // The same definition the placer used. Two different notions of "the die"
-    // mean a legal placement can be reported as illegal: the placer spreads over
-    // the union of the fixed geometry and the rows, and a checker built from the
+    // The same notion of "the die" the placer used. Two different ones would fail
+    // a legal placement: the placer spreads over the union of the fixed geometry
+    // and the rows, so a checker built from the
     // fixed geometry alone fails every cell in a row that reaches past the pads.
     const std::array<double, 4> box = placementDieBox(db);
     std::size_t outOfDie = 0;
@@ -420,24 +381,12 @@ std::vector<Defect> verifyPlacement(const PlacementDB &db, const constraintMgr *
         }
     }
 
-    // --- overlapping pairs ---------------------------------------------------
-    //
-    // Three things have to be true at once for this to be usable on a real suite:
-    // it must not miss a pair, it must not count one twice, and it must finish on
-    // a 400k-cell design. The version before this was wrong twice. It sized the
-    // grid bin from the LARGEST cell so the neighbour search would be exhaustive,
-    // which is sound but degenerate: ibm01 carries a single cell 12752 units tall,
-    // so the bin became the size of the die, every cell landed in one bucket, and
-    // the check became a 12500^2 pairwise comparison. It also reported "no
-    // overlap" on inputs where a frame plainly showed a cell on a macro, because
-    // it skipped terminals, and in the Bookshelf suites the macros ARE the
-    // terminals.
-    //
-    // So: bulk cells go in a grid with a bin sized for a typical cell, and every
-    // pair is examined once by looking inside a bucket and at the four forward
-    // neighbours. Tall cells are not in the grid at all; they are rare, and a tall
-    // cell cannot be found by a small-bin search, so they are compared against
-    // everything directly.
+    // Overlaps. Bulk cells go in a grid with a bin sized for a typical cell, and
+    // each pair is examined once, in its bucket and the four forward neighbours.
+    // The bin must NOT be sized from the largest cell: ibm01 has one cell 12752
+    // units tall, so that makes the bin the size of the die and the check a
+    // 12500^2 comparison. Tall cells are outside the grid for the same reason and
+    // are compared against everything directly.
     std::size_t overlaps = 0;
     {
         double bin = 0.0;
@@ -447,9 +396,8 @@ std::vector<Defect> verifyPlacement(const PlacementDB &db, const constraintMgr *
             if (vert.type != VertexType::Cell) {
                 continue;
             }
-            // "Tall" is judged against the rows, not an absolute number: a cell
-            // more than four rows high cannot be located by a bin sized for a
-            // standard cell, whatever its width.
+            // "Tall" against the rows, not an absolute height: a cell more than
+            // four rows high cannot be found by a standard-cell-sized bin.
             const double rows = rowHeight > 0.0 ? vert.height / rowHeight : vert.height;
             if (rows > 4.0) {
                 ++nTall;
@@ -461,9 +409,9 @@ std::vector<Defect> verifyPlacement(const PlacementDB &db, const constraintMgr *
         double cell = meanArea > 0.0 ? std::sqrt(meanArea) : 1.0;
         const double dieW = std::max(box[2] - box[0], 1.0);
         const double dieH = std::max(box[3] - box[1], 1.0);
-        // Aim for a few cells per bucket, but never so many buckets that the map
-        // dominates, and never a bin so fine that a standard cell spans many of
-        // them (which is what made the original miss pairs).
+        // A few cells per bucket: enough that the map does not dominate, coarse
+        // enough that a standard cell does not span many bins (which is what made
+        // the original miss pairs).
         const std::size_t target = 64;
         cell = std::max(cell, std::max(dieW, dieH) / 512.0);
         cell = std::max(cell, 1e-9);
@@ -491,16 +439,14 @@ std::vector<Defect> verifyPlacement(const PlacementDB &db, const constraintMgr *
         const auto hits = [&](std::size_t a, std::size_t b) {
             const Vertex &p = g.getVertex(a);
             const Vertex &q = g.getVertex(b);
-            // Two fixed cells overlapping each other is the input's business, not
-            // the placer's, so it is not reported.
+            // Two fixed cells overlapping is the input's business, not ours.
             if (p.isFixed && q.isFixed) {
                 return false;
             }
             return p.x < q.x + q.width - eps && q.x < p.x + p.width - eps &&
                    p.y < q.y + q.height - eps && q.y < p.y + p.height - eps;
         };
-        // Only forward neighbours: scanning all eight examines every cross-bucket
-        // pair twice, once from each side.
+        // Only forward neighbours: all eight examines each cross-bucket pair twice.
         static const int kFwd[4][2] = {{1, 0}, {-1, 1}, {0, 1}, {1, 1}};
         for (const auto &kv : buckets) {
             const std::vector<std::size_t> &mine = kv.second;
@@ -521,16 +467,11 @@ std::vector<Defect> verifyPlacement(const PlacementDB &db, const constraintMgr *
                 }
             }
         }
-        // Tall cells against everything.
-        //
-        // The scan is over ALL vertices, not just those above `a` in index order.
-        // Restricting it to b > a silently skipped every pair of a tall cell with
-        // a normal cell of lower index, because the normal cells are not in the
-        // grid either (the grid pairs normal cells with normal cells only). That
-        // is where a count of 558 came from an input that a direct scan of the
-        // written file put at 827. A checker that under-counts is the failure mode
-        // this whole routine exists to prevent, so the rule is instead: compare
-        // against every cell, and accept a tall-tall pair only once by index.
+        // Tall cells against every vertex, not just those with a higher index.
+        // Restricting to b > a misses a tall cell paired with a lower-indexed
+        // normal cell, since the grid pairs normal cells with normal cells only
+        // (558 counted where a direct scan found 827). A tall-tall pair is still
+        // accepted only once, by index.
         for (const std::size_t a : tallCells) {
             for (std::size_t b = 0; b < nv; ++b) {
                 if (b == a) {
@@ -566,16 +507,14 @@ std::vector<Defect> verifyPlacement(const PlacementDB &db, const constraintMgr *
 }  // namespace
 
 bool FlowMgr::Impl::legalizeAndDetail(const std::string &plotDir, const constraintMgr *fences) {
-    // Everything the placer reserved is released here, so the legalizer and the
-    // detailed placer can use the whole remaining budget.
+    // Whatever the placer reserved is released, so the later stages get the whole
+    // remaining budget.
     if (PlacementAnimator::instance().enabled()) {
         PlacementAnimator::instance().holdBack(0);
     }
 
-    // Global placement leaves the cells overlapping and off-row. Abacus
-    // removes the overlap with the least movement it can, and self-checks
-    // the result so a legalization bug shows up as a count, not as a
-    // silently bad placement.
+    // Abacus removes the overlap global placement left, with the least movement
+    // it can, and self-checks so a legalization bug surfaces as a count.
     ktlog.echo("Running Abacus legalization...");
     AbacusLegalizer legalizer(*db);
     LegalizeParams lparams;
@@ -612,27 +551,20 @@ bool FlowMgr::Impl::legalizeAndDetail(const std::string &plotDir, const constrai
         ktlog.warning("legalization is not legal; see the counts above");
     }
 
-    // Abacus places into single rows, so a cell taller than one row has nowhere
-    // to go: it is reported unplaced and stays where global placement left it,
-    // overlapping whatever is there. On ibm01 that is 120 cells, and the
-    // legalization check below fails on exactly those.
-    //
-    // There is no multi-row legalizer here. That is a known limitation of this
-    // build, not something a caller can turn on, so it is reported as a warning
-    // naming the cells that will be left behind rather than left to be inferred
-    // from a count in a table.
+    // Abacus places into single rows, so a cell taller than one row stays where
+    // global placement left it, overlapping (120 on ibm01). There is no multi-row
+    // legalizer in this build, so the affected cells are named rather than left to
+    // be inferred from a count.
     if (lres.outOfRows > 0) {
-        // The count, after the fact, so the pre-flight warning above can be
-        // cross-checked against what actually happened rather than trusted.
+        // After the fact, so the pre-flight estimate above can be checked.
         ktlog.warning(
             "{} cell(s) taller than one row could not be placed and are still at their global "
             "placement positions. The placement is not legal; see \"cells out of rows\" above.",
             lres.outOfRows);
     }
 
-    // The legalizer minimises displacement, not wirelength, so a legal
-    // placement usually costs a little HPWL against the global placement it
-    // came from. Detailed placement wins it back.
+    // Abacus minimises displacement, not wirelength, so legalization usually
+    // costs a little HPWL; detailed placement wins it back.
     ktlog.echo("Running FastDP detailed placement...");
     FastDetailedPlacer dp(*db);
     DetailPlaceParams dparams;
@@ -666,15 +598,12 @@ bool FlowMgr::Impl::legalizeAndDetail(const std::string &plotDir, const constrai
     if (dres.overlappingPairs != 0 || dres.offRow != 0 || dres.overFixed != 0) {
         ktlog.warning("detailed placement broke legality; see the counts above");
     }
-    // Independent check of the placement as it will be written. Last, so it sees
-    // the effect of both stages, and separate from their own self-checks, so that a
-    // disagreement between what a stage claims and what the file contains is visible
-    // rather than averaged away.
+    // Last, so it sees the effect of both stages, and separate from their
+    // self-checks, so a disagreement between what a stage claims and what the file
+    // contains stays visible.
     {
-        // Timed on its own because it is the one phase that reads the whole
-        // placement and changes nothing. It is also the phase that goes quadratic
-        // if the spatial index degrades, so its cost has to be visible: a run that
-        // suddenly takes twenty minutes longer is the checker, not the placer.
+        // Timed on its own: it reads the whole placement, changes nothing, and is
+        // the phase that goes quadratic if the spatial index degrades.
         const ScopedTimer checkTimer("place-check");
         const std::vector<Defect> defects = verifyPlacement(*db, fences);
         ktReportTable check("Placement check (independent, after legalization)");
@@ -699,16 +628,10 @@ bool FlowMgr::Impl::legalizeAndDetail(const std::string &plotDir, const constrai
         reportPhase("place-check");
     }
 
-    // The last thing that moves cells has now run and been verified, so this is
-    // the finished placement. Write one high-resolution still of it: the
-    // animation frames are kept small because a GIF has to be, and at that size
-    // a big design's cells collapse to a pixel each, so the "look at the result"
-    // picture is rendered separately at a larger scale. The zoom applies to both
-    // image axes, so the default of 8 turns the 768x768 frame into a
-    // 6144x6144 still -- on adaptec1 that is about fourteen pixels across for a
-    // standard cell, which is the point at which the cells stop being a texture
-    // and start being cells. It is written once per run and compresses to a
-    // couple of megabytes as a PNG, so the resolution costs disk, not time.
+    // A separate high-resolution still, because GIF frames have to stay small and
+    // a big design's cells collapse to a pixel each at that size. The zoom is on
+    // both axes: 8 turns a 768x768 frame into 6144x6144, about fourteen pixels
+    // per standard cell. Written once, and it compresses to a couple of MB.
     if (!plotDir.empty()) {
         double zoom = 8.0;
         if (const char *e = std::getenv("KTPLACE_FINAL_ZOOM")) {
@@ -728,23 +651,16 @@ bool FlowMgr::Impl::legalizeAndDetail(const std::string &plotDir, const constrai
                     "No high-resolution final still written.",
                     finalDir, ec.message());
             } else {
-                // The finished placement is the picture worth keeping, and a PPM is
-                // not one: no browser and no image viewer opens it. So the final
-                // still is written as a PNG, which is also small -- a placement
-                // frame is flat colour and compresses to a couple of megabytes at
-                // this resolution.
+                // PNG, not PPM: no viewer opens a PPM, and flat colour compresses
+                // to a couple of megabytes at this resolution.
                 writeFinalFrameRaster(finalDir + "/final.png", db->getGraph(), fences, zoom,
                                       dres.hpwlAfter);
-                // The vector form of the same picture, and the one to open when a
-                // region has to be looked at closely. It is also the exact record
-                // of the drawing -- one <rect> per cell -- so "every cell is in
-                // the picture" is a count rather than an estimate, which is what
-                // the smoke test in CI checks.
+                // The vector form, and the one to open when a region needs looking
+                // at closely. One <rect> per cell, so "every cell is in the
+                // picture" is a count, which is what the CI smoke test checks.
                 writeFinalFrameSvg(finalDir + "/final.svg", db->getGraph(), fences, dres.hpwlAfter);
-                // The lossless copy beside it. At 6144x6144 that is 113 MB of
-                // raw pixels, so it is written only on request: the PNG is the
-                // artefact anyone looks at, and the PPM exists for tooling that
-                // wants to measure the image rather than view it.
+                // 113 MB of raw pixels at this size, so only on request: the PNG is
+                // the artefact anyone looks at.
                 if (std::getenv("KTPLACE_FINAL_PPM") != nullptr) {
                     writeFinalFrameRaster(finalDir + "/final.ppm", db->getGraph(), fences, zoom,
                                           dres.hpwlAfter);
@@ -789,44 +705,23 @@ bool FlowMgr::Impl::runPlacement(const std::string &algorithm, const std::string
         ktlog.fatal("No placement database loaded");
     }
 
-    // One animation for the whole run, armed before the first stage and closed
-    // after the last. Configuring it here, rather than inside a stage, is what
-    // lets the legalizer and the detailed placer add frames to the same GIF the
-    // placer started.
-    // Set from the byte target below, and read again where the budget is split
-    // between the stages. Declared here so both uses see the same number: the
-    // split used to fall back to a hardcoded 600 while the animator was
-    // configured from a different count, so the two could disagree about how many
-    // frames the run was allowed.
+    // Configured here rather than inside a stage, so the legalizer and the
+    // detailed placer add to the same GIF. Declared before both the animator setup
+    // and the budget split below, which used to disagree about the frame count.
     std::size_t animFrameBudget = 0;
-    // The value is read, not just its presence. KTPLACE_ANIM=0 tested as
-    // "variable exists", so every experiment run with it off still spent the
-    // encode time writing a 40-120 MB GIF -- and the GIF it wrote was the run's
-    // output, so a directory kept a GIF from a run that had asked for none.
-    // On by default. The value is read rather than merely tested for presence --
-    // KTPLACE_ANIM=0 used to enable the animation, because "the variable exists"
-    // was the whole test -- and the default is on because the frames and the GIF
-    // are how a run is inspected, while a caller who wants them gone sets 0.
+    // The value is read, not just its presence: KTPLACE_ANIM=0 used to enable the
+    // animation, so every run meant to skip it still spent the encode time.
     const char *animEnv = std::getenv("KTPLACE_ANIM");
     const bool animOn = animEnv == nullptr || std::atoi(animEnv) != 0;
     if (!plotDir.empty() && animOn) {
-        // 1200 frames by default, raised from 300. The budget is what decides how
-        // much of the run the animation actually shows: global placement records a
-        // frame per solve iteration and detailed placement one per pass, and at 300
-        // a run of a few dozen iterations spends the lot before legalization
-        // begins, so the GIF stops where it becomes interesting. Frames cost
-        // encoding time and file size, not correctness, so the trade is made in
-        // favour of showing the run -- and KTPLACE_ANIM_MAX_FRAMES still caps it
-        // for a quick look.
-        // Resolved before the budget, because the budget is derived from it.
+        // The budget decides how much of the run the GIF shows. At 300 a run of a
+        // few dozen iterations spent the lot before legalization began, so it
+        // stopped where it gets interesting. Frames cost time and size, not
+        // correctness. KTPLACE_ANIM_MAX_FRAMES still caps it for a quick look.
         //
-        // Animation frame scale, against the 768x768 frame size, and two rather
-        // than three. Every conjugate-gradient iterate of every solve is now kept,
-        // which on adaptec1 is a few hundred frames rather than 12; at 2304 each
-        // one costs ~0.6 MB and the file passes 150 MB, which no browser opens. Two
-        // is the largest scale at which the full sequence still fits the byte
-        // budget below, and it keeps a standard cell at a couple of pixels rather
-        // than one. KTPLACE_ANIM_ZOOM overrides it if the trade is worth making.
+        // Frame scale against the 768x768 frame size. Two is the largest at which
+        // a few hundred CG frames still fit the byte budget below and a standard
+        // cell stays a couple of pixels rather than one.
         double animZoom = 2.0;
         if (const char *e = std::getenv("KTPLACE_ANIM_ZOOM")) {
             const double v = std::atof(e);
@@ -841,15 +736,10 @@ bool FlowMgr::Impl::runPlacement(const std::string &algorithm, const std::string
                 ? static_cast<std::size_t>(std::atoll(std::getenv("KTPLACE_ANIM_MAX_BYTES")))
                 : std::size_t{96} << 20;
 
-        // Budget the GIF by the bytes it will actually be, not by a frame count.
-        // The frames are nearly incompressible -- a placement frame is flat
-        // colour and GIF's LZW still needs about 0.9 bits per pixel on it -- so
-        // the file size is essentially width * height * frames / 8, and a frame
-        // count alone cannot keep it in bounds. At 2304x2304 the old 1200-frame
-        // budget allowed 8 GB; the run that produced 208 frames wrote 122 MB,
-        // which no browser will open. Sizing the budget to a byte target keeps the
-        // resolution, which is what makes the animation worth looking at, and cuts
-        // the frame count instead.
+        // Budget by bytes, not by frame count. Placement frames are nearly
+        // incompressible, so size is essentially w * h * frames / 8: a frame count
+        // alone allowed an 8 GB file. Sizing to a byte target keeps the resolution
+        // and cuts the frame count instead.
         const double animW = 768.0 * animZoom;
         const double animH = 768.0 * animZoom;
         const double kBytesPerPixel = 0.9 / 8.0;  // measured, not assumed
@@ -885,36 +775,25 @@ bool FlowMgr::Impl::runPlacement(const std::string &algorithm, const std::string
     // unusable placement into a real one.
     if (PlacementAnimator::instance().enabled()) {
         const std::size_t total = animFrameBudget;
-        // Two fifths held back, rather than the fifth it used to be. Global
-        // placement records a frame per solve iteration, so on a run of a few
-        // dozen iterations it can spend anything it is given and leave nothing:
-        // with a fifth held back the legalizer and the detailed placer -- the two
-        // stages that actually turn a legal-looking placement into a legal one --
-        // were getting a handful of frames between them, and the animation ended
-        // exactly where it becomes interesting. Two fifths gives the later stages
-        // room to be seen while still leaving global placement the majority.
+        // Two fifths held back. Global placement records a frame per solve
+        // iteration and can spend anything it is given; with a fifth held back the
+        // stages that make the placement legal got a handful of frames.
         PlacementAnimator::instance().holdBack(total * 2 / 5);
     }
 
     if (algorithm == "simpl") {
         ktlog.echo("Running SimPL global placement (B2B net model + look-ahead legalization)...");
         SimplePlacer placer(*db);
-        // Fences come from the LEF/DEF reader; Bookshelf carries none, so there the
-        // pointer is null and the design is correctly unconstrained. Passing them
-        // is what makes a fenced ISPD 2015 design come out legal: the reader
-        // stamps Vertex::regionId, and the placer both holds each cell inside its
-        // region and draws the regions, so a run that ignores this silently scatters
-        // fenced cells across the die and shows no fence at all.
+        // Fences come from the LEF/DEF reader; Bookshelf carries none, so a null
+        // pointer there means a correctly unconstrained design. Ignoring fences
+        // scatters fenced cells across the die and draws no regions.
         const constraintMgr *regions = nullptr;
         if (lefdefAdapter && lefdefAdapter->getConstraints().numRegions() > 0) {
             regions = &lefdefAdapter->getConstraints();
         }
-        // KTPLACE_SIMPL_FENCES=0 turns the fences off, for a run that wants to see
-        // what the placement would be without them -- the difference between the two
-        // is the cost of the constraint, which is otherwise only visible as a
-        // longer wirelength with nothing to attribute it to. Off means the fences are
-        // neither enforced nor drawn, so the frames do not show regions that are not
-        // being honoured; the report says "off" rather than leaving it ambiguous.
+        // KTPLACE_SIMPL_FENCES=0 shows the placement without them, which is the
+        // only way to see what the constraint costs. Off means neither enforced
+        // nor drawn, so the frames do not show regions that are not honoured.
         const char *fenceEnv = std::getenv("KTPLACE_SIMPL_FENCES");
         const bool fencesOn = (fenceEnv == nullptr) || (std::atoi(fenceEnv) != 0);
         if (!fencesOn) {
@@ -927,11 +806,9 @@ bool FlowMgr::Impl::runPlacement(const std::string &algorithm, const std::string
         if (const char *e = std::getenv("KTPLACE_SIMPL_TRACE_EVERY")) {
             params.traceEvery = static_cast<std::size_t>(std::atoll(e));
         }
-        // A frame every N conjugate-gradient iterations inside each solve, and N is
-        // 1: every iteration of every round is offered to the animation, which is
-        // what makes the GIF show the solve converging rather than only the outer
-        // loop. The animator subsamples to fit the byte budget, so offering
-        // everything costs thinning, not truncation.
+        // Every CG iteration of every round is offered to the animation, so the GIF
+        // shows the solve converging and not just the outer loop. The animator
+        // subsamples to fit its budget, so this costs thinning, not truncation.
         params.cgEvery = 1;
         if (const char *e = std::getenv("KTPLACE_SIMPL_CG_EVERY")) {
             params.cgEvery = static_cast<std::size_t>(std::atoll(e));
