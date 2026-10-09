@@ -1,9 +1,10 @@
 #!/bin/zsh
 # Runs the ISPD 2005 suite; everything lands under this repo's output/.
 #
-# adaptec1 is vendored in benchmark/, so it always runs. The other seven designs
-# are not in the tree and have no working download URL, so they run only where
-# someone has already unpacked them, and are reported as SKIP rather than failing.
+# adaptec1 and ibm01 are vendored in benchmark/, so they always run. The other
+# seven ISPD 2005 designs are not in the tree and have no working download URL,
+# so they run only where someone has already unpacked them, and are reported as
+# SKIP rather than failing.
 # The per-design summary goes to output/_logs/suite.log and a one-line verdict for
 # each design goes to stdout.
 set -u
@@ -17,7 +18,14 @@ LOGDIR="$ROOT/output/_logs"
 mkdir -p "$LOGDIR"
 SUITE_LOG="$LOGDIR/suite.log"
 
-DESIGNS=(adaptec1 adaptec2 adaptec3 adaptec4 bigblue1 bigblue2 bigblue3 bigblue4)
+# Suite-qualified, because the vendored designs are no longer all from one suite.
+# ibm01 is here for the same reason it is in the tree at all: it is the only
+# design these runs put through the multi-row legalizer.
+DESIGNS=(
+  ISPD_2005/adaptec1 ISPD_2005/adaptec2 ISPD_2005/adaptec3 ISPD_2005/adaptec4
+  ISPD_2005/bigblue1 ISPD_2005/bigblue2 ISPD_2005/bigblue3 ISPD_2005/bigblue4
+  ICCAD04/ibm01
+)
 
 # Animation on, and the frame budget raised well above the default: the suite is
 # how the animation is looked at, and the default 300 frames on a 12-iteration
@@ -29,10 +37,14 @@ run_one() {
   mkdir -p "output/$name"
   echo "=== START $name ($(date +%T))" | tee -a "$SUITE_LOG"
 
+  # One positional input directory and a work directory; the binary derives
+  # placed.pl, plots/ and ktplace.log from them. The old three-positional form
+  # (<name> <dir> <out.pl>) died with the CLI refactor, and every design here
+  # failed instantly with rc=1, which the summary below reported as a plain
+  # "verdict=?" rather than as a broken invocation.
   KTPLACE_ANIM=1 KTPLACE_ANIM_MAX_FRAMES=1200 KTPLACE_ANIM_BLEND=2 \
   KTPLACE_SIMPL_TRACE_EVERY=1 KTPLACE_SIMPL_CG_EVERY=8 \
-    ./build/bin/ktplace "$name" "$d" "$name.pl" -a simpl -p plots \
-    -w "output/$name" -l ktplace.log > "$LOGDIR/$name.log" 2>&1
+    ./build/bin/ktplace "$d" -w "output/$name" -a simpl > "$LOGDIR/$name.log" 2>&1
   local rc=$?
 
   # The stills are deleted once the GIF is written, so the frame count is read
@@ -57,8 +69,9 @@ run_one() {
     | tee -a "$SUITE_LOG"
 }
 
-for name in "${DESIGNS[@]}"; do
-  d="benchmark/ISPD_2005/$name"
+for entry in "${DESIGNS[@]}"; do
+  name="${entry:t}"
+  d="benchmark/$entry"
   if [[ ! -d "$d" ]]; then
     echo "=== SKIP $name (absent)" | tee -a "$SUITE_LOG"
     continue

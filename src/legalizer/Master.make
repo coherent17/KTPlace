@@ -12,7 +12,7 @@ override INCLUDES := -I..
 OBJ_DIR ?= ../build/obj/legalizer
 
 # Source files in this directory
-SRCS := kt_abacus.cc
+SRCS := kt_abacus.cc kt_multiRowLegalizer.cc
 
 EXISTING_SRCS := $(foreach src,$(SRCS),$(if $(wildcard $(src)),$(src),))
 

@@ -121,6 +121,10 @@ private:
     /// and about 33 of detail placement's 54 seconds.
     std::vector<std::vector<std::size_t>> fixedByBand_;
     double bandY_ = 0.0, bandY0_ = 0.0;
+    /// Cells left untouched because they span rows. Reported, because "the detail
+    /// placer did nothing to them" should be visible rather than look like a pass
+    /// that found no improvement.
+    std::size_t tallSkipped_ = 0;
     /// Index of the first span in each row, so locate() starts at the spans of the
     /// cell's own row instead of at span 0. A cell is in exactly one row, and the
     /// spans are grouped by row, so the candidate set is a handful and the test is
@@ -159,20 +163,66 @@ void FastDetailedPlacer::Impl::buildSpans() {
               [](const PlacementDB::RowInfo &a, const PlacementDB::RowInfo &b) {
                   return a.coordinate < b.coordinate;
               });
+    // Free space per row, not the row itself. A span is what is actually empty
+    // between the cells that are there now, so every placement lands in a gap and
+    // cannot overlap anything by construction. Taking spans from the row
+    // description alone was only sound while the rows still described the
+    // placement: the multi-row legalizer cuts rows into segments that the db
+    // still reports as one full subrow, and on ibm01 that mismatch is what left
+    // the detail placer placing two cells on top of each other.
+    std::vector<std::vector<std::pair<double, double>>> occupied(rows.size());
+    for (std::size_t v = 0; v < graph_.getNumVertices(); ++v) {
+        const Vertex &vert = graph_.getVertex(v);
+        if (vert.type != VertexType::Cell || vert.width <= 0.0 || vert.height <= 0.0) {
+            continue;
+        }
+        // Rows are sorted, so start at the first row whose top reaches past the
+        // cell's bottom and walk down only over the rows the cell actually
+        // covers. Scanning all rows per cell was quadratic on a design with
+        // 210k cells and 700 rows.
+        const auto above = std::lower_bound(rows.begin(), rows.end(), vert.y + vert.height,
+                                            [](const PlacementDB::RowInfo &ri, double v) {
+                                                return ri.coordinate + ri.height < v;
+                                            });
+        for (auto it = above; it != rows.begin();) {
+            --it;
+            if (it->coordinate + it->height <= vert.y + 1e-6) {
+                break;  // past the cell's bottom
+            }
+            occupied[static_cast<std::size_t>(it - rows.begin())].emplace_back(vert.x,
+                                                                               vert.x + vert.width);
+        }
+    }
     for (std::size_t r = 0; r < rows.size(); ++r) {
         const PlacementDB::RowInfo &ri = rows[r];
         const double site = ri.pitch() > 0.0 ? ri.pitch() : 1.0;
+        std::vector<std::pair<double, double>> &obs = occupied[r];
+        std::sort(obs.begin(), obs.end());
         for (const PlacementDB::SubrowInfo &si : ri.subrows) {
-            Span sp;
-            sp.row = r;
-            sp.ylo = ri.coordinate;
-            sp.yhi = ri.coordinate + ri.height;
-            sp.xlo = si.xlo();
-            sp.xhi = si.xhi(site);
-            sp.site = site;
-            sp.pitch = ri.height > 0.0 ? ri.height : 1.0;
-            if (sp.xhi > sp.xlo) {
-                spans_.push_back(std::move(sp));
+            for (double lo = si.xlo(); lo < si.xhi(site) - 1e-9;) {
+                double hi = si.xhi(site);
+                // Each obstacle splits the run in two: stop just short of it, and
+                // resume at its far edge.
+                for (const auto &o : obs) {
+                    if (o.first <= lo + 1e-9 || o.second >= hi - 1e-9) {
+                        continue;
+                    }
+                    hi = std::min(hi, o.first);
+                }
+                Span sp;
+                sp.row = r;
+                sp.ylo = ri.coordinate;
+                sp.yhi = ri.coordinate + ri.height;
+                sp.xlo = lo;
+                sp.xhi = hi;
+                sp.site = site;
+                sp.pitch = ri.height > 0.0 ? ri.height : 1.0;
+                if (sp.xhi > sp.xlo + 1e-9) {
+                    spans_.push_back(std::move(sp));
+                }
+                // Resume at the obstacle that cut the run short, so the rest of the
+                // row is still visited.
+                lo = hi;
             }
         }
     }
@@ -1205,12 +1255,41 @@ DetailPlaceResult FastDetailedPlacer::Impl::place(const DetailPlaceParams &param
     netPins_.clear();
     die_ = BBox{};
 
+    // The shortest row, measured here rather than taken from bandY_: bandY_ is
+    // set by the fixed-box pass, which runs later, so reading it here skipped
+    // every cell in the design and left the detail placer doing nothing at all.
+    double rowHeight = std::numeric_limits<double>::max();
+    for (const auto &ri : db_.getRows()) {
+        if (ri.height > 0.0) {
+            rowHeight = std::min(rowHeight, ri.height);
+        }
+    }
+    if (!std::isfinite(rowHeight)) {
+        rowHeight = 1.0;
+    }
+
     for (std::size_t v = 0; v < graph_.getNumVertices(); ++v) {
         const Vertex &vert = graph_.getVertex(v);
         if (vert.type == VertexType::Cell && vert.isFixed) {
             fixed_.push_back(FixedBox{vert.y, vert.y + vert.height, vert.x, vert.x + vert.width});
         }
         if (vert.type != VertexType::Cell || vert.isFixed || vert.isTerminal) {
+            continue;
+        }
+        // Only a cell that fits inside one row may move here. Every pass --
+        // vertical swap, reorder, cluster -- looks for a slot in a single row's
+        // band, so a taller cell has nowhere valid to go. Letting one through
+        // re-inserted the overlap the legalizer had just removed: on ibm01 it
+        // cost 1378 overlapping pairs. Such cells are left exactly where
+        // legalization put them.
+        if (vert.height > rowHeight) {
+            ++tallSkipped_;
+            // ...and a blockage, not just skipped. Left out of the blockage set the
+            // passes treat those rows as empty and place cells straight on top of
+            // them: skipping without blocking cost 977 overlapping pairs on ibm01,
+            // which the legalizer had not produced and FastDP's own check never
+            // saw, because it only tests the cells it moved.
+            fixed_.push_back(FixedBox{vert.y, vert.y + vert.height, vert.x, vert.x + vert.width});
             continue;
         }
         mov_.push_back(v);
@@ -1269,6 +1348,11 @@ DetailPlaceResult FastDetailedPlacer::Impl::place(const DetailPlaceParams &param
         double phaseSeconds = 0.0;
         for (std::size_t k = 0; k < limit; ++k) {
             const std::size_t before = counter;
+            // Free space has to be re-derived before every pass, not once up
+            // front. The passes relocate cells, so spans built from the
+            // legalized placement go stale as soon as the first of them runs, and
+            // two cells end up placed into the same gap.
+            buildSpans();
             // std::chrono rather than ScopedTimer: that one registers its interval
             // in a shared table under a name, and these are per-phase, per-pass.
             const auto phaseStart = std::chrono::steady_clock::now();

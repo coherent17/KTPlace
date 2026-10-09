@@ -445,14 +445,12 @@ void PlacementDB::reportUtilisation() const {
             "fit, however the placer is retried.",
             u.cellArea, u.rowArea, util);
     }
-    if (u.multiRow > 0) {
-        ktlog.warning(
-            "{} cell(s) are taller than one row (row height {:.3}) and the legalizer only "
-            "places into single rows, so those cells will be left unplaced and the result will "
-            "not be legal. Legalizing this design needs a multi-height legalizer, which this "
-            "build does not have.",
-            u.multiRow, u.rowHeight);
-    }
+    // Multi-row cells are not flagged here. This used to warn that no
+    // multi-height legalizer existed and that the result would not be legal --
+    // printed moments before the multi-row legalizer ran and legalized the design
+    // perfectly well, so it described a limitation that had already been removed.
+    // The row of the report carries the count, and legalization announces itself
+    // when it picks the path.
 }
 
 const constraintMgr &PlacementDB::constraints() const {

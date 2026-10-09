@@ -9,6 +9,7 @@
 #include "datamodel/kt_dm.h"
 #include "detailPlacer/kt_fastdp.h"
 #include "legalizer/kt_abacus.h"
+#include "legalizer/kt_multiRowLegalizer.h"
 #include "placer/ntuplace1/kt_ntuplace1.h"
 #include "placer/simpl/kt_simpl.h"
 #include "util/kt_log.h"
@@ -42,8 +43,9 @@ private:
     void writeDesign(const std::string &outputPath);
     void runPlacement(const std::string &algorithm);
     void legalizeDesign();
+    [[nodiscard]] std::size_t multiRowCells() const;
     void detailPlaceDesign();
-    void checkDesign();
+    void checkDesign(const char *stage);
     void renderFinalImage();
     void finishAnimation();
 };
@@ -67,8 +69,13 @@ void FlowMgr::Impl::run(const kt_option &options) {
     reportDesign();
     placeDesign(options);
     legalizeDesign();
+    // Checked between the stages that change the placement, not just at the end.
+    // A legalizer and a detail placer can each report themselves clean while
+    // disagreeing with the file, and then the only way to tell which one broke it
+    // is to remove one and rerun.
+    checkDesign("after legalization");
     detailPlaceDesign();
-    checkDesign();
+    checkDesign("after detail placement");
     renderFinalImage();
     finishAnimation();
     writeDesign(options.getOutputPath());
@@ -201,6 +208,23 @@ void FlowMgr::Impl::legalizeDesign() {
         PlacementAnimator::instance().holdBack(0);
     }
 
+    // Abacus places into a single row, so a cell taller than one has nowhere to
+    // go and is left overlapping. When the design has such cells, the row-slicing
+    // legalizer runs instead: it cuts cells out of every row they span, so a tall
+    // cell occupies a real well and the cells around it place normally.
+    if (multiRowCells() > 0) {
+        ktlog.echo("Running multi-row legalization ({} cell(s) taller than a row)...",
+                   multiRowCells());
+        MultiRowLegalizer legalizer(*db);
+        MultiRowLegalizeParams params;
+        if (plot.enabled()) {
+            params.plotDir = plot.sub("legalize");
+            params.frameEvery = 20000;
+        }
+        legalizer.legalize(params);
+        return;
+    }
+
     ktlog.echo("Running Abacus legalization...");
     AbacusLegalizer legalizer(*db);
     LegalizeParams lparams;
@@ -212,6 +236,34 @@ void FlowMgr::Impl::legalizeDesign() {
         lparams.frameEvery = 20000;
     }
     legalizer.legalize(lparams);
+}
+
+std::size_t FlowMgr::Impl::multiRowCells() const {
+    if (!db) {
+        return 0;
+    }
+    // The shortest row sets the bar: a cell taller than every row has no single
+    // row to go in, and that is the case the row slicer exists for.
+    double minHeight = std::numeric_limits<double>::max();
+    for (const PlacementDB::RowInfo &ri : db->getRows()) {
+        if (ri.height > 0.0 && !ri.subrows.empty()) {
+            minHeight = std::min(minHeight, ri.height);
+        }
+    }
+    if (minHeight == std::numeric_limits<double>::max()) {
+        return 0;
+    }
+    const double tall = minHeight * 1.5;
+    const Graph &g = db->getGraph();
+    std::size_t n = 0;
+    for (std::size_t v = 0; v < g.getNumVertices(); ++v) {
+        const Vertex &vert = g.getVertex(v);
+        if (vert.type == VertexType::Cell && !vert.isFixed && !vert.isTerminal &&
+            vert.height > tall) {
+            ++n;
+        }
+    }
+    return n;
 }
 
 void FlowMgr::Impl::detailPlaceDesign() {
@@ -229,16 +281,15 @@ void FlowMgr::Impl::detailPlaceDesign() {
     dp.place(dparams);
 }
 
-void FlowMgr::Impl::checkDesign() {
-    // Last, so it sees the effect of both stages, and separate from their
-    // self-checks, so a disagreement between what a stage claims and what the file
-    // contains stays visible.
+void FlowMgr::Impl::checkDesign(const char *stage) {
+    // Separate from each stage's self-check, so a disagreement between what a
+    // stage claims and what the file actually contains stays visible.
     {
         // Timed on its own: it reads the whole placement, changes nothing, and is
         // the phase that goes quadratic if the spatial index degrades.
         const ScopedTimer checkTimer("place-check");
         const std::vector<PlacementDB::Defect> defects = db->verify();
-        ktReportTable check("Placement check (independent, after legalization)");
+        ktReportTable check(fmt::format("Placement check (independent, {})", stage));
         check.setHeaders({"check", "result"});
         if (defects.empty()) {
             check.addRow({"overlapping cell pairs", "0"});
