@@ -311,6 +311,27 @@ void FlowMgr::Impl::finishAnimation() {
         // than the detailed placement on a small design, and without a number here
         // it looks like the run hung at the end.
         ScopedTimer animTimer("anim-finish");
+        // Hold the finished placement before the GIF is written. Without it the
+        // result -- the one picture anyone wants to look at -- is on screen for
+        // the same time as any other single frame, and the animation scrolls past
+        // the thing it spent minutes producing. Recorded rather than re-encoded,
+        // so it costs one placement pass.
+        if (plot.finalHold > 0 && db) {
+            auto &animator = PlacementAnimator::instance();
+            const Graph &g = db->getGraph();
+            std::vector<float> x(g.getNumVertices());
+            std::vector<float> y(g.getNumVertices());
+            for (std::size_t v = 0; v < g.getNumVertices(); ++v) {
+                x[v] = static_cast<float>(g.getVertex(v).x);
+                y[v] = static_cast<float>(g.getVertex(v).y);
+            }
+            const std::array<double, 4> die = placementDieBox(*db);
+            for (std::size_t i = 0; i < plot.finalHold; ++i) {
+                animator.record(g, x, y, die, animator.frameCount(), animator.frameCount(),
+                                db->hpwl(), 0.0, 0.0, "final placement", nullptr,
+                                /*mandatory=*/true);
+            }
+        }
         if (anim.finish()) {
             ktlog.echo(
                 "animation: {} frames -> {}/anim/placement.gif (global placement, then "

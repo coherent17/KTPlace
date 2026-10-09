@@ -25,6 +25,7 @@ struct PlotOptions {
     int frameDelayCs = 12;               // 120 ms per frame
     int blendFrames = 3;                 // in-between frames per placement
     double finalZoom = 8.0;              // scale of the single high-resolution still
+    std::size_t finalHold = 8;           // extra frames the finished placement is held
     bool writePpm = false;               // also write the lossless raster, 113 MB at 8x
 
     // Cadence of the per-iteration frames, in solver iterations.

@@ -287,6 +287,10 @@ struct SimplParams {
     /// ~4 MB frames, so enable this only for short debug runs
     /// (KTPLACE_SIMPL_CG_EVERY=1 with a small KTPLACE_SIMPL_ITERS).
     std::size_t cgEvery = 0;
+    /// Cadence inside the warm-up solves, which run a handful of times and are
+    /// otherwise invisible in the animation: with the global phase's cadence the
+    /// opening of the run contributes no frames at all.
+    std::size_t cgEveryInit = 1;
     /// Write a bin-density heat map next to every placement frame. This is the
     /// view that shows whether the lower bound is actually spreading.
     bool densityMaps = true;
@@ -343,6 +347,11 @@ struct SimplResult {
     /// returning the last one can ship a materially worse placement than the run
     /// already computed. bestIter says which iteration it came from.
     double hpwlSeed = 0.0;
+    /// HPWL after the warm-up, and how far its last conjugate-gradient solve
+    /// actually got. The two say whether the warm-up produced a placement worth
+    /// starting from, or one the global phase still has to undo.
+    double hpwlInit = 0.0;
+    double initResidual = 0.0;
     double hpwlLower = 0.0;
     double hpwlFinal = 0.0;
     /// Iteration the returned upper bound came from, 0-based.

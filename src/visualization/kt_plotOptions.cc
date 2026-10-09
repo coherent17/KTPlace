@@ -41,6 +41,8 @@ PlotOptions PlotOptions::fromEnvironment() {
     options.frameZoom = number("KTPLACE_ANIM_ZOOM", defaults.frameZoom);
     options.finalZoom = number("KTPLACE_FINAL_ZOOM", defaults.finalZoom);
     options.writePpm = number("KTPLACE_FINAL_PPM", defaults.writePpm ? 1.0 : 0.0) != 0.0;
+    options.finalHold = static_cast<std::size_t>(
+        number("KTPLACE_ANIM_FINAL_HOLD", static_cast<double>(defaults.finalHold)));
     options.traceEvery = static_cast<std::size_t>(
         number("KTPLACE_SIMPL_TRACE_EVERY", static_cast<double>(defaults.traceEvery)));
     options.cgFrameEvery = static_cast<std::size_t>(

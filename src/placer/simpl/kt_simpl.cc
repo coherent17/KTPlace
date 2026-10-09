@@ -163,7 +163,10 @@ private:
     // --- net model and solver ----------------------------------------------
     void buildB2B(const std::vector<double> &px, const std::vector<double> &py, double alpha,
                   bool useAnchors, SimplParams::NetModel model);
-    void solve(const std::string &tag, bool allowFrames);
+    void solve(const std::string &tag, bool allowFrames, std::size_t cgEvery = 0);
+    /// Worst of the two axis residuals left by the last solve, so a caller can
+    /// report whether the solve actually converged.
+    double lastResidual_ = 0.0;
     double hpwl(const std::vector<double> &px, const std::vector<double> &py) const;
 
     // --- density -----------------------------------------------------------
@@ -965,7 +968,7 @@ void SimplePlacer::Impl::buildB2B(const std::vector<double> &px, const std::vect
     }
 }
 
-void SimplePlacer::Impl::solve(const std::string &tag, bool allowFrames) {
+void SimplePlacer::Impl::solve(const std::string &tag, bool allowFrames, std::size_t cgEvery) {
     // Jacobi-preconditioned CG, run once per axis. The x and y systems are
     // different matrices with different right-hand sides, so they are solved
     // separately; the B2B model is separable, which is why this is two clean
@@ -1137,8 +1140,8 @@ void SimplePlacer::Impl::solve(const std::string &tag, bool allowFrames) {
         // governs the iterations between.
         const bool stillGoing =
             (ax.active && ax.resid > par_.cgTol) || (ay.active && ay.resid > par_.cgTol);
-        if (allowFrames && par_.cgEvery > 0 && !frameDir_.empty() &&
-            (((it + 1) % par_.cgEvery) == 0 || !stillGoing)) {
+        if (allowFrames && cgEvery > 0 && !frameDir_.empty() &&
+            (((it + 1) % cgEvery) == 0 || !stillGoing)) {
             writeCgFrame(tag, it + 1, ax.resid, ay.resid);
         }
     }
@@ -1147,6 +1150,7 @@ void SimplePlacer::Impl::solve(const std::string &tag, bool allowFrames) {
         "  cg: x {} iteration(s) (1e-3 at {}) residual {:.3e}, y {} iteration(s) (1e-3 at {}) "
         "residual {:.3e}",
         ax.iters, ax.itersToTol, ax.resid, ay.iters, ay.itersToTol, ay.resid);
+    lastResidual_ = std::max(ax.resid, ay.resid);
 }
 
 double SimplePlacer::Impl::hpwl(const std::vector<double> &px,
@@ -2721,7 +2725,7 @@ SimplResult SimplePlacer::Impl::run(const SimplParams &P, const std::string &plo
             solY_ = lowerY;
             // The warm-up solves are part of the run, so their iterates belong in
             // the animation alongside everything after them.
-            solve("init" + frameStep(it), /*allowFrames=*/animEnabled_);
+            solve("init" + frameStep(it), /*allowFrames=*/animEnabled_, par_.cgEveryInit);
             lower = solX_;
             lowerY = solY_;
             enforceFences(lower, lowerY);
@@ -2762,6 +2766,8 @@ SimplResult SimplePlacer::Impl::run(const SimplParams &P, const std::string &plo
                                     lower, lowerY, note);
                 }
             }
+            res_.hpwlInit = bestInitHpwl;
+            res_.initResidual = lastResidual_;
             ktlog.trace("init iter {:2d}: hpwl {:.6e} best {:.6e} ({:.4f}% off, {}/{} stale)", it,
                         h, bestInitHpwl,
                         bestInitHpwl > 0.0 ? 100.0 * (h - bestInitHpwl) / bestInitHpwl : 0.0,
@@ -3338,6 +3344,12 @@ void reportSimpl(const SimplResult &r) {
     t.addRow({"cells pushed out of a fence", "", fmt::format("{}", r.fencePushes)});
     t.addRow({"cells outside their fence at exit", "", fmt::format("{}", r.fenceViolations)});
     t.addRow({"HPWL seed", fmt::format("{:.6}", r.hpwlSeed), ""});
+    t.addRow({"HPWL after initial placement", fmt::format("{:.6}", r.hpwlInit), ""});
+    // Whether the warm-up's own solve converged. A large residual here means the
+    // global phase starts from a placement that is not yet a quadratic optimum,
+    // so its first iterations are spent finishing the warm-up rather than
+    // spreading, and the gap the loop is supposed to close starts wide.
+    t.addRow({"initial CG residual", fmt::format("{:.3e}", r.initResidual), ""});
     t.addRow({"HPWL lower bound", "", fmt::format("{:.6}", r.hpwlLower)});
     t.addRow({"HPWL final", "", fmt::format("{:.6}", r.hpwlFinal)});
     t.addRow({"returned from iteration", "", fmt::format("{} of {}", r.bestIter, r.globalIters)});
