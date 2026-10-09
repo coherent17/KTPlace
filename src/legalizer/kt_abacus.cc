@@ -3,6 +3,10 @@
 
 #include "legalizer/kt_abacus.h"
 
+#include "util/kt_log.h"
+#include "util/kt_scopedTimer.h"
+#include "visualization/kt_animator.h"
+
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -11,10 +15,6 @@
 #include <limits>
 #include <memory>
 #include <numeric>
-
-#include "util/kt_log.h"
-#include "visualization/kt_animator.h"
-#include "util/kt_scopedTimer.h"
 
 namespace ktplace {
 

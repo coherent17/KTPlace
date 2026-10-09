@@ -3,12 +3,11 @@
 
 #define BOOST_TEST_MODULE ktplace_adaptor
 #define BOOST_TEST_DYN_LINK
-#include <boost/test/unit_test.hpp>
-
 #include "adaptor/bookshelfToKTAdaptor.h"
 #include "adaptor/lefdefToKTAdaptor.h"
 #include "datamodel/kt_graph.h"
 
+#include <boost/test/unit_test.hpp>
 #include <filesystem>
 #include <fstream>
 #include <string>
@@ -42,6 +41,7 @@ public:
     }
 
     void write(const std::string &name, const std::string &content) const {
+        fs::create_directories(file(name).parent_path());
         std::ofstream out(file(name));
         BOOST_REQUIRE(out.is_open());
         out << content;
@@ -152,13 +152,13 @@ BOOST_AUTO_TEST_SUITE(Bookshelf)
 
 BOOST_AUTO_TEST_CASE(reads_a_minimal_design_from_a_directory) {
     const ScratchDir dir("bs_dir");
-    dir.write("tiny.nodes", kNodes);
-    dir.write("tiny.nets", kNets);
-    dir.write("tiny.pl", kPl);
-    dir.write("tiny.scl", kScl);
+    dir.write("tiny/tiny.nodes", kNodes);
+    dir.write("tiny/tiny.nets", kNets);
+    dir.write("tiny/tiny.pl", kPl);
+    dir.write("tiny/tiny.scl", kScl);
 
     BookshelfInputAdapter adapter;
-    BOOST_REQUIRE(adapter.readFromDirectory("tiny", dir.str()));
+    BOOST_REQUIRE(adapter.readFromDirectory(dir.file("tiny").string()));
 
     PlacementDB &db = adapter.getPlacementDB();
     BOOST_TEST(db.getNumCells() == 3);
@@ -172,12 +172,12 @@ BOOST_AUTO_TEST_CASE(reads_a_minimal_design_from_a_directory) {
 
 BOOST_AUTO_TEST_CASE(reads_cell_geometry_and_terminal_flag) {
     const ScratchDir dir("bs_geom");
-    dir.write("tiny.nodes", kNodes);
-    dir.write("tiny.nets", kNets);
+    dir.write("tiny/tiny.nodes", kNodes);
+    dir.write("tiny/tiny.nets", kNets);
 
     BookshelfInputAdapter adapter;
-    BOOST_REQUIRE(
-        adapter.readFromFiles(dir.file("tiny.nodes").string(), dir.file("tiny.nets").string()));
+    BOOST_REQUIRE(adapter.readFromFiles(dir.file("tiny/tiny.nodes").string(),
+                                        dir.file("tiny/tiny.nets").string()));
 
     PlacementDB &db = adapter.getPlacementDB();
     const Graph &g = db.getGraph();
@@ -190,14 +190,14 @@ BOOST_AUTO_TEST_CASE(reads_cell_geometry_and_terminal_flag) {
 
 BOOST_AUTO_TEST_CASE(placement_file_marks_pads_fixed) {
     const ScratchDir dir("bs_fixed");
-    dir.write("tiny.nodes", kNodes);
-    dir.write("tiny.nets", kNets);
-    dir.write("tiny.pl", kPl);
+    dir.write("tiny/tiny.nodes", kNodes);
+    dir.write("tiny/tiny.nets", kNets);
+    dir.write("tiny/tiny.pl", kPl);
 
     BookshelfInputAdapter adapter;
-    BOOST_REQUIRE(adapter.readFromFiles(dir.file("tiny.nodes").string(),
-                                        dir.file("tiny.nets").string(),
-                                        dir.file("tiny.pl").string()));
+    BOOST_REQUIRE(adapter.readFromFiles(dir.file("tiny/tiny.nodes").string(),
+                                        dir.file("tiny/tiny.nets").string(),
+                                        dir.file("tiny/tiny.pl").string()));
 
     PlacementDB &db = adapter.getPlacementDB();
     // The pad is anchored, the standard cell is free to move.
@@ -207,12 +207,12 @@ BOOST_AUTO_TEST_CASE(placement_file_marks_pads_fixed) {
 
 BOOST_AUTO_TEST_CASE(terminals_are_fixed_even_without_a_pl_file) {
     const ScratchDir dir("bs_term");
-    dir.write("tiny.nodes", kNodes);
-    dir.write("tiny.nets", kNets);
+    dir.write("tiny/tiny.nodes", kNodes);
+    dir.write("tiny/tiny.nets", kNets);
 
     BookshelfInputAdapter adapter;
-    BOOST_REQUIRE(
-        adapter.readFromFiles(dir.file("tiny.nodes").string(), dir.file("tiny.nets").string()));
+    BOOST_REQUIRE(adapter.readFromFiles(dir.file("tiny/tiny.nodes").string(),
+                                        dir.file("tiny/tiny.nets").string()));
 
     PlacementDB &db = adapter.getPlacementDB();
     // "terminal" in .nodes alone makes a pad immovable.
@@ -222,21 +222,21 @@ BOOST_AUTO_TEST_CASE(terminals_are_fixed_even_without_a_pl_file) {
 
 BOOST_AUTO_TEST_CASE(reads_row_structure) {
     const ScratchDir dir("bs_rows");
-    dir.write("tiny.nodes", kNodes);
-    dir.write("tiny.nets", kNets);
-    dir.write("tiny.scl", kScl);
+    dir.write("tiny/tiny.nodes", kNodes);
+    dir.write("tiny/tiny.nets", kNets);
+    dir.write("tiny/tiny.scl", kScl);
 
     BookshelfInputAdapter adapter;
-    BOOST_REQUIRE(adapter.readFromFiles(dir.file("tiny.nodes").string(),
-                                        dir.file("tiny.nets").string(), "",
-                                        dir.file("tiny.scl").string()));
+    BOOST_REQUIRE(adapter.readFromFiles(dir.file("tiny/tiny.nodes").string(),
+                                        dir.file("tiny/tiny.nets").string(), "",
+                                        dir.file("tiny/tiny.scl").string()));
 
     BOOST_TEST(adapter.getPlacementDB().getNumRows() == 1);
 }
 
 BOOST_AUTO_TEST_CASE(fails_cleanly_on_a_missing_directory) {
     BookshelfInputAdapter adapter;
-    BOOST_TEST(!adapter.readFromDirectory("absent", "/nonexistent/ktplace/path"));
+    BOOST_TEST(!adapter.readFromDirectory("/nonexistent/ktplace/path"));
 }
 
 BOOST_AUTO_TEST_SUITE_END()

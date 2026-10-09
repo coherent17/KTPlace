@@ -1,15 +1,17 @@
 # clangd server configuration.
 #
-# The compilation database is found without this: clangd walks up from the file
-# being edited until it finds compile_commands.json. This pins it anyway, so the
-# answer does not change if a stray database appears in a subdirectory, and so the
-# setting is visible to whoever wonders where the flags come from.
+# The compilation database is found without any help from this file: clangd walks
+# up from the file being edited until it finds compile_commands.json. Generate it
+# with `make compile-commands`. It is not tracked: the include paths are absolute,
+# so a committed copy would be wrong on every other machine, and a stale database
+# is worse than none -- clangd would silently report diagnostics from flags the
+# build does not use.
 #
-# Generate it with `make compile-commands`. It is not tracked: the include paths
-# are absolute, so a committed copy would be wrong on every other machine, and a
-# stale database is worse than none -- clangd would silently report diagnostics
-# from flags the build does not use.
-CompilationDatabase: .
+# Nothing else is set here on purpose. Warnings come from the -Wall -Wextra
+# -Wpedantic -Wshadow already in the compile commands, so a warning appears where
+# it is written instead of only in a CI log. Formatting comes from the
+# repository's .clang-format, the one `make format` and the CI check read, so an
+# edit saved in the editor and one formatted by the target agree.
 
 # Match the compiler the build actually uses. Without this clangd assumes clang,
 # and the built-ins it then believes in, and the language standard it assumes, are
@@ -17,20 +19,3 @@ CompilationDatabase: .
 CompileFlags:
   Compiler: g++
   Add: [-std=c++23]
-
-# The sources build with -Wall -Wextra -Wpedantic -Wshadow. Carrying those into
-# the editor means a warning appears where it is written rather than only in a CI
-# log nobody reads until it fails.
-#
-# One Diagnostics key only: YAML takes the last of a repeated key and discards the
-# rest silently, so splitting these across two blocks would apply the second and
-# quietly drop the first.
-Diagnostics:
-  - enable-all
-  - disable: [unused-const-variable, missing-prototypes]
-
-# Reformat-on-save uses the repository's .clang-format, which is the one the
-# `make format` target and the CI check both read, so an edit saved in the editor
-# and one formatted by the target agree.
-Style:
-  - Google

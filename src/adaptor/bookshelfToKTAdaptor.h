@@ -3,11 +3,12 @@
 
 #pragma once
 
-#include <string>
-#include <memory>
-#include <vector>
-#include <unordered_map>
 #include "datamodel/kt_dm.h"
+
+#include <memory>
+#include <string>
+#include <unordered_map>
+#include <vector>
 
 namespace ktplace {
 
@@ -33,7 +34,7 @@ public:
 
     // Read Bookshelf format from directory
 
-    [[nodiscard]] bool readFromDirectory(const std::string &baseName, const std::string &dirPath);
+    [[nodiscard]] bool readFromDirectory(const std::string &dirPath);
 
     // Read Bookshelf format from individual files
 

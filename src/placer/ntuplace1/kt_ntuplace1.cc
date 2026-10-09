@@ -3,17 +3,17 @@
 
 #include "placer/ntuplace1/kt_ntuplace1.h"
 
+#include "util/kt_log.h"
+#include "visualization/kt_plotter.h"
+
 #include <algorithm>
 #include <cmath>
 #include <deque>
-#include <numeric>
 #include <limits>
+#include <numeric>
 #include <unordered_map>
 #include <utility>
 #include <vector>
-
-#include "util/kt_log.h"
-#include "visualization/kt_plotter.h"
 
 namespace ktplace {
 namespace {

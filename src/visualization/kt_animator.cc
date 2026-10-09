@@ -4,6 +4,7 @@
 #include "visualization/kt_animator.h"
 
 #include "util/kt_log.h"
+
 #include <utility>
 
 namespace ktplace {

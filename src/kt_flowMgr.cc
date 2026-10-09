@@ -2,28 +2,28 @@
 
 
 #include "kt_flowMgr.h"
-#include "util/kt_reportTable.h"
-#include "visualization/kt_animator.h"
 
-#include "util/kt_scopedTimer.h"
-#include "util/kt_log.h"
+#include "adaptor/bookshelfToKTAdaptor.h"
+#include "adaptor/lefdefToKTAdaptor.h"
 #include "detailPlacer/kt_fastdp.h"
 #include "legalizer/kt_abacus.h"
 #include "placer/ntuplace1/kt_ntuplace1.h"
 #include "placer/simpl/kt_simpl.h"
+#include "util/kt_log.h"
+#include "util/kt_reportTable.h"
+#include "util/kt_scopedTimer.h"
+#include "visualization/kt_animator.h"
 
-#include "adaptor/bookshelfToKTAdaptor.h"
-#include "adaptor/lefdefToKTAdaptor.h"
+#include <algorithm>
+#include <chrono>
+#include <cstdlib>
+#include <filesystem>
+#include <fstream>
+#include <iomanip>
 #include <map>
 #include <memory>
-#include <fstream>
-#include <string>
-#include <algorithm>
-#include <cstdlib>
-#include <iomanip>
 #include <stdexcept>
-#include <chrono>
-#include <filesystem>
+#include <string>
 
 namespace ktplace {
 
@@ -166,8 +166,8 @@ public:
     bool placed = false;
 
     // Internal methods
-    bool loadInput(const std::string &baseName, const std::string &dirPath);
-    bool loadBookshelf(const std::string &baseName, const std::string &dirPath);
+    bool loadInput(const std::string &dirPath);
+    bool loadBookshelf(const std::string &dirPath);
     bool loadBookshelfFromFiles(const std::string &nodesFile, const std::string &netsFile,
                                 const std::string &plFile = "", const std::string &sclFile = "",
                                 const std::string &wtsFile = "");
@@ -184,7 +184,7 @@ public:
     /// differ by more than the differences being compared: the upper bound is
     /// the look-ahead legalized placement, taken before either stage runs.
     double hpwlFinalPlaced_ = -1.0;
-    bool writePlacement(const std::string &outputPath, const std::string &format = "bookshelf");
+    bool writePlacement(const std::string &outputPath);
     PlacementDB &getPlacementDB();
     const PlacementDB &getPlacementDB() const;
     bool isLoaded() const;
@@ -203,14 +203,13 @@ FlowMgr::~FlowMgr() = default;
 FlowMgr::FlowMgr(FlowMgr &&) noexcept = default;
 FlowMgr &FlowMgr::operator=(FlowMgr &&) noexcept = default;
 
-void FlowMgr::run(const std::string &inputBaseName, const std::string &inputDirPath,
-                  const std::string &outputPath, const std::string &algorithm,
-                  const std::string &outputFormat, const std::string &plotDir) {
+void FlowMgr::run(const std::string &inputDirPath, const std::string &outputPath,
+                  const std::string &algorithm, const std::string &plotDir) {
     // Phase timers accumulate into the registry; the summary is reported once
     // at the end of the run.
     {
         ScopedTimer timer("load");
-        if (!pImpl->loadInput(inputBaseName, inputDirPath)) {
+        if (!pImpl->loadInput(inputDirPath)) {
             throw std::runtime_error("Failed to load input files");
         }
     }
@@ -256,8 +255,7 @@ void FlowMgr::run(const std::string &inputBaseName, const std::string &inputDirP
         // By default every run records a per-iteration SVG frame + HPWL/galley
         // report next to the result, so an iteration can be inspected without
         // remembering the -p flag.  An explicit -p directory still wins.
-        const std::string effectivePlotDir =
-            !plotDir.empty() ? plotDir : snapshotDir + "/" + inputBaseName + "_plots";
+        const std::string effectivePlotDir = !plotDir.empty() ? plotDir : snapshotDir + "/plots";
         // Before the placer, not after: once the solver is running, every number
         // downstream is derived from a density model, and on an over-full design
         // that model is describing an impossibility. The reader needs to know the
@@ -272,7 +270,7 @@ void FlowMgr::run(const std::string &inputBaseName, const std::string &inputDirP
     // Write output
     {
         ScopedTimer timer("write");
-        if (!pImpl->writePlacement(outputPath, outputFormat)) {
+        if (!pImpl->writePlacement(outputPath)) {
             throw std::runtime_error("Failed to write output");
         }
     }
@@ -283,7 +281,7 @@ void FlowMgr::run(const std::string &inputBaseName, const std::string &inputDirP
 
 // Implementation of Impl methods
 
-bool FlowMgr::Impl::loadInput(const std::string &baseName, const std::string &dirPath) {
+bool FlowMgr::Impl::loadInput(const std::string &dirPath) {
     // Auto-detect the input format: a directory containing LEF/DEF files is
     // loaded through the LEF/DEF adapter; otherwise Bookshelf is assumed.
     namespace fs = std::filesystem;
@@ -314,17 +312,17 @@ bool FlowMgr::Impl::loadInput(const std::string &baseName, const std::string &di
         placed = false;
         return true;
     }
-    return loadBookshelf(baseName, dirPath);
+    return loadBookshelf(dirPath);
 }
 
-bool FlowMgr::Impl::loadBookshelf(const std::string &baseName, const std::string &dirPath) {
+bool FlowMgr::Impl::loadBookshelf(const std::string &dirPath) {
     clear();
 
     // Create adapter with the database
     bookshelfAdapter = std::make_unique<BookshelfInputAdapter>(std::make_unique<PlacementDB>());
 
     // Read from directory
-    if (!bookshelfAdapter->readFromDirectory(baseName, dirPath)) {
+    if (!bookshelfAdapter->readFromDirectory(dirPath)) {
         ktlog.fatal("Failed to load Bookshelf format from {}", dirPath);
     }
 
@@ -1044,35 +1042,31 @@ bool FlowMgr::Impl::runPlacement(const std::string &algorithm, const std::string
     }
 }
 
-bool FlowMgr::Impl::writePlacement(const std::string &outputPath, const std::string &format) {
+bool FlowMgr::Impl::writePlacement(const std::string &outputPath) {
     if (!placed) {
         ktlog.fatal("No placement result available");
     }
 
-    if (format == "bookshelf") {
-        std::ofstream out(outputPath);
-        if (!out.is_open()) {
-            ktlog.fatal("Cannot open output file: {}", outputPath);
-        }
-        // Database coordinates reach ~1.5e6, so the default 6 significant
-        // digits would round positions by several units and can move a cell
-        // across a placement-region boundary. Keep enough digits to round-trip.
-        out << std::setprecision(10);
-        const Graph &g = db->getGraph();
-        const std::size_t nv = g.getNumVertices();
-        for (std::size_t v = 0; v < nv; ++v) {
-            const Vertex &vert = g.getVertex(v);
-            if (vert.type != VertexType::Cell)
-                continue;
-            // Bookshelf .pl: "<name> <x> <y> : <orientation>"
-            out << vert.name << '\t' << vert.x << '\t' << vert.y
-                << "\t: " << (vert.isFixed ? "N /FIXED" : "N") << '\n';
-        }
-        out.close();
-        return true;
-    } else {
-        ktlog.fatal("Unknown output format: {}", format);
+    std::ofstream out(outputPath);
+    if (!out.is_open()) {
+        ktlog.fatal("Cannot open output file: {}", outputPath);
     }
+    // Database coordinates reach ~1.5e6, so the default 6 significant digits
+    // would round positions by several units and can move a cell across a
+    // placement-region boundary. Keep enough digits to round-trip.
+    out << std::setprecision(10);
+    const Graph &g = db->getGraph();
+    const std::size_t nv = g.getNumVertices();
+    for (std::size_t v = 0; v < nv; ++v) {
+        const Vertex &vert = g.getVertex(v);
+        if (vert.type != VertexType::Cell) {
+            continue;
+        }
+        // Bookshelf .pl: "<name> <x> <y> : <orientation>"
+        out << vert.name << '\t' << vert.x << '\t' << vert.y
+            << "\t: " << (vert.isFixed ? "N /FIXED" : "N") << '\n';
+    }
+    return true;
 }
 
 PlacementDB &FlowMgr::Impl::getPlacementDB() {

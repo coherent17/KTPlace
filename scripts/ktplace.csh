@@ -8,7 +8,7 @@
 # deliberately not marked executable.
 #
 # After sourcing, the engine can be called by name:
-#     ktplace ibm01 ./benchmark/ICCAD04/ibm01 ./output/ibm01.pl
+#     ktplace ./benchmark/ICCAD04/ibm01 -w output
 
 # Locate the repository root. $_ is the file being sourced, so its ":r" root
 # modifier gives the directory; if that is unavailable fall back to $cwd.

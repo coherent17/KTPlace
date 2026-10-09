@@ -3,11 +3,10 @@
 
 #define BOOST_TEST_MODULE ktplace_datamodel
 #define BOOST_TEST_DYN_LINK
-#include <boost/test/unit_test.hpp>
-
 #include "datamodel/kt_dm.h"
 #include "datamodel/kt_graph.h"
 
+#include <boost/test/unit_test.hpp>
 #include <ostream>
 #include <stdexcept>
 

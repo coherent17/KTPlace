@@ -8,9 +8,8 @@
 #include "visualization/kt_gif.h"
 #include "visualization/kt_plotter.h"
 
-#include <boost/test/included/unit_test.hpp>
-
 #include <algorithm>
+#include <boost/test/included/unit_test.hpp>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>

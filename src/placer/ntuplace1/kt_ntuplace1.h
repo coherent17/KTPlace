@@ -26,15 +26,14 @@
 
 #pragma once
 
+#include "constraint/kt_constraintMgr.h"
+#include "datamodel/kt_dm.h"
+
 #include <array>
 #include <cstddef>
 #include <memory>
 #include <string>
 #include <vector>
-
-#include "constraint/kt_constraintMgr.h"
-#include "datamodel/kt_dm.h"
-#include <array>
 
 namespace ktplace {
 

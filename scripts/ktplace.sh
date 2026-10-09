@@ -8,7 +8,7 @@
 # deliberately not marked executable.
 #
 # After sourcing, the engine can be called by name:
-#     ktplace ibm01 ./benchmark/ICCAD04/ibm01 ./output/ibm01.pl
+#     ktplace ./benchmark/ICCAD04/ibm01 -w output
 
 # Resolve the repository root from this file's own location, so PATH is right
 # no matter which directory it is sourced from.

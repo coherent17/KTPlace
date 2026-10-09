@@ -27,8 +27,17 @@ AllowShortLambdasOnASingleLine: Empty
 AllowShortIfStatementsOnASingleLine: Never
 AllowShortLoopsOnASingleLine: false
 
-SortIncludes: Never
-IncludeBlocks: Preserve
+SortIncludes: CaseSensitive
+IncludeBlocks: Regroup
+IncludeCategories:
+  # The matching header first, then the rest of the project's, then the
+  # third-party and standard ones together.
+  - Regex: '^"[^/]+"'
+    Priority: 1
+  - Regex: '^<'
+    Priority: 3
+  - Regex: '.*'
+    Priority: 2
 
 AlignAfterOpenBracket: Align
 AlignOperands: Align

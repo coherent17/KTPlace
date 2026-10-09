@@ -5,16 +5,17 @@
 
 #include "util/kt_log.h"
 #include "util/kt_scopedTimer.h"
-#include <fstream>
-#include <sstream>
+
 #include <algorithm>
 #include <cctype>
 #include <filesystem>
+#include <fstream>
+#include <sstream>
 
 // Boost.Iostreams - transparent gzip input
-#include <boost/iostreams/filtering_stream.hpp>
-#include <boost/iostreams/filter/gzip.hpp>
 #include <boost/iostreams/device/file.hpp>
+#include <boost/iostreams/filter/gzip.hpp>
+#include <boost/iostreams/filtering_stream.hpp>
 
 namespace ktplace {
 

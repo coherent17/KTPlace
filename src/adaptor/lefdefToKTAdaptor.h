@@ -3,12 +3,13 @@
 
 #pragma once
 
-#include <string>
-#include <memory>
-#include <vector>
-#include <unordered_map>
 #include "constraint/kt_constraintMgr.h"
 #include "datamodel/kt_dm.h"
+
+#include <memory>
+#include <string>
+#include <unordered_map>
+#include <vector>
 
 namespace ktplace {
 

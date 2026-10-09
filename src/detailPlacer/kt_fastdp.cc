@@ -3,9 +3,12 @@
 
 #include "detailPlacer/kt_fastdp.h"
 
-#include <chrono>
+#include "util/kt_log.h"
+#include "util/kt_scopedTimer.h"
+#include "visualization/kt_animator.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -13,11 +16,6 @@
 #include <limits>
 #include <memory>
 #include <numeric>
-
-
-#include "util/kt_log.h"
-#include "util/kt_scopedTimer.h"
-#include "visualization/kt_animator.h"
 
 
 namespace ktplace {

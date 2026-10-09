@@ -3,15 +3,15 @@
 
 #pragma once
 
+#include "constraint/kt_constraintMgr.h"
+#include "datamodel/kt_graph.h"
+
 #include <array>
 #include <cstddef>
 #include <cstdint>
 #include <string>
 #include <utility>
 #include <vector>
-
-#include "constraint/kt_constraintMgr.h"
-#include "datamodel/kt_graph.h"
 
 namespace ktplace {
 

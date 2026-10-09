@@ -1,65 +1,36 @@
-// @file kt_option.h// Command-line option parser for KTPlace
-
-
 #pragma once
 
+#include <filesystem>
 #include <string>
-#include <memory>
+#include <string_view>
 
 namespace ktplace {
 
-// Command-line option parser using PIMPL pattern// Handles parsing of command-line arguments and provides// access to configuration options.
+inline constexpr std::string_view VERSION = "0.1.0";
 
 class kt_option {
 public:
-    /// Constructor
-    kt_option();
+    std::string inputPath;
+    std::string algorithm = "simpl";
+    bool verbose = false;
+    std::string workDir = std::filesystem::current_path().string();
 
-    /// Destructor
-    ~kt_option();
+    std::string getOutputPath() const {
+        return (std::filesystem::path(workDir) / "placed.pl").string();
+    }
 
-    // Copy semantics (deleted)
-    kt_option(const kt_option &) = delete;
-    kt_option &operator=(const kt_option &) = delete;
+    std::string getPlotDir() const {
+        return (std::filesystem::path(workDir) / "plots").string();
+    }
 
-    // Move semantics
-    kt_option(kt_option &&) noexcept;
-    kt_option &operator=(kt_option &&) noexcept;
+    std::string getLogFile() const {
+        return (std::filesystem::path(workDir) / "ktplace.log").string();
+    }
 
-    // Parse command-line arguments// After parsing, relative output and plot paths are resolved against the// work directory, and the log path defaults to "<work-dir>/ktplace.log"// (its trace companion lives next to it). Absolute paths are used as// given. The work directory itself defaults to the current directory.
+    bool parse(int argc, char *argv[]);
 
-    bool parse_option(int argc, char *argv[]);
-
-    // Accessors for parsed options
-    [[nodiscard]] const std::string &getInputBaseName() const;
-    [[nodiscard]] const std::string &getInputDir() const;
-    [[nodiscard]] const std::string &getOutputPath() const;
-    [[nodiscard]] const std::string &getAlgorithm() const;
-    [[nodiscard]] const std::string &getOutputFormat() const;
-    [[nodiscard]] const std::string &getLogFile() const;
-    [[nodiscard]] const std::string &getConfigFile() const;
-    [[nodiscard]] const std::string &getPlotDir() const;
-
-    [[nodiscard]] const std::string &getWorkDir() const;
-
-    // Check if verbose (trace-level) logging was requested
-
-    [[nodiscard]] bool isVerbose() const;
-
-    // Print usage information
-
-    static void printUsage(const char *programName);
-
-    // Print version information
-
+    static void printUsage();
     static void printVersion();
-
-private:
-    /// Apply the work directory to the output, plot and log paths.
-    void resolvePaths();
-
-    class Impl;
-    std::unique_ptr<Impl> pImpl;
 };
 
 }  // namespace ktplace

@@ -3,11 +3,10 @@
 
 #define BOOST_TEST_MODULE ktplace_util
 #define BOOST_TEST_DYN_LINK
+#include "util/kt_log.h"
+#include "util/kt_scopedTimer.h"
+
 #include <boost/test/unit_test.hpp>
-
-#include <sys/wait.h>
-#include <unistd.h>
-
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
@@ -15,9 +14,8 @@
 #include <iostream>
 #include <sstream>
 #include <string>
-
-#include "util/kt_log.h"
-#include "util/kt_scopedTimer.h"
+#include <sys/wait.h>
+#include <unistd.h>
 
 using namespace ktplace;
 namespace fs = std::filesystem;

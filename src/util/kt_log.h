@@ -3,16 +3,15 @@
 
 #pragma once
 
-#include <fmt/format.h>
-
 #include <cstddef>
 #include <cstdlib>
+#include <fmt/format.h>
 #include <fstream>
 #include <mutex>
 #include <string>
-#include <vector>
 #include <string_view>
 #include <utility>
+#include <vector>
 
 namespace ktplace {
 

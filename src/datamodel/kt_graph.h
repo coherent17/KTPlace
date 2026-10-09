@@ -4,10 +4,10 @@
 #pragma once
 
 #include <cstddef>
-#include <vector>
+#include <memory>
 #include <string>
 #include <unordered_map>
-#include <memory>
+#include <vector>
 
 namespace ktplace {
 

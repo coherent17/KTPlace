@@ -2,9 +2,10 @@
 
 
 #include "datamodel/kt_graph.h"
-#include <stdexcept>
-#include <cstdio>
+
 #include <algorithm>
+#include <cstdio>
+#include <stdexcept>
 
 namespace ktplace {
 

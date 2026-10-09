@@ -5,11 +5,9 @@
 #define BOOST_TEST_MODULE ktplace_constraint
 
 #include "constraint/kt_constraintMgr.h"
-
 #include "util/kt_log.h"
 
 #include <boost/test/included/unit_test.hpp>
-
 #include <string>
 #include <vector>
 

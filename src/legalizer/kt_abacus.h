@@ -3,14 +3,14 @@
 
 #pragma once
 
+#include "constraint/kt_constraintMgr.h"
+#include "datamodel/kt_dm.h"
+#include "visualization/kt_plotter.h"
+
 #include <cstddef>
 #include <memory>
 #include <string>
 #include <vector>
-
-#include "constraint/kt_constraintMgr.h"
-#include "datamodel/kt_dm.h"
-#include "visualization/kt_plotter.h"
 
 namespace ktplace {
 

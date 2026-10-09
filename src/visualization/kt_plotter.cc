@@ -10,10 +10,10 @@
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
-#include <map>
 #include <fstream>
 #include <iomanip>
 #include <limits>
+#include <map>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -26,7 +26,6 @@
 #define cimg_display 0
 #define cimg_verbosity 0
 #include "visualization/CImg.h"
-
 #include "visualization/kt_gif.h"
 
 #include <zlib.h>

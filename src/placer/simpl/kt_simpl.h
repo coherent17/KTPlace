@@ -3,12 +3,12 @@
 
 #pragma once
 
+#include "constraint/kt_constraintMgr.h"
+#include "datamodel/kt_dm.h"
+
 #include <cstddef>
 #include <memory>
 #include <string>
-
-#include "constraint/kt_constraintMgr.h"
-#include "datamodel/kt_dm.h"
 
 namespace ktplace {
 

@@ -5,21 +5,22 @@
 
 #include "util/kt_log.h"
 #include "util/kt_scopedTimer.h"
+
+#include <algorithm>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
-#include <algorithm>
-#include <cstring>
 #include <unordered_map>
 
 // Boost.Iostreams - transparent gzip input
-#include <boost/iostreams/filtering_stream.hpp>
-#include <boost/iostreams/filter/gzip.hpp>
 #include <boost/iostreams/device/file.hpp>
+#include <boost/iostreams/filter/gzip.hpp>
+#include <boost/iostreams/filtering_stream.hpp>
 
 // oneTBB - parallel parsing
-#include <oneapi/tbb/parallel_for.h>
 #include <oneapi/tbb/blocked_range.h>
+#include <oneapi/tbb/parallel_for.h>
 
 #ifdef _WIN32
 #include <io.h>
@@ -134,8 +135,10 @@ BookshelfInputAdapter::BookshelfInputAdapter(BookshelfInputAdapter &&) noexcept 
 BookshelfInputAdapter &BookshelfInputAdapter::operator=(BookshelfInputAdapter &&) noexcept =
     default;
 
-bool BookshelfInputAdapter::readFromDirectory(const std::string &baseName,
-                                              const std::string &dirPath) {
+bool BookshelfInputAdapter::readFromDirectory(const std::string &dirPath) {
+    // The design's files are named after the design, and the design after its
+    // directory, so one name covers all five.
+    const std::string baseName = std::filesystem::path(dirPath).filename().string();
     std::string nodesFile = dirPath + "/" + baseName + ".nodes";
     std::string netsFile = dirPath + "/" + baseName + ".nets";
     std::string plFile = dirPath + "/" + baseName + ".pl";

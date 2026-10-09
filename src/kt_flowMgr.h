@@ -3,9 +3,10 @@
 
 #pragma once
 
+#include "datamodel/kt_dm.h"
+
 #include <memory>
 #include <string>
-#include "datamodel/kt_dm.h"
 
 namespace ktplace {
 
@@ -32,9 +33,8 @@ public:
 
     // Run the complete placement flow// Executes the full placement flow: load input, run placement algorithm, write output.// All other operations are handled internally via the PIMPL implementation.// visualization snapshots (see SimplePlacer::place).
 
-    void run(const std::string &inputBaseName, const std::string &inputDirPath,
-             const std::string &outputPath, const std::string &algorithm = "simpl",
-             const std::string &outputFormat = "bookshelf", const std::string &plotDir = "");
+    void run(const std::string &inputDirPath, const std::string &outputPath,
+             const std::string &algorithm = "simpl", const std::string &plotDir = "");
 
 private:
     class Impl;

@@ -3,9 +3,8 @@
 
 #pragma once
 
-#include <fmt/format.h>
-
 #include <cstddef>
+#include <fmt/format.h>
 #include <string>
 #include <utility>
 #include <vector>

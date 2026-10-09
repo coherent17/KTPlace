@@ -3,6 +3,7 @@
 
 #include "placer/simpl/kt_simpl.h"
 
+#include "util/kt_log.h"
 #include "util/kt_scopedTimer.h"
 #include "visualization/kt_animator.h"
 
@@ -10,18 +11,16 @@
 #include <cassert>
 #include <cmath>
 #include <cstdint>
-#include <deque>
 #include <cstdlib>
+#include <deque>
 #include <filesystem>
 #include <fstream>
+#include <limits>
+#include <numeric>
 #include <oneapi/tbb/blocked_range.h>
 #include <oneapi/tbb/parallel_for.h>
 #include <oneapi/tbb/parallel_reduce.h>
-#include <limits>
-#include <numeric>
 #include <vector>
-
-#include "util/kt_log.h"
 
 
 namespace ktplace {

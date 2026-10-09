@@ -5,7 +5,6 @@
 #define BOOST_TEST_MODULE ktplace_detail
 
 #include "detailPlacer/kt_fastdp.h"
-
 #include "util/kt_log.h"
 
 #include <boost/test/included/unit_test.hpp>

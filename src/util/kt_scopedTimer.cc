@@ -2,6 +2,7 @@
 
 
 #include "util/kt_scopedTimer.h"
+
 #include "util/kt_reportTable.h"
 
 #include <ctime>

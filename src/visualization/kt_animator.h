@@ -4,6 +4,7 @@
 #pragma once
 
 #include "visualization/kt_plotter.h"
+
 #include <cstddef>
 #include <filesystem>
 #include <string>

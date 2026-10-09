@@ -5,21 +5,18 @@
 #define BOOST_TEST_DYN_LINK
 #include <boost/test/unit_test.hpp>
 // Death tests verify the ktlog::fatal paths, which end the process on purpose.
-#include <boost/test/unit_test_suite.hpp>
-
-#include <sys/wait.h>
-#include <unistd.h>
-
-#include <cstdio>
-#include <functional>
-
 #include "kt_flowMgr.h"
 
+#include <boost/test/unit_test_suite.hpp>
+#include <cstdio>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <sstream>
 #include <string>
+#include <sys/wait.h>
+#include <unistd.h>
 
 using namespace ktplace;
 namespace fs = std::filesystem;
@@ -49,6 +46,7 @@ public:
     }
 
     void write(const std::string &name, const std::string &content) const {
+        std::filesystem::create_directories(file(name).parent_path());
         std::ofstream out(file(name));
         BOOST_REQUIRE(out.is_open());
         out << content;
@@ -72,6 +70,12 @@ private:
 
 /// Four movable cells, a pad on each side, and two nets, so the solver has
 /// real work to do on a die that is large enough to spread into.
+/// The design lives in its own directory, because that directory's name is what
+/// the reader takes the design name from.
+std::filesystem::path designDir(const ScratchDir &dir) {
+    return dir.file("tiny");
+}
+
 void writeBookshelfDesign(const ScratchDir &dir) {
     std::string nodes = "UCLA nodes 1.0\n\nNumNodes : 6\nNumTerminals : 2\n\n";
     for (int i = 0; i < 4; ++i) {
@@ -79,7 +83,7 @@ void writeBookshelfDesign(const ScratchDir &dir) {
     }
     nodes += "\tpadA\t1.0\t2.0\tterminal\n";
     nodes += "\tpadB\t1.0\t2.0\tterminal\n";
-    dir.write("tiny.nodes", nodes);
+    dir.write("tiny/tiny.nodes", nodes);
 
     std::string nets = "UCLA nets 1.0\n\nNumNets : 2\nNumPins : 8\n\n";
     nets += "NetDegree : 4\tn0\n";
@@ -92,7 +96,7 @@ void writeBookshelfDesign(const ScratchDir &dir) {
     nets += "\tpadB O\t: 0.0\t0.0\n";
     nets += "\tc0 I\t: 0.0\t0.0\n";
     nets += "\tc1 O\t: 0.0\t0.0\n";
-    dir.write("tiny.nets", nets);
+    dir.write("tiny/tiny.nets", nets);
 
     std::string pl = "UCLA pl 1.0\n\n";
     for (int i = 0; i < 4; ++i) {
@@ -100,9 +104,9 @@ void writeBookshelfDesign(const ScratchDir &dir) {
     }
     pl += "padA\t0\t0 : N /FIXED\n";
     pl += "padB\t8\t0 : N /FIXED\n";
-    dir.write("tiny.pl", pl);
+    dir.write("tiny/tiny.pl", pl);
 
-    dir.write("tiny.scl", R"(UCLA scl 1.0
+    dir.write("tiny/tiny.scl", R"(UCLA scl 1.0
 
 NumRows : 1
 
@@ -176,7 +180,7 @@ BOOST_AUTO_TEST_CASE(flow_places_a_bookshelf_design_and_writes_pl) {
     const fs::path out = dir.file("result.pl");
 
     FlowMgr flow;
-    flow.run("tiny", dir.str(), out.string());
+    flow.run(designDir(dir).string(), out.string());
 
     BOOST_REQUIRE(fs::exists(out));
     // One record per cell vertex, terminals included.
@@ -189,7 +193,7 @@ BOOST_AUTO_TEST_CASE(flow_output_marks_pads_fixed_and_leaves_cells_movable) {
     const fs::path out = dir.file("result.pl");
 
     FlowMgr flow;
-    flow.run("tiny", dir.str(), out.string());
+    flow.run(designDir(dir).string(), out.string());
 
     const auto lines = [&] {
         std::ifstream in(out);
@@ -223,7 +227,7 @@ BOOST_AUTO_TEST_CASE(flow_writes_visualization_output_when_asked) {
     const fs::path plots = dir.file("plots");
 
     FlowMgr flow;
-    flow.run("tiny", dir.str(), out.string(), "simpl", "bookshelf", plots.string());
+    flow.run(designDir(dir).string(), out.string(), "simpl", plots.string());
 
     BOOST_REQUIRE(fs::exists(plots / "index.html"));
     // SimPL plots the LSS/HPWL bound it converges against, not the raw
@@ -302,7 +306,7 @@ END DESIGN
 
     FlowMgr flow;
     // Format auto-detection picks LEF/DEF because the directory holds a .def.
-    flow.run("floorplan", dir.str(), out.string());
+    flow.run(dir.str(), out.string());
 
     BOOST_REQUIRE(fs::exists(out));
     BOOST_TEST(countNonEmptyLines(out) == 4);  // 3 components + 1 pad
@@ -314,7 +318,7 @@ BOOST_AUTO_TEST_CASE(flow_moves_movable_cells_off_the_seed_point) {
     const fs::path out = dir.file("result.pl");
 
     FlowMgr flow;
-    flow.run("tiny", dir.str(), out.string());
+    flow.run(designDir(dir).string(), out.string());
 
     std::ifstream in(out);
     std::vector<std::pair<double, double>> positions;
@@ -348,7 +352,7 @@ BOOST_AUTO_TEST_CASE(flow_exits_on_an_unknown_algorithm) {
     expectFatalExit(
         [&] {
             FlowMgr flow;
-            flow.run("tiny", dir.str(), dir.file("x.pl").string(), "no_such_algo");
+            flow.run(designDir(dir).string(), dir.file("x.pl").string(), "no_such_algo");
         },
         "Unknown placement algorithm");
 }
@@ -358,7 +362,7 @@ BOOST_AUTO_TEST_CASE(flow_exits_when_the_input_directory_is_missing) {
     expectFatalExit(
         [&] {
             FlowMgr flow;
-            flow.run("absent", dir.str() + "/no_such_dir", dir.file("x.pl").string());
+            flow.run(dir.str() + "/no_such_dir", dir.file("x.pl").string());
         },
         "cannot scan input directory");
 }
@@ -370,7 +374,7 @@ BOOST_AUTO_TEST_CASE(flow_exits_when_the_design_files_are_missing) {
     expectFatalExit(
         [&] {
             FlowMgr flow;
-            flow.run("absent", dir.str(), dir.file("x.pl").string());
+            flow.run(dir.str(), dir.file("x.pl").string());
         },
         "cannot open the nodes file");
 }

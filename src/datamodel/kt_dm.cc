@@ -2,14 +2,16 @@
 
 
 #include "datamodel/kt_dm.h"
+
 #include "datamodel/kt_graph.h"
+
 #include <algorithm>
 #include <limits>
 #include <stdexcept>
 
 // oneTBB - parallel stats
-#include <oneapi/tbb/parallel_reduce.h>
 #include <oneapi/tbb/blocked_range.h>
+#include <oneapi/tbb/parallel_reduce.h>
 
 namespace ktplace {
 
