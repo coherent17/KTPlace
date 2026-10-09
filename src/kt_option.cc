@@ -50,6 +50,8 @@ bool kt_option::parse(int argc, char *argv[]) {
             workDir = value();
         } else if (arg == "-v" || arg == "--verbose") {
             verbose = true;
+        } else if (arg == "--no-plots") {
+            plot = false;
         } else {
             ktlog.echo("");
             printUsage();
@@ -92,13 +94,20 @@ Options:
   -a, --algorithm <name>    Placement algorithm (default: simpl)
   -w, --work-dir <dir>      Where to write everything; created if missing
                             (default: the current directory)
+  --no-plots                Draw nothing; skip every frame and picture
   -v, --verbose             Also send trace diagnostics to the console.
-                            <log>_trace.log is always written either way.
+                            <log>_trace.log is always written either way
+
+
   -h, --help                Show this help message
   -V, --version             Show version information
 
 Everything a run writes goes under the work directory: placed.pl, plots/, and
 ktplace.log. Logging goes to that file and stderr; stdout is never written to.
+
+The picture settings -- animation on or off, frame budget, zoom levels -- are
+defaults that the environment can override (KTPLACE_ANIM, KTPLACE_ANIM_MAX_FRAMES,
+KTPLACE_FINAL_ZOOM, ...), so tuning them does not need a flag each.
 
 Examples:
   ktplace benchmark/ISPD_2005/adaptec1

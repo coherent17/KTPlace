@@ -20,12 +20,16 @@ public:
     }
 
     std::string getPlotDir() const {
-        return (std::filesystem::path(workDir) / "plots").string();
+        return plot ? (std::filesystem::path(workDir) / "plots").string() : std::string();
     }
 
     std::string getLogFile() const {
         return (std::filesystem::path(workDir) / "ktplace.log").string();
     }
+
+    // Whether to draw at all. The picture settings themselves are defaults that
+    // the environment can override; see PlotOptions.
+    bool plot = true;
 
     bool parse(int argc, char *argv[]);
 

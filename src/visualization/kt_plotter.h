@@ -34,11 +34,6 @@ void writeFrameSvg(const std::string &path, const Graph &g, const std::vector<fl
                    const std::string &note, const constraintMgr *constraints = nullptr,
                    bool fixedView = false, bool worldUnits = false);
 
-// Write an HTML gallery page that embeds all frames and the curve.
-
-void writeGallery(const std::string &dir, const std::vector<std::string> &framePaths,
-                  const std::string &csvName);
-
 // Render one placement snapshot as a raster image, the CImg// counterpart of writeFrameSvg().// Draws the same layout as writeFrameSvg() using CImg instead of SVG markup.// The output format follows the extension of @p path, which is dispatched on:// ".ppm" and ".bmp" are written by CImg and need no external library, and// ".png" is written by this codebase on top of zlib, which it already links.// ".ppm" is the one to use for the animation: it is a binary P6 file, can be// read back losslessly -- unlike ".bmp" and ".png", which CImg writes but// cannot reliably load again here -- and frames named "frame_NNNN.ppm" are what// writeAnimatedGif() collects, so a run can stream stills to disk and only pay// for the animation once, at the end.// Every cell in the graph is drawn. There is no decimation: a frame that shows// some of the placement reads as the placer having lost the rest, and no design// is large enough for drawing all of its cells to be the expensive part.// frames shares one scale// drawing, the caption and the die frame all scale with it
 
 void writeFrameRaster(const std::string &path, const Graph &g, const std::vector<float> &x,

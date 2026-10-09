@@ -1515,39 +1515,4 @@ bool writeAnimatedGif(const std::string &dir, const std::string &gifName, int de
     }
     return true;
 }
-
-void writeGallery(const std::string &dir, const std::vector<std::string> &framePaths,
-                  const std::string &csvName) {
-    std::ofstream out((std::filesystem::path(dir) / "index.html").string());
-    if (!out.is_open()) {
-        return;
-    }
-    out << "<!DOCTYPE html>\n<html>\n<head>\n<meta charset=\"utf-8\">\n"
-        << "<title>KTPlace placement visualization</title>\n"
-        << "<style>\n"
-        << "body{font-family:sans-serif;margin:2em;background:#0b0f12;color:#ddd;}\n"
-        << "h1{color:#fff;}\n"
-        << ".curve img{max-width:920px;border:1px solid #333;}\n"
-        << ".frame{display:inline-block;margin:6px;}\n"
-        << ".frame img{max-width:360px;border:1px solid #333;background:#101418;}\n"
-        << ".frame div{font-size:12px;color:#9aa;}\n"
-        << "</style>\n</head>\n<body>\n"
-        << "<h1>KTPlace placement visualization</h1>\n"
-        << "<p>Snapshots taken during global placement. Movable cells in blue, fixed pads in red, "
-        << "dashed line = initial HPWL baseline. The yellow dashed curve is the density overflow; "
-        << "it dropping toward zero means cells spread across the die instead of piling up. "
-        << "Green hulls / pin-stars are a sampled net overlay: each rect is a chosen net's "
-        << "bounding box; the star lines join its pins to the net centroid, so long-span "
-        << "signals read at a glance. "
-        << "HPWL may rise at first as the spreading force opens up collapsed regions — that is "
-        << "expected for global placement (see README).</p>\n";
-    out << "<div class=\"curve\"><img src=\"hpwl.svg\" alt=\"HPWL curve\"></div>\n"
-        << "<p>Raw data: <a href=\"" << csvName << "\">" << csvName << "</a></p>\n";
-    for (const auto &f : framePaths) {
-        out << "<div class=\"frame\"><img src=\"" << f << "\"><div>" << f << "</div></div>\n";
-    }
-    out << "</body>\n</html>\n";
-    out.close();
-}
-
 }  // namespace ktplace

@@ -277,8 +277,11 @@ struct SimplParams {
     // --- run ----------------------------------------------------------------
     std::size_t maxIters = 100;
     /// Write an SVG frame every N global-placement iterations (0 = only the
-    /// final frame). Requires a snapshot directory.
-    std::size_t traceEvery = 0;
+    /// final frame). Requires a snapshot directory. One, because the animation is
+    /// mostly about watching global placement converge: with this off, the GIF was
+    /// almost entirely legalization and detailed placement, which are the two
+    /// stages that move the fewest cells.
+    std::size_t traceEvery = 1;
     /// Write a cell-placement SVG frame every N conjugate-gradient iterations
     /// inside each linear solve (0 = off). A full run produces thousands of
     /// ~4 MB frames, so enable this only for short debug runs
@@ -391,7 +394,7 @@ public:
     // database; enforceFences turns them off for a run that wants to measure what
     // they cost.
     SimplResult place(const SimplParams &params = {}, const std::string &plotDir = "",
-                      const std::string &snapshotDir = "", bool useFences = true);
+                      bool useFences = true);
 
 private:
     class Impl;

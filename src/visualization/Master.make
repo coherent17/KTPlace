@@ -21,7 +21,7 @@ OBJ_DIR ?= ../build/obj/visualization
 # build never tries to open an X11 display.
 
 # Source files in this directory
-SRCS := kt_plotter.cc kt_gif.cc kt_animator.cc
+SRCS := kt_plotter.cc kt_gif.cc kt_animator.cc kt_plotOptions.cc
 
 # Only include files that exist
 EXISTING_SRCS := $(foreach src,$(SRCS),$(if $(wildcard $(src)),$(src),))

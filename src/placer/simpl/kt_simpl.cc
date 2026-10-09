@@ -152,8 +152,7 @@ class SimplePlacer::Impl {
 public:
     explicit Impl(PlacementDB &db) : db_(db), graph_(db.getGraph()) {}
 
-    SimplResult run(const SimplParams &P, const std::string &plotDir,
-                    const std::string &snapshotDir, bool useFences);
+    SimplResult run(const SimplParams &P, const std::string &plotDir, bool useFences);
 
 private:
     // --- setup -------------------------------------------------------------
@@ -2459,7 +2458,7 @@ void SimplePlacer::Impl::densityStats(const std::vector<double> &px, const std::
 // ---------------------------------------------------------------------------
 
 SimplResult SimplePlacer::Impl::run(const SimplParams &P, const std::string &plotDir,
-                                    const std::string &snapshotDir, bool useFences) {
+                                    bool useFences) {
     par_ = P;
     // The design's own fences, unless the run asked to measure their cost.
     fences_ = useFences ? &db_.constraints() : nullptr;
@@ -2527,10 +2526,13 @@ SimplResult SimplePlacer::Impl::run(const SimplParams &P, const std::string &plo
             ktlog.fatal("KTPLACE_SIMPL_START must be one of: input, auto, uniform (got '{}')", v);
         }
     }
-    // Frame cadence. Per-CG-iteration frames are ~4 MB each on a 210k-cell
-    // design, so cgEvery defaults to 0 (off) and is meant for short debug runs.
+    // Frame cadence. Per-CG-iteration frames are large, so cgEvery defaults to 1
+    // and the animator thins rather than the solve skipping.
     if (const char *e = std::getenv("KTPLACE_SIMPL_CG_EVERY")) {
         par_.cgEvery = static_cast<std::size_t>(std::max(std::atoi(e), 0));
+    }
+    if (const char *e = std::getenv("KTPLACE_SIMPL_TRACE_EVERY")) {
+        par_.traceEvery = static_cast<std::size_t>(std::atoll(e));
     }
     if (const char *e = std::getenv("KTPLACE_SIMPL_DENSITY_MAPS")) {
         par_.densityMaps = std::atoi(e) != 0;
@@ -2558,28 +2560,16 @@ SimplResult SimplePlacer::Impl::run(const SimplParams &P, const std::string &plo
     }
     g_ = std::clamp(par_.densityLimit, 0.05, 1.0);
 
-    // Frames go to <plotDir>/simpl, NOT next to the output .pl. snapshotDir is
-    // derived from the output path, so a run writing to /tmp used to scatter its
-    // frames there and leave the work directory empty. Prefer the plot
-    // directory, which is always the work directory, and fall back to snapshotDir
-    // only when there is no plot directory at all.
-    if (!plotDir.empty()) {
-        frameDir_ = plotDir + "/simpl";
-    } else if (!snapshotDir.empty()) {
-        frameDir_ = snapshotDir;
-    } else {
-        frameDir_.clear();
-    }
+    // Frames go to <plotDir>/simpl. With no plot directory the run draws nothing,
+    // rather than falling back to the output's own directory.
+    frameDir_ = plotDir.empty() ? std::string() : plotDir + "/simpl";
     if (!frameDir_.empty() && (par_.traceEvery > 0 || par_.cgEvery > 0)) {
         ensureDir(frameDir_);
     }
-    // KTPLACE_ANIM=1 additionally writes a raster twin of every frame. The GIF
-    // itself is assembled by the flow once the legalizer and the detailed
-    // placer have added their frames, so that one animation covers the whole
-    // run instead of stopping at the end of global placement.
-    if (const char *e = std::getenv("KTPLACE_ANIM")) {
-        animEnabled_ = std::atoi(e) != 0;
-    }
+    // The GIF is assembled by the flow once the legalizer and the detailed
+    // placer have added their frames, so that one animation covers the whole run
+    // instead of stopping at the end of global placement.
+    animEnabled_ = PlacementAnimator::instance().enabled();
 
     // Scoped to collect() alone. Declared at function scope it stayed alive until
     // place() returned, so "simpl-setup" reported the whole run -- 32s of which
@@ -3272,7 +3262,6 @@ SimplResult SimplePlacer::Impl::run(const SimplParams &P, const std::string &plo
                 }
             }
             std::sort(svgs.begin(), svgs.end());
-            writeGallery(plotDir, svgs, "simpl_bounds.csv");
         } else {
             // Raster stills now live in the run's animation directory, not
             // beside the SVGs, so index them from there.
@@ -3289,7 +3278,6 @@ SimplResult SimplePlacer::Impl::run(const SimplParams &P, const std::string &plo
                 }
             }
             std::sort(stills.begin(), stills.end());
-            writeGallery(plotDir, stills, "simpl_bounds.csv");
         }
     }
 
@@ -3306,8 +3294,8 @@ SimplePlacer::SimplePlacer(SimplePlacer &&) noexcept = default;
 SimplePlacer &SimplePlacer::operator=(SimplePlacer &&) noexcept = default;
 
 SimplResult SimplePlacer::place(const SimplParams &params, const std::string &plotDir,
-                                const std::string &snapshotDir, bool useFences) {
-    return pImpl->run(params, plotDir, snapshotDir, useFences);
+                                bool useFences) {
+    return pImpl->run(params, plotDir, useFences);
 }
 
 void reportSimpl(const SimplResult &r) {

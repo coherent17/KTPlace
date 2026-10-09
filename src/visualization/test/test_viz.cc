@@ -532,22 +532,6 @@ BOOST_AUTO_TEST_CASE(a_raster_frame_is_a_binary_ppm_that_reads_back) {
     BOOST_TEST(bytes.size() - header > 3);
 }
 
-BOOST_AUTO_TEST_CASE(the_gallery_embeds_every_frame_and_the_curve) {
-    const ScratchDir dir("gallery");
-    writeGallery(dir.str(), {"frame_0000.svg", "frame_0001.svg"}, "hpwl.csv");
-    const std::string html = readAll(dir.file("index.html"));
-    BOOST_TEST(contains(html, "<html"));
-    BOOST_TEST(contains(html, "frame_0000.svg"));
-    BOOST_TEST(contains(html, "frame_0001.svg"));
-    BOOST_TEST(contains(html, "hpwl.csv"));
-}
-
-BOOST_AUTO_TEST_CASE(the_gallery_survives_an_empty_frame_list) {
-    const ScratchDir dir("galleryempty");
-    BOOST_CHECK_NO_THROW(writeGallery(dir.str(), {}, "hpwl.csv"));
-    BOOST_TEST(std::filesystem::exists(dir.file("index.html")));
-}
-
 BOOST_AUTO_TEST_CASE(frames_are_collected_in_numeric_not_lexicographic_order) {
     // frame_10 must not be played before frame_9. This is the one ordering bug
     // in a zero-padded naming scheme that a small test catches and a big run

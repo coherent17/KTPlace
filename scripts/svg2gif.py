@@ -5,7 +5,7 @@ Usage:
     scripts/svg2gif.py <plots_dir> [-o out.gif] [--fps N] [--scale S] [--max-frames N]
 
 The plots directory is the one KTPlace writes per iteration (the <name>_plots
-folder): it contains frame_step_000.svg, ... plus hpwl.csv and index.html.  All
+folder): it contains frame_step_000.svg, ... plus hpwl.csv.  All
 frame_step_*.svg files are converted to PNG with cairosvg and stitched into a
 looping GIF with Pillow.
 
