@@ -158,8 +158,8 @@ private:
 
 void FastDetailedPlacer::Impl::buildSpans() {
     spans_.clear();
-    std::vector<ktDM::RowInfo> rows = db_.getRows();
-    std::sort(rows.begin(), rows.end(), [](const ktDM::RowInfo &a, const ktDM::RowInfo &b) {
+    std::vector<RowInfo> rows = db_.getRows();
+    std::sort(rows.begin(), rows.end(), [](const RowInfo &a, const RowInfo &b) {
         return a.coordinate < b.coordinate;
     });
     // Free space per row, not the row itself. A span is what is actually empty
@@ -180,7 +180,7 @@ void FastDetailedPlacer::Impl::buildSpans() {
         // covers. Scanning all rows per cell was quadratic on a design with
         // 210k cells and 700 rows.
         const auto above = std::lower_bound(rows.begin(), rows.end(), vert.y + vert.height,
-                                            [](const ktDM::RowInfo &ri, double limit) {
+                                            [](const RowInfo &ri, double limit) {
                                                 return ri.coordinate + ri.height < limit;
                                             });
         for (auto it = above; it != rows.begin();) {
@@ -193,11 +193,11 @@ void FastDetailedPlacer::Impl::buildSpans() {
         }
     }
     for (std::size_t r = 0; r < rows.size(); ++r) {
-        const ktDM::RowInfo &ri = rows[r];
+        const RowInfo &ri = rows[r];
         const double site = ri.pitch() > 0.0 ? ri.pitch() : 1.0;
         std::vector<std::pair<double, double>> &obs = occupied[r];
         std::sort(obs.begin(), obs.end());
-        for (const ktDM::SubrowInfo &si : ri.subrows) {
+        for (const SubrowInfo &si : ri.subrows) {
             for (double lo = si.xlo(); lo < si.xhi(site) - 1e-9;) {
                 double hi = si.xhi(site);
                 // Each obstacle splits the run in two: stop just short of it, and

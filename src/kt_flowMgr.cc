@@ -245,7 +245,7 @@ std::size_t FlowMgr::Impl::multiRowCells() const {
     // The shortest row sets the bar: a cell taller than every row has no single
     // row to go in, and that is the case the row slicer exists for.
     double minHeight = std::numeric_limits<double>::max();
-    for (const ktDM::RowInfo &ri : db->getRows()) {
+    for (const RowInfo &ri : db->getRows()) {
         if (ri.height > 0.0 && !ri.subrows.empty()) {
             minHeight = std::min(minHeight, ri.height);
         }
@@ -376,7 +376,7 @@ void FlowMgr::Impl::finishAnimation() {
                 x[v] = static_cast<float>(g.getVertex(v).x);
                 y[v] = static_cast<float>(g.getVertex(v).y);
             }
-            const std::array<double, 4> die = placementDieBox(*db);
+            const std::array<double, 4> die = db->placementDieBox();
             for (std::size_t i = 0; i < plot.finalHold; ++i) {
                 animator.record(g, x, y, die, animator.frameCount(), animator.frameCount(),
                                 db->hpwl(), 0.0, 0.0, "final placement", nullptr,

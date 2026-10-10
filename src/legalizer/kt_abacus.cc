@@ -183,7 +183,7 @@ private:
 
 void AbacusLegalizer::Impl::buildRows() {
     rows_.clear();
-    for (const ktDM::RowInfo &ri : db_.getRows()) {
+    for (const RowInfo &ri : db_.getRows()) {
         RowTrack r;
         r.y = ri.coordinate;
         r.height = ri.height;
@@ -194,7 +194,7 @@ void AbacusLegalizer::Impl::buildRows() {
         // Each .scl subrow becomes a Subrow, trimmed by any fixed cell that
         // crosses the row's band, so a macro crossing a subrow shortens it
         // instead of being ignored.
-        for (const ktDM::SubrowInfo &si : ri.subrows) {
+        for (const SubrowInfo &si : ri.subrows) {
             if (!(si.xhi(r.siteWidth) > si.xlo())) {
                 continue;
             }

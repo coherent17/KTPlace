@@ -168,7 +168,7 @@ BOOST_AUTO_TEST_CASE(counts_rows) {
     BOOST_TEST(db.getNumRows() == 2);
 
     // The row geometry the legalizer and detailed placer depend on.
-    const std::vector<ktDM::RowInfo> rows = db.getRows();
+    const std::vector<RowInfo> rows = db.getRows();
     BOOST_REQUIRE(rows.size() == 2);
     BOOST_TEST(rows[0].coordinate == 0.0);
     BOOST_TEST(rows[0].height == 10.0);

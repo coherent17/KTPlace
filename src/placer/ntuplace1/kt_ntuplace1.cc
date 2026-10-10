@@ -71,7 +71,7 @@ private:
     // For each movable, the nets it is on, so a gain update does not rescan the
     // whole netlist.
     std::vector<std::vector<std::uint32_t>> cellNets_;
-    std::vector<ktDM::RowInfo> rows_;
+    std::vector<RowInfo> rows_;
     std::array<double, 4> die_{};
     std::vector<double> posX_, posY_;  // the answer, filled as the recursion ends
     RatioPlaceParams params_;
@@ -152,7 +152,7 @@ void RatioPlacer::Impl::build() {
         nets_.push_back(std::move(n));
     }
     rows_ = db_.getRows();
-    die_ = placementDieBox(db_);
+    die_ = db_.placementDieBox();
     res_.numMovable = mov_.size();
     res_.nets = nets_.size();
     for (std::size_t v = 0; v < nv; ++v) {
@@ -165,7 +165,7 @@ void RatioPlacer::Impl::build() {
 
 double RatioPlacer::Impl::rowAreaIn(double x0, double y0, double x1, double y1) const {
     double a = 0.0;
-    for (const ktDM::RowInfo &r : rows_) {
+    for (const RowInfo &r : rows_) {
         const double lo = std::max(x0, r.xlo());
         const double hi = std::min(x1, r.xhi());
         const double w = hi - lo;

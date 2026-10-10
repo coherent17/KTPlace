@@ -499,7 +499,7 @@ void SimplePlacer::Impl::buildGrid(const SimplParams &P) {
     // The region a cell may occupy, defined once in the datamodel and shared with
     // the legality check. See placementDieBox() there for why it is the union of
     // the fixed geometry, the declared die area and the rows.
-    const std::array<double, 4> dieBox = placementDieBox(db_);
+    const std::array<double, 4> dieBox = db_.placementDieBox();
     BBox die = BBox{dieBox[0], dieBox[1], dieBox[2], dieBox[3]};
     die_ = die;
     dieW_ = std::max(die[2] - die[0], 1e-9);
@@ -612,7 +612,7 @@ void SimplePlacer::Impl::buildGrid(const SimplParams &P) {
     // designs hid it because their rows are uniform, so the max and the min are the
     // same number.
     double ri_pitch_floor = std::numeric_limits<double>::max();
-    for (const ktDM::RowInfo &r : db_.getRows()) {
+    for (const RowInfo &r : db_.getRows()) {
         if (r.pitch() > 0.0 && r.height > 0.0) {
             ri_pitch_floor = std::min(ri_pitch_floor, r.pitch() * r.height);
         }
@@ -634,9 +634,9 @@ void SimplePlacer::Impl::buildGrid(const SimplParams &P) {
     // with each row times the x-extent of that row's subrows inside the bin,
     // summed over rows, less macro coverage.
     {
-        const std::vector<ktDM::RowInfo> rowInfo = db_.getRows();
+        const std::vector<RowInfo> rowInfo = db_.getRows();
         std::fill(grid_.avail.begin(), grid_.avail.end(), 0.0);
-        for (const ktDM::RowInfo &ri : rowInfo) {
+        for (const RowInfo &ri : rowInfo) {
             if (!(ri.pitch() > 0.0) || !(ri.height > 0.0)) {
                 continue;
             }
@@ -651,7 +651,7 @@ void SimplePlacer::Impl::buildGrid(const SimplParams &P) {
                 if (!(yOv > 0.0)) {
                     continue;
                 }
-                for (const ktDM::SubrowInfo &si : ri.subrows) {
+                for (const SubrowInfo &si : ri.subrows) {
                     if (!(si.xhi(ri.pitch()) > si.xlo())) {
                         continue;
                     }
@@ -704,13 +704,13 @@ void SimplePlacer::Impl::buildGrid(const SimplParams &P) {
         {
             std::size_t nrows = 0, nsub = 0, npos = 0;
             double siteSum = 0.0, maxSite = 0.0, minSite = 1e300;
-            for (const ktDM::RowInfo &r : db_.getRows()) {
+            for (const RowInfo &r : db_.getRows()) {
                 ++nrows;
                 nsub += r.subrows.size();
                 siteSum += r.pitch() * r.height;
                 maxSite = std::max(maxSite, r.pitch() * r.height);
                 minSite = std::min(minSite, r.pitch() * r.height);
-                for (const ktDM::SubrowInfo &si : r.subrows) {
+                for (const SubrowInfo &si : r.subrows) {
                     if (si.xhi(r.pitch()) > si.xlo()) {
                         ++npos;
                     }

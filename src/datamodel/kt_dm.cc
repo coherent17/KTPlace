@@ -161,47 +161,36 @@ bool ktDM::isCellFixed(const std::string &cellName) const {
 }
 
 std::size_t ktDM::addRow(double coordinate, double height, double sitewidth, double sitespacing) {
-    RowInfo row;
-    row.coordinate = coordinate;
-    row.height = height;
-    row.sitewidth = sitewidth;
-    row.sitespacing = sitespacing;
-
-    const std::size_t id = rows.size();
-    rows.push_back(row);
-    return id;
+    return dieInfo.addRow(coordinate, height, sitewidth, sitespacing);
 }
 
 std::size_t ktDM::addSubrow(std::size_t rowId, double originX, double numSites) {
-    if (rowId >= rows.size()) {
-        return static_cast<std::size_t>(-1);
-    }
-    rows[rowId].subrows.push_back(SubrowInfo{originX, numSites});
-    return rows[rowId].subrows.size() - 1;
+    return dieInfo.addSubrow(rowId, originX, numSites);
+}
+
+void ktDM::clear() {
+    graph.clear();
+    dieInfo.clear();
+}
+
+std::pair<std::size_t, std::size_t> ktDM::getStats() const {
+    return {getNumCells(), getNumNets()};
 }
 
 std::size_t ktDM::getNumRows() const {
-    return rows.size();
+    return dieInfo.getNumRows();
 }
 
-const std::vector<ktDM::RowInfo> &ktDM::getRows() const {
-    // By reference now. This used to rebuild the whole list on every call, from a
-    // private copy of the same structure, because a PIMPL kept the storage as a
-    // separate RowData that had to be converted to the public RowInfo to be
-    // returned. Eight stages call this per run; on adaptec1 it was 890 rows and
-    // their subrows allocated and copied each time.
-    return rows;
+const std::vector<RowInfo> &ktDM::getRows() const {
+    return dieInfo.getRows();
 }
 
 void ktDM::setDieArea(double xMin, double yMin, double xMax, double yMax) {
-    dieXMin = xMin;
-    dieYMin = yMin;
-    dieXMax = xMax;
-    dieYMax = yMax;
+    dieInfo.setDieArea(xMin, yMin, xMax, yMax);
 }
 
 std::pair<std::pair<double, double>, std::pair<double, double>> ktDM::getDieArea() const {
-    return {{dieXMin, dieYMin}, {dieXMax, dieYMax}};
+    return dieInfo.getDieArea();
 }
 
 const std::vector<std::size_t> &ktDM::getNetPins(std::size_t netId) const {
@@ -220,95 +209,21 @@ const std::vector<std::size_t> &ktDM::getCellPins(std::size_t cellId) const {
     return v.outEdges;  // Pins connect from cells as outgoing edges
 }
 
-void ktDM::clear() {
-    graph.clear();
-    rows.clear();
-    dieXMin = dieYMin = dieXMax = dieYMax = 0.0;
+const constraintMgr &ktDM::constraints() const {
+    return fences;
 }
 
-std::pair<std::size_t, std::size_t> ktDM::getStats() const {
-    return {getNumCells(), getNumNets()};
+std::array<double, 4> ktDM::placementDieBox() const {
+    return ktplace::placementDieBox(dieInfo, graph);
 }
 
-std::array<double, 4> placementDieBox(const ktDM &db) {
-    const Graph &g = db.getGraph();
-    // The fixed cells: the I/O pad ring bounds the die in a Bookshelf design.
-    double lo[2] = {std::numeric_limits<double>::max(), std::numeric_limits<double>::max()};
-    double hi[2] = {-std::numeric_limits<double>::max(), -std::numeric_limits<double>::max()};
-    const std::size_t nv = g.getNumVertices();
-    for (std::size_t v = 0; v < nv; ++v) {
-        const Vertex &vert = g.getVertex(v);
-        if (vert.type != VertexType::Cell) {
-            continue;
-        }
-        if (!vert.isFixed && !vert.isTerminal) {
-            continue;
-        }
-        lo[0] = std::min(lo[0], vert.x);
-        lo[1] = std::min(lo[1], vert.y);
-        hi[0] = std::max(hi[0], vert.x + std::max(vert.width, 1.0));
-        hi[1] = std::max(hi[1], vert.y + std::max(vert.height, 1.0));
-    }
-    std::array<double, 4> box{lo[0], lo[1], hi[0], hi[1]};
-    const bool haveFixed = (box[2] > box[0]) && (box[3] > box[1]);
-
-    // A declared die area, when the format carries one and it contains every
-    // fixed cell. A declared area that excludes a fixed cell is not describing
-    // the same die the pads describe, so it is not trusted.
-    const auto da = db.getDieArea();
-    if (da.second.first > da.first.first && da.second.second > da.first.second) {
-        bool contains = true;
-        for (std::size_t v = 0; v < nv; ++v) {
-            const Vertex &vert = g.getVertex(v);
-            if (vert.type != VertexType::Cell || !vert.isFixed) {
-                continue;
-            }
-            if (vert.x < da.first.first - 1.0 || vert.y < da.first.second - 1.0 ||
-                vert.x + vert.width > da.second.first + 1.0 ||
-                vert.y + vert.height > da.second.second + 1.0) {
-                contains = false;
-                break;
-            }
-        }
-        if (contains) {
-            box = {da.first.first, da.first.second, da.second.first, da.second.second};
-        }
-    }
-
-    // The rows, unioned in. A cell in a row is legal by definition of a row, and
-    // for adaptec3 the rows reach below the fixed cells, so a box without them
-    // excludes a row the legalizer is right to have used.
-    double rlo = std::numeric_limits<double>::max(), rhi = -std::numeric_limits<double>::max();
-    double blo = std::numeric_limits<double>::max(), bhi = -std::numeric_limits<double>::max();
-    bool anyRow = false;
-    for (const ktDM::RowInfo &ri : db.getRows()) {
-        if (!(ri.pitch() > 0.0)) {
-            continue;
-        }
-        rlo = std::min(rlo, ri.coordinate);
-        rhi = std::max(rhi, ri.coordinate + ri.height);
-        blo = std::min(blo, ri.xlo());
-        bhi = std::max(bhi, ri.xhi());
-        anyRow = true;
-    }
-    if (anyRow && (bhi > blo) && (rhi > rlo)) {
-        if (!haveFixed || !((box[2] > box[0]) && (box[3] > box[1]))) {
-            box = {blo, rlo, bhi, rhi};
-        } else {
-            box = {std::min(box[0], blo), std::min(box[1], rlo), std::max(box[2], bhi),
-                   std::max(box[3], rhi)};
-        }
-    }
-
-    if (!((box[2] > box[0]) && (box[3] > box[1]))) {
-        // Genuinely nothing to go on: a 1x1 box keeps every division downstream
-        // finite. The density grid in particular reports a utilisation of 1e13%
-        // on a zero-area die, which poisons the look-ahead legalizer.
-        return {0.0, 0.0, 1.0, 1.0};
-    }
-    return box;
+void ktDM::setConstraints(constraintMgr regions) {
+    fences = std::move(regions);
 }
 
+bool ktDM::hasFences() const {
+    return !fences.regions().empty();
+}
 
 ktDM::Utilisation ktDM::measureUtilisation() const {
     Utilisation u;
@@ -390,17 +305,6 @@ void ktDM::reportUtilisation() const {
     // when it picks the path.
 }
 
-const constraintMgr &ktDM::constraints() const {
-    return fences;
-}
-
-void ktDM::setConstraints(constraintMgr regions) {
-    fences = std::move(regions);
-}
-
-bool ktDM::hasFences() const {
-    return !fences.regions().empty();
-}
 
 void ktDM::report() const {
     const auto [numCells, numNets] = getStats();
@@ -439,13 +343,13 @@ std::vector<ktDM::Defect> ktDM::verify() const {
     // a legal placement: the placer spreads over the union of the fixed geometry
     // and the rows, so a checker built from the
     // fixed geometry alone fails every cell in a row that reaches past the pads.
-    const std::array<double, 4> box = placementDieBox(*this);
+    const std::array<double, 4> box = placementDieBox();
     std::size_t outOfDie = 0;
     std::size_t offFence = 0;
     const std::size_t nv = g.getNumVertices();
     // Row height, for deciding what counts as a tall cell below.
     double rowHeight = 0.0;
-    for (const ktDM::RowInfo &ri : getRows()) {
+    for (const RowInfo &ri : dieInfo.getRows()) {
         if (ri.height > rowHeight) {
             rowHeight = ri.height;
         }

@@ -135,7 +135,7 @@ private:
 
 void MultiRowLegalizer::Impl::buildTracks() {
     tracks_.clear();
-    for (const ktDM::RowInfo &ri : db_.getRows()) {
+    for (const RowInfo &ri : db_.getRows()) {
         if (!(ri.height > 0.0) || ri.subrows.empty()) {
             continue;
         }
@@ -143,7 +143,7 @@ void MultiRowLegalizer::Impl::buildTracks() {
         t.y = ri.coordinate;
         t.height = ri.height;
         t.pitch = ri.pitch();
-        for (const ktDM::SubrowInfo &si : ri.subrows) {
+        for (const SubrowInfo &si : ri.subrows) {
             Segment s;
             s.xlo = si.xlo();
             s.xhi = si.xhi(ri.pitch());
@@ -339,7 +339,7 @@ MultiRowLegalizeResult MultiRowLegalizer::Impl::run(const MultiRowLegalizeParams
     ScopedTimer timer("legalize");
     res.hpwlBefore = db_.hpwl();
 
-    const std::array<double, 4> box = placementDieBox(db_);
+    const std::array<double, 4> box = db_.placementDieBox();
     die_ = box;
     dieX0_ = box[0];
     dieY0_ = box[1];
