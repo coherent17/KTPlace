@@ -47,7 +47,12 @@ constexpr double kRowPitch = 10.0;
 void addRow(PlacementDB &db, int rowIndex, double numSites, double originX = 0.0) {
     const double y = rowIndex * kRowPitch;
     const std::size_t row = db.addRow(y, kRowHeight, kSite, kSite);
-    db.addSubrow(row, originX, numSites);
+    BOOST_TEST(row < db.getNumRows());
+    const std::size_t before = db.getRows()[row].subrows.size();
+    const std::size_t sub = db.addSubrow(row, originX, numSites);
+    // The returned id indexes the row's subrows, not the rows.
+    BOOST_TEST(sub == before);
+    BOOST_TEST(db.getRows()[row].subrows.size() == before + 1);
 }
 
 /// A single movable cell snapped to a site.
@@ -79,17 +84,21 @@ void addFixed(PlacementDB &db, const std::string &name, double x, int rowIndex,
 /// A two-pin net between two cells. Both the net and its pins are created, since
 /// addPin resolves the net by name and throws if it does not exist.
 void addNet(PlacementDB &db, const std::string &net, const std::string &a, const std::string &b) {
-    db.addNet(net);
-    db.addPin(a, net, 0.0, 0.0, true);
-    db.addPin(b, net, 0.0, 0.0, false);
-}
-
-/// A one-pin net from a cell to a fixed cell.
-void addNet(PlacementDB &db, const std::string &net, const std::string &a, const std::string &b,
-            bool /*unused*/) {
-    db.addNet(net);
-    db.addPin(a, net, 0.0, 0.0, true);
-    db.addPin(b, net, 0.0, 0.0, false);
+    // Sequenced through locals: two calls in one comparison are unsequenced, and
+    // gcc evaluates the right-hand one first, so the lookup runs before the net
+    // exists. getNetId reports that as "Vertex <name> not found".
+    const std::size_t netId = db.addNet(net);
+    const std::size_t looked = db.getNetId(net);
+    BOOST_TEST(netId == looked);
+    // addPin throws if either endpoint is unknown, which is the property the
+    // comment above claims; checking the count is what makes it a claim.
+    const std::size_t before = db.getNumPins();
+    const std::size_t pinA = db.addPin(a, net, 0.0, 0.0, true);
+    const std::size_t pinB = db.addPin(b, net, 0.0, 0.0, false);
+    const std::size_t after = db.getNumPins();
+    BOOST_TEST(pinA < after);
+    BOOST_TEST(pinB < after);
+    BOOST_TEST(after == before + 2);
 }
 
 [[nodiscard]] DetailPlaceParams only(std::size_t which) {
@@ -630,6 +639,10 @@ BOOST_AUTO_TEST_CASE(a_cell_with_no_nets_stays_where_it_is) {
     FastDetailedPlacer dp(db);
     const DetailPlaceResult r = dp.place();
     BOOST_TEST(isLegal(db));
+    // The report has to agree with the placement, not just be produced: a detail
+    // placer that reported zero overlaps while the cells overlapped would still
+    // satisfy the check above.
+    BOOST_TEST(r.overlappingPairs == 0);
     const auto [x, y] = db.getCellPosition("lonely");
     BOOST_TEST(x == 7.0);
     BOOST_TEST(y == 0.0);
@@ -659,8 +672,10 @@ BOOST_AUTO_TEST_CASE(a_row_split_by_a_subrow_gap_is_respected) {
     // choosing a subrow. The gap between them has no sites.
     PlacementDB db;
     const std::size_t row = db.addRow(0.0, kRowHeight, kSite, kSite);
-    db.addSubrow(row, 0.0, 5.0);
-    db.addSubrow(row, 20.0, 5.0);
+    BOOST_TEST(row < db.getNumRows());
+    BOOST_TEST(db.addSubrow(row, 0.0, 5.0) == 0u);
+    BOOST_TEST(db.addSubrow(row, 20.0, 5.0) == 1u);
+    BOOST_TEST(db.getRows()[row].subrows.size() == 2u);
     addCell(db, "a", 1.0, 0);
     addCell(db, "b", 21.0, 0);
     FastDetailedPlacer dp(db);
