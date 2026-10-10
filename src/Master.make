@@ -56,7 +56,12 @@ LOCAL_SRCS := kt_flowMgr.cc kt_place.cc kt_option.cc
 LOCAL_OBJS := $(LOCAL_SRCS:%.cc=$(OBJ_DIR)/%.o)
 
 # Get object files from subdirectories via their Master.make files
-SUBDIR_OBJS := $(foreach dir,$(SUBDIRS),$(shell $(MAKE) -s -C $(dir) -f Master.make objlist OBJ_DIR=$(OBJ_DIR)/$(dir)))
+# MAKEFLAGS is cleared for these. $(MAKE) inside $(shell ...) is not handed the
+# jobserver, so every one of them announced "jobserver unavailable: using -j1"
+# -- once per subdirectory, on every build. The target only echoes a list of
+# paths, so dropping -j along with the warning costs nothing. The builds
+# themselves go through the recipe at line 103, which does get the jobserver.
+SUBDIR_OBJS := $(foreach dir,$(SUBDIRS),$(shell MAKEFLAGS= $(MAKE) -s -C $(dir) -f Master.make objlist OBJ_DIR=$(OBJ_DIR)/$(dir)))
 
 # All object files
 ALL_OBJS := $(LOCAL_OBJS) $(SUBDIR_OBJS)
