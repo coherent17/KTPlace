@@ -242,7 +242,4 @@ BOOST_AUTO_TEST_CASE(ktDM_clear_resets_everything) {
     BOOST_TEST(db.getNumPins() == 0);
     BOOST_TEST(db.getNumRows() == 0);
     BOOST_TEST(db.getRows().empty());
-    const auto [cells, nets] = db.getStats();
-    BOOST_TEST(cells == 0);
-    BOOST_TEST(nets == 0);
 }

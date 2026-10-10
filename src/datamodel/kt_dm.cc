@@ -5,6 +5,7 @@
 
 #include "constraint/kt_constraintMgr.h"
 #include "datamodel/kt_graph.h"
+#include "datamodel/kt_solutionMgr.h"
 #include "util/kt_log.h"
 #include "util/kt_reportTable.h"
 
@@ -25,8 +26,8 @@ namespace ktplace {
 // ktDM implementation
 
 std::size_t ktDM::addCell(const std::string &name, double width, double height, bool isTerminal) {
-    std::size_t id = graph_.addVertex(VertexType::Cell, name);
-    Vertex &v = graph_.getVertex(id);
+    std::size_t id = graph.addVertex(VertexType::Cell, name);
+    Vertex &v = graph.getVertex(id);
     v.width = width;
     v.height = height;
     v.isTerminal = isTerminal;
@@ -34,24 +35,24 @@ std::size_t ktDM::addCell(const std::string &name, double width, double height, 
 }
 
 bool ktDM::hasCell(const std::string &name) const {
-    return graph_.hasVertex(name) &&
-           graph_.getVertexType(graph_.getVertexId(name)) == VertexType::Cell;
+    return graph.hasVertex(name) &&
+           graph.getVertexType(graph.getVertexId(name)) == VertexType::Cell;
 }
 
 std::size_t ktDM::getCellId(const std::string &name) const {
-    std::size_t id = graph_.getVertexId(name);
-    if (graph_.getVertexType(id) != VertexType::Cell) {
+    std::size_t id = graph.getVertexId(name);
+    if (graph.getVertexType(id) != VertexType::Cell) {
         throw std::runtime_error(name + " is not a cell");
     }
     return id;
 }
 
 std::size_t ktDM::getNumCells() const {
-    return graph_.getNumVertices(VertexType::Cell);
+    return graph.getNumVertices(VertexType::Cell);
 }
 
 std::size_t ktDM::getNumTerminals() const {
-    const Graph &g = graph_;
+    const Graph &g = graph;
     return tbb::parallel_reduce(
         tbb::blocked_range<std::size_t>(0, g.getNumVertices()), std::size_t(0),
         [&](const tbb::blocked_range<std::size_t> &r, std::size_t acc) {
@@ -69,27 +70,26 @@ std::size_t ktDM::getNumTerminals() const {
 }
 
 std::size_t ktDM::addNet(const std::string &name, double weight) {
-    std::size_t id = graph_.addVertex(VertexType::Net, name);
-    Vertex &v = graph_.getVertex(id);
+    std::size_t id = graph.addVertex(VertexType::Net, name);
+    Vertex &v = graph.getVertex(id);
     v.weight = weight;
     return id;
 }
 
 bool ktDM::hasNet(const std::string &name) const {
-    return graph_.hasVertex(name) &&
-           graph_.getVertexType(graph_.getVertexId(name)) == VertexType::Net;
+    return graph.hasVertex(name) && graph.getVertexType(graph.getVertexId(name)) == VertexType::Net;
 }
 
 std::size_t ktDM::getNetId(const std::string &name) const {
-    std::size_t id = graph_.getVertexId(name);
-    if (graph_.getVertexType(id) != VertexType::Net) {
+    std::size_t id = graph.getVertexId(name);
+    if (graph.getVertexType(id) != VertexType::Net) {
         throw std::runtime_error(name + " is not a net");
     }
     return id;
 }
 
 std::size_t ktDM::getNumNets() const {
-    return graph_.getNumVertices(VertexType::Net);
+    return graph.getNumVertices(VertexType::Net);
 }
 
 std::size_t ktDM::addPin(const std::string &cellName, const std::string &netName, double offsetX,
@@ -98,9 +98,9 @@ std::size_t ktDM::addPin(const std::string &cellName, const std::string &netName
     std::size_t netId = getNetId(netName);
 
     PinDirection dir = isInput ? PinDirection::Input : PinDirection::Output;
-    std::size_t edgeId = graph_.addEdge(cellId, netId, dir);
+    std::size_t edgeId = graph.addEdge(cellId, netId, dir);
 
-    Edge &e = graph_.getEdge(edgeId);
+    Edge &e = graph.getEdge(edgeId);
     e.offsetX = offsetX;
     e.offsetY = offsetY;
 
@@ -108,11 +108,11 @@ std::size_t ktDM::addPin(const std::string &cellName, const std::string &netName
 }
 
 std::size_t ktDM::getNumPins() const {
-    return graph_.getNumEdges();
+    return graph.getNumEdges();
 }
 
 void ktDM::setCellPosition(std::size_t cellId, double x, double y) {
-    Vertex &v = graph_.getVertex(cellId);
+    Vertex &v = graph.getVertex(cellId);
     if (v.type != VertexType::Cell) {
         throw std::runtime_error("Invalid cell ID");
     }
@@ -125,7 +125,7 @@ void ktDM::setCellPosition(const std::string &cellName, double x, double y) {
 }
 
 std::pair<double, double> ktDM::getCellPosition(std::size_t cellId) const {
-    const Vertex &v = graph_.getVertex(cellId);
+    const Vertex &v = graph.getVertex(cellId);
     if (v.type != VertexType::Cell) {
         throw std::runtime_error("Invalid cell ID");
     }
@@ -137,7 +137,7 @@ std::pair<double, double> ktDM::getCellPosition(const std::string &cellName) con
 }
 
 void ktDM::setCellFixed(std::size_t cellId, bool fixed) {
-    Vertex &v = graph_.getVertex(cellId);
+    Vertex &v = graph.getVertex(cellId);
     if (v.type != VertexType::Cell) {
         throw std::runtime_error("Invalid cell ID");
     }
@@ -149,7 +149,7 @@ void ktDM::setCellFixed(const std::string &cellName, bool fixed) {
 }
 
 bool ktDM::isCellFixed(std::size_t cellId) const {
-    const Vertex &v = graph_.getVertex(cellId);
+    const Vertex &v = graph.getVertex(cellId);
     if (v.type != VertexType::Cell) {
         throw std::runtime_error("Invalid cell ID");
     }
@@ -167,21 +167,21 @@ std::size_t ktDM::addRow(double coordinate, double height, double sitewidth, dou
     row.sitewidth = sitewidth;
     row.sitespacing = sitespacing;
 
-    const std::size_t id = rows_.size();
-    rows_.push_back(row);
+    const std::size_t id = rows.size();
+    rows.push_back(row);
     return id;
 }
 
 std::size_t ktDM::addSubrow(std::size_t rowId, double originX, double numSites) {
-    if (rowId >= rows_.size()) {
+    if (rowId >= rows.size()) {
         return static_cast<std::size_t>(-1);
     }
-    rows_[rowId].subrows.push_back(SubrowInfo{originX, numSites});
-    return rows_[rowId].subrows.size() - 1;
+    rows[rowId].subrows.push_back(SubrowInfo{originX, numSites});
+    return rows[rowId].subrows.size() - 1;
 }
 
 std::size_t ktDM::getNumRows() const {
-    return rows_.size();
+    return rows.size();
 }
 
 const std::vector<ktDM::RowInfo> &ktDM::getRows() const {
@@ -190,22 +190,22 @@ const std::vector<ktDM::RowInfo> &ktDM::getRows() const {
     // separate RowData that had to be converted to the public RowInfo to be
     // returned. Eight stages call this per run; on adaptec1 it was 890 rows and
     // their subrows allocated and copied each time.
-    return rows_;
+    return rows;
 }
 
 void ktDM::setDieArea(double xMin, double yMin, double xMax, double yMax) {
-    dieXMin_ = xMin;
-    dieYMin_ = yMin;
-    dieXMax_ = xMax;
-    dieYMax_ = yMax;
+    dieXMin = xMin;
+    dieYMin = yMin;
+    dieXMax = xMax;
+    dieYMax = yMax;
 }
 
 std::pair<std::pair<double, double>, std::pair<double, double>> ktDM::getDieArea() const {
-    return {{dieXMin_, dieYMin_}, {dieXMax_, dieYMax_}};
+    return {{dieXMin, dieYMin}, {dieXMax, dieYMax}};
 }
 
 const std::vector<std::size_t> &ktDM::getNetPins(std::size_t netId) const {
-    const Vertex &v = graph_.getVertex(netId);
+    const Vertex &v = graph.getVertex(netId);
     if (v.type != VertexType::Net) {
         throw std::runtime_error("Invalid net ID");
     }
@@ -213,7 +213,7 @@ const std::vector<std::size_t> &ktDM::getNetPins(std::size_t netId) const {
 }
 
 const std::vector<std::size_t> &ktDM::getCellPins(std::size_t cellId) const {
-    const Vertex &v = graph_.getVertex(cellId);
+    const Vertex &v = graph.getVertex(cellId);
     if (v.type != VertexType::Cell) {
         throw std::runtime_error("Invalid cell ID");
     }
@@ -221,9 +221,9 @@ const std::vector<std::size_t> &ktDM::getCellPins(std::size_t cellId) const {
 }
 
 void ktDM::clear() {
-    graph_.clear();
-    rows_.clear();
-    dieXMin_ = dieYMin_ = dieXMax_ = dieYMax_ = 0.0;
+    graph.clear();
+    rows.clear();
+    dieXMin = dieYMin = dieXMax = dieYMax = 0.0;
 }
 
 std::pair<std::size_t, std::size_t> ktDM::getStats() const {
@@ -391,15 +391,15 @@ void ktDM::reportUtilisation() const {
 }
 
 const constraintMgr &ktDM::constraints() const {
-    return fences_;
+    return fences;
 }
 
-void ktDM::setConstraints(constraintMgr fences) {
-    fences_ = std::move(fences);
+void ktDM::setConstraints(constraintMgr regions) {
+    fences = std::move(regions);
 }
 
 bool ktDM::hasFences() const {
-    return !fences_.regions().empty();
+    return !fences.regions().empty();
 }
 
 void ktDM::report() const {
@@ -485,8 +485,8 @@ std::vector<ktDM::Defect> ktDM::verify() const {
             }
             // "Tall" against the rows, not an absolute height: a cell more than
             // four rows high cannot be found by a standard-cell-sized bin.
-            const double rows = rowHeight > 0.0 ? vert.height / rowHeight : vert.height;
-            if (rows > 4.0) {
+            const double tall = rowHeight > 0.0 ? vert.height / rowHeight : vert.height;
+            if (tall > 4.0) {
                 ++nTall;
                 continue;
             }
@@ -512,8 +512,8 @@ std::vector<ktDM::Defect> ktDM::verify() const {
             if (vert.type != VertexType::Cell) {
                 continue;
             }
-            const double rows = rowHeight > 0.0 ? vert.height / rowHeight : vert.height;
-            if (rows > 4.0) {
+            const double tall = rowHeight > 0.0 ? vert.height / rowHeight : vert.height;
+            if (tall > 4.0) {
                 tallCells.push_back(v);
                 isTall[v] = 1;
                 continue;
@@ -592,32 +592,20 @@ std::vector<ktDM::Defect> ktDM::verify() const {
     return defects;
 }
 
+void ktDM::setPlacementSolution(const solutionMgr &solution) {
+    solution.commitTo(graph);
+}
+
+solutionMgr ktDM::getPlacementSolution() const {
+    return solutionMgr::fromGraph(graph);
+}
+
 double ktDM::hpwl() const {
-    const Graph &g = getGraph();
-    double total = 0.0;
-    for (std::size_t v = 0; v < g.getNumVertices(); ++v) {
-        const Vertex &net = g.getVertex(v);
-        if (net.type != VertexType::Net || net.inEdges.size() < 2) {
-            continue;
-        }
-        double x0 = std::numeric_limits<double>::max();
-        double x1 = -std::numeric_limits<double>::max();
-        double y0 = std::numeric_limits<double>::max();
-        double y1 = -std::numeric_limits<double>::max();
-        for (const std::size_t eid : net.inEdges) {
-            const Edge &e = g.getEdge(eid);
-            const Vertex &pin = g.getVertex(e.source);
-            if (pin.type != VertexType::Cell) {
-                continue;
-            }
-            x0 = std::min(x0, pin.x + e.offsetX);
-            x1 = std::max(x1, pin.x + e.offsetX + pin.width);
-            y0 = std::min(y0, pin.y + e.offsetY);
-            y1 = std::max(y1, pin.y + e.offsetY + pin.height);
-        }
-        total += (x1 - x0) + (y1 - y0);
-    }
-    return total;
+    // The one HPWL, in kt_solution.cc. This used to be a second implementation of
+    // the same arithmetic, alongside the ones in SimplePlacer and FastDP; it is
+    // now the same call they all make, over the positions as committed.
+    const solutionMgr sol = getPlacementSolution();
+    return netlistHPWL(graph, sol.xs(), sol.ys());
 }
 
 }  // namespace ktplace

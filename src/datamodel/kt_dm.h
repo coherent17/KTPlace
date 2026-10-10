@@ -19,6 +19,8 @@ namespace ktplace {
 // die box and the placement regions the design declared. A placement stage reads
 // this and derives whatever structures it needs; it does not add to it.
 
+class solutionMgr;
+
 class ktDM {
 public:
     // The destructor and the move operations used to be declared because the PIMPL
@@ -62,6 +64,17 @@ public:
 
     // Hands the design's fences over, for a reader that has just parsed them.
     void setConstraints(constraintMgr fences);
+
+    /// Accept a placement a stage produced. The only way a stage's result reaches
+    /// the design.
+    ///
+    /// Named for what it carries rather than `setPositions`, because it is the
+    /// whole of a stage's output, and the naming is what makes the flow read as
+    /// stage -> solution -> commit.
+    void setPlacementSolution(const solutionMgr &solution);
+
+    /// The positions as they stand, for handing to a stage.
+    [[nodiscard]] solutionMgr getPlacementSolution() const;
 
     // Cell management
     [[nodiscard]] std::size_t addCell(const std::string &name, double width, double height,
@@ -159,17 +172,14 @@ public:
     // the readers, which annotate cells while building the database (for
     // example stamping a placement region onto each cell).
     [[nodiscard]] Graph &getGraph() {
-        return graph_;
+        return graph;
     }
     [[nodiscard]] const Graph &getGraph() const {
-        return graph_;
+        return graph;
     }
 
     // Clear all data
     void clear();
-
-    // Statistics
-    [[nodiscard]] std::pair<std::size_t, std::size_t> getStats() const;
 
     // Movable demand against the rows, which decides whether the design fits.
     // Fixed cells already occupy the rows rather than compete for them, so their
@@ -183,8 +193,6 @@ public:
         std::size_t cells = 0;
     };
 
-    [[nodiscard]] Utilisation measureUtilisation() const;
-
     // How the design loaded: what it contains, and what placement it shipped with.
     void report() const;
 
@@ -196,6 +204,15 @@ public:
     // (numCells, numNets)
 
 private:
+    /// (cell count, net count). Only report() needs it; the tests that want the
+    /// counts ask getNumCells() and getNumNets() directly, which is what they
+    /// mean.
+    [[nodiscard]] std::pair<std::size_t, std::size_t> getStats() const;
+
+    /// Movable demand against the rows. Only reportUtilisation() needs it.
+    [[nodiscard]] Utilisation measureUtilisation() const;
+
+
     // No PIMPL. It was there to keep Graph and constraintMgr out of this header,
     // and it never managed that: getGraph() returns a Graph& and constraints()
     // returns a constraintMgr&, so both had to be complete types at every call
@@ -204,13 +221,13 @@ private:
     // copy of the row structure, RowData, that had to be converted into the
     // public RowInfo on every getRows() call. Both are gone: this header includes
     // the two types it hands out by reference, and stores RowInfo directly.
-    Graph graph_;
-    std::vector<RowInfo> rows_;
-    double dieXMin_ = 0.0;
-    double dieYMin_ = 0.0;
-    double dieXMax_ = 0.0;
-    double dieYMax_ = 0.0;
-    constraintMgr fences_;
+    Graph graph;
+    std::vector<RowInfo> rows;
+    double dieXMin = 0.0;
+    double dieYMin = 0.0;
+    double dieXMax = 0.0;
+    double dieYMax = 0.0;
+    constraintMgr fences;
 };
 
 // The region a movable cell is allowed to occupy: {xMin, yMin, xMax, yMax}.// One definition, shared by the placer and by the legality check, because the two// disagreeing is how a legal placement gets reported as illegal. It is the union// of three statements about the region, each of which may be absent:// - the bounding box of the fixed cells, which in a Bookshelf design is the I/O// pad ring and is usually a good approximation of the die;// - the declared die area, when the format carries one and it contains every// fixed cell;// - the rows, which are the authoritative statement of where a cell may go.// The rows are unioned in rather than used only as a fallback, because for adaptec3// they reach past the fixed cells -- its rows start at y=58 while its fixed cells// start at y=82 -- so a box built from the fixed cells alone excludes the bottom// row, and every cell the legalizer correctly put in that row is then reported as// outside the die.
