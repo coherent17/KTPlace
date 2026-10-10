@@ -739,4 +739,67 @@ BOOST_AUTO_TEST_CASE(the_placer_is_not_copyable) {
     BOOST_TEST(true);
 }
 
+BOOST_AUTO_TEST_CASE(failed_vertical_swap_restores_the_row_the_cell_is_in) {
+    // A cell that has already swapped rows in this pass, then tries a second swap
+    // that fails only at its landing y, must stay in the row it swapped into.
+    // The trial used to restore y from the row the cell started the pass in, so
+    // its geometry went back to the old row while the spans held it in the new
+    // one -- an overlap no per-span check could see.
+    //
+    // The second trial can only fail at its landing y if the blockage does not
+    // also cut the span. One that reaches the end of a row is such a blockage:
+    // the span builder skips an obstacle that runs to the end of the free run,
+    // and leaves it to the per-y blockage test. A movable cell taller than a row
+    // is left in place as such a blockage.
+    PlacementDB db;
+    for (int r = 0; r < 4; ++r) {
+        addRow(db, r, 100);
+    }
+    // Zero-size pads on row boundaries: they pull on nets without blocking.
+    const auto pad = [&](const std::string &name, double x, double y) {
+        const std::size_t id = db.addCell(name, 0.0, 0.0, /*isTerminal=*/true);
+        db.setCellPosition(id, x, y);
+        db.setCellFixed(id, true);
+    };
+    addCell(db, "c", 50.0, 1, 3.0);  // processed first: the cell under test
+    addCell(db, "d1", 96.0, 0);      // first partner, in the row below
+    addCell(db, "d2", 95.0, 2);      // second partner, in the row above
+    addCell(db, "e", 98.0, 1);       // sits where c lands if y is restored wrongly
+    // Two rows tall, at the right end of rows 2-3 (x 97..100). c (3 wide) at
+    // x 95 in row 2 hits it; d2 (1 wide) at x 96 in row 1 does not.
+    const std::size_t tall = db.addCell("tall", 3.0, 2.0 * kRowHeight);
+    db.setCellPosition(tall, 97.0, 2.0 * kRowPitch);
+    pad("p1", 97.0, 0.0);   // c wants row 0 near x 97
+    pad("p2", 51.0, 10.0);  // d1 wants row 1 near x 51
+    pad("p3", 96.0, 10.0);  // d2 wants row 1 near x 96, strongly
+    addNet(db, "nc", "c", "p1");
+    addNet(db, "nd1", "d1", "p2");
+    for (int k = 0; k < 4; ++k) {
+        addNet(db, "nd2_" + std::to_string(k), "d2", "p3");
+    }
+
+    FastDetailedPlacer dp(db);
+    const DetailPlaceResult r = dp.place(only(1));
+    BOOST_TEST(r.verticalSwaps >= 1u);
+
+    // c swapped into row 0 and its failed second trial must leave it there.
+    const auto [cx, cy] = db.getCellPosition("c");
+    BOOST_TEST(cy == 0.0, "c at y=" << cy << ", expected row 0");
+    // No two single-row movable cells overlap, checked over the cell arrays
+    // rather than per span.
+    const std::vector<std::pair<std::string, double>> cells = {
+        {"c", 3.0}, {"d1", 1.0}, {"d2", 1.0}, {"e", 1.0}};
+    for (std::size_t i = 0; i < cells.size(); ++i) {
+        for (std::size_t j = i + 1; j < cells.size(); ++j) {
+            const auto [xi, yi] = db.getCellPosition(cells[i].first);
+            const auto [xj, yj] = db.getCellPosition(cells[j].first);
+            const bool disjoint = xi + cells[i].second <= xj + 1e-9 ||
+                                  xj + cells[j].second <= xi + 1e-9 ||
+                                  yi + kRowHeight <= yj + 1e-9 || yj + kRowHeight <= yi + 1e-9;
+            BOOST_TEST(disjoint, cells[i].first << " overlaps " << cells[j].first);
+        }
+    }
+    (void)cx;
+}
+
 BOOST_AUTO_TEST_SUITE_END()
