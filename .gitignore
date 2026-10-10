@@ -60,12 +60,16 @@ benchmark/ICCAD04/*
 # Editor / OS noise
 *.swp
 .DS_Store
+.claude
+.opencode
+logs/
 
 # Local editor tooling (kept out of the repo)
 .cursorrules
 # Development notes are ignored; the curated write-ups are tracked.
 docs/*
 !docs/simpl.md
+!docs/docker.md
 ref/
 *.whl
 
