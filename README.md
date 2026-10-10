@@ -43,7 +43,8 @@ docker compose up -d        # the same without bash, e.g. from PowerShell
 ```
 
 `docker build -t ktplace .` builds and unit-tests a copy of the tree the way CI
-does.
+does. [docs/docker.md](docs/docker.md) covers the rest: running commands, the
+web console, settings and troubleshooting.
 
 ## Usage
 
