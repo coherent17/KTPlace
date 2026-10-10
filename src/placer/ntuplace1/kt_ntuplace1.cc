@@ -64,7 +64,7 @@ private:
     void writeFrame(std::size_t depth, const char *note) const;
 
     ktDM &db_;
-    Graph graph_;
+    Graph &graph_;
     std::vector<std::uint32_t> mov_;  // movable, non-terminal vertex ids
     std::vector<double> area_;        // area of each movable
     std::vector<HyperNet> nets_;
@@ -82,10 +82,10 @@ private:
 };
 
 void RatioPlacer::Impl::build() {
-    const std::size_t nv = graph_.getNumVertices();
+    const std::size_t nv = graph_.getNumCells();
     for (std::size_t v = 0; v < nv; ++v) {
-        const Vertex &vert = graph_.getVertex(v);
-        if (vert.type != VertexType::Cell || vert.isFixed || vert.isTerminal) {
+        const Vertex &vert = graph_.getCell(v);
+        if (vert.isFixed || vert.isTerminal) {
             continue;
         }
         mov_.push_back(static_cast<std::uint32_t>(v));
@@ -101,26 +101,19 @@ void RatioPlacer::Impl::build() {
 
     nets_.clear();
     cellNets_.assign(mov_.size(), {});
-    for (std::size_t v = 0; v < nv; ++v) {
-        const Vertex &vert = graph_.getVertex(v);
-        if (vert.type != VertexType::Net) {
-            continue;
-        }
+    for (std::size_t n0 = 0; n0 < graph_.getNumNets(); ++n0) {
         HyperNet n;
         double fx0 = 0, fx1 = 0, fy0 = 0, fy1 = 0;
         std::size_t nfix = 0;
-        for (const std::size_t eid : vert.inEdges) {
-            const Edge &e = graph_.getEdge(eid);
-            const Vertex &pin = graph_.getVertex(e.source);
-            if (pin.type != VertexType::Cell) {
-                continue;
-            }
-            const bool isMovable = !pin.isFixed && !pin.isTerminal;
-            if (!isMovable || indexOf[e.source] == kNoIndex) {
-                const double x0 = pin.x + e.offsetX;
-                const double y0 = pin.y + e.offsetY;
-                const double x1 = x0 + pin.width;
-                const double y1 = y0 + pin.height;
+        for (const std::size_t pinId : graph_.getNetPins(n0)) {
+            const Pin &pin = graph_.getPin(pinId);
+            const Vertex &cell = graph_.getCell(pin.cellId);
+            const bool isMovable = !cell.isFixed && !cell.isTerminal;
+            if (!isMovable || indexOf[pin.cellId] == kNoIndex) {
+                const double x0 = cell.x + pin.offsetX;
+                const double y0 = cell.y + pin.offsetY;
+                const double x1 = x0 + cell.width;
+                const double y1 = y0 + cell.height;
                 if (nfix == 0) {
                     fx0 = x0;
                     fx1 = x1;
@@ -135,7 +128,7 @@ void RatioPlacer::Impl::build() {
                 ++nfix;
                 continue;
             }
-            n.cells.push_back(indexOf[e.source]);
+            n.cells.push_back(indexOf[pin.cellId]);
         }
         if (n.cells.size() < 2) {
             continue;  // a single movable pin is not a net the cut can sever
@@ -156,8 +149,8 @@ void RatioPlacer::Impl::build() {
     res_.numMovable = mov_.size();
     res_.nets = nets_.size();
     for (std::size_t v = 0; v < nv; ++v) {
-        const Vertex &vert = graph_.getVertex(v);
-        if (vert.type == VertexType::Cell && vert.isFixed && !vert.isTerminal) {
+        const Vertex &vert = graph_.getCell(v);
+        if (vert.isFixed && !vert.isTerminal) {
             ++res_.numFixed;
         }
     }
@@ -189,10 +182,10 @@ double RatioPlacer::Impl::rowAreaIn(double x0, double y0, double x1, double y1) 
 
 double RatioPlacer::Impl::fixedAreaIn(double x0, double y0, double x1, double y1) const {
     double a = 0.0;
-    const std::size_t nv = graph_.getNumVertices();
+    const std::size_t nv = graph_.getNumCells();
     for (std::size_t v = 0; v < nv; ++v) {
-        const Vertex &vert = graph_.getVertex(v);
-        if (vert.type != VertexType::Cell || !vert.isFixed || vert.isTerminal) {
+        const Vertex &vert = graph_.getCell(v);
+        if (!vert.isFixed || vert.isTerminal) {
             continue;
         }
         const double ox = std::max(0.0, std::min(x1, vert.x + vert.width) - std::max(x0, vert.x));
@@ -230,7 +223,7 @@ bool RatioPlacer::Impl::legalizable(const RatioRegion &r) const {
     }
     double tallest = 0.0;
     for (const std::uint32_t c : r.cells) {
-        tallest = std::max(tallest, graph_.getVertex(mov_[c]).height);
+        tallest = std::max(tallest, graph_.getCell(mov_[c]).height);
     }
     if (tallest > 0.0) {
         const double rowH = rows_.empty() ? tallest : rows_.front().height;
@@ -462,11 +455,11 @@ void RatioPlacer::Impl::writeFrame(std::size_t depth, const char *note) const {
     if (params_.plotDir.empty()) {
         return;
     }
-    std::vector<float> xs(graph_.getNumVertices(), 0.0f);
-    std::vector<float> ys(graph_.getNumVertices(), 0.0f);
-    for (std::size_t v = 0; v < graph_.getNumVertices(); ++v) {
-        xs[v] = static_cast<float>(graph_.getVertex(v).x);
-        ys[v] = static_cast<float>(graph_.getVertex(v).y);
+    std::vector<float> xs(graph_.getNumCells(), 0.0f);
+    std::vector<float> ys(graph_.getNumCells(), 0.0f);
+    for (std::size_t v = 0; v < graph_.getNumCells(); ++v) {
+        xs[v] = static_cast<float>(graph_.getCell(v).x);
+        ys[v] = static_cast<float>(graph_.getCell(v).y);
     }
     for (std::size_t i = 0; i < mov_.size(); ++i) {
         xs[mov_[i]] = static_cast<float>(posX_[i]);
@@ -598,7 +591,7 @@ RatioPlaceResult RatioPlacer::Impl::place(const RatioPlaceParams &params) {
     divide(std::move(root));
 
     for (std::size_t i = 0; i < mov_.size(); ++i) {
-        const Vertex &v = graph_.getVertex(mov_[i]);
+        const Vertex &v = graph_.getCell(mov_[i]);
         db_.setCellPosition(mov_[i], posX_[i], std::min(posY_[i], die_[3] - v.height));
     }
 
@@ -612,7 +605,7 @@ RatioPlaceResult RatioPlacer::Impl::place(const RatioPlaceParams &params) {
         double ax = 0, bx = 0, ay = 0, by = 0;
         bool first = true;
         for (const std::uint32_t c : n.cells) {
-            const Vertex &v = graph_.getVertex(mov_[c]);
+            const Vertex &v = graph_.getCell(mov_[c]);
             const double x0 = posX_[c], y0 = posY_[c];
             const double x1 = x0 + v.width, y1 = y0 + v.height;
             if (first) {

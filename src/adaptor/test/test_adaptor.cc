@@ -181,11 +181,11 @@ BOOST_AUTO_TEST_CASE(reads_cell_geometry_and_terminal_flag) {
 
     ktDM &db = adapter.getDM();
     const Graph &g = db.getGraph();
-    const Vertex &c1 = g.getVertex(db.getCellId("c1"));
+    const Vertex &c1 = g.getCell(db.getCellId("c1"));
     BOOST_TEST(c1.width == 3.0);
     BOOST_TEST(c1.height == 2.0);
     BOOST_TEST(!c1.isTerminal);
-    BOOST_TEST(g.getVertex(db.getCellId("pad0")).isTerminal);
+    BOOST_TEST(g.getCell(db.getCellId("pad0")).isTerminal);
 }
 
 BOOST_AUTO_TEST_CASE(placement_file_marks_pads_fixed) {
@@ -273,11 +273,11 @@ BOOST_AUTO_TEST_CASE(scales_lef_microns_by_the_def_units) {
     ktDM &db = adapter.getDM();
     const Graph &g = db.getGraph();
     // SIZE 10.000 BY 20.000 microns at 1000 units per micron.
-    const Vertex &macro = g.getVertex(db.getCellId("m1"));
+    const Vertex &macro = g.getCell(db.getCellId("m1"));
     BOOST_TEST(macro.width == 10000.0);
     BOOST_TEST(macro.height == 20000.0);
     // SIZE 0.200 BY 0.900 microns.
-    const Vertex &std = g.getVertex(db.getCellId("u1"));
+    const Vertex &std = g.getCell(db.getCellId("u1"));
     BOOST_TEST(std.width == 200.0);
     BOOST_TEST(std.height == 900.0);
 }

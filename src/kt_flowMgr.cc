@@ -256,10 +256,9 @@ std::size_t FlowMgr::Impl::multiRowCells() const {
     const double tall = minHeight * 1.5;
     const Graph &g = db->getGraph();
     std::size_t n = 0;
-    for (std::size_t v = 0; v < g.getNumVertices(); ++v) {
-        const Vertex &vert = g.getVertex(v);
-        if (vert.type == VertexType::Cell && !vert.isFixed && !vert.isTerminal &&
-            vert.height > tall) {
+    for (std::size_t v = 0; v < g.getNumCells(); ++v) {
+        const Vertex &vert = g.getCell(v);
+        if (!vert.isFixed && !vert.isTerminal && vert.height > tall) {
             ++n;
         }
     }
@@ -370,11 +369,11 @@ void FlowMgr::Impl::finishAnimation() {
         if (plot.finalHold > 0 && db) {
             auto &animator = PlacementAnimator::instance();
             const Graph &g = db->getGraph();
-            std::vector<float> x(g.getNumVertices());
-            std::vector<float> y(g.getNumVertices());
-            for (std::size_t v = 0; v < g.getNumVertices(); ++v) {
-                x[v] = static_cast<float>(g.getVertex(v).x);
-                y[v] = static_cast<float>(g.getVertex(v).y);
+            std::vector<float> x(g.getNumCells());
+            std::vector<float> y(g.getNumCells());
+            for (std::size_t v = 0; v < g.getNumCells(); ++v) {
+                x[v] = static_cast<float>(g.getCell(v).x);
+                y[v] = static_cast<float>(g.getCell(v).y);
             }
             const std::array<double, 4> die = db->placementDieBox();
             for (std::size_t i = 0; i < plot.finalHold; ++i) {
@@ -408,12 +407,9 @@ void FlowMgr::Impl::writeDesign(const std::string &outputPath) {
     // placement-region boundary. Keep enough digits to round-trip.
     out << std::setprecision(10);
     const Graph &g = db->getGraph();
-    const std::size_t nv = g.getNumVertices();
+    const std::size_t nv = g.getNumCells();
     for (std::size_t v = 0; v < nv; ++v) {
-        const Vertex &vert = g.getVertex(v);
-        if (vert.type != VertexType::Cell) {
-            continue;
-        }
+        const Vertex &vert = g.getCell(v);
         // Bookshelf .pl: "<name> <x> <y> : <orientation>"
         out << vert.name << '\t' << vert.x << '\t' << vert.y
             << "\t: " << (vert.isFixed ? "N /FIXED" : "N") << '\n';

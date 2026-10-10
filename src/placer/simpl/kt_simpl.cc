@@ -372,47 +372,15 @@ private:
 // ---------------------------------------------------------------------------
 
 void SimplePlacer::Impl::collect() {
-    nv_ = graph_.getNumVertices();
+    nv_ = graph_.getNumCells();
+    const std::size_t nn = graph_.getNumNets();
 
     varOfVertex_.assign(nv_, kNoVar);
-    std::vector<NetInfo> nets(nv_);
-    std::size_t netCount = 0;
+    std::vector<NetInfo> nets(nn);
 
+    // Cells first: which are fixed blockages, and which are the solve's variables.
     for (std::size_t v = 0; v < nv_; ++v) {
-        const Vertex &vert = graph_.getVertex(v);
-        if (vert.type == VertexType::Net) {
-            ++netCount;
-            NetInfo &ni = nets[v];
-            ni.weight = vert.weight;
-            ni.cell.reserve(vert.inEdges.size());
-            for (const std::size_t eid : vert.inEdges) {
-                const Edge &e = graph_.getEdge(eid);
-                ni.cell.push_back(e.source);
-                ni.offX.push_back(e.offsetX);
-                ni.offY.push_back(e.offsetY);
-            }
-            // Sort by cell, then drop repeated pins on one cell, keeping the
-            // offsets aligned. A cell listed twice on a net must contribute
-            // once, or the B2B degree k and the clique expansion are both wrong.
-            std::vector<std::uint32_t> order(ni.cell.size());
-            std::iota(order.begin(), order.end(), 0u);
-            std::sort(order.begin(), order.end(), [&](std::uint32_t a, std::uint32_t b) {
-                return ni.cell[a] < ni.cell[b];
-            });
-            NetInfo dedup;
-            dedup.weight = ni.weight;
-            dedup.cell.reserve(order.size());
-            for (const std::uint32_t oi : order) {
-                if (!dedup.cell.empty() && dedup.cell.back() == ni.cell[oi]) {
-                    continue;
-                }
-                dedup.cell.push_back(ni.cell[oi]);
-                dedup.offX.push_back(ni.offX[oi]);
-                dedup.offY.push_back(ni.offY[oi]);
-            }
-            nets[v] = std::move(dedup);
-            continue;
-        }
+        const Vertex &vert = graph_.getCell(v);
         if (vert.isFixed || vert.isTerminal) {
             fixVertex_.push_back(static_cast<std::uint32_t>(v));
             continue;
@@ -428,9 +396,44 @@ void SimplePlacer::Impl::collect() {
         areaMovW_.push_back(vert.width);
         areaMovH_.push_back(vert.height);
     }
+
+    // Then nets, each with the cells its pins reach.
+    for (std::size_t n = 0; n < nn; ++n) {
+        NetInfo &ni = nets[n];
+        ni.weight = graph_.getNet(n).weight;
+        const std::vector<std::size_t> &pins = graph_.getNetPins(n);
+        ni.cell.reserve(pins.size());
+        for (const std::size_t pinId : pins) {
+            const Pin &pin = graph_.getPin(pinId);
+            ni.cell.push_back(static_cast<std::uint32_t>(pin.cellId));
+            ni.offX.push_back(pin.offsetX);
+            ni.offY.push_back(pin.offsetY);
+        }
+        // Sort by cell, then drop repeated pins on one cell, keeping the offsets
+        // aligned. A cell listed twice on a net must contribute once, or the B2B
+        // degree k and the clique expansion are both wrong.
+        std::vector<std::uint32_t> order(ni.cell.size());
+        std::iota(order.begin(), order.end(), 0u);
+        std::sort(order.begin(), order.end(), [&](std::uint32_t a, std::uint32_t b) {
+            return ni.cell[a] < ni.cell[b];
+        });
+        NetInfo dedup;
+        dedup.weight = ni.weight;
+        dedup.cell.reserve(order.size());
+        for (const std::uint32_t oi : order) {
+            if (!dedup.cell.empty() && dedup.cell.back() == ni.cell[oi]) {
+                continue;
+            }
+            dedup.cell.push_back(ni.cell[oi]);
+            dedup.offX.push_back(ni.offX[oi]);
+            dedup.offY.push_back(ni.offY[oi]);
+        }
+        nets[n] = std::move(dedup);
+    }
+
     res_.numMovable = numMovable_;
     res_.numFixed = fixVertex_.size();
-    res_.nets = netCount;
+    res_.nets = nn;
     nets_ = std::move(nets);
 
     // Net-degree shape and pin totals. A design that is nearly all 2-pin nets
@@ -443,10 +446,7 @@ void SimplePlacer::Impl::collect() {
         std::size_t twoPin = 0, multiPin = 0, singlePin = 0, pins = 0, maxDeg = 0;
         double weightSum = 0.0, weightMin = std::numeric_limits<double>::max();
         double weightMax = -std::numeric_limits<double>::max();
-        for (std::size_t v = 0; v < nv_; ++v) {
-            if (graph_.getVertex(v).type != VertexType::Net) {
-                continue;
-            }
+        for (std::size_t v = 0; v < nets_.size(); ++v) {
             const NetInfo &ni = nets_[v];
             const std::size_t k = ni.cell.size();
             pins += k;
@@ -462,11 +462,11 @@ void SimplePlacer::Impl::collect() {
                 ++multiPin;
             }
         }
-        const double invN = 1.0 / static_cast<double>(std::max(netCount, std::size_t{1}));
+        const double invN = 1.0 / static_cast<double>(std::max(nn, std::size_t{1}));
         ktlog.trace(
             "nets: {} total, {} single-pin, {} two-pin ({:.1f}%), {} multi-pin ({:.1f}%), "
             "max degree {}, {:.1f} pins/net; weight mean {:.4g} range [{:.4g},{:.4g}]",
-            netCount, singlePin, twoPin, 100.0 * static_cast<double>(twoPin) * invN, multiPin,
+            nn, singlePin, twoPin, 100.0 * static_cast<double>(twoPin) * invN, multiPin,
             100.0 * static_cast<double>(multiPin) * invN, maxDeg, static_cast<double>(pins) * invN,
             weightSum * invN, weightMin, weightMax);
     }
@@ -488,8 +488,8 @@ void SimplePlacer::Impl::collect() {
     vx_.assign(nv_, 0.0);
     vy_.assign(nv_, 0.0);
     for (std::size_t v = 0; v < nv_; ++v) {
-        vx_[v] = graph_.getVertex(v).x;
-        vy_[v] = graph_.getVertex(v).y;
+        vx_[v] = graph_.getCell(v).x;
+        vy_[v] = graph_.getCell(v).y;
     }
 }
 
@@ -513,7 +513,7 @@ void SimplePlacer::Impl::buildGrid(const SimplParams &P) {
     double sumH = 0.0;
     std::size_t cnt = 0;
     for (const std::uint32_t v : movVertex_) {
-        const Vertex &vert = graph_.getVertex(v);
+        const Vertex &vert = graph_.getCell(v);
         sumW += vert.width;
         sumH += vert.height;
         ++cnt;
@@ -577,7 +577,7 @@ void SimplePlacer::Impl::buildGrid(const SimplParams &P) {
         grid_.avail[k] = grid_.binArea;
     }
     for (const std::uint32_t v : fixVertex_) {
-        const Vertex &vert = graph_.getVertex(v);
+        const Vertex &vert = graph_.getCell(v);
         if (!(vert.width > 0.0) || !(vert.height > 0.0)) {
             continue;
         }
@@ -673,7 +673,7 @@ void SimplePlacer::Impl::buildGrid(const SimplParams &P) {
         // Subtract macro coverage, then clamp: a bin with no room left must be
         // exactly zero, never a sliver.
         for (const std::uint32_t fv : fixVertex_) {
-            const Vertex &vert = graph_.getVertex(fv);
+            const Vertex &vert = graph_.getCell(fv);
             if (!(vert.width > 0.0) || !(vert.height > 0.0)) {
                 continue;
             }
@@ -828,7 +828,7 @@ void SimplePlacer::Impl::buildB2B(const std::vector<double> &px, const std::vect
             // both fixed: a constant, no derivative.
         };
 
-        for (std::size_t v = 0; v < nv_; ++v) {
+        for (std::size_t v = 0; v < nets_.size(); ++v) {
             const NetInfo &ni = nets_[v];
             const std::size_t k = ni.cell.size();
             if (k < 2) {
@@ -1190,7 +1190,7 @@ double SimplePlacer::Impl::hpwl(const std::vector<double> &px,
         cy[movVertex_[i]] = py[i];
     }
     double total = 0.0;
-    for (std::size_t v = 0; v < nv_; ++v) {
+    for (std::size_t v = 0; v < nets_.size(); ++v) {
         const NetInfo &ni = nets_[v];
         if (ni.cell.size() < 2) {
             continue;
@@ -1285,7 +1285,7 @@ void SimplePlacer::Impl::nonlinearScale(const std::vector<std::uint32_t> &cells,
     bounds.push_back(a0);
     bounds.push_back(a1 + 1);
     for (const std::uint32_t fv : fixVertex_) {
-        const Vertex &vert = graph_.getVertex(fv);
+        const Vertex &vert = graph_.getCell(fv);
         if (!(vert.width > 0.0) || !(vert.height > 0.0)) {
             continue;
         }
@@ -1911,7 +1911,7 @@ void SimplePlacer::Impl::lookAheadLegalize() {
         std::size_t onMacro = 0;
         for (std::size_t i = 0; i < numMovable_; ++i) {
             for (const std::uint32_t fv : fixVertex_) {
-                const Vertex &fv2 = graph_.getVertex(fv);
+                const Vertex &fv2 = graph_.getCell(fv);
                 if (pinX_[i] < vx_[fv] + fv2.width && pinX_[i] + areaMovW_[i] > vx_[fv] &&
                     pinY_[i] < vy_[fv] + fv2.height && pinY_[i] + areaMovH_[i] > vy_[fv]) {
                     ++onMacro;
@@ -2311,7 +2311,7 @@ void SimplePlacer::Impl::writeDensityMap(const std::string &path, const std::vec
     }
     // Fixed macros, outlined, so blockage is distinguishable from legal space.
     for (const std::uint32_t fv : fixVertex_) {
-        const Vertex &vert = graph_.getVertex(fv);
+        const Vertex &vert = graph_.getCell(fv);
         if (!(vert.width > 0.0) || !(vert.height > 0.0)) {
             continue;
         }
@@ -2545,7 +2545,7 @@ SimplResult SimplePlacer::Impl::run(const SimplParams &P, const std::string &plo
         movRegion_.assign(numMovable_, constraintMgr::kNoRegion);
         if (fences_ != nullptr) {
             for (std::size_t i = 0; i < numMovable_; ++i) {
-                movRegion_[i] = graph_.getVertex(movVertex_[i]).regionId;
+                movRegion_[i] = graph_.getCell(movVertex_[i]).regionId;
             }
         }
     }  // "simpl-setup"

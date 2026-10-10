@@ -90,9 +90,10 @@ public:
 
     [[nodiscard]] std::array<double, 4> placementDieBox() const;
 
-    // Net access
     [[nodiscard]] const std::vector<std::size_t> &getNetPins(std::size_t netId) const;
     [[nodiscard]] const std::vector<std::size_t> &getCellPins(std::size_t cellId) const;
+
+    /// Pin ids are what these return, not vertex ids.
 
     [[nodiscard]] Graph &getGraph() {
         return graph;

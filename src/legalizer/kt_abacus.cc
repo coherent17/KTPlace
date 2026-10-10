@@ -434,24 +434,24 @@ void AbacusLegalizer::Impl::rollback(Subrow &sr, RowUndo undo) {
 double AbacusLegalizer::Impl::hpwlOf(const std::vector<double> &x,
                                      const std::vector<double> &y) const {
     double total = 0.0;
-    for (std::size_t v = 0; v < graph_.getNumVertices(); ++v) {
-        const Vertex &vert = graph_.getVertex(v);
-        if (vert.type != VertexType::Net || vert.inEdges.empty()) {
+    for (std::size_t n = 0; n < graph_.getNumNets(); ++n) {
+        const std::vector<std::size_t> &pins = graph_.getNetPins(n);
+        if (pins.empty()) {
             continue;
         }
         double ax = std::numeric_limits<double>::max(), bx = -std::numeric_limits<double>::max();
         double ay = std::numeric_limits<double>::max(), by = -std::numeric_limits<double>::max();
-        for (const std::size_t eid : vert.inEdges) {
-            const Edge &e = graph_.getEdge(eid);
-            const auto it = slotOf_.find(e.source);
+        for (const std::size_t pinId : pins) {
+            const Pin &pin = graph_.getPin(pinId);
+            const auto it = slotOf_.find(pin.cellId);
             double cx = 0.0, cy = 0.0;
             if (it != slotOf_.end()) {
-                cx = x[it->second] + e.offsetX;
-                cy = y[it->second] + e.offsetY;
+                cx = x[it->second] + pin.offsetX;
+                cy = y[it->second] + pin.offsetY;
             } else {
-                const Vertex &c = graph_.getVertex(e.source);
-                cx = c.x + e.offsetX;
-                cy = c.y + e.offsetY;
+                const Vertex &c = graph_.getCell(pin.cellId);
+                cx = c.x + pin.offsetX;
+                cy = c.y + pin.offsetY;
             }
             ax = std::min(ax, cx);
             bx = std::max(bx, cx);
@@ -465,10 +465,10 @@ double AbacusLegalizer::Impl::hpwlOf(const std::vector<double> &x,
 
 void AbacusLegalizer::Impl::writeFrame(const std::string &path, const std::string &note,
                                        std::size_t step, std::size_t total) const {
-    const std::size_t nv = graph_.getNumVertices();
+    const std::size_t nv = graph_.getNumCells();
     std::vector<float> fx(nv), fy(nv);
     for (std::size_t v = 0; v < nv; ++v) {
-        const Vertex &vert = graph_.getVertex(v);
+        const Vertex &vert = graph_.getCell(v);
         fx[v] = static_cast<float>(vert.x);
         fy[v] = static_cast<float>(vert.y);
     }
@@ -582,9 +582,9 @@ LegalizeResult AbacusLegalizer::Impl::run(const LegalizeParams &params) {
     ScopedTimer timer("legalize");
     constraints_ = &db_.constraints();
 
-    for (std::size_t v = 0; v < graph_.getNumVertices(); ++v) {
-        const Vertex &vert = graph_.getVertex(v);
-        if (vert.type != VertexType::Cell || vert.isFixed || vert.isTerminal) {
+    for (std::size_t v = 0; v < graph_.getNumCells(); ++v) {
+        const Vertex &vert = graph_.getCell(v);
+        if (vert.isFixed || vert.isTerminal) {
             continue;
         }
         const std::size_t slot = mov_.size();
@@ -603,9 +603,9 @@ LegalizeResult AbacusLegalizer::Impl::run(const LegalizeParams &params) {
     }
     res.hpwlBefore = hpwlOf(xs_, ys_);
 
-    for (std::size_t v = 0; v < graph_.getNumVertices(); ++v) {
-        const Vertex &vert = graph_.getVertex(v);
-        if (vert.type != VertexType::Cell || !vert.isFixed) {
+    for (std::size_t v = 0; v < graph_.getNumCells(); ++v) {
+        const Vertex &vert = graph_.getCell(v);
+        if (!vert.isFixed) {
             continue;
         }
         fixed_.push_back(FixedBox{vert.y, vert.y + vert.height, vert.x, vert.x + vert.width});

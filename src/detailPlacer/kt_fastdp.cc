@@ -170,9 +170,9 @@ void FastDetailedPlacer::Impl::buildSpans() {
     // still reports as one full subrow, and on ibm01 that mismatch is what left
     // the detail placer placing two cells on top of each other.
     std::vector<std::vector<std::pair<double, double>>> occupied(rows.size());
-    for (std::size_t v = 0; v < graph_.getNumVertices(); ++v) {
-        const Vertex &vert = graph_.getVertex(v);
-        if (vert.type != VertexType::Cell || vert.width <= 0.0 || vert.height <= 0.0) {
+    for (std::size_t v = 0; v < graph_.getNumCells(); ++v) {
+        const Vertex &vert = graph_.getCell(v);
+        if (vert.width <= 0.0 || vert.height <= 0.0) {
             continue;
         }
         // Rows are sorted, so start at the first row whose top reaches past the
@@ -347,26 +347,22 @@ void FastDetailedPlacer::Impl::removeFromSpan(std::size_t c) {
 }
 
 void FastDetailedPlacer::Impl::buildNetlist() {
-    std::vector<std::size_t> slotOf(graph_.getNumVertices(), kNoSlot);
+    std::vector<std::size_t> slotOf(graph_.getNumCells(), kNoSlot);
     for (std::size_t i = 0; i < mov_.size(); ++i) {
         slotOf[mov_[i]] = i;
     }
-    netPins_.assign(graph_.getNumVertices(), {});
+    netPins_.assign(graph_.getNumNets(), {});
     cellNets_.assign(mov_.size(), {});
-    for (std::size_t v = 0; v < graph_.getNumVertices(); ++v) {
-        const Vertex &vert = graph_.getVertex(v);
-        if (vert.type != VertexType::Net) {
-            continue;
-        }
-        for (const std::size_t eid : vert.inEdges) {
-            const Edge &e = graph_.getEdge(eid);
-            const std::size_t s = slotOf[e.source];
-            const Vertex &c = graph_.getVertex(e.source);
+    for (std::size_t n = 0; n < graph_.getNumNets(); ++n) {
+        for (const std::size_t pinId : graph_.getNetPins(n)) {
+            const Pin &pin = graph_.getPin(pinId);
+            const std::size_t s = slotOf[pin.cellId];
+            const Vertex &c = graph_.getCell(pin.cellId);
             if (s == kNoSlot) {
-                netPins_[v].push_back(NetPin{kNoSlot, e.offsetX, e.offsetY, c.x + e.offsetX});
+                netPins_[n].push_back(NetPin{kNoSlot, pin.offsetX, pin.offsetY, c.x + pin.offsetX});
             } else {
-                netPins_[v].push_back(NetPin{s, e.offsetX, e.offsetY, 0.0});
-                cellNets_[s].push_back(v);
+                netPins_[n].push_back(NetPin{s, pin.offsetX, pin.offsetY, 0.0});
+                cellNets_[s].push_back(n);
             }
         }
     }
@@ -1112,11 +1108,11 @@ std::size_t FastDetailedPlacer::Impl::singleSegmentCluster() {
 }
 
 void FastDetailedPlacer::Impl::writeFrame(const std::string &path, const char *note) const {
-    const std::size_t nv = graph_.getNumVertices();
+    const std::size_t nv = graph_.getNumCells();
     std::vector<float> fx(nv), fy(nv);
     for (std::size_t v = 0; v < nv; ++v) {
-        fx[v] = static_cast<float>(graph_.getVertex(v).x);
-        fy[v] = static_cast<float>(graph_.getVertex(v).y);
+        fx[v] = static_cast<float>(graph_.getCell(v).x);
+        fy[v] = static_cast<float>(graph_.getCell(v).y);
     }
     for (std::size_t i = 0; i < mov_.size(); ++i) {
         fx[mov_[i]] = static_cast<float>(x_[i]);
@@ -1267,12 +1263,12 @@ DetailPlaceResult FastDetailedPlacer::Impl::place(const DetailPlaceParams &param
         rowHeight = 1.0;
     }
 
-    for (std::size_t v = 0; v < graph_.getNumVertices(); ++v) {
-        const Vertex &vert = graph_.getVertex(v);
-        if (vert.type == VertexType::Cell && vert.isFixed) {
+    for (std::size_t v = 0; v < graph_.getNumCells(); ++v) {
+        const Vertex &vert = graph_.getCell(v);
+        if (vert.isFixed) {
             fixed_.push_back(FixedBox{vert.y, vert.y + vert.height, vert.x, vert.x + vert.width});
         }
-        if (vert.type != VertexType::Cell || vert.isFixed || vert.isTerminal) {
+        if (vert.isFixed || vert.isTerminal) {
             continue;
         }
         // Only a cell that fits inside one row may move here. Every pass --

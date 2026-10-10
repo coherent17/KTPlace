@@ -54,12 +54,9 @@ std::array<double, 4> placementDieBox(const DieInfo &die, const Graph &graph) {
     // The fixed cells: the I/O pad ring bounds the die in a Bookshelf design.
     double lo[2] = {inf, inf};
     double hi[2] = {-inf, -inf};
-    const std::size_t nv = graph.getNumVertices();
+    const std::size_t nv = graph.getNumCells();
     for (std::size_t v = 0; v < nv; ++v) {
-        const Vertex &vert = graph.getVertex(v);
-        if (vert.type != VertexType::Cell) {
-            continue;
-        }
+        const Vertex &vert = graph.getCell(v);
         if (!vert.isFixed && !vert.isTerminal) {
             continue;
         }
@@ -78,8 +75,8 @@ std::array<double, 4> placementDieBox(const DieInfo &die, const Graph &graph) {
     if (da.second.first > da.first.first && da.second.second > da.first.second) {
         bool contains = true;
         for (std::size_t v = 0; v < nv; ++v) {
-            const Vertex &vert = graph.getVertex(v);
-            if (vert.type != VertexType::Cell || !vert.isFixed) {
+            const Vertex &vert = graph.getCell(v);
+            if (!vert.isFixed) {
                 continue;
             }
             if (vert.x < da.first.first - 1.0 || vert.y < da.first.second - 1.0 ||

@@ -15,12 +15,8 @@ using namespace ktplace;
 // Boost.Test prints the offending value when an assertion fails; scoped enums
 // have no stream operator of their own, so provide one.
 namespace ktplace {
-std::ostream &operator<<(std::ostream &os, VertexType value) {
-    return os << (value == VertexType::Cell ? "Cell" : "Net");
-}
-
-std::ostream &operator<<(std::ostream &os, PinDirection value) {
-    return os << (value == PinDirection::Input ? "Input" : "Output");
+std::ostream &operator<<(std::ostream &os, PinRole value) {
+    return os << (value == PinRole::Driver ? "Driver" : "Receiver");
 }
 }  // namespace ktplace
 
@@ -88,11 +84,10 @@ BOOST_AUTO_TEST_CASE(reports_geometry_of_a_cell) {
     ktDM db;
     const std::size_t id = addCell(db, "c0", 2.5, 4.0);
     const Graph &g = db.getGraph();
-    const Vertex &v = g.getVertex(id);
+    const Vertex &v = g.getCell(id);
     BOOST_TEST(v.name == "c0");
     BOOST_TEST(v.width == 2.5);
     BOOST_TEST(v.height == 4.0);
-    BOOST_TEST(v.type == VertexType::Cell);
     BOOST_TEST(!v.isTerminal);
 }
 
@@ -131,7 +126,7 @@ BOOST_AUTO_TEST_CASE(two_pin_net_creates_two_edges) {
 
     BOOST_TEST(db.getNumNets() == 1);
     BOOST_TEST(db.getNumPins() == 2);
-    BOOST_TEST(db.getGraph().getNumEdges() == 2);
+    BOOST_TEST(db.getGraph().getNumPins() == 2);
     BOOST_TEST(db.getNetPins(db.getNetId("n0")).size() == 2);
 }
 
@@ -193,36 +188,55 @@ BOOST_AUTO_TEST_SUITE_END()
 
 BOOST_AUTO_TEST_SUITE(GraphOps)
 
-BOOST_AUTO_TEST_CASE(directs_edges_from_cell_to_net) {
+BOOST_AUTO_TEST_CASE(a_pin_joins_a_cell_to_a_net) {
     Graph g;
-    const std::size_t cell = g.addVertex(VertexType::Cell, "c0");
-    const std::size_t net = g.addVertex(VertexType::Net, "n0");
-    const std::size_t edge = g.addEdge(cell, net, PinDirection::Output);
+    const std::size_t cell = g.addCell("c0");
+    const std::size_t net = g.addNet("n0");
+    const std::size_t pin = g.addPin(cell, net, PinRole::Driver, 1.5, 2.5);
 
-    BOOST_TEST(g.getVertexId("c0") == cell);
-    BOOST_TEST(g.getVertexType(net) == VertexType::Net);
-    BOOST_TEST(g.getEdge(edge).source == cell);
-    BOOST_TEST(g.getEdge(edge).target == net);
-    BOOST_TEST(g.getOutEdges(cell).size() == 1);
-    BOOST_TEST(g.getInEdges(net).size() == 1);
+    BOOST_TEST(g.getCellId("c0") == cell);
+    BOOST_TEST(g.getNetId("n0") == net);
+    BOOST_TEST(g.getPin(pin).cellId == cell);
+    BOOST_TEST(g.getPin(pin).netId == net);
+    BOOST_TEST(g.getPin(pin).role == PinRole::Driver);
+    BOOST_TEST(g.getPin(pin).offsetX == 1.5);
+    BOOST_TEST(g.getCellPins(cell).size() == 1);
+    BOOST_TEST(g.getNetPins(net).size() == 1);
+}
+
+BOOST_AUTO_TEST_CASE(cell_and_net_ids_are_separate_spaces) {
+    Graph g;
+    g.addCell("c0");
+    g.addNet("n0");
+    // A cell and a net are numbered independently, so both can be 0 without
+    // either being mistaken for the other.
+    BOOST_TEST(g.getNumCells() == 1);
+    BOOST_TEST(g.getNumNets() == 1);
+    BOOST_TEST(g.getCellId("c0") == 0);
+    BOOST_TEST(g.getNetId("n0") == 0);
 }
 
 BOOST_AUTO_TEST_CASE(clear_empties_the_graph) {
     Graph g;
-    g.addVertex(VertexType::Cell, "c0");
-    g.addVertex(VertexType::Net, "n0");
-    BOOST_TEST(g.getNumVertices() == 2);
+    g.addCell("c0");
+    g.addNet("n0");
+    BOOST_TEST(g.getNumCells() == 1);
+    BOOST_TEST(g.getNumNets() == 1);
     g.clear();
-    BOOST_TEST(g.getNumVertices() == 0);
-    BOOST_TEST(!g.hasVertex("c0"));
+    BOOST_TEST(g.getNumCells() == 0);
+    BOOST_TEST(g.getNumNets() == 0);
+    BOOST_TEST(!g.hasCell("c0"));
+    BOOST_TEST(!g.hasNet("n0"));
 }
 
 BOOST_AUTO_TEST_CASE(clear_resets_the_id_counters) {
     Graph g;
-    g.addVertex(VertexType::Cell, "c0");
+    g.addCell("c0");
+    g.addNet("n0");
     g.clear();
     // Ids restart, otherwise a fresh design would inherit stale numbering.
-    BOOST_TEST(g.addVertex(VertexType::Cell, "again") == 0);
+    BOOST_TEST(g.addCell("again") == 0);
+    BOOST_TEST(g.addNet("again") == 0);
 }
 
 BOOST_AUTO_TEST_SUITE_END()

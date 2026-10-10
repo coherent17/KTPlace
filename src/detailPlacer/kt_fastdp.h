@@ -7,6 +7,7 @@
 #include "datamodel/kt_dm.h"
 
 #include <cstddef>
+#include <memory>
 #include <string>
 #include <vector>
 

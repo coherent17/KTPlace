@@ -91,7 +91,7 @@ double fitScale(double spanX, double spanY, double zoom) {
 
 ViewPort makeViewPort(const Graph &g, const std::vector<float> &x, const std::vector<float> &y,
                       const BBox &dieBox, double zoom) {
-    const std::size_t nv = g.getNumVertices();
+    const std::size_t nv = g.getNumCells();
     double minX = std::numeric_limits<double>::max();
     double minY = std::numeric_limits<double>::max();
     double maxX = -std::numeric_limits<double>::max();
@@ -199,10 +199,10 @@ Rgb24 blendOnBg(const Rgb24 &c, double alpha) {
 std::vector<std::array<double, 2>> rowBands(const Graph &g, const std::vector<float> &y) {
     std::vector<double> ys;
     std::vector<double> heights;
-    const std::size_t nv = g.getNumVertices();
+    const std::size_t nv = g.getNumCells();
     for (std::size_t v = 0; v < nv; ++v) {
-        const Vertex &vert = g.getVertex(v);
-        if (vert.type == VertexType::Cell && !vert.isFixed && !vert.isTerminal) {
+        const Vertex &vert = g.getCell(v);
+        if (!vert.isFixed && !vert.isTerminal) {
             ys.push_back(static_cast<double>(y[v]));
             heights.push_back(vert.height);
         }
@@ -623,7 +623,7 @@ CImg<unsigned char> renderFrameCImg(const Graph &g, const std::vector<float> &x,
                                     const constraintMgr *constraints, bool fixedView,
                                     GifPalette &pal, double zoom) {
     zoom = std::max(zoom, 1.0);
-    const std::size_t nv = g.getNumVertices();
+    const std::size_t nv = g.getNumCells();
     const ViewPort vp = fixedView ? dieViewPort(dieBox, zoom) : makeViewPort(g, x, y, dieBox, zoom);
 
     const int imgW = static_cast<int>(std::lround(zoom * kImageW));
@@ -740,7 +740,7 @@ CImg<unsigned char> renderFrameCImg(const Graph &g, const std::vector<float> &x,
         const std::uint8_t *c = pal.ptr(flat);
         const std::uint8_t *rim = pal.ptr(darken(flat, 0.72));
         const auto drawFixed = [&](std::size_t v) {
-            const Vertex &vert = g.getVertex(v);
+            const Vertex &vert = g.getCell(v);
             const double x0 = toPxX(vp, x[v]);
             const double x1 = x0 + std::max(2.0, vert.width * vp.sx);
             const double yTop = toPxY(vp, y[v] + vert.height);
@@ -748,14 +748,14 @@ CImg<unsigned char> renderFrameCImg(const Graph &g, const std::vector<float> &x,
             fillCellRect(img, x0, yTop, x1, yBot, c, rim);
         };
         for (std::size_t v = 0; v < nv; ++v) {
-            const Vertex &vert = g.getVertex(v);
-            if (vert.type == VertexType::Cell && vert.isFixed) {
+            const Vertex &vert = g.getCell(v);
+            if (vert.isFixed) {
                 drawFixed(v);
             }
         }
         for (std::size_t v = 0; v < nv; ++v) {
-            const Vertex &vert = g.getVertex(v);
-            if (vert.type == VertexType::Cell && vert.isTerminal && !vert.isFixed) {
+            const Vertex &vert = g.getCell(v);
+            if (vert.isTerminal && !vert.isFixed) {
                 drawFixed(v);
             }
         }
@@ -772,8 +772,8 @@ CImg<unsigned char> renderFrameCImg(const Graph &g, const std::vector<float> &x,
         const std::uint8_t *c = pal.ptr(flat);
         const std::uint8_t *rim = pal.ptr(darken(flat, 0.72));
         for (std::size_t v = 0; v < nv; ++v) {
-            const Vertex &vert = g.getVertex(v);
-            if (vert.type != VertexType::Cell || vert.isFixed || vert.isTerminal) {
+            const Vertex &vert = g.getCell(v);
+            if (vert.isFixed || vert.isTerminal) {
                 continue;
             }
             // Fractional edges, so the cell covers exactly the pixels it covers in
@@ -833,10 +833,7 @@ CImg<unsigned char> renderFrameCImg(const Graph &g, const std::vector<float> &x,
         int cx = tx;
         std::size_t movable = 0, fixed = 0, pads = 0;
         for (std::size_t v = 0; v < nv; ++v) {
-            const Vertex &vert = g.getVertex(v);
-            if (vert.type != VertexType::Cell) {
-                continue;
-            }
+            const Vertex &vert = g.getCell(v);
             if (vert.isFixed) {
                 ++fixed;
             } else if (vert.isTerminal) {
@@ -1014,16 +1011,13 @@ BBox fixedCellBBox(const Graph &g) {
     // Vertices store their lower-left corner, so the box must also include
     // corner + (width, height): pads anchored at the right/top rim would
     // otherwise overhang the drawn die rectangle.
-    const std::size_t nv = g.getNumVertices();
+    const std::size_t nv = g.getNumCells();
     double minX = std::numeric_limits<double>::max();
     double minY = std::numeric_limits<double>::max();
     double maxX = -std::numeric_limits<double>::max();
     double maxY = -std::numeric_limits<double>::max();
     for (std::size_t v = 0; v < nv; ++v) {
-        const Vertex &vert = g.getVertex(v);
-        if (vert.type != VertexType::Cell) {
-            continue;
-        }
+        const Vertex &vert = g.getCell(v);
         if (!vert.isFixed && !vert.isTerminal) {
             continue;
         }
@@ -1049,10 +1043,7 @@ BBox fixedCellBBox(const Graph &g) {
         double aMaxX = -std::numeric_limits<double>::max();
         double aMaxY = -std::numeric_limits<double>::max();
         for (std::size_t v = 0; v < nv; ++v) {
-            const Vertex &vert = g.getVertex(v);
-            if (vert.type != VertexType::Cell) {
-                continue;
-            }
+            const Vertex &vert = g.getCell(v);
             aMinX = std::min(aMinX, vert.x);
             aMinY = std::min(aMinY, vert.y);
             aMaxX = std::max(aMaxX, vert.x + std::max(vert.width, 1.0));
@@ -1071,7 +1062,7 @@ void writeFrameSvg(const std::string &path, const Graph &g, const std::vector<fl
                    std::size_t numSteps, double hpwl, double hpwlInitial, double resid,
                    const std::string &note, const constraintMgr *constraints, bool fixedView,
                    bool worldUnits) {
-    const std::size_t nv = g.getNumVertices();
+    const std::size_t nv = g.getNumCells();
     // By default the view auto-fits the data, which is right for a single frame but
     // makes a sequence impossible to read: a collapsed iteration 0 and a spread
     // iteration 9 are drawn at different scales, so the eye compares zoom levels
@@ -1185,8 +1176,8 @@ void writeFrameSvg(const std::string &path, const Graph &g, const std::vector<fl
     out << "<g fill=\"#ef5350\" stroke=\"#5c1a1a\" stroke-opacity=\"0.75\""
         << " stroke-width=\"0.7\">\n";
     for (std::size_t v = 0; v < nv; ++v) {
-        const Vertex &vert = g.getVertex(v);
-        if (vert.type != VertexType::Cell || !vert.isFixed) {
+        const Vertex &vert = g.getCell(v);
+        if (!vert.isFixed) {
             continue;
         }
         const double w = std::max(2.0, vert.width * vp.sx);
@@ -1197,8 +1188,8 @@ void writeFrameSvg(const std::string &path, const Graph &g, const std::vector<fl
     }
     // I/O pads / terminals: never decimated; every pad is drawn.
     for (std::size_t v = 0; v < nv; ++v) {
-        const Vertex &vert = g.getVertex(v);
-        if (vert.type != VertexType::Cell || !vert.isTerminal || vert.isFixed) {
+        const Vertex &vert = g.getCell(v);
+        if (!vert.isTerminal || vert.isFixed) {
             continue;
         }
         const double w = std::max(2.0, vert.width * vp.sx);
@@ -1220,8 +1211,8 @@ void writeFrameSvg(const std::string &path, const Graph &g, const std::vector<fl
         out << "<g fill=\"#4fc3f7\" stroke=\"#0b3d54\" stroke-opacity=\"0.75\""
             << " stroke-width=\"0.6\">\n";
         for (std::size_t v = 0; v < nv; ++v) {
-            const Vertex &vert = g.getVertex(v);
-            if (vert.type != VertexType::Cell || vert.isFixed || vert.isTerminal) {
+            const Vertex &vert = g.getCell(v);
+            if (vert.isFixed || vert.isTerminal) {
                 continue;
             }
             // Exact size, as in the raster path, so the two agree and so a cell is
@@ -1259,10 +1250,7 @@ void writeFrameSvg(const std::string &path, const Graph &g, const std::vector<fl
         int cx = static_cast<int>(kMargin / 3);
         std::size_t movable = 0, fixed = 0, pads = 0;
         for (std::size_t v = 0; v < nv; ++v) {
-            const Vertex &vert = g.getVertex(v);
-            if (vert.type != VertexType::Cell) {
-                continue;
-            }
+            const Vertex &vert = g.getCell(v);
             if (vert.isFixed) {
                 ++fixed;
             } else if (vert.isTerminal) {
@@ -1336,11 +1324,11 @@ void writeFinalFrameRaster(const std::string &path, const Graph &g,
                            const constraintMgr *constraints, double zoom, double hpwl) {
     // The finished placement lives in the vertices' stored coordinates, which is
     // what the frame writers get passed as x/y; here the graph is the payload.
-    const std::size_t nv = g.getNumVertices();
+    const std::size_t nv = g.getNumCells();
     std::vector<float> x(nv), y(nv);
     for (std::size_t v = 0; v < nv; ++v) {
-        x[v] = static_cast<float>(g.getVertex(v).x);
-        y[v] = static_cast<float>(g.getVertex(v).y);
+        x[v] = static_cast<float>(g.getCell(v).x);
+        y[v] = static_cast<float>(g.getCell(v).y);
     }
     const BBox die = fixedCellBBox(g);
     // fixedView pins the viewport to the die, which for one final still is the
@@ -1353,11 +1341,11 @@ void writeFinalFrameRaster(const std::string &path, const Graph &g,
 
 void writeFinalFrameSvg(const std::string &path, const Graph &g, const constraintMgr *constraints,
                         double hpwl) {
-    const std::size_t nv = g.getNumVertices();
+    const std::size_t nv = g.getNumCells();
     std::vector<float> x(nv), y(nv);
     for (std::size_t v = 0; v < nv; ++v) {
-        x[v] = static_cast<float>(g.getVertex(v).x);
-        y[v] = static_cast<float>(g.getVertex(v).y);
+        x[v] = static_cast<float>(g.getCell(v).x);
+        y[v] = static_cast<float>(g.getCell(v).y);
     }
     // Same picture as the raster still, so the two can be compared directly.
     // worldUnits: the die is the viewBox and coordinates are world units, so the
