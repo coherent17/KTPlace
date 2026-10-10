@@ -5,13 +5,21 @@
 
 #include "kt_option.h"
 
+#include "adaptor/ktToAbacusAdaptor.h"
+#include "adaptor/ktToFastdpAdaptor.h"
+#include "adaptor/ktToMultiRowAdaptor.h"
+#include "adaptor/ktToSimplAdaptor.h"
 #include "adaptor/kt_inputReader.h"
 #include "datamodel/kt_dm.h"
-#include "detailPlacer/kt_fastdp.h"
-#include "legalizer/kt_abacus.h"
-#include "legalizer/kt_multiRowLegalizer.h"
+#include "detailPlacer/fastdp/fastdp_flowMgr.h"
+#include "detailPlacer/fastdp/fastdp_placer.h"
+#include "legalizer/abacus/abacus_flowMgr.h"
+#include "legalizer/abacus/abacus_legalizer.h"
+#include "legalizer/multirow/multirow_flowMgr.h"
+#include "legalizer/multirow/multirow_legalizer.h"
 #include "placer/ntuplace1/kt_ntuplace1.h"
-#include "placer/simpl/kt_simpl.h"
+#include "placer/simpl/simpl_flowMgr.h"
+#include "placer/simpl/simpl_placer.h"
 #include "util/kt_log.h"
 #include "util/kt_reportTable.h"
 #include "util/kt_scopedTimer.h"
@@ -45,6 +53,11 @@ private:
     void legalizeDesign();
     [[nodiscard]] std::size_t multiRowCells() const;
     void detailPlaceDesign();
+    /// Run global placement through the SimPL library and commit the answer.
+    /// The whole of SimPL's contact with the flow: build its design from the
+    /// database, let its own flow manager run, and hand the result back.
+    simplSolution runSimpl(const simpl::SimplParams &params, const std::string &plotDir,
+                           bool useFences);
     void checkDesign(const char *stage);
     void renderFinalImage();
     void finishAnimation();
@@ -153,12 +166,9 @@ void FlowMgr::Impl::runPlacement(const std::string &algorithm) {
 
     if (algorithm == "simpl") {
         ktlog.echo("Running SimPL global placement (B2B net model + look-ahead legalization)...");
-        SimplePlacer placer(*db);
-        // Fences come from the LEF/DEF reader; Bookshelf carries none, so a null
-        // empty set means a correctly unconstrained design. Ignoring fences
-        // scatters fenced cells across the die and draws no regions.
-        // The design's fences live in the database; Bookshelf carries none, so an
-        // empty set is a correctly unconstrained design.
+        // Fences come from the LEF/DEF reader; Bookshelf carries none, so an empty
+        // set is a correctly unconstrained design. Ignoring fences scatters fenced
+        // cells across the die and draws no regions.
         //
         // KTPLACE_SIMPL_FENCES=0 shows the placement without them, which is the only
         // way to see what the constraint costs.
@@ -167,9 +177,9 @@ void FlowMgr::Impl::runPlacement(const std::string &algorithm) {
         if (!fencesOn) {
             ktlog.echo("SimPL: fence enforcement DISABLED by KTPLACE_SIMPL_FENCES=0");
         }
-        SimplParams params;
-        const SimplResult res = placer.place(params, plot.dir, fencesOn);
-        reportSimpl(res);
+
+        simpl::SimplParams params;
+        runSimpl(params, plot.dir, fencesOn);
         return;
 
     } else if (algorithm == "ntuplace1") {
@@ -215,18 +225,21 @@ void FlowMgr::Impl::legalizeDesign() {
     if (multiRowCells() > 0) {
         ktlog.echo("Running multi-row legalization ({} cell(s) taller than a row)...",
                    multiRowCells());
-        MultiRowLegalizer legalizer(*db);
         MultiRowLegalizeParams params;
         if (plot.enabled()) {
             params.plotDir = plot.sub("legalize");
             params.frameEvery = 20000;
         }
-        legalizer.legalize(params);
+
+        // ktDM -> this pass's own database, run there, commit the placement back.
+        multirow::multirowDM multiDB =
+            buildMultiRowDM(*db, plot.enabled() ? plot.sub("legalize") : "");
+        multirow::flowMgr flow(multiDB);
+        db->setMultiRowSolution(flow.runLegalizer(params));
         return;
     }
 
     ktlog.echo("Running Abacus legalization...");
-    AbacusLegalizer legalizer(*db);
     LegalizeParams lparams;
     if (const char *e = std::getenv("KTPLACE_ABACUS_MAX_ROW_DIST")) {
         lparams.maxRowDistance = static_cast<std::size_t>(std::atoll(e));
@@ -235,7 +248,12 @@ void FlowMgr::Impl::legalizeDesign() {
         lparams.plotDir = plot.sub("legalize");
         lparams.frameEvery = 20000;
     }
-    legalizer.legalize(lparams);
+
+    // ktDM -> Abacus's own database, run there, and commit the placement back.
+    // Abacus has no way to reach ktDM, so this is the one write.
+    abacus::abacusDM abacusDB = buildAbacusDM(*db, plot.enabled() ? plot.sub("legalize") : "");
+    abacus::flowMgr flow(abacusDB);
+    db->setLegalizationSolution(flow.runLegalizer(lparams));
 }
 
 std::size_t FlowMgr::Impl::multiRowCells() const {
@@ -265,11 +283,19 @@ std::size_t FlowMgr::Impl::multiRowCells() const {
     return n;
 }
 
+simplSolution FlowMgr::Impl::runSimpl(const simpl::SimplParams &params, const std::string &plotDir,
+                                      bool useFences) {
+    simpl::simplDM simplDB = buildSimplDM(*db, plotDir);
+    simpl::flowMgr flow(simplDB);
+    const simplSolution solution = flow.runGlobalPlacer(params, plotDir, useFences);
+    db->setGPSolution(solution);
+    return solution;
+}
+
 void FlowMgr::Impl::detailPlaceDesign() {
     // Abacus minimises displacement, not wirelength, so legalization usually
     // costs a little HPWL; detailed placement wins it back.
     ktlog.echo("Running FastDP detailed placement...");
-    FastDetailedPlacer dp(*db);
     DetailPlaceParams dparams;
     if (const char *e = std::getenv("KTPLACE_DP_WINDOW")) {
         dparams.localReorderWindow = static_cast<std::size_t>(std::atoll(e));
@@ -277,7 +303,12 @@ void FlowMgr::Impl::detailPlaceDesign() {
     if (plot.enabled()) {
         dparams.plotDir = plot.sub("detailplace");
     }
-    dp.place(dparams);
+
+    // ktDM -> FastDP's own database, run there, commit the placement back. FastDP
+    // has no way to reach ktDM, so this is the one write.
+    fastdp::fastdpDM dpDB = buildFastdpDM(*db, plot.enabled() ? plot.sub("detailplace") : "");
+    fastdp::flowMgr flow(dpDB);
+    db->setDetailedPlaceSolution(flow.runDetailedPlacer(dparams));
 }
 
 void FlowMgr::Impl::checkDesign(const char *stage) {

@@ -1,12 +1,13 @@
-// @file kt_abacus.cc// Abacus legalization, DP-over-clusters form. See kt_abacus.h.
+// @file abacus_legalizer.cc
+// Abacus legalization, DP-over-clusters form. See abacus_legalizer.h.
 
 
-#include "legalizer/kt_abacus.h"
+#include "legalizer/abacus/abacus_legalizer.h"
 
+#include "legalizer/abacus/abacus_design.h"
 #include "util/kt_log.h"
 #include "util/kt_reportTable.h"
 #include "util/kt_scopedTimer.h"
-#include "visualization/kt_animator.h"
 
 #include <algorithm>
 #include <cmath>
@@ -144,7 +145,7 @@ struct RowTrack {
 
 class AbacusLegalizer::Impl {
 public:
-    explicit Impl(ktDM &db) : db_(db), graph_(db.getGraph()) {}
+    explicit Impl(const abacus::Design &d) : design(d) {}
 
     LegalizeResult run(const LegalizeParams &params);
 
@@ -167,8 +168,7 @@ private:
 
     static constexpr std::size_t kNoRow = std::numeric_limits<std::size_t>::max();
 
-    ktDM &db_;
-    Graph &graph_;
+    const abacus::Design &design;
     std::vector<RowTrack> rows_;
     std::vector<std::size_t> mov_;  ///< graph vertex id per movable slot
     std::vector<double> w_, h_;     ///< per movable slot
@@ -176,14 +176,19 @@ private:
     std::vector<double> xs_, ys_;   ///< live position
     std::unordered_map<std::size_t, std::size_t> slotOf_;
     std::vector<FixedBox> fixed_;
-    BBox die_ = {0.0, 0.0, 0.0, 0.0};
-    /// Fences, carried from the params so the frame writer can draw them.
-    const constraintMgr *constraints_ = nullptr;
+    abacus::DieBox die_ = {0.0, 0.0, 0.0, 0.0};
+
+public:
+    /// What legalize() reads to build the placement it hands back. The pass never
+    /// writes to the design; these carry its answer out instead.
+    std::vector<std::size_t> movableIds;
+    std::vector<double> finalXs;
+    std::vector<double> finalYs;
 };
 
 void AbacusLegalizer::Impl::buildRows() {
     rows_.clear();
-    for (const RowInfo &ri : db_.getRows()) {
+    for (const abacus::RowInfo &ri : design.rows) {
         RowTrack r;
         r.y = ri.coordinate;
         r.height = ri.height;
@@ -194,13 +199,13 @@ void AbacusLegalizer::Impl::buildRows() {
         // Each .scl subrow becomes a Subrow, trimmed by any fixed cell that
         // crosses the row's band, so a macro crossing a subrow shortens it
         // instead of being ignored.
-        for (const SubrowInfo &si : ri.subrows) {
-            if (!(si.xhi(r.siteWidth) > si.xlo())) {
+        for (const abacus::Subrow &si : ri.subrows) {
+            if (!(si.xhi > si.xlo)) {
                 continue;
             }
             Subrow sr;
-            sr.xlo = si.xlo();
-            sr.xhi = si.xhi(r.siteWidth);
+            sr.xlo = si.xlo;
+            sr.xhi = si.xhi;
             sr.used = sr.xlo;
             r.subrows.push_back(sr);
         }
@@ -434,22 +439,21 @@ void AbacusLegalizer::Impl::rollback(Subrow &sr, RowUndo undo) {
 double AbacusLegalizer::Impl::hpwlOf(const std::vector<double> &x,
                                      const std::vector<double> &y) const {
     double total = 0.0;
-    for (std::size_t n = 0; n < graph_.getNumNets(); ++n) {
-        const std::vector<std::size_t> &pins = graph_.getNetPins(n);
-        if (pins.empty()) {
+    for (const abacus::Net &net : design.nets) {
+        if (net.pins.empty()) {
             continue;
         }
         double ax = std::numeric_limits<double>::max(), bx = -std::numeric_limits<double>::max();
         double ay = std::numeric_limits<double>::max(), by = -std::numeric_limits<double>::max();
-        for (const std::size_t pinId : pins) {
-            const Pin &pin = graph_.getPin(pinId);
+        for (const std::size_t pinId : net.pins) {
+            const abacus::Pin &pin = design.pins[pinId];
             const auto it = slotOf_.find(pin.cellId);
             double cx = 0.0, cy = 0.0;
             if (it != slotOf_.end()) {
                 cx = x[it->second] + pin.offsetX;
                 cy = y[it->second] + pin.offsetY;
             } else {
-                const Vertex &c = graph_.getCell(pin.cellId);
+                const abacus::Cell &c = design.cells[pin.cellId];
                 cx = c.x + pin.offsetX;
                 cy = c.y + pin.offsetY;
             }
@@ -465,24 +469,30 @@ double AbacusLegalizer::Impl::hpwlOf(const std::vector<double> &x,
 
 void AbacusLegalizer::Impl::writeFrame(const std::string &path, const std::string &note,
                                        std::size_t step, std::size_t total) const {
-    const std::size_t nv = graph_.getNumCells();
+    const std::size_t nv = design.cells.size();
     std::vector<float> fx(nv), fy(nv);
     for (std::size_t v = 0; v < nv; ++v) {
-        const Vertex &vert = graph_.getCell(v);
-        fx[v] = static_cast<float>(vert.x);
-        fy[v] = static_cast<float>(vert.y);
+        fx[v] = static_cast<float>(design.cells[v].x);
+        fy[v] = static_cast<float>(design.cells[v].y);
     }
     for (std::size_t i = 0; i < mov_.size(); ++i) {
         fx[mov_[i]] = static_cast<float>(xs_[i]);
         fy[mov_[i]] = static_cast<float>(ys_[i]);
     }
-    writeFrameSvg(path, graph_, fx, fy, die_, step, total, hpwlOf(xs_, ys_), 0.0, 0.0, note,
-                  nullptr, /*fixedView=*/true);
-    // The same frame into the run's animation, so the GIF shows the legalizer
-    // pulling the placement back onto its rows rather than cutting straight from
-    // a scattered global placement to a legal one.
-    PlacementAnimator::instance().record(graph_, fx, fy, die_, step, total, hpwlOf(xs_, ys_),
-                                         hpwlOf(xs_, ys_), 0.0, note, constraints_);
+    // The host draws; Abacus only says when. The same frame goes to the SVG and
+    // to the run's animation, so the GIF shows the legalizer pulling the
+    // placement back onto its rows rather than cutting from scattered to legal.
+    if (design.onFrame) {
+        abacus::FrameInfo info;
+        info.note = note;
+        info.step = step;
+        info.numSteps = total;
+        info.hpwl = hpwlOf(xs_, ys_);
+        info.hpwlInitial = hpwlOf(xs_, ys_);
+        info.path = path;
+        info.mandatory = true;
+        design.onFrame(fx, fy, info);
+    }
 }
 
 void AbacusLegalizer::Impl::selfCheck(LegalizeResult &res) const {
@@ -580,20 +590,21 @@ LegalizeResult AbacusLegalizer::Impl::run(const LegalizeParams &params) {
     // so legalization appears in the flow's Timings table next to load, place
     // and write instead of reporting a private duration.
     ScopedTimer timer("legalize");
-    constraints_ = &db_.constraints();
 
-    for (std::size_t v = 0; v < graph_.getNumCells(); ++v) {
-        const Vertex &vert = graph_.getCell(v);
-        if (vert.isFixed || vert.isTerminal) {
+
+    for (std::size_t v = 0; v < design.cells.size(); ++v) {
+        const abacus::Cell &cell = design.cells[v];
+        if (cell.isFixed || cell.isTerminal) {
             continue;
         }
         const std::size_t slot = mov_.size();
         mov_.push_back(v);
+        movableIds.push_back(v);
         slotOf_[v] = slot;
-        w_.push_back(vert.width);
-        h_.push_back(vert.height);
-        x0_.push_back(vert.x);
-        y0_.push_back(vert.y);
+        w_.push_back(cell.width);
+        h_.push_back(cell.height);
+        x0_.push_back(cell.x);
+        y0_.push_back(cell.y);
     }
     xs_ = x0_;
     ys_ = y0_;
@@ -603,8 +614,8 @@ LegalizeResult AbacusLegalizer::Impl::run(const LegalizeParams &params) {
     }
     res.hpwlBefore = hpwlOf(xs_, ys_);
 
-    for (std::size_t v = 0; v < graph_.getNumCells(); ++v) {
-        const Vertex &vert = graph_.getCell(v);
+    for (std::size_t v = 0; v < design.cells.size(); ++v) {
+        const abacus::Cell &vert = design.cells[v];
         if (!vert.isFixed) {
             continue;
         }
@@ -617,8 +628,7 @@ LegalizeResult AbacusLegalizer::Impl::run(const LegalizeParams &params) {
         res.hpwlAfter = res.hpwlBefore;
         return res;
     }
-    const BBox d = fixedCellBBox(graph_);
-    die_ = BBox{d[0], d[1], d[2], d[3]};
+    die_ = design.die;
 
     if (!params.plotDir.empty()) {
         std::filesystem::create_directories(params.plotDir);
@@ -792,9 +802,20 @@ LegalizeResult AbacusLegalizer::Impl::run(const LegalizeParams &params) {
         const double dy = ys_[i] - y0_[i];
         res.totalSquaredDisplacement += dx * dx + dy * dy;
         res.maxDisplacement = std::max(res.maxDisplacement, std::hypot(dx, dy));
-        db_.setCellPosition(mov_[i], xs_[i], ys_[i]);
     }
     res.hpwlAfter = hpwlOf(xs_, ys_);
+
+    // Collect the placement for the caller to commit. The design is not touched.
+    finalXs.assign(design.cells.size(), 0.0);
+    finalYs.assign(design.cells.size(), 0.0);
+    for (std::size_t v = 0; v < design.cells.size(); ++v) {
+        finalXs[v] = design.cells[v].x;
+        finalYs[v] = design.cells[v].y;
+    }
+    for (std::size_t i = 0; i < mov_.size(); ++i) {
+        finalXs[mov_[i]] = xs_[i];
+        finalYs[mov_[i]] = ys_[i];
+    }
     res.unplaced = mov_.size() - placed;
     res.commitFailures = commitFail;
     if (!params.plotDir.empty()) {
@@ -814,7 +835,8 @@ LegalizeResult AbacusLegalizer::Impl::run(const LegalizeParams &params) {
 
 // ---------------------------------------------------------------------------
 
-AbacusLegalizer::AbacusLegalizer(ktDM &db) : pImpl(std::make_unique<Impl>(db)) {}
+AbacusLegalizer::AbacusLegalizer(const abacus::Design &design)
+    : pImpl(std::make_unique<Impl>(design)) {}
 
 AbacusLegalizer::~AbacusLegalizer() = default;
 
@@ -859,5 +881,12 @@ LegalizeResult AbacusLegalizer::legalize(const LegalizeParams &params) {
     LegalizeResult result = pImpl->run(params);
     report(result);
     return result;
+}
+
+ktplace::abacusSolution AbacusLegalizer::solution() const {
+    abacusSolution out;
+    out.xs = pImpl->finalXs;
+    out.ys = pImpl->finalYs;
+    return out;
 }
 }  // namespace ktplace

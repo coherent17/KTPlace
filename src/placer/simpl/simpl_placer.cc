@@ -1,7 +1,8 @@
-// @file kt_simpl.cc// SimPL global placement. See kt_simpl.h for the algorithm summary and// the bibliographic reference.
+// @file simpl_placer.cc
+// SimPL global placement. See simpl_placer.h for the algorithm summary and// the bibliographic reference.
 
 
-#include "placer/simpl/kt_simpl.h"
+#include "placer/simpl/simpl_placer.h"
 
 #include "util/kt_log.h"
 #include "util/kt_reportTable.h"
@@ -24,7 +25,7 @@
 #include <vector>
 
 
-namespace ktplace {
+namespace ktplace::simpl {
 
 namespace {
 
@@ -174,9 +175,10 @@ struct Block {
 
 // ---------------------------------------------------------------------------
 
-class SimplePlacer::Impl {
+class simplPlacer::Impl {
 public:
-    explicit Impl(ktDM &db) : db_(db), graph_(db.getGraph()) {}
+    explicit Impl(const simpl::Design &d)
+        : design(d), rows(d.rows), fences(&d.fences), graph(d.graph) {}
 
     SimplResult run(const SimplParams &P, const std::string &plotDir, bool useFences);
 
@@ -246,8 +248,18 @@ private:
     void densityStats(const std::vector<double> &px, const std::vector<double> &py,
                       const char *tag) const;
 
-    ktDM &db_;
-    Graph &graph_;
+    const simpl::Design &design;
+    const std::vector<simpl::RowInfo> &rows;
+    const simpl::Fences *fences;
+    const simpl::Graph &graph;
+
+public:
+    /// Where each cell ended up, indexed by cell id. Handed to the flow through
+    /// simplPlacer::solution().
+    std::vector<double> outX;
+    std::vector<double> outY;
+
+private:
     SimplResult res_;
     SimplParams par_;
 
@@ -345,8 +357,8 @@ private:
 
     /// Placement fences, or null for an unconstrained design. Assigned to by run()
     /// and consulted after every solve and by the frame renderers.
-    const constraintMgr *fences_ = nullptr;
-    /// Region id per movable cell, mirrored from Vertex::regionId so the hot loop
+    const simpl::Fences *fences_ = nullptr;
+    /// Region id per movable cell, mirrored from Cell::regionId so the hot loop
     /// does not chase a vertex per cell per iteration.
     std::vector<int> movRegion_;
     /// Cells moved back into their own region, and cells pushed out of someone
@@ -371,16 +383,16 @@ private:
 // Setup
 // ---------------------------------------------------------------------------
 
-void SimplePlacer::Impl::collect() {
-    nv_ = graph_.getNumCells();
-    const std::size_t nn = graph_.getNumNets();
+void simplPlacer::Impl::collect() {
+    nv_ = graph.getNumCells();
+    const std::size_t nn = graph.getNumNets();
 
     varOfVertex_.assign(nv_, kNoVar);
     std::vector<NetInfo> nets(nn);
 
     // Cells first: which are fixed blockages, and which are the solve's variables.
     for (std::size_t v = 0; v < nv_; ++v) {
-        const Vertex &vert = graph_.getCell(v);
+        const simpl::Cell &vert = graph.getCell(v);
         if (vert.isFixed || vert.isTerminal) {
             fixVertex_.push_back(static_cast<std::uint32_t>(v));
             continue;
@@ -400,11 +412,11 @@ void SimplePlacer::Impl::collect() {
     // Then nets, each with the cells its pins reach.
     for (std::size_t n = 0; n < nn; ++n) {
         NetInfo &ni = nets[n];
-        ni.weight = graph_.getNet(n).weight;
-        const std::vector<std::size_t> &pins = graph_.getNetPins(n);
+        ni.weight = graph.getNet(n).weight;
+        const std::vector<std::size_t> &pins = graph.getNetPins(n);
         ni.cell.reserve(pins.size());
         for (const std::size_t pinId : pins) {
-            const Pin &pin = graph_.getPin(pinId);
+            const simpl::Pin &pin = graph.getPin(pinId);
             ni.cell.push_back(static_cast<std::uint32_t>(pin.cellId));
             ni.offX.push_back(pin.offsetX);
             ni.offY.push_back(pin.offsetY);
@@ -488,18 +500,18 @@ void SimplePlacer::Impl::collect() {
     vx_.assign(nv_, 0.0);
     vy_.assign(nv_, 0.0);
     for (std::size_t v = 0; v < nv_; ++v) {
-        vx_[v] = graph_.getCell(v).x;
-        vy_[v] = graph_.getCell(v).y;
+        vx_[v] = graph.getCell(v).x;
+        vy_[v] = graph.getCell(v).y;
     }
 }
 
-void SimplePlacer::Impl::buildGrid(const SimplParams &P) {
+void simplPlacer::Impl::buildGrid(const SimplParams &P) {
     // Die extent: the parsed die area when it plausibly contains the fixed
     // cells, otherwise the fixed-cell bounding box.
     // The region a cell may occupy, defined once in the datamodel and shared with
     // the legality check. See placementDieBox() there for why it is the union of
     // the fixed geometry, the declared die area and the rows.
-    const std::array<double, 4> dieBox = db_.placementDieBox();
+    const std::array<double, 4> dieBox = design.die;
     BBox die = BBox{dieBox[0], dieBox[1], dieBox[2], dieBox[3]};
     die_ = die;
     dieW_ = std::max(die[2] - die[0], 1e-9);
@@ -513,7 +525,7 @@ void SimplePlacer::Impl::buildGrid(const SimplParams &P) {
     double sumH = 0.0;
     std::size_t cnt = 0;
     for (const std::uint32_t v : movVertex_) {
-        const Vertex &vert = graph_.getCell(v);
+        const simpl::Cell &vert = graph.getCell(v);
         sumW += vert.width;
         sumH += vert.height;
         ++cnt;
@@ -522,7 +534,7 @@ void SimplePlacer::Impl::buildGrid(const SimplParams &P) {
         avgCellW_ = sumW / static_cast<double>(cnt);
         avgCellH_ = sumH / static_cast<double>(cnt);
     }
-    const std::size_t nRows = std::max<std::size_t>(db_.getNumRows(), 1);
+    const std::size_t nRows = std::max<std::size_t>(rows.size(), 1);
     rowH_ = dieH_ / static_cast<double>(nRows);
     // ComPLx (Kim & Markov, DAC 2012) states this for SimPL/SimPLR verbatim:
     // "each movable object is connected to its anchor location by a pseudonet,
@@ -577,7 +589,7 @@ void SimplePlacer::Impl::buildGrid(const SimplParams &P) {
         grid_.avail[k] = grid_.binArea;
     }
     for (const std::uint32_t v : fixVertex_) {
-        const Vertex &vert = graph_.getCell(v);
+        const simpl::Cell &vert = graph.getCell(v);
         if (!(vert.width > 0.0) || !(vert.height > 0.0)) {
             continue;
         }
@@ -612,7 +624,7 @@ void SimplePlacer::Impl::buildGrid(const SimplParams &P) {
     // designs hid it because their rows are uniform, so the max and the min are the
     // same number.
     double ri_pitch_floor = std::numeric_limits<double>::max();
-    for (const RowInfo &r : db_.getRows()) {
+    for (const simpl::RowInfo &r : rows) {
         if (r.pitch() > 0.0 && r.height > 0.0) {
             ri_pitch_floor = std::min(ri_pitch_floor, r.pitch() * r.height);
         }
@@ -634,9 +646,9 @@ void SimplePlacer::Impl::buildGrid(const SimplParams &P) {
     // with each row times the x-extent of that row's subrows inside the bin,
     // summed over rows, less macro coverage.
     {
-        const std::vector<RowInfo> rowInfo = db_.getRows();
+        const std::vector<simpl::RowInfo> rowInfo(rows);
         std::fill(grid_.avail.begin(), grid_.avail.end(), 0.0);
-        for (const RowInfo &ri : rowInfo) {
+        for (const simpl::RowInfo &ri : rowInfo) {
             if (!(ri.pitch() > 0.0) || !(ri.height > 0.0)) {
                 continue;
             }
@@ -651,17 +663,17 @@ void SimplePlacer::Impl::buildGrid(const SimplParams &P) {
                 if (!(yOv > 0.0)) {
                     continue;
                 }
-                for (const SubrowInfo &si : ri.subrows) {
-                    if (!(si.xhi(ri.pitch()) > si.xlo())) {
+                for (const simpl::Subrow &si : ri.subrows) {
+                    if (!(si.xhi > si.xlo)) {
                         continue;
                     }
                     std::size_t ix0, ix1;
-                    grid_.locate(si.xlo(), si.xhi(ri.pitch()), ix0, ix1);
+                    grid_.locate(si.xlo, si.xhi, ix0, ix1);
                     for (std::size_t ix = ix0; ix <= ix1 && ix < grid_.nbx; ++ix) {
                         const double xLo = grid_.binLoX(ix);
                         const double xHi = xLo + grid_.dx;
-                        const double xOv = std::max(
-                            0.0, std::min(xHi, si.xhi(ri.pitch())) - std::max(xLo, si.xlo()));
+                        const double xOv =
+                            std::max(0.0, std::min(xHi, si.xhi) - std::max(xLo, si.xlo));
                         if (!(xOv > 0.0)) {
                             continue;
                         }
@@ -673,7 +685,7 @@ void SimplePlacer::Impl::buildGrid(const SimplParams &P) {
         // Subtract macro coverage, then clamp: a bin with no room left must be
         // exactly zero, never a sliver.
         for (const std::uint32_t fv : fixVertex_) {
-            const Vertex &vert = graph_.getCell(fv);
+            const simpl::Cell &vert = graph.getCell(fv);
             if (!(vert.width > 0.0) || !(vert.height > 0.0)) {
                 continue;
             }
@@ -704,14 +716,14 @@ void SimplePlacer::Impl::buildGrid(const SimplParams &P) {
         {
             std::size_t nrows = 0, nsub = 0, npos = 0;
             double siteSum = 0.0, maxSite = 0.0, minSite = 1e300;
-            for (const RowInfo &r : db_.getRows()) {
+            for (const simpl::RowInfo &r : rows) {
                 ++nrows;
                 nsub += r.subrows.size();
                 siteSum += r.pitch() * r.height;
                 maxSite = std::max(maxSite, r.pitch() * r.height);
                 minSite = std::min(minSite, r.pitch() * r.height);
-                for (const SubrowInfo &si : r.subrows) {
-                    if (si.xhi(r.pitch()) > si.xlo()) {
+                for (const simpl::Subrow &si : r.subrows) {
+                    if (si.xhi > si.xlo) {
                         ++npos;
                     }
                 }
@@ -740,7 +752,7 @@ void SimplePlacer::Impl::buildGrid(const SimplParams &P) {
     grid_.totalCellArea = std::accumulate(area_.begin(), area_.end(), 0.0);
 }
 
-void SimplePlacer::Impl::seedUniform(std::uint64_t seed) {
+void simplPlacer::Impl::seedUniform(std::uint64_t seed) {
     // The paper seeds with a uniformly distributed placement, not a single
     // collapsed point. That matters for B2B in particular: the model needs
     // distinct extreme pins, and a single point would make every net degenerate
@@ -763,8 +775,8 @@ void SimplePlacer::Impl::seedUniform(std::uint64_t seed) {
 // B2B net model and the linear solve
 // ---------------------------------------------------------------------------
 
-void SimplePlacer::Impl::buildB2B(const std::vector<double> &px, const std::vector<double> &py,
-                                  double alpha, bool useAnchors, SimplParams::NetModel model) {
+void simplPlacer::Impl::buildB2B(const std::vector<double> &px, const std::vector<double> &py,
+                                 double alpha, bool useAnchors, SimplParams::NetModel model) {
     // Pin coordinates per cell, fixed ones included: a B2B edge to a fixed cell is
     // built exactly like one to a movable cell and then eliminated into the
     // diagonal and the right-hand side.
@@ -803,7 +815,7 @@ void SimplePlacer::Impl::buildB2B(const std::vector<double> &px, const std::vect
         std::vector<double> &rhs = (dim == 0) ? rhsX_ : rhsY_;
         const std::vector<double> &coord = (dim == 0) ? cx : cy;
 
-        std::vector<std::vector<Triple>> rows(numMovable_);
+        std::vector<std::vector<Triple>> bucketRows(numMovable_);
         std::vector<double> diag(numMovable_, 0.0);
         std::fill(rhs.begin(), rhs.end(), 0.0);
 
@@ -814,8 +826,8 @@ void SimplePlacer::Impl::buildB2B(const std::vector<double> &px, const std::vect
             const std::uint32_t va = varOfVertex_[cellA];
             const std::uint32_t vb = varOfVertex_[cellB];
             if (va != kNoVar && vb != kNoVar) {
-                rows[va].push_back({vb, -w});
-                rows[vb].push_back({va, -w});
+                bucketRows[va].push_back({vb, -w});
+                bucketRows[vb].push_back({va, -w});
                 diag[va] += w;
                 diag[vb] += w;
             } else if (va != kNoVar) {
@@ -947,13 +959,13 @@ void SimplePlacer::Impl::buildB2B(const std::vector<double> &px, const std::vect
         // the correct superposition of weights.
         A.rowPtr.assign(numMovable_ + 1, 0);
         for (std::size_t i = 0; i < numMovable_; ++i) {
-            A.rowPtr[i + 1] = A.rowPtr[i] + rows[i].size();
+            A.rowPtr[i + 1] = A.rowPtr[i] + bucketRows[i].size();
         }
         A.col.assign(A.rowPtr[numMovable_], 0);
         A.val.assign(A.rowPtr[numMovable_], 0.0);
         for (std::size_t i = 0; i < numMovable_; ++i) {
             std::size_t e = A.rowPtr[i];
-            for (const Triple &t : rows[i]) {
+            for (const Triple &t : bucketRows[i]) {
                 A.col[e] = t.col;
                 A.val[e] = t.val;
                 ++e;
@@ -993,7 +1005,7 @@ void SimplePlacer::Impl::buildB2B(const std::vector<double> &px, const std::vect
     }
 }
 
-void SimplePlacer::Impl::solve(const std::string &tag, bool allowFrames, std::size_t cgEvery) {
+void simplPlacer::Impl::solve(const std::string &tag, bool allowFrames, std::size_t cgEvery) {
     // Jacobi-preconditioned CG, run once per axis. The x and y systems are
     // different matrices with different right-hand sides, so they are solved
     // separately; the B2B model is separable, which is why this is two clean
@@ -1178,8 +1190,7 @@ void SimplePlacer::Impl::solve(const std::string &tag, bool allowFrames, std::si
     lastResidual_ = std::max(ax.resid, ay.resid);
 }
 
-double SimplePlacer::Impl::hpwl(const std::vector<double> &px,
-                                const std::vector<double> &py) const {
+double simplPlacer::Impl::hpwl(const std::vector<double> &px, const std::vector<double> &py) const {
     std::vector<double> cx(nv_), cy(nv_);
     for (std::size_t v = 0; v < nv_; ++v) {
         cx[v] = vx_[v];
@@ -1216,7 +1227,7 @@ double SimplePlacer::Impl::hpwl(const std::vector<double> &px,
 // Density
 // ---------------------------------------------------------------------------
 
-void SimplePlacer::Impl::binCells(const std::vector<double> &px, const std::vector<double> &py) {
+void simplPlacer::Impl::binCells(const std::vector<double> &px, const std::vector<double> &py) {
     std::fill(grid_.occ.begin(), grid_.occ.end(), 0.0);
     for (auto &b : binCells_) {
         b.clear();
@@ -1237,8 +1248,8 @@ void SimplePlacer::Impl::binCells(const std::vector<double> &px, const std::vect
     }
 }
 
-double SimplePlacer::Impl::densityOf(std::size_t ix0, std::size_t ix1, std::size_t iy0,
-                                     std::size_t iy1) const {
+double simplPlacer::Impl::densityOf(std::size_t ix0, std::size_t ix1, std::size_t iy0,
+                                    std::size_t iy1) const {
     double c = 0.0;
     double a = 0.0;
     for (std::size_t iy = iy0; iy <= iy1 && iy < grid_.nby; ++iy) {
@@ -1251,7 +1262,7 @@ double SimplePlacer::Impl::densityOf(std::size_t ix0, std::size_t ix1, std::size
     return (a > 0.0) ? (c / a) : 0.0;
 }
 
-double SimplePlacer::Impl::scaledOverflow() const {
+double simplPlacer::Impl::scaledOverflow() const {
     if (!(grid_.totalAvail > 0.0)) {
         return 0.0;
     }
@@ -1269,9 +1280,9 @@ double SimplePlacer::Impl::scaledOverflow() const {
 // Look-ahead legalization (Algorithm 1)
 // ---------------------------------------------------------------------------
 
-void SimplePlacer::Impl::nonlinearScale(const std::vector<std::uint32_t> &cells, std::size_t a0,
-                                        std::size_t a1, std::size_t b0, std::size_t b1,
-                                        bool vertical, double cutCoord) {
+void simplPlacer::Impl::nonlinearScale(const std::vector<std::uint32_t> &cells, std::size_t a0,
+                                       std::size_t a1, std::size_t b0, std::size_t b1,
+                                       bool vertical, double cutCoord) {
     if (cells.empty() || a0 > a1 || b0 > b1) {
         return;
     }
@@ -1285,7 +1296,7 @@ void SimplePlacer::Impl::nonlinearScale(const std::vector<std::uint32_t> &cells,
     bounds.push_back(a0);
     bounds.push_back(a1 + 1);
     for (const std::uint32_t fv : fixVertex_) {
-        const Vertex &vert = graph_.getCell(fv);
+        const simpl::Cell &vert = graph.getCell(fv);
         if (!(vert.width > 0.0) || !(vert.height > 0.0)) {
             continue;
         }
@@ -1604,7 +1615,7 @@ void SimplePlacer::Impl::nonlinearScale(const std::vector<std::uint32_t> &cells,
     }
 }
 
-void SimplePlacer::Impl::processBlock(const Block &B) {
+void simplPlacer::Impl::processBlock(const Block &B) {
     if (B.level >= par_.maxLevel) {
         return;  // Algorithm 1 line 8
     }
@@ -1725,7 +1736,7 @@ void SimplePlacer::Impl::processBlock(const Block &B) {
     pending_.push_back(n1);
 }
 
-void SimplePlacer::Impl::lookAheadLegalize() {
+void simplPlacer::Impl::lookAheadLegalize() {
     const double before_ = scaledOverflow();
     // 1) Identify g-overfilled bins and cluster them by BFS (4-connected).
     std::vector<char> over(grid_.size(), 0);
@@ -1911,7 +1922,7 @@ void SimplePlacer::Impl::lookAheadLegalize() {
         std::size_t onMacro = 0;
         for (std::size_t i = 0; i < numMovable_; ++i) {
             for (const std::uint32_t fv : fixVertex_) {
-                const Vertex &fv2 = graph_.getCell(fv);
+                const simpl::Cell &fv2 = graph.getCell(fv);
                 if (pinX_[i] < vx_[fv] + fv2.width && pinX_[i] + areaMovW_[i] > vx_[fv] &&
                     pinY_[i] < vy_[fv] + fv2.height && pinY_[i] + areaMovH_[i] > vy_[fv]) {
                     ++onMacro;
@@ -2047,8 +2058,8 @@ void SimplePlacer::Impl::lookAheadLegalize() {
 // Reporting
 // ---------------------------------------------------------------------------
 
-void SimplePlacer::Impl::describe(const std::vector<double> &px, const std::vector<double> &py,
-                                  const char *tag) const {
+void simplPlacer::Impl::describe(const std::vector<double> &px, const std::vector<double> &py,
+                                 const char *tag) const {
     if (numMovable_ == 0) {
         return;
     }
@@ -2124,7 +2135,7 @@ std::string frameStep(std::size_t n) {
 
 }  // namespace
 
-void SimplePlacer::Impl::enforceFences(std::vector<double> &px, std::vector<double> &py) {
+void simplPlacer::Impl::enforceFences(std::vector<double> &px, std::vector<double> &py) {
     if (fences_ == nullptr || fences_->numRegions() == 0) {
         return;
     }
@@ -2168,19 +2179,28 @@ void SimplePlacer::Impl::enforceFences(std::vector<double> &px, std::vector<doub
     }
 }
 
-void SimplePlacer::Impl::recordGifFrame(const std::vector<float> &fx, const std::vector<float> &fy,
-                                        std::size_t step, std::size_t total, double hp, double ovf,
-                                        const std::string &note, bool mandatory) {
+void simplPlacer::Impl::recordGifFrame(const std::vector<float> &fx, const std::vector<float> &fy,
+                                       std::size_t step, std::size_t total, double hp, double ovf,
+                                       const std::string &note, bool mandatory) {
     if (!animEnabled_) {
         return;
     }
-    PlacementAnimator::instance().record(graph_, fx, fy, die_, step, total, hp, res_.hpwlSeed, ovf,
-                                         note, fences_, mandatory);
+    if (design.onFrame) {
+        FrameInfo info;
+        info.note = note;
+        info.step = step;
+        info.numSteps = total;
+        info.hpwl = hp;
+        info.hpwlInitial = res_.hpwlSeed;
+        info.overflow = ovf;
+        info.mandatory = mandatory;
+        design.onFrame(fx, fy, info);
+    }
 }
 
-void SimplePlacer::Impl::writeFrame(const std::string &path, const std::vector<double> &px,
-                                    const std::vector<double> &py, double hp, double ovf,
-                                    const std::string &note, std::size_t step, std::size_t total) {
+void simplPlacer::Impl::writeFrame(const std::string &path, const std::vector<double> &px,
+                                   const std::vector<double> &py, double hp, double ovf,
+                                   const std::string &note, std::size_t step, std::size_t total) {
     std::vector<float> fx(nv_), fy(nv_);
     for (std::size_t v = 0; v < nv_; ++v) {
         fx[v] = static_cast<float>(vx_[v]);
@@ -2190,19 +2210,25 @@ void SimplePlacer::Impl::writeFrame(const std::string &path, const std::vector<d
         fx[movVertex_[i]] = static_cast<float>(px[i]);
         fy[movVertex_[i]] = static_cast<float>(py[i]);
     }
-    // fixedView: every frame in a sequence is drawn at the same die-relative
-    // scale, so iteration N and N+1 are comparable instead of being auto-zoomed.
-    writeFrameSvg(path, graph_, fx, fy, die_, step, total, hp, res_.hpwlSeed, ovf, note, fences_,
-                  /*fixedView=*/true);
-    // Raster twin for the whole-run animation. The name is a plain counter
-    // rather than the SVG's tag, so the animation follows run order even though
-    // the SVG files are named after the stage that drew them.
-    recordGifFrame(fx, fy, step, total, hp, ovf, note, /*mandatory=*/true);
+    // The host draws both the SVG and the animation frame; `path` is the name it
+    // was asked to use, so SimPL stays out of the file formats entirely.
+    if (design.onFrame) {
+        FrameInfo info;
+        info.note = note;
+        info.step = step;
+        info.numSteps = total;
+        info.hpwl = hp;
+        info.hpwlInitial = res_.hpwlSeed;
+        info.overflow = ovf;
+        info.mandatory = true;
+        info.path = path;
+        design.onFrame(fx, fy, info);
+    }
     ++res_.framesWritten;
 }
 
-void SimplePlacer::Impl::writeCgFrame(const std::string &tag, std::size_t cgIter, double residX,
-                                      double residY) {
+void simplPlacer::Impl::writeCgFrame(const std::string &tag, std::size_t cgIter, double residX,
+                                     double residY) {
     // Both axes are shown at once, after both have moved. Plotting the axis under
     // solve against the other axis' previous value was the honest view of a
     // separable solve, but it cost two frames per iteration and read as two
@@ -2227,8 +2253,17 @@ void SimplePlacer::Impl::writeCgFrame(const std::string &tag, std::size_t cgIter
     const std::string note = fmt::format("CG {} iterate {} of {}, residual x {:.3e} / y {:.3e}",
                                          tag, cgIter, par_.cgMaxIter, residX, residY);
     const std::string path = frameDir_ + "/simpl_cg_" + tag + "_" + frameStep(cgIter) + ".svg";
-    writeFrameSvg(path, graph_, fx, fy, die_, cgIter, par_.cgMaxIter, hp, res_.hpwlSeed, 0.0, note,
-                  nullptr, /*fixedView=*/true);
+    if (design.onFrame) {
+        FrameInfo info;
+        info.note = note;
+        info.step = cgIter;
+        info.numSteps = par_.cgMaxIter;
+        info.hpwl = hp;
+        info.hpwlInitial = res_.hpwlSeed;
+        info.path = path;
+        info.mandatory = true;
+        design.onFrame(fx, fy, info);
+    }
     // The same iterate, rasterised, so the animation shows the solve converging
     // rather than jumping straight from one outer iteration to the next.
     // Mandatory: every conjugate-gradient iterate of every solve, in the warm-up
@@ -2238,8 +2273,8 @@ void SimplePlacer::Impl::writeCgFrame(const std::string &tag, std::size_t cgIter
     ++res_.framesWritten;
 }
 
-double SimplePlacer::Impl::binLocal(const std::vector<double> &px, const std::vector<double> &py,
-                                    std::vector<double> &occ) const {
+double simplPlacer::Impl::binLocal(const std::vector<double> &px, const std::vector<double> &py,
+                                   std::vector<double> &occ) const {
     occ.assign(grid_.occ.size(), 0.0);
     for (std::size_t i = 0; i < numMovable_; ++i) {
         std::size_t ix, iy;
@@ -2256,8 +2291,8 @@ double SimplePlacer::Impl::binLocal(const std::vector<double> &px, const std::ve
     return (grid_.totalAvail > 0.0) ? ex / grid_.totalAvail : 0.0;
 }
 
-void SimplePlacer::Impl::writeDensityMap(const std::string &path, const std::vector<double> &px,
-                                         const std::vector<double> &py, const std::string &note) {
+void simplPlacer::Impl::writeDensityMap(const std::string &path, const std::vector<double> &px,
+                                        const std::vector<double> &py, const std::string &note) {
     std::vector<double> occ;
     const double ovf = binLocal(px, py, occ);
 
@@ -2311,7 +2346,7 @@ void SimplePlacer::Impl::writeDensityMap(const std::string &path, const std::vec
     }
     // Fixed macros, outlined, so blockage is distinguishable from legal space.
     for (const std::uint32_t fv : fixVertex_) {
-        const Vertex &vert = graph_.getCell(fv);
+        const simpl::Cell &vert = graph.getCell(fv);
         if (!(vert.width > 0.0) || !(vert.height > 0.0)) {
             continue;
         }
@@ -2351,8 +2386,8 @@ void SimplePlacer::Impl::writeDensityMap(const std::string &path, const std::vec
     ++res_.framesWritten;
 }
 
-void SimplePlacer::Impl::densityStats(const std::vector<double> &px, const std::vector<double> &py,
-                                      const char *tag) const {
+void simplPlacer::Impl::densityStats(const std::vector<double> &px, const std::vector<double> &py,
+                                     const char *tag) const {
     std::vector<double> occ;
     const double ovf = binLocal(px, py, occ);
     std::vector<double> util;
@@ -2411,11 +2446,11 @@ void SimplePlacer::Impl::densityStats(const std::vector<double> &px, const std::
 
 // ---------------------------------------------------------------------------
 
-SimplResult SimplePlacer::Impl::run(const SimplParams &P, const std::string &plotDir,
-                                    bool useFences) {
+SimplResult simplPlacer::Impl::run(const SimplParams &P, const std::string &plotDir,
+                                   bool useFences) {
     par_ = P;
     // The design's own fences, unless the run asked to measure their cost.
-    fences_ = useFences ? &db_.constraints() : nullptr;
+    fences_ = useFences ? fences : nullptr;
     fenceClamps_ = 0;
     fencePushes_ = 0;
     // Debugging cap: the legalizer is the expensive part, so a short run is
@@ -2539,13 +2574,13 @@ SimplResult SimplePlacer::Impl::run(const SimplParams &P, const std::string &plo
         // movable list. This has to come after collect(): numMovable_ is still zero
         // above it, so sizing the mirror here produced an empty vector and the fence
         // check then indexed it from zero -- a null dereference on the first cell.
-        // Vertex::regionId is the source of truth, but the check runs over every cell
+        // Cell::regionId is the source of truth, but the check runs over every cell
         // after every solve, so it wants this per movable index rather than a graph
         // lookup each time.
         movRegion_.assign(numMovable_, constraintMgr::kNoRegion);
         if (fences_ != nullptr) {
             for (std::size_t i = 0; i < numMovable_; ++i) {
-                movRegion_[i] = graph_.getCell(movVertex_[i]).regionId;
+                movRegion_[i] = graph.getCell(movVertex_[i]).regionId;
             }
         }
     }  // "simpl-setup"
@@ -3194,9 +3229,17 @@ SimplResult SimplePlacer::Impl::run(const SimplParams &P, const std::string &plo
     }
 
     // The result is the last upper bound (Figure 2: "Last Upper-bound
-    // Placement"); positions are written back for the normal output path.
+    // Placement"), kept in the stage output rather than written back, so the
+    // placer cannot change the design the flow is about to hand to the next stage.
+    outX.assign(nv_, 0.0);
+    outY.assign(nv_, 0.0);
+    for (std::size_t v = 0; v < nv_; ++v) {
+        outX[v] = graph.getCell(v).x;
+        outY[v] = graph.getCell(v).y;
+    }
     for (std::size_t i = 0; i < numMovable_; ++i) {
-        db_.setCellPosition(movVertex_[i], upper[i], upperY[i]);
+        outX[movVertex_[i]] = upper[i];
+        outY[movVertex_[i]] = upperY[i];
     }
 
     if (!plotDir.empty()) {
@@ -3299,14 +3342,17 @@ SimplResult SimplePlacer::Impl::run(const SimplParams &P, const std::string &plo
 
 // ---------------------------------------------------------------------------
 
-SimplePlacer::SimplePlacer(ktDM &db) : pImpl(std::make_unique<Impl>(db)) {}
-SimplePlacer::~SimplePlacer() = default;
-SimplePlacer::SimplePlacer(SimplePlacer &&) noexcept = default;
-SimplePlacer &SimplePlacer::operator=(SimplePlacer &&) noexcept = default;
+simplPlacer::simplPlacer(const simpl::Design &design) : pImpl(std::make_unique<Impl>(design)) {}
+simplPlacer::~simplPlacer() = default;
+simplPlacer::simplPlacer(simplPlacer &&) noexcept = default;
+simplPlacer &simplPlacer::operator=(simplPlacer &&) noexcept = default;
 
-SimplResult SimplePlacer::place(const SimplParams &params, const std::string &plotDir,
-                                bool useFences) {
-    return pImpl->run(params, plotDir, useFences);
+SimplResult simplPlacer::place(const SimplParams &params, const std::string &plotDir,
+                               bool useFences) {
+    SimplResult result = pImpl->run(params, plotDir, useFences);
+    answer.xs = pImpl->outX;
+    answer.ys = pImpl->outY;
+    return result;
 }
 
 void reportSimpl(const SimplResult &r) {
@@ -3347,4 +3393,4 @@ void reportSimpl(const SimplResult &r) {
     t.emit();
 }
 
-}  // namespace ktplace
+}  // namespace ktplace::simpl

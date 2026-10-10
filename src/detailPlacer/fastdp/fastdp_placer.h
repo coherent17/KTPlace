@@ -1,10 +1,11 @@
-// @file kt_fastdp.h// Fast detailed placement: global swap, vertical swap, local re-ordering,// single-segment clustering// Detailed placement runs after legalization. The legalizer minimises// displacement, which is not the same as minimising wirelength, so a legal// placement is usually a little worse than the global placement it came from and// this stage wins it back.// Implements the four techniques of Pan, Viswanathan and Chu, "Fast and// effective detailed placement", ICCAD 2005:// 1. Global swap. For each cell, the best x for it is the median of the x// coordinates its nets allow, which is the classic "median" move. If some// other cell already sits near that x and the two can trade places without// breaking legality, swap them.// 2. Vertical swap. The same exchange restricted to cells in adjacent rows,// which fixes cells that want to change row.// 3. Local re-ordering. Within a short window of a row, find the best left to// right ordering exactly, by a subset dynamic program.// 4. Single-segment clustering. With the order fixed, re-place a segment with// the legalizer's cluster dynamic program, which is the same optimisation// applied to one segment rather than a whole row.// Every technique preserves legality: a move is only applied if each cell stays// in its row band, on a site, and clear of its neighbours and of any macro.
+// @file fastdp_placer.h// Fast detailed placement: global swap, vertical swap, local re-ordering,// single-segment clustering// Detailed placement runs after legalization. The legalizer minimises// displacement, which is not the same as minimising wirelength, so a legal// placement is usually a little worse than the global placement it came from and// this stage wins it back.// Implements the four techniques of Pan, Viswanathan and Chu, "Fast and// effective detailed placement", ICCAD 2005:// 1. Global swap. For each cell, the best x for it is the median of the x// coordinates its nets allow, which is the classic "median" move. If some// other cell already sits near that x and the two can trade places without// breaking legality, swap them.// 2. Vertical swap. The same exchange restricted to cells in adjacent rows,// which fixes cells that want to change row.// 3. Local re-ordering. Within a short window of a row, find the best left to// right ordering exactly, by a subset dynamic program.// 4. Single-segment clustering. With the order fixed, re-place a segment with// the legalizer's cluster dynamic program, which is the same optimisation// applied to one segment rather than a whole row.// Every technique preserves legality: a move is only applied if each cell stays// in its row band, on a site, and clear of its neighbours and of any macro.
 
 
 #pragma once
 
 #include "constraint/kt_constraintMgr.h"
-#include "datamodel/kt_dm.h"
+#include "datamodel/kt_solutionMgr.h"
+#include "detailPlacer/fastdp/fastdp_design.h"
 
 #include <cstddef>
 #include <memory>
@@ -54,7 +55,7 @@ struct DetailPlaceResult {
 
 class FastDetailedPlacer {
 public:
-    explicit FastDetailedPlacer(ktDM &db);
+    explicit FastDetailedPlacer(const fastdp::Design &design);
     ~FastDetailedPlacer();
 
     FastDetailedPlacer(const FastDetailedPlacer &) = delete;
@@ -62,6 +63,10 @@ public:
 
     /// Improve the placement in place, writing positions back to the database.
     DetailPlaceResult place(const DetailPlaceParams &params = {});
+
+    /// Where the last run put every cell. Nothing is written anywhere else: the
+    /// caller commits this through ktDM.
+    [[nodiscard]] fastdpSolution solution() const;
 
 private:
     class Impl;

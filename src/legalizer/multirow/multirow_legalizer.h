@@ -1,9 +1,10 @@
-// @file kt_multiRowLegalizer.h
+// @file multirow_legalizer.h
 // Legalizer that can place cells taller than one row
 
 #pragma once
 
-#include "datamodel/kt_dm.h"
+#include "datamodel/kt_solutionMgr.h"
+#include "legalizer/multirow/multirow_design.h"
 
 #include <memory>
 #include <string>
@@ -46,7 +47,7 @@ struct MultiRowLegalizeResult {
 /// that fits in the resulting well is placed like any other cell.
 class MultiRowLegalizer {
 public:
-    explicit MultiRowLegalizer(ktDM &db);
+    explicit MultiRowLegalizer(const multirow::Design &design);
     ~MultiRowLegalizer();
 
     MultiRowLegalizer(const MultiRowLegalizer &) = delete;
@@ -56,6 +57,10 @@ public:
     MultiRowLegalizer &operator=(MultiRowLegalizer &&) noexcept;
 
     MultiRowLegalizeResult legalize(const MultiRowLegalizeParams &params = {});
+
+    /// Where the last run put every cell. Nothing is written anywhere else: the
+    /// caller commits this through ktDM.
+    [[nodiscard]] multiRowSolution solution() const;
 
 private:
     class Impl;

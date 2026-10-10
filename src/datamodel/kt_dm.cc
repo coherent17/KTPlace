@@ -438,6 +438,41 @@ void ktDM::setPlacementSolution(const solutionMgr &solution) {
     solution.commitTo(graph);
 }
 
+
+void ktDM::setGPSolution(const simplSolution &solution) {
+    const std::size_t n = std::min({solution.xs.size(), solution.ys.size(), graph.getNumCells()});
+    for (std::size_t v = 0; v < n; ++v) {
+        setCellPosition(v, solution.xs[v], solution.ys[v]);
+    }
+}
+
+namespace {
+/// Every stage's solution is the same shape: positions indexed by cell id. One
+/// writer, so a stage cannot commit a placement the others would have written
+/// differently.
+template <typename Solution>
+void commitCells(Graph &graph, const Solution &solution) {
+    const std::size_t n = std::min({solution.xs.size(), solution.ys.size(), graph.getNumCells()});
+    for (std::size_t v = 0; v < n; ++v) {
+        Vertex &cell = graph.getCell(v);
+        cell.x = solution.xs[v];
+        cell.y = solution.ys[v];
+    }
+}
+}  // namespace
+
+void ktDM::setLegalizationSolution(const abacusSolution &solution) {
+    commitCells(graph, solution);
+}
+
+void ktDM::setMultiRowSolution(const multiRowSolution &solution) {
+    commitCells(graph, solution);
+}
+
+void ktDM::setDetailedPlaceSolution(const fastdpSolution &solution) {
+    commitCells(graph, solution);
+}
+
 solutionMgr ktDM::getPlacementSolution() const {
     return solutionMgr::fromGraph(graph);
 }

@@ -12,7 +12,8 @@ override INCLUDES := -I..
 OBJ_DIR ?= ../build/obj/detailPlacer
 
 # Source files in this directory
-SRCS := kt_fastdp.cc
+SRCS := fastdp/fastdp_placer.cc fastdp/fastdp_design.cc fastdp/fastdp_dm.cc \
+        fastdp/fastdp_flowMgr.cc
 
 EXISTING_SRCS := $(foreach src,$(SRCS),$(if $(wildcard $(src)),$(src),))
 

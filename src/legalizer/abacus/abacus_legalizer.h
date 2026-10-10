@@ -1,11 +1,11 @@
-// @file kt_abacus.h// Abacus legalization: minimal-movement row legalization// After global placement the cells overlap and are not aligned to the placement// rows. Legalization snaps them onto rows, removes all overlap, and does so with// the least total movement it can.// The algorithm is Spindler, Schlichtmann and Johannes, "Abacus: fast// legalization of standard cell circuits with minimal movement", ISPD 2008. The// idea that distinguishes it from row-by-row Tetris is that a cell is not simply// dropped into a gap: whenever a cell is considered for a row, **every cell// already placed in that row is re-placed too**, by a dynamic program that// minimises the total squared movement of the whole row. A row is therefore// allowed to compact around the new arrival, which is what buys the ~30%// movement reduction the paper reports against Tetris.// Structure here:// - rows are cut into free x-intervals by the fixed cells (macros) that cross// them, so a cell can never be placed on top of a blockage;// - cells are processed in order of their target y, and for each one candidate// rows are scanned outward from its own row while a lower bound on the row// cost still beats the best legal placement found so far;// - the row's optimal placement is a left-to-right pass. For cells in a fixed// left-to-right order, minimising sum (x'_i - x_i)^2 subject to// x'_{i+1} >= x'_i + w_i has the greedy solution x'_i = max(x_i, x'_{i-1} +// w_{i-1}) -- an exchange argument shows any other choice is no better -- so// the DP is linear in the row length. That is the "clustering + movement" the// paper describes, in its whole-row form.
+// @file abacus_legalizer.h// Abacus legalization: minimal-movement row legalization// After global placement the cells overlap and are not aligned to the placement// rows. Legalization snaps them onto rows, removes all overlap, and does so with// the least total movement it can.// The algorithm is Spindler, Schlichtmann and Johannes, "Abacus: fast// legalization of standard cell circuits with minimal movement", ISPD 2008. The// idea that distinguishes it from row-by-row Tetris is that a cell is not simply// dropped into a gap: whenever a cell is considered for a row, **every cell// already placed in that row is re-placed too**, by a dynamic program that// minimises the total squared movement of the whole row. A row is therefore// allowed to compact around the new arrival, which is what buys the ~30%// movement reduction the paper reports against Tetris.// Structure here:// - rows are cut into free x-intervals by the fixed cells (macros) that cross// them, so a cell can never be placed on top of a blockage;// - cells are processed in order of their target y, and for each one candidate// rows are scanned outward from its own row while a lower bound on the row// cost still beats the best legal placement found so far;// - the row's optimal placement is a left-to-right pass. For cells in a fixed// left-to-right order, minimising sum (x'_i - x_i)^2 subject to// x'_{i+1} >= x'_i + w_i has the greedy solution x'_i = max(x_i, x'_{i-1} +// w_{i-1}) -- an exchange argument shows any other choice is no better -- so// the DP is linear in the row length. That is the "clustering + movement" the// paper describes, in its whole-row form.
 
 
 #pragma once
 
 #include "constraint/kt_constraintMgr.h"
-#include "datamodel/kt_dm.h"
-#include "visualization/kt_plotter.h"
+#include "datamodel/kt_solutionMgr.h"
+#include "legalizer/abacus/abacus_design.h"
 
 #include <cstddef>
 #include <memory>
@@ -53,7 +53,7 @@ struct LegalizeResult {
 
 class AbacusLegalizer {
 public:
-    explicit AbacusLegalizer(ktDM &db);
+    explicit AbacusLegalizer(const abacus::Design &design);
     ~AbacusLegalizer();
 
     AbacusLegalizer(const AbacusLegalizer &) = delete;
@@ -61,6 +61,10 @@ public:
 
     /// Legalize in place, writing the new positions back into the database.
     LegalizeResult legalize(const LegalizeParams &params = {});
+
+    /// Where the last run put every cell. Nothing is written anywhere else: the
+    /// caller commits this through ktDM.
+    [[nodiscard]] abacusSolution solution() const;
 
 private:
     class Impl;

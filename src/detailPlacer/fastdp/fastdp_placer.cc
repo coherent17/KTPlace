@@ -1,8 +1,10 @@
-// @file kt_fastdp.cc// Fast detailed placement. See kt_fastdp.h for the technique summary.
+// @file fastdp_placer.cc
+// Fast detailed placement. See fastdp_placer.h for the technique summary.
 
 
-#include "detailPlacer/kt_fastdp.h"
+#include "detailPlacer/fastdp/fastdp_placer.h"
 
+#include "detailPlacer/fastdp/fastdp_design.h"
 #include "util/kt_log.h"
 #include "util/kt_reportTable.h"
 #include "util/kt_scopedTimer.h"
@@ -61,7 +63,7 @@ struct FixedBox {
 
 class FastDetailedPlacer::Impl {
 public:
-    explicit Impl(ktDM &db) : db_(db), graph_(db.getGraph()) {}
+    explicit Impl(const fastdp::Design &d) : design(d) {}
 
     DetailPlaceResult place(const DetailPlaceParams &params);
 
@@ -96,7 +98,7 @@ private:
     void selfCheck(DetailPlaceResult &res) const;
     void writeFrame(const std::string &path, const char *note) const;
     /// Fences, carried from the params so the frame writer can draw them.
-    const constraintMgr *constraints_ = nullptr;
+
     void commit(std::size_t c, double nx);
     /// Re-sort a span's cells by x. The neighbour check in canPlace() binary
     /// searches that order, so it has to be restored after every move.
@@ -142,11 +144,16 @@ private:
     bool locate(std::size_t c);
     std::size_t localWindow_ = 8;
 
-    ktDM &db_;
-    Graph &graph_;
-    std::vector<std::size_t> mov_;     ///< graph vertex per movable slot
+public:
+    /// The design this pass runs against, and its live position per movable slot.
+    /// Public because solution() is what carries the result out: the design
+    /// itself is never written.
+    const fastdp::Design &design;
+    std::vector<std::size_t> mov_;
+    std::vector<double> x_, y_;
+
+private:
     std::vector<double> w_, h_;        ///< per movable slot
-    std::vector<double> x_, y_;        ///< current position
     std::vector<std::size_t> spanOf_;  ///< span index per movable slot
     std::vector<Span> spans_;
     std::vector<std::vector<NetPin>> netPins_;
@@ -158,8 +165,8 @@ private:
 
 void FastDetailedPlacer::Impl::buildSpans() {
     spans_.clear();
-    std::vector<RowInfo> rows = db_.getRows();
-    std::sort(rows.begin(), rows.end(), [](const RowInfo &a, const RowInfo &b) {
+    std::vector<fastdp::RowInfo> rows(design.rows);
+    std::sort(rows.begin(), rows.end(), [](const fastdp::RowInfo &a, const fastdp::RowInfo &b) {
         return a.coordinate < b.coordinate;
     });
     // Free space per row, not the row itself. A span is what is actually empty
@@ -170,8 +177,8 @@ void FastDetailedPlacer::Impl::buildSpans() {
     // still reports as one full subrow, and on ibm01 that mismatch is what left
     // the detail placer placing two cells on top of each other.
     std::vector<std::vector<std::pair<double, double>>> occupied(rows.size());
-    for (std::size_t v = 0; v < graph_.getNumCells(); ++v) {
-        const Vertex &vert = graph_.getCell(v);
+    for (std::size_t v = 0; v < design.cells.size(); ++v) {
+        const fastdp::Cell &vert = design.cells[v];
         if (vert.width <= 0.0 || vert.height <= 0.0) {
             continue;
         }
@@ -180,7 +187,7 @@ void FastDetailedPlacer::Impl::buildSpans() {
         // covers. Scanning all rows per cell was quadratic on a design with
         // 210k cells and 700 rows.
         const auto above = std::lower_bound(rows.begin(), rows.end(), vert.y + vert.height,
-                                            [](const RowInfo &ri, double limit) {
+                                            [](const fastdp::RowInfo &ri, double limit) {
                                                 return ri.coordinate + ri.height < limit;
                                             });
         for (auto it = above; it != rows.begin();) {
@@ -193,13 +200,13 @@ void FastDetailedPlacer::Impl::buildSpans() {
         }
     }
     for (std::size_t r = 0; r < rows.size(); ++r) {
-        const RowInfo &ri = rows[r];
+        const fastdp::RowInfo &ri = rows[r];
         const double site = ri.pitch() > 0.0 ? ri.pitch() : 1.0;
         std::vector<std::pair<double, double>> &obs = occupied[r];
         std::sort(obs.begin(), obs.end());
-        for (const SubrowInfo &si : ri.subrows) {
-            for (double lo = si.xlo(); lo < si.xhi(site) - 1e-9;) {
-                double hi = si.xhi(site);
+        for (const fastdp::Subrow &si : ri.subrows) {
+            for (double lo = si.xlo; lo < si.xhi - 1e-9;) {
+                double hi = si.xhi;
                 // Each obstacle splits the run in two: stop just short of it, and
                 // resume at its far edge.
                 for (const auto &o : obs) {
@@ -347,17 +354,17 @@ void FastDetailedPlacer::Impl::removeFromSpan(std::size_t c) {
 }
 
 void FastDetailedPlacer::Impl::buildNetlist() {
-    std::vector<std::size_t> slotOf(graph_.getNumCells(), kNoSlot);
+    std::vector<std::size_t> slotOf(design.cells.size(), kNoSlot);
     for (std::size_t i = 0; i < mov_.size(); ++i) {
         slotOf[mov_[i]] = i;
     }
-    netPins_.assign(graph_.getNumNets(), {});
+    netPins_.assign(design.nets.size(), {});
     cellNets_.assign(mov_.size(), {});
-    for (std::size_t n = 0; n < graph_.getNumNets(); ++n) {
-        for (const std::size_t pinId : graph_.getNetPins(n)) {
-            const Pin &pin = graph_.getPin(pinId);
+    for (std::size_t n = 0; n < design.nets.size(); ++n) {
+        for (const std::size_t pinId : design.nets[n].pins) {
+            const fastdp::Pin &pin = design.pins[pinId];
             const std::size_t s = slotOf[pin.cellId];
-            const Vertex &c = graph_.getCell(pin.cellId);
+            const fastdp::Cell &c = design.cells[pin.cellId];
             if (s == kNoSlot) {
                 netPins_[n].push_back(NetPin{kNoSlot, pin.offsetX, pin.offsetY, c.x + pin.offsetX});
             } else {
@@ -1127,22 +1134,26 @@ std::size_t FastDetailedPlacer::Impl::singleSegmentCluster() {
 }
 
 void FastDetailedPlacer::Impl::writeFrame(const std::string &path, const char *note) const {
-    const std::size_t nv = graph_.getNumCells();
+    const std::size_t nv = design.cells.size();
     std::vector<float> fx(nv), fy(nv);
     for (std::size_t v = 0; v < nv; ++v) {
-        fx[v] = static_cast<float>(graph_.getCell(v).x);
-        fy[v] = static_cast<float>(graph_.getCell(v).y);
+        fx[v] = static_cast<float>(design.cells[v].x);
+        fy[v] = static_cast<float>(design.cells[v].y);
     }
     for (std::size_t i = 0; i < mov_.size(); ++i) {
         fx[mov_[i]] = static_cast<float>(x_[i]);
         fy[mov_[i]] = static_cast<float>(y_[i]);
     }
-    writeFrameSvg(path, graph_, fx, fy, die_, 0, 1, hpwl(), 0.0, 0.0, note, constraints_,
-                  /*fixedView=*/true);
-    // Into the run's animation as well, so detailed placement's contribution --
-    // usually the last thing that moves cells -- is in the GIF too.
-    PlacementAnimator::instance().record(graph_, fx, fy, die_, 0, 1, hpwl(), hpwl(), 0.0, note,
-                                         constraints_);
+    // The host draws; the placer only says when.
+    if (design.onFrame) {
+        fastdp::FrameInfo info;
+        info.note = note;
+        info.hpwl = hpwl();
+        info.hpwlInitial = hpwl();
+        info.path = path;
+        info.mandatory = true;
+        design.onFrame(fx, fy, info);
+    }
 }
 
 void FastDetailedPlacer::Impl::selfCheck(DetailPlaceResult &res) const {
@@ -1251,7 +1262,7 @@ DetailPlaceResult FastDetailedPlacer::Impl::place(const DetailPlaceParams &param
             localWindow_ = static_cast<std::size_t>(v);
         }
     }
-    constraints_ = &db_.constraints();
+
 
     // place() is a normal call, not a one-shot: the same object may be run
     // again with different parameters. The per-run accumulators below append
@@ -1273,7 +1284,7 @@ DetailPlaceResult FastDetailedPlacer::Impl::place(const DetailPlaceParams &param
     // set by the fixed-box pass, which runs later, so reading it here skipped
     // every cell in the design and left the detail placer doing nothing at all.
     double rowHeight = std::numeric_limits<double>::max();
-    for (const auto &ri : db_.getRows()) {
+    for (const auto &ri : design.rows) {
         if (ri.height > 0.0) {
             rowHeight = std::min(rowHeight, ri.height);
         }
@@ -1282,8 +1293,8 @@ DetailPlaceResult FastDetailedPlacer::Impl::place(const DetailPlaceParams &param
         rowHeight = 1.0;
     }
 
-    for (std::size_t v = 0; v < graph_.getNumCells(); ++v) {
-        const Vertex &vert = graph_.getCell(v);
+    for (std::size_t v = 0; v < design.cells.size(); ++v) {
+        const fastdp::Cell &vert = design.cells[v];
         if (vert.isFixed) {
             fixed_.push_back(FixedBox{vert.y, vert.y + vert.height, vert.x, vert.x + vert.width});
         }
@@ -1315,7 +1326,7 @@ DetailPlaceResult FastDetailedPlacer::Impl::place(const DetailPlaceParams &param
     if (mov_.empty()) {
         return res;
     }
-    const BBox d = fixedCellBBox(graph_);
+    const fastdp::DieBox d = design.die;
     die_ = BBox{d[0], d[1], d[2], d[3]};
     {
         const auto t0 = std::chrono::steady_clock::now();
@@ -1412,7 +1423,6 @@ DetailPlaceResult FastDetailedPlacer::Impl::place(const DetailPlaceParams &param
     const auto t4 = std::chrono::steady_clock::now();
     res.hpwlAfter = hpwl();
     for (std::size_t i = 0; i < mov_.size(); ++i) {
-        db_.setCellPosition(mov_[i], x_[i], y_[i]);
     }
     const auto t5 = std::chrono::steady_clock::now();
     selfCheck(res);
@@ -1433,7 +1443,8 @@ DetailPlaceResult FastDetailedPlacer::Impl::place(const DetailPlaceParams &param
 
 // ---------------------------------------------------------------------------
 
-FastDetailedPlacer::FastDetailedPlacer(ktDM &db) : pImpl(std::make_unique<Impl>(db)) {}
+FastDetailedPlacer::FastDetailedPlacer(const fastdp::Design &design)
+    : pImpl(std::make_unique<Impl>(design)) {}
 
 FastDetailedPlacer::~FastDetailedPlacer() = default;
 
@@ -1468,6 +1479,22 @@ DetailPlaceResult FastDetailedPlacer::place(const DetailPlaceParams &params) {
     DetailPlaceResult result = pImpl->place(params);
     report(result);
     return result;
+}
+
+ktplace::fastdpSolution FastDetailedPlacer::solution() const {
+    fastdpSolution out;
+    const std::size_t n = pImpl->design.cells.size();
+    out.xs.resize(n);
+    out.ys.resize(n);
+    for (std::size_t v = 0; v < n; ++v) {
+        out.xs[v] = pImpl->design.cells[v].x;
+        out.ys[v] = pImpl->design.cells[v].y;
+    }
+    for (std::size_t i = 0; i < pImpl->mov_.size(); ++i) {
+        out.xs[pImpl->mov_[i]] = pImpl->x_[i];
+        out.ys[pImpl->mov_[i]] = pImpl->y_[i];
+    }
+    return out;
 }
 
 }  // namespace ktplace

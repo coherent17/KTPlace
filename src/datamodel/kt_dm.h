@@ -6,6 +6,7 @@
 #include "constraint/kt_constraintMgr.h"
 #include "datamodel/kt_die.h"
 #include "datamodel/kt_graph.h"
+#include "datamodel/kt_solutionMgr.h"
 
 #include <algorithm>
 #include <array>
@@ -42,6 +43,21 @@ public:
 
     void setPlacementSolution(const solutionMgr &solution);
     [[nodiscard]] solutionMgr getPlacementSolution() const;
+
+    /// Commit the answer of a global-placement stage.
+    ///
+    /// Takes the stage's own result type rather than a solutionMgr, because the
+    /// stage produced that and nothing else should have to reshape it first. A
+    /// stage's solution covers every cell; anything it left out keeps the
+    /// position it already had.
+    void setGPSolution(const simplSolution &solution);
+
+    /// The same, for a legalization stage. Kept as its own name so a reader can
+    /// tell which stage produced the placement.
+    void setLegalizationSolution(const abacusSolution &solution);
+    void setMultiRowSolution(const multiRowSolution &solution);
+    void setDetailedPlaceSolution(const fastdpSolution &solution);
+
 
     // Cell management
     [[nodiscard]] std::size_t addCell(const std::string &name, double width, double height,

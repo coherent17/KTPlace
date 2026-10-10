@@ -6,6 +6,7 @@
 #include "datamodel/kt_graph.h"
 
 #include <cstddef>
+#include <stdexcept>
 #include <vector>
 
 namespace ktplace {
@@ -24,6 +25,46 @@ namespace ktplace {
 /// for net vertices are ignored.
 [[nodiscard]] double netlistHPWL(const Graph &graph, const std::vector<double> &x,
                                  const std::vector<double> &y);
+
+/// What a global placer hands back: the positions it chose, indexed by cell id.
+///
+/// This is the shared vocabulary between a placement stage and the flow, and it
+/// is deliberately not the placer's own result type. A placer's result carries
+/// solver statistics -- iterations, residuals, gap -- that only mean something
+/// inside that solver; the flow does not want them, and the solver does not want
+/// to be committed to ktDM. What crosses the boundary is just the placement.
+///
+/// Deliberately separate from solutionMgr: a solutionMgr is sized and indexed for
+/// a graph's full id space, nets included, and is what ktDM accepts. This is the
+/// placer's answer before that expansion, one entry per cell.
+struct simplSolution {
+    std::vector<double> xs;  ///< indexed by cell id
+    std::vector<double> ys;  ///< indexed by cell id
+
+    /// Cells the placer actually moved. Fixed cells keep the position they were
+    /// given and are not repeated here, so a flow that only wants the movable
+    /// cells does not have to filter.
+    std::vector<std::size_t> movable;
+};
+
+/// What a legalizer hands back: where every cell ended up, indexed by cell id.
+struct abacusSolution {
+    std::vector<double> xs;
+    std::vector<double> ys;
+};
+
+/// What the multi-row legalizer hands back. Same shape as abacusSolution: both
+/// are a complete placement, and a flow treats them the same way.
+struct multiRowSolution {
+    std::vector<double> xs;
+    std::vector<double> ys;
+};
+
+/// What a detailed placer hands back.
+struct fastdpSolution {
+    std::vector<double> xs;
+    std::vector<double> ys;
+};
 
 /// A placement a stage produced and ktDM will accept: the positions of every
 /// vertex, indexed by vertex id.
@@ -78,6 +119,17 @@ public:
     }
     void setY(std::size_t vertexId, double y) {
         y_.at(vertexId) = y;
+    }
+
+    /// Take both coordinates for every cell at once. `xs` and `ys` must be
+    /// indexed by cell id and the same length, which is the shape stages keep
+    /// their results in.
+    void setAll(const std::vector<double> &xs, const std::vector<double> &ys) {
+        if (xs.size() != ys.size() || xs.size() != x_.size()) {
+            throw std::invalid_argument("solutionMgr::setAll: size mismatch");
+        }
+        x_ = xs;
+        y_ = ys;
     }
 
     [[nodiscard]] const std::vector<double> &xs() const {

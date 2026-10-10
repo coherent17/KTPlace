@@ -1,8 +1,9 @@
-// @file kt_multiRowLegalizer.cc
+// @file multirow_legalizer.cc
 // Legalizer that can place cells taller than one row
 
-#include "legalizer/kt_multiRowLegalizer.h"
+#include "legalizer/multirow/multirow_legalizer.h"
 
+#include "legalizer/multirow/multirow_design.h"
 #include "util/kt_log.h"
 #include "util/kt_reportTable.h"
 #include "util/kt_scopedTimer.h"
@@ -85,7 +86,7 @@ constexpr double kSiteEps = 1e-6;
 
 class MultiRowLegalizer::Impl {
 public:
-    explicit Impl(ktDM &db) : db_(db), graph_(db.getGraph()) {}
+    explicit Impl(const multirow::Design &d) : design(d) {}
 
     MultiRowLegalizeResult run(const MultiRowLegalizeParams &params);
 
@@ -117,8 +118,7 @@ private:
     void writeFrame(const std::string &path, const std::string &note, std::size_t step,
                     std::size_t total);
 
-    ktDM &db_;
-    const Graph &graph_;
+    const multirow::Design &design;
 
     std::vector<Track> tracks_;
     std::vector<Item> items_;
@@ -129,13 +129,19 @@ private:
     double dieX1_ = 0.0;
     double dieY1_ = 0.0;
     std::array<double, 4> die_{};
-    const constraintMgr *fences_ = nullptr;
+    const multirow::Fences *fences_ = nullptr;
     std::size_t frames_ = 0;
+
+public:
+    /// Position of every cell, indexed by cell id. Seeded from the design and
+    /// updated as cells are placed; this is what legalize() hands back.
+    std::vector<double> solX_;
+    std::vector<double> solY_;
 };
 
 void MultiRowLegalizer::Impl::buildTracks() {
     tracks_.clear();
-    for (const RowInfo &ri : db_.getRows()) {
+    for (const multirow::RowInfo &ri : design.rows) {
         if (!(ri.height > 0.0) || ri.subrows.empty()) {
             continue;
         }
@@ -143,11 +149,11 @@ void MultiRowLegalizer::Impl::buildTracks() {
         t.y = ri.coordinate;
         t.height = ri.height;
         t.pitch = ri.pitch();
-        for (const SubrowInfo &si : ri.subrows) {
+        for (const multirow::Subrow &si : ri.subrows) {
             Segment s;
-            s.xlo = si.xlo();
-            s.xhi = si.xhi(ri.pitch());
-            s.originX = si.xlo();
+            s.xlo = si.xlo;
+            s.xhi = si.xhi;
+            s.originX = si.xlo;
             s.ylo = ri.coordinate;
             s.yhi = ri.coordinate + ri.height;
             s.used = s.xlo;
@@ -166,9 +172,9 @@ void MultiRowLegalizer::Impl::buildTracks() {
 
 void MultiRowLegalizer::Impl::collect() {
     items_.clear();
-    const std::size_t nv = graph_.getNumCells();
+    const std::size_t nv = design.cells.size();
     for (std::size_t v = 0; v < nv; ++v) {
-        const Vertex &vert = graph_.getCell(v);
+        const multirow::Cell &vert = design.cells[v];
         if (vert.isFixed || vert.isTerminal) {
             continue;
         }
@@ -337,19 +343,27 @@ std::vector<MultiRowLegalizer::Impl::Candidate> MultiRowLegalizer::Impl::candida
 MultiRowLegalizeResult MultiRowLegalizer::Impl::run(const MultiRowLegalizeParams &params) {
     MultiRowLegalizeResult res;
     ScopedTimer timer("legalize");
-    res.hpwlBefore = db_.hpwl();
+    res.hpwlBefore = hpwl();
 
-    const std::array<double, 4> box = db_.placementDieBox();
-    die_ = box;
-    dieX0_ = box[0];
-    dieY0_ = box[1];
-    dieX1_ = box[2];
-    dieY1_ = box[3];
-    fences_ = &db_.constraints();
+    die_ = design.die;
+    dieX0_ = die_[0];
+    dieY0_ = die_[1];
+    dieX1_ = die_[2];
+    dieY1_ = die_[3];
+    fences_ = &design.fences;
 
     buildTracks();
     collect();
     res.movable = items_.size();
+
+    // Where every cell starts. Updated in place as cells are placed, so hpwl()
+    // and a frame both read the placement this pass has reached.
+    solX_.resize(design.cells.size());
+    solY_.resize(design.cells.size());
+    for (std::size_t v = 0; v < design.cells.size(); ++v) {
+        solX_[v] = design.cells[v].x;
+        solY_[v] = design.cells[v].y;
+    }
     if (tracks_.empty() || items_.empty()) {
         res.seconds = timer.elapsedSeconds();
         return res;
@@ -366,9 +380,9 @@ MultiRowLegalizeResult MultiRowLegalizer::Impl::run(const MultiRowLegalizeParams
 
     // Fixed blocks first: they are immovable, so the free space has to be
     // described around them before anything else competes for it.
-    const std::size_t nv = graph_.getNumCells();
+    const std::size_t nv = design.cells.size();
     for (std::size_t v = 0; v < nv; ++v) {
-        const Vertex &vert = graph_.getCell(v);
+        const multirow::Cell &vert = design.cells[v];
         if (!vert.isFixed || vert.isTerminal) {
             continue;
         }
@@ -438,7 +452,8 @@ MultiRowLegalizeResult MultiRowLegalizer::Impl::run(const MultiRowLegalizeParams
         }
         cell.x = bestX;
         cell.y = tracks_[bestTrack].y;
-        db_.setCellPosition(cell.vertex, cell.x, cell.y);
+        solX_[cell.vertex] = cell.x;
+        solY_[cell.vertex] = cell.y;
         carve(cell);
         ++res.placed;
         if (isTall) {
@@ -453,13 +468,13 @@ MultiRowLegalizeResult MultiRowLegalizer::Impl::run(const MultiRowLegalizeParams
     }
 
     selfCheck(res);
-    res.hpwlAfter = db_.hpwl();
+    res.hpwlAfter = hpwl();
     res.seconds = timer.elapsedSeconds();
     return res;
 }
 
 void MultiRowLegalizer::Impl::selfCheck(MultiRowLegalizeResult &res) const {
-    const std::size_t nv = graph_.getNumCells();
+    const std::size_t nv = design.cells.size();
     double rowHeight = 0.0;
     double pitch = 1.0;
     if (!tracks_.empty()) {
@@ -471,7 +486,7 @@ void MultiRowLegalizer::Impl::selfCheck(MultiRowLegalizeResult &res) const {
     std::size_t offSite = 0;
     std::size_t overFixed = 0;
     for (std::size_t v = 0; v < nv; ++v) {
-        const Vertex &vert = graph_.getCell(v);
+        const multirow::Cell &vert = design.cells[v];
         if (vert.isFixed || vert.isTerminal) {
             continue;
         }
@@ -495,7 +510,7 @@ void MultiRowLegalizer::Impl::selfCheck(MultiRowLegalizeResult &res) const {
                 ++offSite;
             }
         }
-        if (fences_ != nullptr && vert.regionId != constraintMgr::kNoRegion) {
+        if (vert.regionId != multirow::Fences::kNoRegion) {
             std::vector<double> flat{vert.x, vert.y};
             std::vector<int> ids{vert.regionId};
             overFixed += fences_->countViolations(flat, ids);
@@ -520,14 +535,14 @@ void MultiRowLegalizer::Impl::selfCheck(MultiRowLegalizeResult &res) const {
         2048, std::max<std::size_t>(1, static_cast<std::size_t>(spanY / target)));
     const double dx = spanX / static_cast<double>(nbx);
     const double dy = spanY / static_cast<double>(nby);
-    const auto cellAt = [&](std::size_t v) -> const Vertex * {
-        const Vertex &c = graph_.getCell(v);
+    const auto cellAt = [&](std::size_t v) -> const multirow::Cell * {
+        const multirow::Cell &c = design.cells[v];
         return (!c.isFixed && !c.isTerminal) ? &c : nullptr;
     };
     std::vector<std::vector<std::size_t>> buckets(nbx * nby);
-    const std::size_t nv2 = graph_.getNumCells();
+    const std::size_t nv2 = design.cells.size();
     for (std::size_t v = 0; v < nv2; ++v) {
-        const Vertex *c = cellAt(v);
+        const multirow::Cell *c = cellAt(v);
         if (c == nullptr) {
             continue;
         }
@@ -544,7 +559,7 @@ void MultiRowLegalizer::Impl::selfCheck(MultiRowLegalizeResult &res) const {
         for (std::size_t yy = by0; yy < by1; ++yy) {
             for (std::size_t xx = bx0; xx < bx1; ++xx) {
                 for (const std::size_t u : buckets[xx * nby + yy]) {
-                    const Vertex &d = *cellAt(u);
+                    const multirow::Cell &d = *cellAt(u);
                     if (c->x < d.x + d.width - 1e-9 && d.x < c->x + c->width - 1e-9 &&
                         c->y < d.y + d.height - 1e-9 && d.y < c->y + c->height - 1e-9) {
                         ++overlaps;
@@ -560,24 +575,52 @@ void MultiRowLegalizer::Impl::selfCheck(MultiRowLegalizeResult &res) const {
 void MultiRowLegalizer::Impl::writeFrame(const std::string &path, const std::string &note,
                                          std::size_t step, std::size_t total) {
     ++frames_;
-    const std::size_t nv = graph_.getNumCells();
+    const std::size_t nv = design.cells.size();
     std::vector<float> xs(nv, 0.0f);
     std::vector<float> ys(nv, 0.0f);
     for (std::size_t v = 0; v < nv; ++v) {
-        xs[v] = static_cast<float>(graph_.getCell(v).x);
-        ys[v] = static_cast<float>(graph_.getCell(v).y);
+        xs[v] = static_cast<float>(design.cells[v].x);
+        ys[v] = static_cast<float>(design.cells[v].y);
     }
-    writeFrameSvg(path, graph_, xs, ys, die_, step, total, db_.hpwl(), 0.0, 0.0, note, fences_,
-                  /*fixedView=*/true);
+    // The host draws; this pass only says when. `hpwl()` reads the incoming
+    // design, so a frame shows the placement this pass has reached so far.
+    if (design.onFrame) {
+        multirow::FrameInfo info;
+        info.note = note;
+        info.step = step;
+        info.numSteps = total;
+        info.hpwl = hpwl();
+        info.hpwlInitial = hpwl();
+        info.path = path;
+        info.mandatory = true;
+        design.onFrame(xs, ys, info);
+    }
 }
 
 double MultiRowLegalizer::Impl::hpwl() const {
-    return db_.hpwl();
+    // Over the design as handed in. This pass does not write to it, so this is
+    // the placement it was given, and after the flow commits the answer this is
+    // the same number again.
+    std::vector<double> xs(design.cells.size());
+    std::vector<double> ys(design.cells.size());
+    for (std::size_t v = 0; v < design.cells.size(); ++v) {
+        xs[v] = design.cells[v].x;
+        ys[v] = design.cells[v].y;
+    }
+    return multirow::netlistHPWL(design.cells, design.nets, design.pins, xs, ys);
 }
 
 // ---------------------------------------------------------------------------
 
-MultiRowLegalizer::MultiRowLegalizer(ktDM &db) : pImpl(std::make_unique<Impl>(db)) {}
+multiRowSolution MultiRowLegalizer::solution() const {
+    multiRowSolution out;
+    out.xs = pImpl->solX_;
+    out.ys = pImpl->solY_;
+    return out;
+}
+
+MultiRowLegalizer::MultiRowLegalizer(const multirow::Design &design)
+    : pImpl(std::make_unique<Impl>(design)) {}
 
 MultiRowLegalizer::~MultiRowLegalizer() = default;
 
