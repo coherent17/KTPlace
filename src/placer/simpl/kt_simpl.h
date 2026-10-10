@@ -416,7 +416,7 @@ void reportSimpl(const SimplResult &res);
 
 class SimplePlacer {
 public:
-    explicit SimplePlacer(PlacementDB &db);
+    explicit SimplePlacer(ktDM &db);
     ~SimplePlacer();
 
     SimplePlacer(const SimplePlacer &) = delete;

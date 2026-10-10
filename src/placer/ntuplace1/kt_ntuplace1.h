@@ -84,7 +84,7 @@ void reportNtuPlace1(const RatioPlaceResult &res);
 
 class RatioPlacer {
 public:
-    explicit RatioPlacer(PlacementDB &db);
+    explicit RatioPlacer(ktDM &db);
     ~RatioPlacer();
 
     RatioPlacer(const RatioPlacer &) = delete;

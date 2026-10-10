@@ -53,7 +53,7 @@ struct DetailPlaceResult {
 
 class FastDetailedPlacer {
 public:
-    explicit FastDetailedPlacer(PlacementDB &db);
+    explicit FastDetailedPlacer(ktDM &db);
     ~FastDetailedPlacer();
 
     FastDetailedPlacer(const FastDetailedPlacer &) = delete;

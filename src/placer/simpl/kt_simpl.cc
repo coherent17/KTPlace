@@ -176,7 +176,7 @@ struct Block {
 
 class SimplePlacer::Impl {
 public:
-    explicit Impl(PlacementDB &db) : db_(db), graph_(db.getGraph()) {}
+    explicit Impl(ktDM &db) : db_(db), graph_(db.getGraph()) {}
 
     SimplResult run(const SimplParams &P, const std::string &plotDir, bool useFences);
 
@@ -246,7 +246,7 @@ private:
     void densityStats(const std::vector<double> &px, const std::vector<double> &py,
                       const char *tag) const;
 
-    PlacementDB &db_;
+    ktDM &db_;
     Graph &graph_;
     SimplResult res_;
     SimplParams par_;
@@ -612,7 +612,7 @@ void SimplePlacer::Impl::buildGrid(const SimplParams &P) {
     // designs hid it because their rows are uniform, so the max and the min are the
     // same number.
     double ri_pitch_floor = std::numeric_limits<double>::max();
-    for (const PlacementDB::RowInfo &r : db_.getRows()) {
+    for (const ktDM::RowInfo &r : db_.getRows()) {
         if (r.pitch() > 0.0 && r.height > 0.0) {
             ri_pitch_floor = std::min(ri_pitch_floor, r.pitch() * r.height);
         }
@@ -634,9 +634,9 @@ void SimplePlacer::Impl::buildGrid(const SimplParams &P) {
     // with each row times the x-extent of that row's subrows inside the bin,
     // summed over rows, less macro coverage.
     {
-        const std::vector<PlacementDB::RowInfo> rowInfo = db_.getRows();
+        const std::vector<ktDM::RowInfo> rowInfo = db_.getRows();
         std::fill(grid_.avail.begin(), grid_.avail.end(), 0.0);
-        for (const PlacementDB::RowInfo &ri : rowInfo) {
+        for (const ktDM::RowInfo &ri : rowInfo) {
             if (!(ri.pitch() > 0.0) || !(ri.height > 0.0)) {
                 continue;
             }
@@ -651,7 +651,7 @@ void SimplePlacer::Impl::buildGrid(const SimplParams &P) {
                 if (!(yOv > 0.0)) {
                     continue;
                 }
-                for (const PlacementDB::SubrowInfo &si : ri.subrows) {
+                for (const ktDM::SubrowInfo &si : ri.subrows) {
                     if (!(si.xhi(ri.pitch()) > si.xlo())) {
                         continue;
                     }
@@ -704,13 +704,13 @@ void SimplePlacer::Impl::buildGrid(const SimplParams &P) {
         {
             std::size_t nrows = 0, nsub = 0, npos = 0;
             double siteSum = 0.0, maxSite = 0.0, minSite = 1e300;
-            for (const PlacementDB::RowInfo &r : db_.getRows()) {
+            for (const ktDM::RowInfo &r : db_.getRows()) {
                 ++nrows;
                 nsub += r.subrows.size();
                 siteSum += r.pitch() * r.height;
                 maxSite = std::max(maxSite, r.pitch() * r.height);
                 minSite = std::min(minSite, r.pitch() * r.height);
-                for (const PlacementDB::SubrowInfo &si : r.subrows) {
+                for (const ktDM::SubrowInfo &si : r.subrows) {
                     if (si.xhi(r.pitch()) > si.xlo()) {
                         ++npos;
                     }
@@ -3299,7 +3299,7 @@ SimplResult SimplePlacer::Impl::run(const SimplParams &P, const std::string &plo
 
 // ---------------------------------------------------------------------------
 
-SimplePlacer::SimplePlacer(PlacementDB &db) : pImpl(std::make_unique<Impl>(db)) {}
+SimplePlacer::SimplePlacer(ktDM &db) : pImpl(std::make_unique<Impl>(db)) {}
 SimplePlacer::~SimplePlacer() = default;
 SimplePlacer::SimplePlacer(SimplePlacer &&) noexcept = default;
 SimplePlacer &SimplePlacer::operator=(SimplePlacer &&) noexcept = default;

@@ -144,7 +144,7 @@ struct RowTrack {
 
 class AbacusLegalizer::Impl {
 public:
-    explicit Impl(PlacementDB &db) : db_(db), graph_(db.getGraph()) {}
+    explicit Impl(ktDM &db) : db_(db), graph_(db.getGraph()) {}
 
     LegalizeResult run(const LegalizeParams &params);
 
@@ -167,7 +167,7 @@ private:
 
     static constexpr std::size_t kNoRow = std::numeric_limits<std::size_t>::max();
 
-    PlacementDB &db_;
+    ktDM &db_;
     Graph &graph_;
     std::vector<RowTrack> rows_;
     std::vector<std::size_t> mov_;  ///< graph vertex id per movable slot
@@ -183,7 +183,7 @@ private:
 
 void AbacusLegalizer::Impl::buildRows() {
     rows_.clear();
-    for (const PlacementDB::RowInfo &ri : db_.getRows()) {
+    for (const ktDM::RowInfo &ri : db_.getRows()) {
         RowTrack r;
         r.y = ri.coordinate;
         r.height = ri.height;
@@ -194,7 +194,7 @@ void AbacusLegalizer::Impl::buildRows() {
         // Each .scl subrow becomes a Subrow, trimmed by any fixed cell that
         // crosses the row's band, so a macro crossing a subrow shortens it
         // instead of being ignored.
-        for (const PlacementDB::SubrowInfo &si : ri.subrows) {
+        for (const ktDM::SubrowInfo &si : ri.subrows) {
             if (!(si.xhi(r.siteWidth) > si.xlo())) {
                 continue;
             }
@@ -814,7 +814,7 @@ LegalizeResult AbacusLegalizer::Impl::run(const LegalizeParams &params) {
 
 // ---------------------------------------------------------------------------
 
-AbacusLegalizer::AbacusLegalizer(PlacementDB &db) : pImpl(std::make_unique<Impl>(db)) {}
+AbacusLegalizer::AbacusLegalizer(ktDM &db) : pImpl(std::make_unique<Impl>(db)) {}
 
 AbacusLegalizer::~AbacusLegalizer() = default;
 

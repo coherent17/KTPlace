@@ -85,7 +85,7 @@ constexpr double kSiteEps = 1e-6;
 
 class MultiRowLegalizer::Impl {
 public:
-    explicit Impl(PlacementDB &db) : db_(db), graph_(db.getGraph()) {}
+    explicit Impl(ktDM &db) : db_(db), graph_(db.getGraph()) {}
 
     MultiRowLegalizeResult run(const MultiRowLegalizeParams &params);
 
@@ -117,7 +117,7 @@ private:
     void writeFrame(const std::string &path, const std::string &note, std::size_t step,
                     std::size_t total);
 
-    PlacementDB &db_;
+    ktDM &db_;
     const Graph &graph_;
 
     std::vector<Track> tracks_;
@@ -135,7 +135,7 @@ private:
 
 void MultiRowLegalizer::Impl::buildTracks() {
     tracks_.clear();
-    for (const PlacementDB::RowInfo &ri : db_.getRows()) {
+    for (const ktDM::RowInfo &ri : db_.getRows()) {
         if (!(ri.height > 0.0) || ri.subrows.empty()) {
             continue;
         }
@@ -143,7 +143,7 @@ void MultiRowLegalizer::Impl::buildTracks() {
         t.y = ri.coordinate;
         t.height = ri.height;
         t.pitch = ri.pitch();
-        for (const PlacementDB::SubrowInfo &si : ri.subrows) {
+        for (const ktDM::SubrowInfo &si : ri.subrows) {
             Segment s;
             s.xlo = si.xlo();
             s.xhi = si.xhi(ri.pitch());
@@ -577,7 +577,7 @@ double MultiRowLegalizer::Impl::hpwl() const {
 
 // ---------------------------------------------------------------------------
 
-MultiRowLegalizer::MultiRowLegalizer(PlacementDB &db) : pImpl(std::make_unique<Impl>(db)) {}
+MultiRowLegalizer::MultiRowLegalizer(ktDM &db) : pImpl(std::make_unique<Impl>(db)) {}
 
 MultiRowLegalizer::~MultiRowLegalizer() = default;
 

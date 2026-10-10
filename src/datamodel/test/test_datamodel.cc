@@ -1,4 +1,4 @@
-// @file test_datamodel.cc// Unit tests for PlacementDB and the placement graph
+// @file test_datamodel.cc// Unit tests for ktDM and the placement graph
 
 
 #define BOOST_TEST_MODULE ktplace_datamodel
@@ -28,14 +28,14 @@ std::ostream &operator<<(std::ostream &os, PinDirection value) {
 // so setup goes through these rather than discarding the result. A cell that
 // silently failed to be added would otherwise leave the test asserting on a
 // shorter netlist than the one it built, and passing.
-std::size_t addCell(PlacementDB &db, const std::string &name, double x, double y,
+std::size_t addCell(ktDM &db, const std::string &name, double x, double y,
                     bool isTerminal = false) {
     const std::size_t id = db.addCell(name, x, y, isTerminal);
     BOOST_TEST(id == db.getCellId(name));
     return id;
 }
 
-std::size_t addNet(PlacementDB &db, const std::string &name, double weight = 1.0) {
+std::size_t addNet(ktDM &db, const std::string &name, double weight = 1.0) {
     const std::size_t id = db.addNet(name, weight);
     // Sequenced through a local on purpose. Written as one expression --
     // addNet(...) == getNetId(...) -- the two calls are unsequenced, and gcc
@@ -46,8 +46,8 @@ std::size_t addNet(PlacementDB &db, const std::string &name, double weight = 1.0
     return id;
 }
 
-std::size_t addPin(PlacementDB &db, const std::string &cell, const std::string &net, double x,
-                   double y, bool isInput) {
+std::size_t addPin(ktDM &db, const std::string &cell, const std::string &net, double x, double y,
+                   bool isInput) {
     const std::size_t before = db.getNumPins();
     const std::size_t id = db.addPin(cell, net, x, y, isInput);
     const std::size_t after = db.getNumPins();
@@ -56,7 +56,7 @@ std::size_t addPin(PlacementDB &db, const std::string &cell, const std::string &
     return id;
 }
 
-std::size_t addSubrow(PlacementDB &db, std::size_t row, double x, double numSites) {
+std::size_t addSubrow(ktDM &db, std::size_t row, double x, double numSites) {
     const std::size_t before = db.getRows()[row].subrows.size();
     const std::size_t id = db.addSubrow(row, x, numSites);
     // The returned id indexes the row's subrows, not the rows, so it is checked
@@ -66,11 +66,11 @@ std::size_t addSubrow(PlacementDB &db, std::size_t row, double x, double numSite
     return id;
 }
 
-BOOST_AUTO_TEST_SUITE(PlacementDB_cells)
+BOOST_AUTO_TEST_SUITE(ktDM_cells)
 
 
 BOOST_AUTO_TEST_CASE(adds_cells_and_terminals) {
-    PlacementDB db;
+    ktDM db;
     BOOST_TEST(db.getNumCells() == 0);
     BOOST_TEST(db.getNumTerminals() == 0);
 
@@ -85,7 +85,7 @@ BOOST_AUTO_TEST_CASE(adds_cells_and_terminals) {
 }
 
 BOOST_AUTO_TEST_CASE(reports_geometry_of_a_cell) {
-    PlacementDB db;
+    ktDM db;
     const std::size_t id = addCell(db, "c0", 2.5, 4.0);
     const Graph &g = db.getGraph();
     const Vertex &v = g.getVertex(id);
@@ -97,13 +97,13 @@ BOOST_AUTO_TEST_CASE(reports_geometry_of_a_cell) {
 }
 
 BOOST_AUTO_TEST_CASE(rejects_unknown_cell) {
-    PlacementDB db;
+    ktDM db;
     // The database reports lookup failures as std::runtime_error.
     BOOST_CHECK_THROW((void)db.getCellId("missing"), std::runtime_error);
 }
 
 BOOST_AUTO_TEST_CASE(tracks_positions_and_fixed_flag) {
-    PlacementDB db;
+    ktDM db;
     addCell(db, "c0", 1.0, 1.0);
     db.setCellPosition("c0", 12.0, 34.0);
     const auto [x, y] = db.getCellPosition("c0");
@@ -119,10 +119,10 @@ BOOST_AUTO_TEST_CASE(tracks_positions_and_fixed_flag) {
 
 BOOST_AUTO_TEST_SUITE_END()
 
-BOOST_AUTO_TEST_SUITE(PlacementDB_nets)
+BOOST_AUTO_TEST_SUITE(ktDM_nets)
 
 BOOST_AUTO_TEST_CASE(two_pin_net_creates_two_edges) {
-    PlacementDB db;
+    ktDM db;
     addCell(db, "c0", 1.0, 1.0);
     addCell(db, "c1", 1.0, 1.0);
     addNet(db, "n0");
@@ -136,7 +136,7 @@ BOOST_AUTO_TEST_CASE(two_pin_net_creates_two_edges) {
 }
 
 BOOST_AUTO_TEST_CASE(net_and_cell_pin_lists_are_consistent) {
-    PlacementDB db;
+    ktDM db;
     addCell(db, "c0", 1.0, 1.0);
     addNet(db, "n0");
     const std::size_t pin = addPin(db, "c0", "n0", 0.0, 0.0, true);
@@ -145,7 +145,7 @@ BOOST_AUTO_TEST_CASE(net_and_cell_pin_lists_are_consistent) {
 }
 
 BOOST_AUTO_TEST_CASE(rejects_pins_on_unknown_vertices) {
-    PlacementDB db;
+    ktDM db;
     addCell(db, "c0", 1.0, 1.0);
     addNet(db, "n0");
     BOOST_CHECK_THROW(addPin(db, "ghost", "n0", 0.0, 0.0, true), std::runtime_error);
@@ -154,10 +154,10 @@ BOOST_AUTO_TEST_CASE(rejects_pins_on_unknown_vertices) {
 
 BOOST_AUTO_TEST_SUITE_END()
 
-BOOST_AUTO_TEST_SUITE(PlacementDB_rows_and_die)
+BOOST_AUTO_TEST_SUITE(ktDM_rows_and_die)
 
 BOOST_AUTO_TEST_CASE(counts_rows) {
-    PlacementDB db;
+    ktDM db;
     BOOST_TEST(db.getNumRows() == 0);
     // addRow takes (coordinate, height, sitewidth, sitespacing); the placeable
     // sites come from addSubrow, because a row with no subrow is not placeable.
@@ -168,7 +168,7 @@ BOOST_AUTO_TEST_CASE(counts_rows) {
     BOOST_TEST(db.getNumRows() == 2);
 
     // The row geometry the legalizer and detailed placer depend on.
-    const std::vector<PlacementDB::RowInfo> rows = db.getRows();
+    const std::vector<ktDM::RowInfo> rows = db.getRows();
     BOOST_REQUIRE(rows.size() == 2);
     BOOST_TEST(rows[0].coordinate == 0.0);
     BOOST_TEST(rows[0].height == 10.0);
@@ -180,7 +180,7 @@ BOOST_AUTO_TEST_CASE(counts_rows) {
 }
 
 BOOST_AUTO_TEST_CASE(round_trips_die_area) {
-    PlacementDB db;
+    ktDM db;
     db.setDieArea(0.0, 0.0, 100.0, 50.0);
     const auto [lo, hi] = db.getDieArea();
     BOOST_TEST(lo.first == 0.0);
@@ -227,8 +227,8 @@ BOOST_AUTO_TEST_CASE(clear_resets_the_id_counters) {
 
 BOOST_AUTO_TEST_SUITE_END()
 
-BOOST_AUTO_TEST_CASE(PlacementDB_clear_resets_everything) {
-    PlacementDB db;
+BOOST_AUTO_TEST_CASE(ktDM_clear_resets_everything) {
+    ktDM db;
     addCell(db, "c0", 1.0, 1.0);
     addNet(db, "n0");
     addPin(db, "c0", "n0", 0.0, 0.0, true);

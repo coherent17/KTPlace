@@ -1,44 +1,39 @@
-// @file kt_dm.h// Core data model for placement database (PIMPL pattern)
+// @file kt_dm.h// Core data model: the design as parsed, and nothing more.
 
 
 #pragma once
 
+#include "constraint/kt_constraintMgr.h"
+#include "datamodel/kt_graph.h"
+
 #include <algorithm>
 #include <array>
 #include <cstddef>
-#include <memory>
 #include <string>
-#include <unordered_map>
+#include <utility>
 #include <vector>
 
 namespace ktplace {
 
-class constraintMgr;
+// The design, as the reader parsed it: the netlist graph, the row structure, the
+// die box and the placement regions the design declared. A placement stage reads
+// this and derives whatever structures it needs; it does not add to it.
 
-// Forward declarations
-class Cell;
-class Net;
-class Pin;
-class Row;
-class Graph;
-
-// Main placement database class using PIMPL pattern// Stores all placement-related information including cells, nets, pins,// and placement constraints. Uses PIMPL to minimize compilation dependencies.
-
-class PlacementDB {
+class ktDM {
 public:
-    /// Default constructor
-    PlacementDB();
+    // The destructor and the move operations used to be declared because the PIMPL
+    // needed them: a unique_ptr cannot be default-constructed or trivially moved,
+    // so each one had to be spelled out and defined out of line. None of them was
+    // ever used -- a ktDM is only ever held behind a unique_ptr, which moves the
+    // pointer and never the object. All implicit now, and header-only, so a reader
+    // that includes this header does not have to link against them.
+    // Spelled out because declaring a copy constructor -- even a deleted one --
+    // suppresses the implicit default constructor, and a reader default-constructs
+    // this to fill it in.
+    ktDM() = default;
 
-    /// Destructor (defaulted, PIMPL handles cleanup)
-    ~PlacementDB();
-
-    // Copy semantics (deleted for now, can be added if needed)
-    PlacementDB(const PlacementDB &) = delete;
-    PlacementDB &operator=(const PlacementDB &) = delete;
-
-    // Move semantics
-    PlacementDB(PlacementDB &&) noexcept;
-    PlacementDB &operator=(PlacementDB &&) noexcept;
+    ktDM(const ktDM &) = delete;
+    ktDM &operator=(const ktDM &) = delete;
 
     // Placement regions ("fences") the design declared. They belong to the
     // design, so they live here rather than in whatever reader happened to
@@ -149,7 +144,7 @@ public:
             return hi;
         }
     };
-    [[nodiscard]] std::vector<RowInfo> getRows() const;
+    [[nodiscard]] const std::vector<RowInfo> &getRows() const;
 
     // Bounding box
     void setDieArea(double xMin, double yMin, double xMax, double yMax);
@@ -164,10 +159,10 @@ public:
     // the readers, which annotate cells while building the database (for
     // example stamping a placement region onto each cell).
     [[nodiscard]] Graph &getGraph() {
-        return getGraphImpl();
+        return graph_;
     }
     [[nodiscard]] const Graph &getGraph() const {
-        return getGraphImpl();
+        return graph_;
     }
 
     // Clear all data
@@ -201,15 +196,25 @@ public:
     // (numCells, numNets)
 
 private:
-    Graph &getGraphImpl();
-    const Graph &getGraphImpl() const;
-
-    class Impl;
-    std::unique_ptr<Impl> pImpl;
+    // No PIMPL. It was there to keep Graph and constraintMgr out of this header,
+    // and it never managed that: getGraph() returns a Graph& and constraints()
+    // returns a constraintMgr&, so both had to be complete types at every call
+    // site regardless -- and four component headers already include
+    // kt_constraintMgr.h for exactly that reason. What it did buy is a private
+    // copy of the row structure, RowData, that had to be converted into the
+    // public RowInfo on every getRows() call. Both are gone: this header includes
+    // the two types it hands out by reference, and stores RowInfo directly.
+    Graph graph_;
+    std::vector<RowInfo> rows_;
+    double dieXMin_ = 0.0;
+    double dieYMin_ = 0.0;
+    double dieXMax_ = 0.0;
+    double dieYMax_ = 0.0;
+    constraintMgr fences_;
 };
 
 // The region a movable cell is allowed to occupy: {xMin, yMin, xMax, yMax}.// One definition, shared by the placer and by the legality check, because the two// disagreeing is how a legal placement gets reported as illegal. It is the union// of three statements about the region, each of which may be absent:// - the bounding box of the fixed cells, which in a Bookshelf design is the I/O// pad ring and is usually a good approximation of the die;// - the declared die area, when the format carries one and it contains every// fixed cell;// - the rows, which are the authoritative statement of where a cell may go.// The rows are unioned in rather than used only as a fallback, because for adaptec3// they reach past the fixed cells -- its rows start at y=58 while its fixed cells// start at y=82 -- so a box built from the fixed cells alone excludes the bottom// row, and every cell the legalizer correctly put in that row is then reported as// outside the die.
 
-[[nodiscard]] std::array<double, 4> placementDieBox(const PlacementDB &db);
+[[nodiscard]] std::array<double, 4> placementDieBox(const ktDM &db);
 
 }  // namespace ktplace

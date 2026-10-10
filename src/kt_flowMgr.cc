@@ -34,7 +34,7 @@ public:
     void run(const kt_option &options);
 
 private:
-    std::unique_ptr<PlacementDB> db;
+    std::unique_ptr<ktDM> db;
     PlotOptions plot;
 
     void loadDesign(const std::string &dirPath);
@@ -245,7 +245,7 @@ std::size_t FlowMgr::Impl::multiRowCells() const {
     // The shortest row sets the bar: a cell taller than every row has no single
     // row to go in, and that is the case the row slicer exists for.
     double minHeight = std::numeric_limits<double>::max();
-    for (const PlacementDB::RowInfo &ri : db->getRows()) {
+    for (const ktDM::RowInfo &ri : db->getRows()) {
         if (ri.height > 0.0 && !ri.subrows.empty()) {
             minHeight = std::min(minHeight, ri.height);
         }
@@ -288,7 +288,7 @@ void FlowMgr::Impl::checkDesign(const char *stage) {
         // Timed on its own: it reads the whole placement, changes nothing, and is
         // the phase that goes quadratic if the spatial index degrades.
         const ScopedTimer checkTimer("place-check");
-        const std::vector<PlacementDB::Defect> defects = db->verify();
+        const std::vector<ktDM::Defect> defects = db->verify();
         ktReportTable check(fmt::format("Placement check (independent, {})", stage));
         check.setHeaders({"check", "result"});
         if (defects.empty()) {
@@ -297,7 +297,7 @@ void FlowMgr::Impl::checkDesign(const char *stage) {
             check.addRow({"cells outside their fence", db->hasFences() ? "0" : "n/a"});
             check.addRow({"verdict", "PASS"});
         } else {
-            for (const PlacementDB::Defect &d : defects) {
+            for (const ktDM::Defect &d : defects) {
                 check.addRow({d.what, fmt::format("{}", d.count)});
             }
             check.addRow({"verdict", "FAIL"});

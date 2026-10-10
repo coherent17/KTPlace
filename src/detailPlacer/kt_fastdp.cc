@@ -61,7 +61,7 @@ struct FixedBox {
 
 class FastDetailedPlacer::Impl {
 public:
-    explicit Impl(PlacementDB &db) : db_(db), graph_(db.getGraph()) {}
+    explicit Impl(ktDM &db) : db_(db), graph_(db.getGraph()) {}
 
     DetailPlaceResult place(const DetailPlaceParams &params);
 
@@ -142,7 +142,7 @@ private:
     bool locate(std::size_t c);
     std::size_t localWindow_ = 8;
 
-    PlacementDB &db_;
+    ktDM &db_;
     Graph &graph_;
     std::vector<std::size_t> mov_;     ///< graph vertex per movable slot
     std::vector<double> w_, h_;        ///< per movable slot
@@ -158,11 +158,10 @@ private:
 
 void FastDetailedPlacer::Impl::buildSpans() {
     spans_.clear();
-    std::vector<PlacementDB::RowInfo> rows = db_.getRows();
-    std::sort(rows.begin(), rows.end(),
-              [](const PlacementDB::RowInfo &a, const PlacementDB::RowInfo &b) {
-                  return a.coordinate < b.coordinate;
-              });
+    std::vector<ktDM::RowInfo> rows = db_.getRows();
+    std::sort(rows.begin(), rows.end(), [](const ktDM::RowInfo &a, const ktDM::RowInfo &b) {
+        return a.coordinate < b.coordinate;
+    });
     // Free space per row, not the row itself. A span is what is actually empty
     // between the cells that are there now, so every placement lands in a gap and
     // cannot overlap anything by construction. Taking spans from the row
@@ -181,7 +180,7 @@ void FastDetailedPlacer::Impl::buildSpans() {
         // covers. Scanning all rows per cell was quadratic on a design with
         // 210k cells and 700 rows.
         const auto above = std::lower_bound(rows.begin(), rows.end(), vert.y + vert.height,
-                                            [](const PlacementDB::RowInfo &ri, double limit) {
+                                            [](const ktDM::RowInfo &ri, double limit) {
                                                 return ri.coordinate + ri.height < limit;
                                             });
         for (auto it = above; it != rows.begin();) {
@@ -194,11 +193,11 @@ void FastDetailedPlacer::Impl::buildSpans() {
         }
     }
     for (std::size_t r = 0; r < rows.size(); ++r) {
-        const PlacementDB::RowInfo &ri = rows[r];
+        const ktDM::RowInfo &ri = rows[r];
         const double site = ri.pitch() > 0.0 ? ri.pitch() : 1.0;
         std::vector<std::pair<double, double>> &obs = occupied[r];
         std::sort(obs.begin(), obs.end());
-        for (const PlacementDB::SubrowInfo &si : ri.subrows) {
+        for (const ktDM::SubrowInfo &si : ri.subrows) {
             for (double lo = si.xlo(); lo < si.xhi(site) - 1e-9;) {
                 double hi = si.xhi(site);
                 // Each obstacle splits the run in two: stop just short of it, and
@@ -1419,7 +1418,7 @@ DetailPlaceResult FastDetailedPlacer::Impl::place(const DetailPlaceParams &param
 
 // ---------------------------------------------------------------------------
 
-FastDetailedPlacer::FastDetailedPlacer(PlacementDB &db) : pImpl(std::make_unique<Impl>(db)) {}
+FastDetailedPlacer::FastDetailedPlacer(ktDM &db) : pImpl(std::make_unique<Impl>(db)) {}
 
 FastDetailedPlacer::~FastDetailedPlacer() = default;
 

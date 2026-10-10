@@ -43,7 +43,7 @@ constexpr std::uint32_t kNoIndex = 0xFFFFFFFFu;
 
 class RatioPlacer::Impl {
 public:
-    explicit Impl(PlacementDB &db) : db_(db), graph_(db.getGraph()) {}
+    explicit Impl(ktDM &db) : db_(db), graph_(db.getGraph()) {}
 
     RatioPlaceResult place(const RatioPlaceParams &params);
 
@@ -63,7 +63,7 @@ private:
     double netWeight(const HyperNet &n, double p1, double p2, std::uint8_t &dummySide) const;
     void writeFrame(std::size_t depth, const char *note) const;
 
-    PlacementDB &db_;
+    ktDM &db_;
     Graph graph_;
     std::vector<std::uint32_t> mov_;  // movable, non-terminal vertex ids
     std::vector<double> area_;        // area of each movable
@@ -71,7 +71,7 @@ private:
     // For each movable, the nets it is on, so a gain update does not rescan the
     // whole netlist.
     std::vector<std::vector<std::uint32_t>> cellNets_;
-    std::vector<PlacementDB::RowInfo> rows_;
+    std::vector<ktDM::RowInfo> rows_;
     std::array<double, 4> die_{};
     std::vector<double> posX_, posY_;  // the answer, filled as the recursion ends
     RatioPlaceParams params_;
@@ -165,7 +165,7 @@ void RatioPlacer::Impl::build() {
 
 double RatioPlacer::Impl::rowAreaIn(double x0, double y0, double x1, double y1) const {
     double a = 0.0;
-    for (const PlacementDB::RowInfo &r : rows_) {
+    for (const ktDM::RowInfo &r : rows_) {
         const double lo = std::max(x0, r.xlo());
         const double hi = std::min(x1, r.xhi());
         const double w = hi - lo;
@@ -643,7 +643,7 @@ RatioPlaceResult RatioPlacer::Impl::place(const RatioPlaceParams &params) {
     return res_;
 }
 
-RatioPlacer::RatioPlacer(PlacementDB &db) : pImpl(new Impl(db)) {}
+RatioPlacer::RatioPlacer(ktDM &db) : pImpl(new Impl(db)) {}
 RatioPlacer::~RatioPlacer() = default;
 RatioPlacer::RatioPlacer(RatioPlacer &&) noexcept = default;
 RatioPlacer &RatioPlacer::operator=(RatioPlacer &&) noexcept = default;
