@@ -10,6 +10,7 @@
 #include "visualization/kt_animator.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cassert>
 #include <cmath>
 #include <cstdint>
@@ -291,6 +292,11 @@ private:
     double avgCellH_ = 1.0;
     double rowH_ = 1.0;       // placement-row height, derived from row count
     double anchorEps_ = 1.0;  // 1.5 * row height, per ComPLx/SimPL
+    // Constant-stiffness pseudonets weigh alpha in units of 1/length, against B2B
+    // edges that weigh 1/distance in the design's own units, so their balance
+    // depends on the unit system. The alpha schedule was calibrated on adaptec1,
+    // whose rows are kCalibRowHeight high; this rescales it to the design's rows.
+    double anchorScale_ = 1.0;
 
     DensityGrid grid_;
     double g_ = 1.0;
@@ -543,6 +549,22 @@ void simplPlacer::Impl::buildGrid(const SimplParams &P) {
     //  objective function strictly convex. In SimPL and SimPLR, eps is
     //  calculated as 1.5 times row height."
     anchorEps_ = 1.5 * rowH_;
+    {
+        // adaptec1's .scl row height: the design the alpha schedule was tuned on,
+        // so the scale is exactly 1 there and its placement is unchanged. Measured
+        // on mgc_superblue16_a (rows 900 units high) before this: anchors started
+        // at 7x the interconnect stiffness and ended at 310x, against 0.09x and 2x
+        // on adaptec1, so the global loop solved in one CG step to the anchors and
+        // never optimised wirelength.
+        constexpr double kCalibRowHeight = 12.0;
+        double rowHeight = 0.0;
+        for (const simpl::RowInfo &r : design.rows) {
+            if (r.height > 0.0 && (rowHeight == 0.0 || r.height < rowHeight)) {
+                rowHeight = r.height;
+            }
+        }
+        anchorScale_ = rowHeight > 0.0 ? kCalibRowHeight / rowHeight : 1.0;
+    }
     ktlog.trace(
         "mean cell {:.4g} x {:.4g}, row height {:.4g}, anchor eps {:.4g} "
         "(= 1.5 rows)",
@@ -653,9 +675,15 @@ void simplPlacer::Impl::buildGrid(const SimplParams &P) {
                 continue;
             }
             const double ry1 = ri.coordinate + ri.height;
-            std::size_t iy0, iy1, dummy;
-            grid_.locate(ri.coordinate, ry1, iy0, iy1);
-            (void)dummy;
+            // locate() takes a point (x, y) and returns (ix, iy), so the row's two
+            // y bounds go in as the y of two points. Passing them as (x, y) of one
+            // point binned the bottom edge along x: on a square die with x0 == y0
+            // (adaptec1) that is the same number, which hid it; on
+            // mgc_superblue16_a it left 158 of 13225 bins with any capacity, a
+            // "utilisation" of 6104%, and a spreading that could never converge.
+            std::size_t iy0, iy1, unusedX;
+            grid_.locate(grid_.x0, ri.coordinate, unusedX, iy0);
+            grid_.locate(grid_.x0, ry1, unusedX, iy1);
             for (std::size_t iy = iy0; iy <= iy1 && iy < grid_.nby; ++iy) {
                 const double bLo = grid_.binLoY(iy);
                 const double bHi = bLo + grid_.dy;
@@ -667,8 +695,9 @@ void simplPlacer::Impl::buildGrid(const SimplParams &P) {
                     if (!(si.xhi > si.xlo)) {
                         continue;
                     }
-                    std::size_t ix0, ix1;
-                    grid_.locate(si.xlo, si.xhi, ix0, ix1);
+                    std::size_t ix0, ix1, unusedY;
+                    grid_.locate(si.xlo, grid_.y0, ix0, unusedY);
+                    grid_.locate(si.xhi, grid_.y0, ix1, unusedY);
                     for (std::size_t ix = ix0; ix <= ix1 && ix < grid_.nbx; ++ix) {
                         const double xLo = grid_.binLoX(ix);
                         const double xHi = xLo + grid_.dx;
@@ -937,9 +966,11 @@ void simplPlacer::Impl::buildB2B(const std::vector<double> &px, const std::vecto
         if (useAnchors) {
             for (std::size_t i = 0; i < numMovable_; ++i) {
                 const double anchor = (dim == 0) ? anchorX_[i] : anchorY_[i];
-                double w = alpha;
+                double w = alpha * anchorScale_;
                 if (par_.pseudonetLaw == SimplParams::PseudonetLaw::InverseLength) {
                     // alpha / distance, with the same length floor as a B2B edge.
+                    // No anchorScale_ here: alpha/d already scales with the units
+                    // exactly as a B2B edge's 1/d does, so it is unit-free as is.
                     // The floor matters most exactly where the paper's initial
                     // placement puts everything: all cells start near the centre,
                     // so distance is often ~0 and the weight is otherwise
@@ -989,7 +1020,7 @@ void simplPlacer::Impl::buildB2B(const std::vector<double> &px, const std::vecto
     for (std::size_t i = 0; i < numMovable_; ++i) {
         wlDiag += Ax_.diag[i];
         if (useAnchors && par_.pseudonetLaw == SimplParams::PseudonetLaw::ConstantStiffness) {
-            wlDiag -= alpha;
+            wlDiag -= alpha * anchorScale_;
         }
     }
     ktlog.trace("  b2b: {} x-edges, {} y-edges ({:.2f}/{:.2f} per cell)", nnzX, nnzY,
@@ -1237,15 +1268,68 @@ void simplPlacer::Impl::binCells(const std::vector<double> &px, const std::vecto
         cellBin_.assign(numMovable_, 0);
         cellSlot_.assign(numMovable_, 0);
     }
-    for (std::size_t i = 0; i < numMovable_; ++i) {
-        std::size_t ix, iy;
-        grid_.locate(px[i], py[i], ix, iy);
-        const std::size_t k = grid_.at(ix, iy);
-        grid_.occ[k] += area_[i];
-        cellBin_[i] = static_cast<std::uint32_t>(k);
-        cellSlot_[i] = static_cast<std::uint32_t>(binCells_[k].size());
-        binCells_[k].push_back(static_cast<std::uint32_t>(i));
+    if (numMovable_ == 0) {
+        return;
     }
+    const std::size_t nb = grid_.size();
+
+    // Binning is a map over cells followed by a scatter, and both are data
+    // parallel. The scatter deliberately does not preserve write order; the sort
+    // in the last step restores the exact serial order (ascending cell index
+    // inside every bin), so this produces the same binCells_/cellBin_/cellSlot_
+    // and the same per-bin occupancy as the single-threaded loop it replaced.
+    tbb::parallel_for(tbb::blocked_range<std::size_t>(0, numMovable_, 4096),
+                      [&](const tbb::blocked_range<std::size_t> &r) {
+                          for (std::size_t i = r.begin(); i < r.end(); ++i) {
+                              std::size_t ix, iy;
+                              grid_.locate(px[i], py[i], ix, iy);
+                              cellBin_[i] = static_cast<std::uint32_t>(grid_.at(ix, iy));
+                          }
+                      });
+
+    std::vector<std::size_t> start(nb + 1, 0);
+    for (std::size_t i = 0; i < numMovable_; ++i) {
+        ++start[cellBin_[i] + 1];
+    }
+    for (std::size_t k = 0; k < nb; ++k) {
+        start[k + 1] += start[k];
+    }
+
+    std::unique_ptr<std::atomic<std::size_t>[]> cursor(new std::atomic<std::size_t>[nb]);
+    tbb::parallel_for(tbb::blocked_range<std::size_t>(0, nb, 512),
+                      [&](const tbb::blocked_range<std::size_t> &r) {
+                          for (std::size_t k = r.begin(); k < r.end(); ++k) {
+                              binCells_[k].resize(start[k + 1] - start[k]);
+                              cursor[k].store(0, std::memory_order_relaxed);
+                          }
+                      });
+
+    tbb::parallel_for(tbb::blocked_range<std::size_t>(0, numMovable_, 4096),
+                      [&](const tbb::blocked_range<std::size_t> &r) {
+                          for (std::size_t i = r.begin(); i < r.end(); ++i) {
+                              const std::size_t k = cellBin_[i];
+                              const std::size_t pos =
+                                  cursor[k].fetch_add(1, std::memory_order_relaxed);
+                              binCells_[k][pos] = static_cast<std::uint32_t>(i);
+                          }
+                      });
+
+    // Restore the serial order, then recompute the slots and each bin's
+    // occupancy by summing its cells in cell-index order -- the same order the
+    // original accumulation used, so grid_.occ carries the same values.
+    tbb::parallel_for(tbb::blocked_range<std::size_t>(0, nb, 512),
+                      [&](const tbb::blocked_range<std::size_t> &r) {
+                          for (std::size_t k = r.begin(); k < r.end(); ++k) {
+                              std::vector<std::uint32_t> &v = binCells_[k];
+                              std::sort(v.begin(), v.end());
+                              double occ = 0.0;
+                              for (std::size_t p = 0; p < v.size(); ++p) {
+                                  cellSlot_[v[p]] = static_cast<std::uint32_t>(p);
+                                  occ += area_[v[p]];
+                              }
+                              grid_.occ[k] = occ;
+                          }
+                      });
 }
 
 double simplPlacer::Impl::densityOf(std::size_t ix0, std::size_t ix1, std::size_t iy0,
@@ -1919,17 +2003,41 @@ void simplPlacer::Impl::lookAheadLegalize() {
                 exFree += grid_.occ[k] - cap;
             }
         }
-        std::size_t onMacro = 0;
-        for (std::size_t i = 0; i < numMovable_; ++i) {
-            for (const std::uint32_t fv : fixVertex_) {
-                const simpl::Cell &fv2 = graph.getCell(fv);
-                if (pinX_[i] < vx_[fv] + fv2.width && pinX_[i] + areaMovW_[i] > vx_[fv] &&
-                    pinY_[i] < vy_[fv] + fv2.height && pinY_[i] + areaMovH_[i] > vy_[fv]) {
-                    ++onMacro;
-                    break;
-                }
-            }
+        // Which cells sit on a macro is a diagnostic, but the obvious nest is
+        // O(cells * fixed) -- 114M rectangle tests on adaptec1, repeated on every
+        // global iteration -- and it re-read each macro's cell inside the inner
+        // loop. Hoist the macro rectangles once, then count in parallel: the
+        // total is an integer, so reducing it across threads cannot change the
+        // value.
+        const std::size_t nFixed = fixVertex_.size();
+        std::vector<double> macroX0(nFixed), macroY0(nFixed), macroX1(nFixed), macroY1(nFixed);
+        for (std::size_t j = 0; j < nFixed; ++j) {
+            const std::uint32_t fv = fixVertex_[j];
+            const simpl::Cell &cell = graph.getCell(fv);
+            macroX0[j] = vx_[fv];
+            macroY0[j] = vy_[fv];
+            macroX1[j] = vx_[fv] + cell.width;
+            macroY1[j] = vy_[fv] + cell.height;
         }
+        const std::size_t onMacro = tbb::parallel_reduce(
+            tbb::blocked_range<std::size_t>(0, numMovable_, 1024), std::size_t{0},
+            [&](const tbb::blocked_range<std::size_t> &r, std::size_t acc) {
+                for (std::size_t i = r.begin(); i < r.end(); ++i) {
+                    const double x0 = pinX_[i], x1 = x0 + areaMovW_[i];
+                    const double y0 = pinY_[i], y1 = y0 + areaMovH_[i];
+                    for (std::size_t j = 0; j < nFixed; ++j) {
+                        if (x0 < macroX1[j] && x1 > macroX0[j] && y0 < macroY1[j] &&
+                            y1 > macroY0[j]) {
+                            ++acc;
+                            break;
+                        }
+                    }
+                }
+                return acc;
+            },
+            [](std::size_t a, std::size_t b) {
+                return a + b;
+            });
         ktlog.trace(
             "  residual: excess on macro bins {:.4g}, on free bins {:.4g} "
             "({:.0f} macro bins); cells overlapping a macro: {}",
@@ -2748,7 +2856,13 @@ SimplResult simplPlacer::Impl::run(const SimplParams &P, const std::string &plot
                         h, bestInitHpwl,
                         bestInitHpwl > 0.0 ? 100.0 * (h - bestInitHpwl) / bestInitHpwl : 0.0,
                         initStale, par_.initPatience);
-            if (par_.initPatience > 0 && initStale >= static_cast<int>(par_.initPatience)) {
+            // Only the star model stops early: it is placement-independent, so a
+            // round after convergence re-solves the same system. B2B is rebuilt
+            // from the moved placement every round, and its later rounds do pay
+            // (see initMaxIters), so it keeps every round as before.
+            const std::size_t patience =
+                par_.initNetModel == SimplParams::NetModel::Star ? par_.initPatience : 0;
+            if (patience > 0 && initStale >= static_cast<int>(patience)) {
                 // Converged: further rounds are not paying for themselves.
                 break;
             }
