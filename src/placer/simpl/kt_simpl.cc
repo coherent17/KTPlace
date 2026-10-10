@@ -1310,15 +1310,6 @@ void SimplePlacer::Impl::nonlinearScale(const std::vector<std::uint32_t> &cells,
     std::sort(bounds.begin(), bounds.end());
     bounds.erase(std::unique(bounds.begin(), bounds.end()), bounds.end());
 
-    // Available area of the whole block, in the cut direction.
-    double regionAvail = 0.0;
-    for (std::size_t t = a0; t <= a1; ++t) {
-        for (std::size_t s = b0; s <= b1; ++s) {
-            regionAvail += g.avail[vertical ? g.at(t, s) : g.at(s, t)];
-        }
-    }
-    const double frac = par_.stripeAreaFraction * regionAvail;
-
     // "Each vertical stripe created in this process is further subdivided if its
     // available area exceeds 1/10 of the region's available area." One rule, one
     // pass over the stripe list, cutting at the available-area midpoint so the
@@ -1581,6 +1572,11 @@ void SimplePlacer::Impl::nonlinearScale(const std::vector<std::uint32_t> &cells,
                     factor = (raw < 1.0) ? raw : 1.0;
                     break;
                 case SimplParams::StripeScale::None:
+                    break;
+                case SimplParams::StripeScale::Fill:
+                    // Handled above: the fill mode returns before the scaling
+                    // factors are computed at all. Named here so the switch stays
+                    // exhaustive against the enum.
                     break;
             }
         }

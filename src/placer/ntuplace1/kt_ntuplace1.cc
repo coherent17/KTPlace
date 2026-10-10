@@ -58,10 +58,10 @@ private:
     bool legalizable(const RatioRegion &r) const;
     void divide(RatioRegion r);
     // Fiduccia-Mattheyses pass with a balance cap. Returns true on success.
-    bool bipartition(const std::vector<std::uint32_t> &cells, bool vertical, double cutCoord,
-                     double maxImbalance, std::vector<std::uint8_t> &side);
+    bool bipartition(const std::vector<std::uint32_t> &cells, double cutCoord, double maxImbalance,
+                     std::vector<std::uint8_t> &side);
     double netWeight(const HyperNet &n, double p1, double p2, std::uint8_t &dummySide) const;
-    void writeFrame(const RatioRegion &r, std::size_t depth, const char *note) const;
+    void writeFrame(std::size_t depth, const char *note) const;
 
     PlacementDB &db_;
     Graph graph_;
@@ -169,8 +169,19 @@ double RatioPlacer::Impl::rowAreaIn(double x0, double y0, double x1, double y1) 
         const double lo = std::max(x0, r.xlo());
         const double hi = std::min(x1, r.xhi());
         const double w = hi - lo;
-        if (w > 0.0) {
-            a += w * r.height;
+        if (!(w > 0.0)) {
+            continue;
+        }
+        // Clip vertically as well as horizontally. The y range came in unused, so
+        // every region was credited with the whole die's row area -- which meant
+        // the "does this region have room for its cells" test could never fail on
+        // room, and the one check that is supposed to catch a cut producing an
+        // unplaceable sub-region was inert.
+        const double ylo = std::max(y0, r.coordinate);
+        const double yhi = std::min(y1, r.coordinate + r.height);
+        const double h = yhi - ylo;
+        if (h > 0.0) {
+            a += w * h;
         }
     }
     return a;
@@ -264,9 +275,8 @@ double RatioPlacer::Impl::netWeight(const HyperNet &n, double p1, double p2,
     return std::max(cut, params_.minNetWeight);
 }
 
-bool RatioPlacer::Impl::bipartition(const std::vector<std::uint32_t> &cells, bool vertical,
-                                    double cutCoord, double maxImbalance,
-                                    std::vector<std::uint8_t> &side) {
+bool RatioPlacer::Impl::bipartition(const std::vector<std::uint32_t> &cells, double cutCoord,
+                                    double maxImbalance, std::vector<std::uint8_t> &side) {
     const std::size_t n = cells.size();
     side.assign(n, 0);
     if (n < 2) {
@@ -448,8 +458,7 @@ bool RatioPlacer::Impl::bipartition(const std::vector<std::uint32_t> &cells, boo
     return true;
 }
 
-void RatioPlacer::Impl::writeFrame(const RatioRegion &r, std::size_t depth,
-                                   const char *note) const {
+void RatioPlacer::Impl::writeFrame(std::size_t depth, const char *note) const {
     if (params_.plotDir.empty()) {
         return;
     }
@@ -490,37 +499,25 @@ void RatioPlacer::Impl::divide(RatioRegion r) {
     const double h = r.y1 - r.y0;
     const bool vertical = (w >= h);
 
-    const double totalArea = movableArea(r.cells);
-    const double regionArea = w * h;
-    const double regionRows = rowAreaIn(r.x0, r.y0, r.x1, r.y1);
-    (void)regionArea;
-
     std::vector<std::uint8_t> side;
     RatioRegion r0 = r, r1 = r;
-    double p1 = 0.0, p2 = 0.0, cut = 0.0;
+    double cut = 0.0;
     bool accepted = false;
 
     for (std::size_t attempt = 0; attempt <= params_.maxRatioRetries && !accepted; ++attempt) {
-        // Whitespace distribution (Section 2.2). The imbalance cap is not a
-        // constant: it is loosened until both sub-regions can hold their share.
-        // Starting from even and widening is the paper's "move the cut-line
-        // toward the partition with a smaller utilization ratio", expressed as a
-        // cap on the area ratio rather than as a cut position.
-        const double denom = std::max(totalArea, 1e-300);
-        const double slack =
-            (regionRows > 0.0) ? std::max(0.0, (regionRows - totalArea) / denom) : 0.0;
-        double cap = attempt * 0.25;  // 0 = perfectly balanced, widening per retry
+        // The imbalance cap is not a constant: each retry loosens it, so a region
+        // whose cells will not divide evenly is eventually cut anyway.
+        //
+        // This is the paper's "move the cut-line toward the partition with a
+        // smaller utilization ratio" only in the weak sense of a schedule: the
+        // region is cut at its midpoint and the cap widens 0, 0.25, 0.5, ... with
+        // the retry. The region's spare whitespace is not consulted when choosing
+        // the cut -- only afterwards, by the look-ahead below -- so the cut-line
+        // placement is the weak half of Section 2.2 and this remains a scaffold.
+        const double cap = attempt * 0.25;
 
-        if (vertical) {
-            cut = r.x0 + 0.5 * w;
-            p1 = r.x0 + 0.25 * w;
-            p2 = r.x0 + 0.75 * w;
-        } else {
-            cut = r.y0 + 0.5 * h;
-            p1 = r.y0 + 0.25 * h;
-            p2 = r.y0 + 0.75 * h;
-        }
-        if (!bipartition(r.cells, vertical, cut, cap, side)) {
+        cut = vertical ? (r.x0 + 0.5 * w) : (r.y0 + 0.5 * h);
+        if (!bipartition(r.cells, cut, cap, side)) {
             continue;
         }
 
@@ -570,7 +567,7 @@ void RatioPlacer::Impl::divide(RatioRegion r) {
         ktlog.trace("  ratio cut: {} cells -> {} / {}, {} retries so far", r.cells.size(),
                     r0.cells.size(), r1.cells.size(), res_.ratioRetries);
     }
-    writeFrame(r, r.depth, "ratio bipartition");
+    writeFrame(r.depth, "ratio bipartition");
     divide(std::move(r0));
     divide(std::move(r1));
 }

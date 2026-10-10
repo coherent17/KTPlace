@@ -181,8 +181,8 @@ void FastDetailedPlacer::Impl::buildSpans() {
         // covers. Scanning all rows per cell was quadratic on a design with
         // 210k cells and 700 rows.
         const auto above = std::lower_bound(rows.begin(), rows.end(), vert.y + vert.height,
-                                            [](const PlacementDB::RowInfo &ri, double v) {
-                                                return ri.coordinate + ri.height < v;
+                                            [](const PlacementDB::RowInfo &ri, double limit) {
+                                                return ri.coordinate + ri.height < limit;
                                             });
         for (auto it = above; it != rows.begin();) {
             --it;
@@ -1033,8 +1033,8 @@ std::size_t FastDetailedPlacer::Impl::localReorder() {
             // restore anything.
             const double hpBefore = segmentHpwl(sp.cells);
             std::vector<double> keep(n);
-            for (std::size_t k = 0; k < n; ++k) {
-                keep[k] = x_[sp.cells[k]];
+            for (std::size_t idx = 0; idx < n; ++idx) {
+                keep[idx] = x_[sp.cells[idx]];
             }
             double cursor = base;
             std::size_t moved = 0;
@@ -1049,8 +1049,8 @@ std::size_t FastDetailedPlacer::Impl::localReorder() {
             if (segmentHpwl(sp.cells) < hpBefore - 1e-9) {
                 moves += moved;
             } else {
-                for (std::size_t k = 0; k < n; ++k) {
-                    commit(sp.cells[k], keep[k]);
+                for (std::size_t idx = 0; idx < n; ++idx) {
+                    commit(sp.cells[idx], keep[idx]);
                 }
             }
             // The window came out in a new left-to-right order, so the span's
