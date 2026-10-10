@@ -751,7 +751,7 @@ BOOST_AUTO_TEST_CASE(failed_vertical_swap_restores_the_row_the_cell_is_in) {
     // the span builder skips an obstacle that runs to the end of the free run,
     // and leaves it to the per-y blockage test. A movable cell taller than a row
     // is left in place as such a blockage.
-    PlacementDB db;
+    ktDM db;
     for (int r = 0; r < 4; ++r) {
         addRow(db, r, 100);
     }
