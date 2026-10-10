@@ -65,36 +65,63 @@ struct CsrMatrix {
                           });
     }
 
-    /// Sum of squares, as a parallel reduction.
-    double norm2(const std::vector<double> &v) const {
-        return tbb::parallel_reduce(
-            tbb::blocked_range<std::size_t>(0, n, 1024), 0.0,
-            [&](const tbb::blocked_range<std::size_t> &r, double acc) {
-                double a = acc;
-                for (std::size_t i = r.begin(); i < r.end(); ++i) {
-                    a += v[i] * v[i];
-                }
-                return a;
-            },
-            [](double lhs, double rhs) {
-                return lhs + rhs;
-            });
+    /// Sum of body(i) over [0, count), in parallel but reproducibly.
+    ///
+    /// Not a tbb::parallel_reduce. A reduction over a range whose split the
+    /// scheduler chooses sums floating-point partials in whatever order those
+    /// splits happen to combine, so two runs of the same binary on the same input
+    /// disagree in the last bits -- and CG feeds those bits back in on the next
+    /// iteration, so the disagreement compounds instead of staying a rounding
+    /// error. It did: the look-ahead legalizer's own residual differed in the
+    /// fourth digit between runs, and by the end of global placement the same
+    /// binary on the same input returned 1.399e7 four times out of six and
+    /// 1.74e7 and 1.80e7 on the other two.
+    ///
+    /// A 29% spread makes every measurement of this placer unfalsifiable,
+    /// including the "X is better than Y" claims recorded in this file's
+    /// comments. Here the chunk boundaries depend only on count and grain, and
+    /// the per-chunk totals are added back in index order, so the result is a
+    /// function of the input alone.
+    template <typename Body>
+    double chunkedSum(std::size_t count, std::size_t grain, Body body) const {
+        if (count == 0) {
+            return 0.0;
+        }
+        const std::size_t nChunks = (count + grain - 1) / grain;
+        std::vector<double> part(nChunks, 0.0);
+        tbb::parallel_for(tbb::blocked_range<std::size_t>(0, nChunks, 1),
+                          [&](const tbb::blocked_range<std::size_t> &r) {
+                              for (std::size_t c = r.begin(); c < r.end(); ++c) {
+                                  const std::size_t b = c * grain;
+                                  const std::size_t e = std::min(b + grain, count);
+                                  double a = 0.0;
+                                  for (std::size_t i = b; i < e; ++i) {
+                                      a += body(i);
+                                  }
+                                  part[c] = a;
+                              }
+                          });
+        double total = 0.0;
+        for (const double v : part) {
+            total += v;
+        }
+        return total;
     }
 
-    /// Dot product, as a parallel reduction.
+    static constexpr std::size_t kGrain = 1024;
+
+    /// Sum of squares.
+    double norm2(const std::vector<double> &v) const {
+        return chunkedSum(n, kGrain, [&](std::size_t i) {
+            return v[i] * v[i];
+        });
+    }
+
+    /// Dot product.
     double dot(const std::vector<double> &a, const std::vector<double> &b) const {
-        return tbb::parallel_reduce(
-            tbb::blocked_range<std::size_t>(0, n, 1024), 0.0,
-            [&](const tbb::blocked_range<std::size_t> &r, double acc) {
-                double s = acc;
-                for (std::size_t i = r.begin(); i < r.end(); ++i) {
-                    s += a[i] * b[i];
-                }
-                return s;
-            },
-            [](double lhs, double rhs) {
-                return lhs + rhs;
-            });
+        return chunkedSum(n, kGrain, [&](std::size_t i) {
+            return a[i] * b[i];
+        });
     }
 };
 
