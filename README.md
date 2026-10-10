@@ -1,372 +1,120 @@
 # KTPlace
 An open-source know thyself placement engine.
 
-## Build
+## Dependencies
 
-Requirements: g++ 13+ (C++23), oneTBB, Boost.Iostreams, zlib, libfmt (`libfmt-dev`).
+g++ 13+ (C++23), oneTBB, Boost (Iostreams, Test), zlib, fmt, clang-format.
+
+```sh
+sudo apt-get install -y --no-install-recommends \
+    g++ libtbb-dev libboost-iostreams-dev libboost-test-dev zlib1g-dev libfmt-dev clang-format
+```
+
+System packages, not submodules: every distribution ships these, and vendoring
+them would only pin versions behind the distribution's own updates. CImg, which
+is *not* packaged usefully, is vendored as a single header under CeCILL-C and
+CeCILL; see the header in `src/visualization/` for its terms.
+
+## Build
 
 ```sh
 make            # builds build/bin/ktplace
-make rebuild    # clean + rebuild
+make test       # build and run every unit suite
+make format     # clang-format the sources
 ```
 
-A successful build also writes two environment helpers into the repository
-root. Source the one for your shell and the engine is callable by name:
+The build also writes `ktplace.sh` and `ktplace.csh` into the repository root.
+Source the one for your shell and the engine is callable by name:
 
 ```sh
-source ktplace.sh     # bash / sh
-source ktplace.csh    # csh / tcsh
-ktplace ibm01 ./benchmark/ICCAD04/ibm01 ./output/ibm01.pl
+source ktplace.sh
 ```
 
-They only appear when the link succeeds, are safe to source repeatedly, and
-export `KTPLACE_HOME` pointing at the repository. The maintained copies live in
-`scripts/`.
-
-The top-level Makefile drives a hierarchy under `src/`, where `src/Master.make`
-coordinates the components -- `datamodel`, `adaptor`, `placer`, `visualization`
-and `util` -- each of which builds through its own `Master.make`.
-
-Layout:
-
-```
-src/
-  Master.make          # coordinates the subdirectories
-  kt_place.cc          # entry point
-  kt_flowMgr.{h,cc}    # load -> place -> write flow
-  kt_option.{h,cc}     # command line
-  datamodel/           # PlacementDB, Graph, Vertex, Edge
-  adaptor/             # Bookshelf and LEF/DEF readers
-  placer/              # quadratic placer (clique/star, CG, density)
-  visualization/       # SVG frames, HPWL curve, HTML gallery
-  util/                # kt_log, kt_reportTable, kt_scopedTimer
-```
-
-## Tests
-
-Unit tests use Boost.Test and live next to the code they cover:
-
-```
-src/datamodel/test/test_datamodel.cc   PlacementDB and the placement graph
-src/adaptor/test/test_adaptor.cc      Bookshelf and LEF/DEF readers
-src/test/test_flow.cc                 end-to-end load -> place -> write
-```
+## Usage
 
 ```sh
-make test        # build and run every suite (alias: make check)
+ktplace <input_dir> [options]
+ktplace ./benchmark/ICCAD04/ibm01 -w ./output/ibm01
 ```
 
-Each test writes its own tiny synthetic design into a scratch directory, so the
-suites need no benchmark data. Error paths that end the process through
-`ktlog::fatal` are checked with `fork(2)`, since Boost.Test 1.83 has no
-death-test macros.
+`input_dir` holds the design's files, named after the design. The format is
+auto-detected: a `.def`/`.def.gz` goes through the LEF/DEF adapter, everything
+else is loaded as Bookshelf.
 
-CI (`.github/workflows/ci.yml`) runs on every push and pull request: it
-installs the dependencies, rejects any source that is not `clang-format` clean,
-builds, runs the unit tests, then fetches one small benchmark (ICCAD04 `dma`,
-~8 MiB) and asserts the placement completes and writes one record per cell.
+| option | meaning |
+| --- | --- |
+| `-a, --algorithm <name>` | `simpl` (default) or `ntuplace1` |
+| `-w, --work-dir <dir>` | where everything is written (default: cwd) |
+| `--no-plots` | draw nothing |
+| `-v, --verbose` | also echo the trace log to the console |
 
-## Code style
+`-w` is the single artifact root: the run derives `placed.pl`, `plots/` and
+`ktplace.log` from it and creates it if missing. The trace always goes to
+`ktplace_trace.log`. **stdout is never written to** — the log goes to the file
+and stderr, so redirecting stdout stays clean.
 
-All C++ sources are formatted with `clang-format` (configuration in
-`.clang-format`, tuned to the project's 4-space / 100-column style):
+| `ktplace.log` | `ktplace_trace.log` | stderr |
+|:---:|:---:|:---:|
+| echo, fatal | trace | echo, fatal |
 
-```sh
-clang-format -i src/**/*.cc src/**/*.h
-```
+## Output
 
-## Logging
+Under `<work-dir>/plots/`: SVG frames for the placement stages (`simpl/`, and
+`legalize/` for the Abacus path), the detail placer (`detailplace/`), the density
+bound trace (`simpl_bounds.csv`/`.svg`), the animation (`anim/placement.gif`,
+when `KTPLACE_ANIM` is set), and a high-resolution still of the finished
+placement (`final/final.png`, 6144x6144 by default). All generated in C++ — no
+image library beyond the vendored CImg, no external tools.
 
-All output goes through a single logger (`src/util/kt_log.h`) to a transcript
-file plus stderr; **stdout is never written to**, so redirecting it stays clean.
+| variable | effect |
+| --- | --- |
+| `KTPLACE_ANIM` | enable the animation |
+| `KTPLACE_ANIM_MAX_FRAMES` | frame budget for the run (default 1200) |
+| `KTPLACE_ANIM_ZOOM` | frame scale, vs 768x768 (default 2) |
+| `KTPLACE_ANIM_BLEND` | in-between frames per placement (default 3) |
+| `KTPLACE_ANIM_DELAY_CS` | GIF frame delay, in hundredths of a second |
+| `KTPLACE_FINAL_ZOOM` | final still scale, vs 768x768 (default 8) |
+| `KTPLACE_FINAL_PPM` | also write the lossless PPM beside the PNG (off) |
 
-```sh
-./build/bin/ktplace ibm01 ./benchmark/ICCAD04/ibm01 ./output/ibm01.pl -l run.log
-./build/bin/ktplace ibm01 ./benchmark/ICCAD04/ibm01 ./output/ibm01.pl -v   # + trace
-```
-
-| call | `ktplace.log` | `<log>_trace.log` | stderr |
-|------|:--------------:|:-----------------:|:------:|
-| `ktlog.echo(...)`  | yes | no | yes |
-| `ktlog.trace(...)` | no  | yes (only with `-v`) | no |
-| `ktlog.fatal(...)` | yes | no | yes, then `exit(1)` |
-
-Trace records go to a **separate** file so the main transcript stays readable,
-and that file is not created at all without `-v`. Messages are built with
-`fmt::format` and checked at compile time.
-
-`ktReportTable` (`src/util/kt_reportTable.h`) accumulates cells and renders an
-aligned table — column widths measured from content, numeric cells
-right-aligned — emitted as a single log record:
-
-```cpp
-ktReportTable table("Summary");
-table.setHeaders({"phase", "wall", "cpu"});
-table.addRow({"load", "4.75s", "7.09s"});
-table.emit();
-```
+Timing is measured with `ScopedTimer` (`src/util/kt_scopedTimer.h`), which
+records wall and processor time per named phase and reports the table once at
+the end. Circuit delay needs a timing graph and cell libraries, so it belongs in
+a separate engine.
 
 ## The algorithm
 
-SimPL is implemented from the paper, which is the reference for every design
-decision in `src/placer/simpl/` -- the pseudonet weight law, the alpha schedule,
-and the convergence rule:
+SimPL is implemented from the paper, which is the reference for every decision in
+`src/placer/simpl/`:
 
 > M.-C. Kim, D.-J. Lee, I. L. Markov. *SimPL: An Algorithm for Placing VLSI
 > Circuits.* Communications of the ACM 56(6), June 2013. DOI
 > 10.1145/2461256.2461279.
 
-The paper is paywalled and is not redistributed here. Where this implementation
+The paper is paywalled and not redistributed here. Where the implementation
 departs from it, the departure is stated in a comment at the site of the
 decision, with the paper text quoted, so the two can be compared rather than
-taken on trust. Two known departures: the returned placement is the best upper
-bound rather than the last (our upper bound rises where the paper's oscillates
-and then improves, so "last" would be worse), and the pseudonet weight is the
-quadratic surrogate `w = alpha` for the paper's Manhattan-distance penalty.
+taken on trust.
 
-### Reported results, and where we stand
-
-The paper's Table 1, ISPD 2005, HPWL in units of 10^6. The paper's figures are
-after FastPlace-DP, so they are comparable with a full run of this tool.
-
-| design | cells | SimPL (paper) | this implementation | ratio |
-| --- | --- | --- | --- | --- |
-| adaptec1 | 211 K | 77.42 | 355.9 | 4.6x |
-| adaptec2 | 255 K | 91.01 | see `output/_logs/suite.log` | |
-
-The gap is in the look-ahead legalization, not in the solver, and the per-iteration
-trace says so. On adaptec1 the *lower* bound -- the unconstrained quadratic
-solution -- matches the paper closely: 6.8e+07 at iteration 11 against the
-paper's 6.8e+07 at iteration 20. The *upper* bound, which is the lower bound put
-through look-ahead legalization, is where it goes wrong: ours is 4.1e+08 where
-the paper's is 9.2e+07. Legalization is costing a factor of about five, and
-because the upper bound is what the run returns and what the next iteration's
-anchors are built from, that cost is paid back on every subsequent iteration.
-
-The signature of the fault is in how the lower bound evolves. The paper's stays
-flat -- 4.5e+07 at initial placement, 6.8e+07 at iteration 20, a factor of 1.5.
-Ours grows 8.07e+07 to 6.86e+08, a factor of 8.5, monotonically. A lower bound
-that grows like that is being dragged outward by its anchors every iteration,
-which is what happens when the legalization moves cells much further than the
-paper's does and the pseudonets then pull the next solve out to meet them.
-
-Three things have been found and fixed so far, and none of them is the whole of
-it:
-
-- **The die was defined twice and inconsistently.** The placer used the
-  fixed-cell bounding box, the checker the same, and neither consulted the rows
-  -- but the rows are the authoritative statement of where a cell may go, and for
-  adaptec3 they reach past the fixed cells. The placer's density grid therefore
-  saw 2.1e+07 units of placeable area where the design has 5.4e+07, thought the
-  design 327% full, and spread against a region less than half the real size.
-  `placementDieBox()` is now one definition, used by both.
-- **The initial placement ran one round instead of five to seven.** The result is
-  not thrown away -- it seeds the global loop, and the first anchors are its first
-  legalization -- so the cap was removing the step the paper says "can determine
-  the overall shape of the final placement solutions". One round gives 4.054e+08
-  on adaptec1, seven give 3.559e+08.
-- **Utilisation was reported against the wrong denominator**, charging the fixed
-  cells' area to the row area. adaptec1 read 89% when its movable demand is 58%
-  of the rows, which is the number to check when a placement comes out illegal.
-
-What is left is the over-spreading itself, and it is not a small change. The
-paper's legalization preserves the placement's shape: it sorts cells by distance
-from a cutline and packs them into stripes, which spreads without reordering.
-Ours follows that structure, but two of its choices push further than the
-paper's. The region a cluster is legalized into is the whole die once the cluster
-holds half the movable area (`globalClusterFrac`), which spreads a collapsed
-placement uniformly over the chip -- and the I/O pads ring the die, so that
-sends every cell to the wrong end of it. Using the paper's minimal region
-instead is not the fix either: measured on adaptec1 it is worse (7.69e+08),
-because confining a collapsed placement to the 58% of the die its cells strictly
-need leaves the rest of the chip empty. The paper gets both properties at once
-and the mechanism for it has not been identified here.
-
-## Placement images
-
-A run with `-p plots` writes, per stage, SVG frames (vector, so they stay sharp
-at any zoom) and a per-iteration HPWL/overflow curve, and — if `KTPLACE_ANIM` is
-set — an animated GIF assembled from those frames. On top of that, every run
-writes one high-resolution still of the *finished* placement to
-`plots/final/final.png`: 6144x6144 by default, which on an ISPD 2005 design is
-about fourteen pixels across for a standard cell. The animation frames are
-deliberately small, because a GIF has to be, and at that size a 200k-cell design
-is a texture rather than a placement; the still is the one meant to be looked at.
-It is a PNG because a PPM — the only format the raster path could always write —
-is not a thing any viewer opens. The PNG encoder is in-process on top of zlib,
-which the build already links; CImg's own PNG support needs libpng headers that
-are not installed here.
-
-Both are self-contained: no external tool, no image library beyond the vendored
-CImg, and the result is reproducible from `ktplace` alone.
-
-| variable | effect |
-|----------|--------|
-| `KTPLACE_ANIM` | enable the animation |
-| `KTPLACE_ANIM_MAX_FRAMES` | frame budget for the whole run (default 1200) |
-| `KTPLACE_ANIM_ZOOM` | animation frame scale, vs 768x768 (default 3, so 2304x2304) |
-| `KTPLACE_ANIM_BLEND` | in-between frames per placement (default 3) |
-| `KTPLACE_ANIM_DELAY_CS` | GIF frame delay, in hundredths of a second |
-| `KTPLACE_FINAL_ZOOM` | final still scale, vs 768x768 (default 8, so 6144x6144) |
-| `KTPLACE_FINAL_PPM` | also write the lossless 113 MB PPM beside the PNG |
-
-Rows are drawn behind the cells on any frame whose placement is genuinely on a
-row grid, and are left out when it is not — see `rowBands()` in
-`src/visualization/kt_plotter.cc` for how that is decided from the cells alone.
-
-## Third-party code
-
-`src/visualization/CImg.h` is the [CImg](https://cimg.eu) library, vendored as a
-single header. It is dual-licensed by its author under CeCILL-C and CeCILL; see
-the header for the full terms. It is used only to rasterise animation frames and
-writes no files of its own — the GIF container, its LZW stream and the palette
-quantiser are all in `src/visualization/kt_gif.cc`, and the PNG writer is in
-`src/visualization/kt_plotter.cc` on top of zlib. Everything else in this
-repository is original work under the MIT license in `LICENSE`.
+Legalization is Abacus for single-row cells and `MultiRowLegalizer` for cells
+taller than a row; detailed placement is FastDP. Both are followed by an
+independent placement check, and the result is reported per stage.
 
 ## Benchmarks
 
-Benchmarks are not vendored (they are several GB). Fetch them from their
-original publishers:
+The suites are several GB, so almost nothing is vendored. Two designs are,
+because CI needs them:
+
+- `ISPD_2005/adaptec1` — the end-to-end smoke design. That suite has no working
+  download URL, so a job that fetched it would be a build failing for reasons
+  that have nothing to do with the code.
+- `ICCAD04/ibm01` — the only design with cells taller than a row, so the only one
+  that reaches the multi-row legalizer.
+
+Fetch the rest from their original publishers:
 
 ```sh
 python3 benchmark/fetch_benchmarks.py            # everything available
 python3 benchmark/fetch_benchmarks.py --list     # show the sources
-python3 benchmark/fetch_benchmarks.py --suite ICCAD04 --design ibm01
 ```
 
-| Directory | Designs | Source |
-| --- | --- | --- |
-| `ISPD_2015/` | 16 `mgc_*` LEF/DEF designs | ispd.cc contest site |
-| `ICCAD04/` | ibm01-18 (IBM-MSwPins), dma, dsp1/2, risc1/2 (Faraday) | vlsicad.eecs.umich.edu |
-| `ISPD02/` | ibm01-18 (IBM-MS) | vlsicad.eecs.umich.edu |
-
-See [benchmark/README.md](benchmark/README.md) for details.
-
-## Usage
-
-```sh
-./build/bin/ktplace <name> <input_dir> <output.pl> [options]
-./build/bin/ktplace ibm01 ./benchmark/ICCAD04/ibm01 ./output/ibm01.pl
-```
-
-The input format is auto-detected: a directory containing a `.def`/`.def.gz`
-goes through the LEF/DEF adapter, everything else is loaded as Bookshelf.
-
-| option | meaning |
-| --- | --- |
-| `-a, --algorithm <name>` | placement algorithm (default `quadratic`) |
-| `-f, --format <fmt>` | output format (default `bookshelf`) |
-| `-l, --log <file>` | transcript log (default `ktplace.log`) |
-| `-v, --verbose` | also write `<log>_trace.log` |
-| `-p, --plot <dir>` | SVG frames + HPWL curve + HTML gallery |
-| `-w, --work-dir <dir>` | base for relative output/plot/log paths |
-| `-c, --config <file>` | configuration file |
-| `-h, --help` / `-V, --version` | help / version |
-
-With `-w`, relative `output_path` and plot directories are resolved under that
-directory (absolute paths are used verbatim), the logs default to
-`<work-dir>/ktplace.log` and `<work-dir>/ktplace_trace.log`, and the directory
-is created if missing. Without it, behaviour is unchanged and logs land in the
-current directory.
-
-### Visualizing the solve
-
-Pass `-p <dir>` (or `--plot`) to emit SVG snapshots of the placement at each
-outer iteration, an HPWL/overflow curve (`hpwl.csv` + `hpwl.svg`), and an HTML
-gallery; open `<dir>/index.html` in a browser.
-
-```sh
-./build/bin/ktplace ibm01 ./benchmark/ICCAD04/ibm01 ./output/ibm01.pl -p ./output/plots
-```
-
-Frames are decimated above 150k cells, so even million-cell designs render fast.
-Plotting evaluates HPWL after every recorded iteration, which adds a netlist
-pass per frame (visible in the solve time).
-
-The yellow dashed curve (and the `overflow` column of `hpwl.csv`) reports the
-**density overflow**: the fraction of movable-cell area sitting in bins that
-exceed a full 64x-bin capacity. 0.0 means the die is uniformly covered; 1.0
-means everything is stacked in a single bin. `ktplace` spreads cells with a
-SimPL-style projection: a gated equi-area fill drains over-packed bins into
-empty die area, so the collapsed center seed never shows up as a pile of cells
-in a corner.
-
-## Features
-
-- Bookshelf format input (`.nodes`, `.nets`, `.pl`, `.scl`, `.wts`), transparent `.gz` support via Boost.Iostreams
-- LEF/DEF input (contest style: `floorplan.def` + `cells.lef`/`tech.lef`): macro sizes/pins, die area, rows, fixed macros, I/O pads, and the flat DEF netlist; DEF micron units respected (LEF sizes auto-scaled)
-- Gzip + node/net parsing parallelized with oneTBB (`tbb::parallel_for`)
-- Quadratic placement: clique/star-hybrid net model, CSR matrix, Jacobi-preconditioned CG, all parallelized with oneTBB
-- Bookshelf `.pl` output writer
-- Density-aware global placement: 64x64 occupancy grid over the die, SimPL-style projection spreading (gated equi-area drain) followed by optional wirelength refinement
-- Iteration-by-iteration placement visualization (SVG frames, HPWL/overflow curve, gallery) — all generated in C++, no image libraries
-
-## Timing
-
-Elapsed time is measured with `src/util/kt_scopedTimer.h`: `ScopedTimer` is an RAII
-stopwatch that records on scope exit, and `TimerRegistry` accumulates named
-totals that are reported once per run. Every interval is recorded as both
-wall-clock and processor time, so the table shows how much parallelism a phase
-actually used:
-
-```
-Timings (wall 15.383s, cpu 53.081s, 3.45x parallelism)
-+-------+---------+---------+-------+----------+
-| phase | wall    | cpu     | calls | cpu/wall |
-+-------+---------+---------+-------+----------+
-| load  | 4.752s  | 7.086s  |     1 |    1.49x |
-| place | 10.338s | 45.701s |     1 |    4.42x |
-| write | 0.293s  | 0.293s  |     1 |    1.00x |
-+-------+---------+---------+-------+----------+
-```
-
-
-```cpp
-{
-    ScopedTimer timer("load");
-    runLoad();
-}                        // recorded here
-TimerRegistry::instance().report();
-```
-
-This is measurement only. Circuit delay (cell delay, net delay, slack) needs a
-timing graph and cell libraries, so it belongs in a separate timing engine --
-which can use `ScopedTimer` to report its own cost.
-
-## Documentation
-
-- [Benchmarks](benchmark/README.md) - suites, sources and layout
-- [SimPL and this placer](docs/simpl.md) - what SimPL does, what we do differently, and a known defect in the phase schedule
-
-## Notes
-
-Pure quadratic placement minimizes *squared* wirelength; without a spreading
-step every cell slides to a single point (the netlist's force-balance point),
-so KTPlace couples the wirelength solve to a density-aware projection-spreading
-pass, followed by a refinement phase that pulls the spread placement back toward
-wirelength optimum. The consequence is visible in the reported `HPWL / seed`
-ratio: spreading raises wirelength well above the seed, and there is no
-legalization stage yet to bring it back down.
-
-| design | cells | seed HPWL | after spreading | ratio |
-| --- | ---: | ---: | ---: | ---: |
-| `adaptec2` (ISPD 2005) | 255,023 | 7.27e7 | 1.32e9 | 18.2x |
-| `adaptec5` (ISPD 2006) | 843,128 | 2.17e8 | 6.71e9 | 31.0x |
-| `mgc_superblue16_a` (ISPD 2015) | 698,367 | 3.59e10 | 3.35e11 | 9.3x |
-| `dma` (ICCAD 2004) | 11,734 | 0 | 6.6e3 | degenerate seed |
-
-Two different things are being compared in that table, and it matters when
-reading it:
-
-- **A real seed.** ISPD 2005/2006 and ISPD 2002 ship a legal placement in
-  `.pl`; the ratio is then a meaningful "how much did spreading cost" figure.
-  Published placers are normally within 1.05-1.3x of such a seed because they
-  finish with legalization and detail placement, so a 20-50x ratio means this
-  is a post-spread, pre-legalization snapshot rather than a competitive result.
-- **Our own seed.** ISPD 2015 LEF/DEF leaves standard cells `UNPLACED`, so the
-  seed HPWL is measured from the die-center seed KTPlace invents, not from the
-  input. Comparing against it says nothing about input quality.
-- **A degenerate seed.** Some Bookshelf suites place every cell on the origin
-  (ICCAD 2004 `dma` above), where any percentage is meaningless and is reported
-  as `n/a`.
+See [benchmark/README.md](benchmark/README.md).
