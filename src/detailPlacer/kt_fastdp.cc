@@ -836,11 +836,30 @@ std::size_t FastDetailedPlacer::Impl::verticalSwap() {
                     continue;
                 }
                 // Clear the macro test for the y each one lands at.
+                //
+                // The trial rewrites y_ and must undo it exactly on failure. It
+                // used to restore from the spans captured at the top of the cell's
+                // iteration (sc / s2), which was only right while the cell had not
+                // moved yet: once the pass had already swapped this cell into
+                // another row, a later failed trial put y_ back at its *original*
+                // row while spanOf_ still pointed at the row it was swapped into.
+                // y_ and spanOf_ then disagreed -- a cell whose geometry sat in one
+                // row's band while the reasoner held it in the row next door, so
+                // the per-span legality sweep could not see the overlap it created
+                // with a cell in the row it physically occupied. On adaptec1 that
+                // reproduced as o87670 sitting inside o169225 (see the selfCheck
+                // code), with brute-force and per-span overlap counts disagreeing.
+                // Snapshotting the real values and restoring them is exact in both
+                // cases: a cell with no prior move goes back to where it was, and
+                // one that was already swapped this iteration goes back to the row
+                // the successful swap landed it in.
+                const double oyc = y_[c];
+                const double oyd = y_[d];
                 y_[c] = spans_[s2].ylo;
                 y_[d] = spans_[sc].ylo;
                 if (!fitsIgnoring(c, odx, s2, ignore, 2) || !fitsIgnoring(d, ocx, sc, ignore, 2)) {
-                    y_[c] = spans_[sc].ylo;
-                    y_[d] = spans_[s2].ylo;
+                    y_[c] = oyc;
+                    y_[d] = oyd;
                     continue;
                 }
                 removeFromSpan(c);
