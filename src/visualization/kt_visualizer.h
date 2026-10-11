@@ -149,9 +149,15 @@ public:
     void beginStage(StageVisual stage);
 
     [[nodiscard]] bool enabled() const noexcept;
-    [[nodiscard]] const PlotOptions &options() const noexcept { return opts; }
-    [[nodiscard]] const std::string &directory() const noexcept { return dir; }
-    [[nodiscard]] const StageVisual &currentStage() const noexcept { return stage; }
+    [[nodiscard]] const PlotOptions &options() const noexcept {
+        return opts;
+    }
+    [[nodiscard]] const std::string &directory() const noexcept {
+        return dir;
+    }
+    [[nodiscard]] const StageVisual &currentStage() const noexcept {
+        return stage;
+    }
 
     /// True when the current stage has asked for frames and there is somewhere to
     /// put them. A stage checks this before doing the work of building a frame.
@@ -176,9 +182,8 @@ public:
     /// run is not animating, when the cap is reached, or when the positions are
     /// not one entry per cell. The cap is checked before the work, not after, so
     /// a capped run costs nothing.
-    void recordFrame(const Graph &graph, const std::vector<float> &x,
-                     const std::vector<float> &y, const std::array<double, 4> &die,
-                     std::size_t step, std::size_t total,
+    void recordFrame(const Graph &graph, const std::vector<float> &x, const std::vector<float> &y,
+                     const std::array<double, 4> &die, std::size_t step, std::size_t total,
                      double hpwl, double hpwlInitial, double resid, const std::string &note,
                      const constraintMgr *fences = nullptr, bool mandatory = false);
 
@@ -194,18 +199,24 @@ public:
     void holdBack(std::size_t frames);
 
     /// Frames recorded so far this run.
-    [[nodiscard]] std::size_t frameCount() const noexcept { return framesKept; }
+    [[nodiscard]] std::size_t frameCount() const noexcept {
+        return framesKept;
+    }
     /// Frames still recordable, ignoring any hold-back.
     [[nodiscard]] std::size_t budget() const noexcept {
         return framesKept >= maxFrames ? 0 : maxFrames - framesKept;
     }
     /// True once the frame ceiling has been reached.
-    [[nodiscard]] bool capped() const noexcept { return cappedNow; }
+    [[nodiscard]] bool capped() const noexcept {
+        return cappedNow;
+    }
     /// Forget the current run. Frames already written are left on disk.
     void reset();
 
     /// True once configure() has armed this run for an animation.
-    [[nodiscard]] bool animating() const noexcept { return animOn; }
+    [[nodiscard]] bool animating() const noexcept {
+        return animOn;
+    }
 
 private:
     Visualizer() = default;
@@ -230,9 +241,9 @@ private:
     double frameZoom = 1.0;
     std::size_t maxFrames = 480;
     std::size_t framesKept = 0;  ///< frames kept so far
-    std::size_t offered = 0;    ///< offered since the last reset
-    std::size_t stride = 1;     ///< spacing between the kept ones
-    std::size_t held = 0;       ///< reserved for later stages
+    std::size_t offered = 0;     ///< offered since the last reset
+    std::size_t stride = 1;      ///< spacing between the kept ones
+    std::size_t held = 0;        ///< reserved for later stages
     bool cappedNow = false;
     /// The previous recorded placement, kept only to interpolate from.
     std::vector<float> prevX;

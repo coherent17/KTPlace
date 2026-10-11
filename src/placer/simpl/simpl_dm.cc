@@ -118,7 +118,11 @@ void reportRun(const SimplResult &res) {
         {"HPWL", fmt::format("{:.6e}", res.hpwlSeed), fmt::format("{:.6e}", res.hpwlFinal)});
     table.addRow({"lower bound", "", fmt::format("{:.6e}", res.hpwlLower)});
     table.addRow({"gap", "", fmt::format("{:.6e}", res.gap)});
-    table.addRow({"overflow", "", fmt::format("{:.6e}", res.overflowFinal)});
+    // Named as it is, not "overflow": the overflow is the bin-density
+    // violation scaled by the density limit, which is not the same number as
+    // raw overlap, and the qualifier is what says so. CI gates on the label.
+    table.addRow({"scaled overflow (lower)", "", fmt::format("{:.6e}", res.overflowLower)});
+    table.addRow({"scaled overflow (final)", "", fmt::format("{:.6e}", res.overflowFinal)});
     table.addRow({"movable cells", "", fmt::format("{}", res.numMovable)});
     table.addRow({"fixed cells", "", fmt::format("{}", res.numFixed)});
     table.addRow({"nets", "", fmt::format("{}", res.nets)});

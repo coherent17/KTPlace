@@ -3431,42 +3431,4 @@ SimplResult simplPlacer::place(const SimplParams &params, bool useFences) {
     return result;
 }
 
-void reportSimpl(const SimplResult &r) {
-    ktReportTable t("SimPL solver results");
-    t.setHeaders({"metric", "initial", "final"});
-    t.addRow({"movable cells", "", fmt::format("{}", r.numMovable)});
-    t.addRow({"fixed cells", "", fmt::format("{}", r.numFixed)});
-    t.addRow({"nets", "", fmt::format("{}", r.nets)});
-    t.addRow({"init iterations", "", fmt::format("{}", r.initIters)});
-    t.addRow({"global iterations", "", fmt::format("{}", r.globalIters)});
-    t.addRow({"bin grid", "", fmt::format("{}x{}", r.binsX, r.binsY)});
-    t.addRow({"matrix build (s)", "", fmt::format("{:.6}", r.buildSeconds)});
-    t.addRow({"look-ahead (s)", "", fmt::format("{:.6}", r.spreadSeconds)});
-    t.addRow({"linear solves (s)", "", fmt::format("{:.6}", r.solveSeconds)});
-    t.addRow({"look-ahead legalization", "", r.usedLookAhead ? "on" : "OFF (raw LSS)"});
-    t.addRow({"fence regions", "",
-              !r.fencesEnabled
-                  ? "OFF (disabled)"
-                  : (r.fenceRegions == 0 ? "none" : fmt::format("{}", r.fenceRegions))});
-    t.addRow({"cells held in fence", "", fmt::format("{}", r.fenceClamps)});
-    t.addRow({"cells pushed out of a fence", "", fmt::format("{}", r.fencePushes)});
-    t.addRow({"cells outside their fence at exit", "", fmt::format("{}", r.fenceViolations)});
-    t.addRow({"HPWL seed", fmt::format("{:.6}", r.hpwlSeed), ""});
-    t.addRow({"HPWL after initial placement", fmt::format("{:.6}", r.hpwlInit), ""});
-    // Whether the warm-up's own solve converged. A large residual here means the
-    // global phase starts from a placement that is not yet a quadratic optimum,
-    // so its first iterations are spent finishing the warm-up rather than
-    // spreading, and the gap the loop is supposed to close starts wide.
-    t.addRow({"initial CG residual", fmt::format("{:.3e}", r.initResidual), ""});
-    t.addRow({"HPWL lower bound", "", fmt::format("{:.6}", r.hpwlLower)});
-    t.addRow({"HPWL final", "", fmt::format("{:.6}", r.hpwlFinal)});
-    t.addRow({"returned from iteration", "", fmt::format("{} of {}", r.bestIter, r.globalIters)});
-    t.addRow({"bound gap", "", fmt::format("{:.6}", r.gap)});
-    t.addRow({"scaled overflow (lower)", "", fmt::format("{:.6}", r.overflowLower)});
-    t.addRow({"scaled overflow (final)", "", fmt::format("{:.6}", r.overflowFinal)});
-    t.addRow({"SVG frames written", "", fmt::format("{}", r.framesWritten)});
-    t.addRow({"paper reference (adaptec1)", "77410738"});
-    t.emit();
-}
-
 }  // namespace ktplace::simpl

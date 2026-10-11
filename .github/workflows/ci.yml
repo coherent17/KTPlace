@@ -111,8 +111,13 @@ jobs:
           # it is written into the repository root by the build.
           source ktplace.sh
 
+          # The SimPL cadence knobs are read by the visualizer now, so they carry
+          # the KTPLACE_ANIM_ prefix like every other visualisation setting rather
+          # than the old per-component KTPLACE_SIMPL_ one. Setting the old names
+          # is not an error -- they are simply ignored, which would leave this
+          # step measuring a run configured by nothing.
           KTPLACE_ANIM=1 KTPLACE_ANIM_MAX_FRAMES=40 KTPLACE_ANIM_BLEND=1 \
-          KTPLACE_SIMPL_TRACE_EVERY=1 KTPLACE_SIMPL_CG_EVERY=8 \
+          KTPLACE_ANIM_TRACE_EVERY=1 KTPLACE_ANIM_CG_EVERY=8 \
             ktplace ./benchmark/ISPD_2005/adaptec1 \
               -w output/adaptec1 2>&1 | tee smoke.log
 

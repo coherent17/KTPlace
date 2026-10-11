@@ -418,10 +418,6 @@ struct SimplResult {
     std::size_t framesWritten = 0;
 };
 
-// The solver's own summary, emitted from the component that produced the
-// numbers rather than by the caller that ran it.
-void reportSimpl(const SimplResult &res);
-
 /// SimPL global placement. Knows nothing about ktDM: it takes a simpl::Design and
 /// answers with a ktplace::simplSolution. KtToSimplAdaptor bridges the two.
 class simplPlacer {

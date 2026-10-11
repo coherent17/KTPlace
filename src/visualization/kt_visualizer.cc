@@ -12,18 +12,17 @@
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
+#include <fmt/format.h>
 #include <fstream>
 #include <iomanip>
 #include <iterator>
 #include <limits>
 #include <map>
+#include <oneapi/tbb/parallel_for.h>
 #include <sstream>
 #include <stdexcept>
 #include <system_error>
 #include <unordered_map>
-
-#include <fmt/format.h>
-#include <oneapi/tbb/parallel_for.h>
 #include <zlib.h>
 
 // CImg is a header-only library, so it is confined to this translation unit.
@@ -110,9 +109,8 @@ void Visualizer::configure(const std::string &outDir, const PlotOptions &options
     // and cuts the framesKept count instead.
     const double animW = 768.0 * opts.frameZoom;
     constexpr double kBytesPerPixel = 0.9 / 8.0;  // measured, not assumed
-    const std::size_t sizeCapFrames =
-        static_cast<std::size_t>(static_cast<double>(opts.gifByteCap) /
-                                 (animW * animW * kBytesPerPixel));
+    const std::size_t sizeCapFrames = static_cast<std::size_t>(
+        static_cast<double>(opts.gifByteCap) / (animW * animW * kBytesPerPixel));
     // One is the floor: a zero budget would make the recorder dead rather than
     // small, and "no frames" is not the same as "no frame possible". Anything
     // above one honours the request, so a byte cap that leaves room for only a
@@ -160,9 +158,9 @@ std::string Visualizer::framePath(const VisualFrame &shot) const {
            (shot.series.empty() ? "" : "_" + shot.series) + "_" + buf + ".svg";
 }
 
-void Visualizer::frame(const Graph &graph, const std::vector<float> &x,
-                       const std::vector<float> &y, const std::array<double, 4> &die,
-                       const constraintMgr *fences, const VisualFrame &what) {
+void Visualizer::frame(const Graph &graph, const std::vector<float> &x, const std::vector<float> &y,
+                       const std::array<double, 4> &die, const constraintMgr *fences,
+                       const VisualFrame &what) {
     if (!drawingNow) {
         return;
     }
@@ -244,7 +242,8 @@ bool Visualizer::finish(const Graph &graph, const std::vector<float> &x,
     // costs one placement pass.
     const BBox dieBox{die[0], die[1], die[2], die[3]};
     for (std::size_t i = 0; i < opts.finalHold; ++i) {
-        recordFrame(graph, x, y, dieBox, framesKept, framesKept, hpwl, 0.0, 0.0, "final placement", fences,
+        recordFrame(graph, x, y, dieBox, framesKept, framesKept, hpwl, 0.0, 0.0, "final placement",
+                    fences,
                     /*mandatory=*/true);
     }
 
@@ -258,8 +257,8 @@ bool Visualizer::finish(const Graph &graph, const std::vector<float> &x,
 void Visualizer::recordFrame(const Graph &g, const std::vector<float> &x,
                              const std::vector<float> &y, const std::array<double, 4> &die,
                              std::size_t step, std::size_t total, double hpwl, double hpwlInitial,
-                             double resid, const std::string &note, const constraintMgr *constraints,
-                             bool mandatory) {
+                             double resid, const std::string &note,
+                             const constraintMgr *constraints, bool mandatory) {
     const std::size_t limit = held < maxFrames ? maxFrames - held : maxFrames;
     // A mandatory frame is one per global-placement iteration, or the legalizer's
     // and the detail placer's own: sparse by construction. It is exempt from both
