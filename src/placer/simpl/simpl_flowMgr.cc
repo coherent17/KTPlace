@@ -2,9 +2,8 @@
 
 namespace ktplace::simpl {
 
-simplSolution flowMgr::runGlobalPlacer(const SimplParams &params, const std::string &plotDir,
-                                       bool useFences) {
-    return dm.run(params, plotDir, useFences);
+simplSolution flowMgr::runGlobalPlacer(const SimplParams &params, bool useFences) {
+    return dm.run(params, useFences);
 }
 
 }  // namespace ktplace::simpl

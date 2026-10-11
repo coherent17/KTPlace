@@ -17,11 +17,11 @@ OBJ_DIR ?= ../build/obj/visualization
 
 # CImg is vendored in this directory and reached through the -I.. above; it is
 # header-only, and the parent Makefile already links -lz for its PNG support.
-# cimg_display is defined at the top of kt_plotter.cc (its only user) so the
+# cimg_display is defined at the top of kt_visualizer.cc (its only user) so the
 # build never tries to open an X11 display.
 
 # Source files in this directory
-SRCS := kt_plotter.cc kt_gif.cc kt_animator.cc kt_plotOptions.cc
+SRCS := kt_visualizer.cc kt_gif.cc kt_plotOptions.cc
 
 # Only include files that exist
 EXISTING_SRCS := $(foreach src,$(SRCS),$(if $(wildcard $(src)),$(src),))

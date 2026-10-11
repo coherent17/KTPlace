@@ -7,7 +7,7 @@
 #include "util/kt_log.h"
 #include "util/kt_reportTable.h"
 #include "util/kt_scopedTimer.h"
-#include "visualization/kt_plotter.h"
+#include "visualization/kt_visualizer.h"
 
 #include <algorithm>
 #include <cmath>
@@ -115,8 +115,9 @@ private:
     [[nodiscard]] std::vector<Candidate> candidates(std::size_t t) const;
     void selfCheck(MultiRowLegalizeResult &res) const;
     [[nodiscard]] double hpwl() const;
-    void writeFrame(const std::string &path, const std::string &note, std::size_t step,
-                    std::size_t total);
+    /// Offer a snapshot to the sink. A no-op when the stage has no sink, so the
+    /// caller below does not have to ask whether drawing is on.
+    void writeFrame(const std::string &note, std::size_t step, std::size_t total);
 
     const multirow::Design &design;
 
@@ -460,10 +461,8 @@ MultiRowLegalizeResult MultiRowLegalizer::Impl::run(const MultiRowLegalizeParams
             ++res.multiRowPlaced;
         }
 
-        if (!params.plotDir.empty() && params.frameEvery > 0 &&
-            (res.placed % params.frameEvery) == 0) {
-            writeFrame(params.plotDir + "/legalize_multi_" + std::to_string(res.placed) + ".svg",
-                       "multi-row legalization", res.placed, items_.size());
+        if (design.onFrame && params.frameEvery > 0 && (res.placed % params.frameEvery) == 0) {
+            writeFrame("multi-row legalization", res.placed, items_.size());
         }
     }
 
@@ -572,8 +571,8 @@ void MultiRowLegalizer::Impl::selfCheck(MultiRowLegalizeResult &res) const {
     res.overlappingPairs = overlaps / 2;
 }
 
-void MultiRowLegalizer::Impl::writeFrame(const std::string &path, const std::string &note,
-                                         std::size_t step, std::size_t total) {
+void MultiRowLegalizer::Impl::writeFrame(const std::string &note, std::size_t step,
+                                         std::size_t total) {
     ++frames_;
     const std::size_t nv = design.cells.size();
     std::vector<float> xs(nv, 0.0f);
@@ -591,7 +590,6 @@ void MultiRowLegalizer::Impl::writeFrame(const std::string &path, const std::str
         info.numSteps = total;
         info.hpwl = hpwl();
         info.hpwlInitial = hpwl();
-        info.path = path;
         info.mandatory = true;
         design.onFrame(xs, ys, info);
     }

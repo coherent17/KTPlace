@@ -313,11 +313,12 @@ struct SimplParams {
     /// mostly about watching global placement converge: with this off, the GIF was
     /// almost entirely legalization and detailed placement, which are the two
     /// stages that move the fewest cells.
+    /// Snapshot the bounds every N iterations of each global iteration. One,
+    /// because the animation is mostly about watching global placement converge.
     std::size_t traceEvery = 1;
-    /// Write a cell-placement SVG frame every N conjugate-gradient iterations
-    /// inside each linear solve (0 = off). A full run produces thousands of
-    /// ~4 MB frames, so enable this only for short debug runs
-    /// (KTPLACE_SIMPL_CG_EVERY=1 with a small KTPLACE_SIMPL_ITERS).
+    /// Write a cell-placement frame every N conjugate-gradient iterations inside
+    /// each linear solve (0 = off). Off by default: a full run produces thousands
+    /// of ~4 MB frames. Raise it for a short debug run.
     std::size_t cgEvery = 0;
     /// Cadence inside the warm-up solves, which run a handful of times and are
     /// otherwise invisible in the animation: with the global phase's cadence the
@@ -435,7 +436,7 @@ public:
 
     /// Run global placement. `useFences` turns fence enforcement off for a run
     /// that wants to measure what the fences cost.
-    SimplResult place(const SimplParams &params, const std::string &plotDir, bool useFences);
+    SimplResult place(const SimplParams &params, bool useFences);
     /// Where the last run put every cell. Nothing is written anywhere else: the
     /// caller commits this through the adaptor.
     [[nodiscard]] const simplSolution &solution() const noexcept {

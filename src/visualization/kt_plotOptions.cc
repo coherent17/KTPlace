@@ -43,11 +43,15 @@ PlotOptions PlotOptions::fromEnvironment() {
     options.writePpm = number("KTPLACE_FINAL_PPM", defaults.writePpm ? 1.0 : 0.0) != 0.0;
     options.finalHold = static_cast<std::size_t>(
         number("KTPLACE_ANIM_FINAL_HOLD", static_cast<double>(defaults.finalHold)));
+    // Cadence defaults are in the struct. The overrides exist for a long run
+    // where you want fewer frames than the default, not because the setting
+    // cannot be changed any other way.
     options.traceEvery = static_cast<std::size_t>(
-        number("KTPLACE_SIMPL_TRACE_EVERY", static_cast<double>(defaults.traceEvery)));
+        number("KTPLACE_ANIM_TRACE_EVERY", static_cast<double>(defaults.traceEvery)));
     options.cgFrameEvery = static_cast<std::size_t>(
-        number("KTPLACE_SIMPL_CG_EVERY", static_cast<double>(defaults.cgFrameEvery)));
-    options.densityMaps = number("KTPLACE_SIMPL_DENSITY_MAPS", 0.0) != 0.0;
+        number("KTPLACE_ANIM_CG_EVERY", static_cast<double>(defaults.cgFrameEvery)));
+    options.densityMaps =
+        number("KTPLACE_ANIM_DENSITY_MAPS", defaults.densityMaps ? 1.0 : 0.0) != 0.0;
     return options;
 }
 

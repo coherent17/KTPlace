@@ -74,13 +74,14 @@ using DieBox = std::array<double, 4>;
 /// the host decides how to draw it, which keeps it free of plotting.
 struct FrameInfo {
     std::string note;
+    /// Which series of snapshots this is, for the file name.
+    std::string series;
     std::size_t step = 0;
     std::size_t numSteps = 0;
     double hpwl = 0.0;
     double hpwlInitial = 0.0;
     double overflow = 0.0;
     bool mandatory = false;
-    std::string path;
 };
 
 /// Host hook: called with the position of every cell. Null disables drawing.

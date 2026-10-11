@@ -8,7 +8,7 @@
 #include "util/kt_log.h"
 #include "util/kt_reportTable.h"
 #include "util/kt_scopedTimer.h"
-#include "visualization/kt_animator.h"
+#include "visualization/kt_visualizer.h"
 
 #include <algorithm>
 #include <chrono>
@@ -96,7 +96,9 @@ private:
     std::size_t medianReorder();
     std::size_t singleSegmentCluster();
     void selfCheck(DetailPlaceResult &res) const;
-    void writeFrame(const std::string &path, const char *note) const;
+    /// Offer a snapshot to the sink. A no-op when the stage has no sink, so the
+    /// callers below do not each have to ask whether drawing is on.
+    void writeFrame(const char *note, std::size_t step = 0) const;
     /// Fences, carried from the params so the frame writer can draw them.
 
     void commit(std::size_t c, double nx);
@@ -160,7 +162,7 @@ private:
     /// For each slot, the nets it appears on.
     std::vector<std::vector<std::size_t>> cellNets_;
     std::vector<FixedBox> fixed_;
-    BBox die_ = {0.0, 0.0, 0.0, 0.0};
+    std::array<double, 4> die_{};
 };
 
 void FastDetailedPlacer::Impl::buildSpans() {
@@ -1133,7 +1135,7 @@ std::size_t FastDetailedPlacer::Impl::singleSegmentCluster() {
     return moves;
 }
 
-void FastDetailedPlacer::Impl::writeFrame(const std::string &path, const char *note) const {
+void FastDetailedPlacer::Impl::writeFrame(const char *note, std::size_t step) const {
     const std::size_t nv = design.cells.size();
     std::vector<float> fx(nv), fy(nv);
     for (std::size_t v = 0; v < nv; ++v) {
@@ -1144,13 +1146,13 @@ void FastDetailedPlacer::Impl::writeFrame(const std::string &path, const char *n
         fx[mov_[i]] = static_cast<float>(x_[i]);
         fy[mov_[i]] = static_cast<float>(y_[i]);
     }
-    // The host draws; the placer only says when.
+    // The sink draws; the placer only says when.
     if (design.onFrame) {
         fastdp::FrameInfo info;
         info.note = note;
+        info.step = step;
         info.hpwl = hpwl();
         info.hpwlInitial = hpwl();
-        info.path = path;
         info.mandatory = true;
         design.onFrame(fx, fy, info);
     }
@@ -1278,7 +1280,7 @@ DetailPlaceResult FastDetailedPlacer::Impl::place(const DetailPlaceParams &param
     y_.clear();
     fixed_.clear();
     netPins_.clear();
-    die_ = BBox{};
+    die_ = std::array<double, 4>{};
 
     // The shortest row, measured here rather than taken from bandY_: bandY_ is
     // set by the fixed-box pass, which runs later, so reading it here skipped
@@ -1327,7 +1329,7 @@ DetailPlaceResult FastDetailedPlacer::Impl::place(const DetailPlaceParams &param
         return res;
     }
     const fastdp::DieBox d = design.die;
-    die_ = BBox{d[0], d[1], d[2], d[3]};
+    die_ = std::array<double, 4>{d[0], d[1], d[2], d[3]};
     {
         const auto t0 = std::chrono::steady_clock::now();
         buildSpans();
@@ -1344,20 +1346,8 @@ DetailPlaceResult FastDetailedPlacer::Impl::place(const DetailPlaceParams &param
                    std::chrono::duration<double>(t3 - t2).count());
     }
 
-    if (!params.plotDir.empty()) {
-        // The frames are a diagnostic. create_directories without an error_code
-        // throws, which would turn a plotting problem into a lost placement, so
-        // the failure is reported and the run carries on without frames.
-        std::error_code ec;
-        std::filesystem::create_directories(params.plotDir, ec);
-        if (ec) {
-            ktlog.warning(
-                "cannot create the detailed-placement plot directory '{}': {}. "
-                "Continuing without frames.",
-                params.plotDir, ec.message());
-        } else {
-            writeFrame(params.plotDir + "/dp_000.svg", "legalized input");
-        }
+    if (design.onFrame) {
+        writeFrame("legalized input");
     }
 
     double prev = res.hpwlBefore;
@@ -1391,10 +1381,8 @@ DetailPlaceResult FastDetailedPlacer::Impl::place(const DetailPlaceParams &param
             const double now = hpwl();
             char note[128];
             std::snprintf(note, sizeof(note), "%s pass %zu (hpwl %.6g)", name, k, now);
-            if (!params.plotDir.empty()) {
-                char path[64];
-                std::snprintf(path, sizeof(path), "/dp_%03d_%s_%zu.svg", ++pass, name, k);
-                writeFrame(params.plotDir + path, note);
+            if (design.onFrame) {
+                writeFrame(note, ++pass);
             }
             if (counter == 0) {
                 break;

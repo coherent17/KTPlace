@@ -14,7 +14,9 @@ namespace ktplace {
 class constraintMgr;
 
 struct MultiRowLegalizeParams {
-    std::string plotDir;
+    /// Snapshot this many cells apart while the pass runs. The pass's own
+    /// cadence: it knows how many tall cells it has to fit, and a sink is not in
+    /// a position to judge one.
     std::size_t frameEvery = 0;
 };
 

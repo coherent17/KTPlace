@@ -13,7 +13,11 @@
 
 #include <string>
 
-namespace ktplace::abacus {
+namespace ktplace {
+
+class ktDM;
+
+namespace abacus {
 
 /// Abacus's design plus the state of the current run.
 class abacusDM {
@@ -42,4 +46,12 @@ private:
     Design d;
 };
 
-}  // namespace ktplace::abacus
+/// ktDM -> abacus::abacusDM.
+///
+/// Only what this stage reads: the cells and their sizes, the rows, the regions, and just enough
+/// netlist to report the wirelength legalization costs. The stage itself never
+/// draws: it hands the positions to the visualizer, which decides where they go.
+[[nodiscard]] abacusDM buildAbacusDM(const ktDM &db);
+
+}  // namespace abacus
+}  // namespace ktplace

@@ -29,9 +29,18 @@ struct PlotOptions {
     bool writePpm = false;               // also write the lossless raster, 113 MB at 8x
 
     // Cadence of the per-iteration frames, in solver iterations.
-    std::size_t traceEvery = 5;
-    std::size_t cgFrameEvery = 1;
-    bool densityMaps = false;
+    /// Snapshot the global-placement bounds every N iterations. One, because the
+    /// animation is mostly about watching global placement converge.
+    std::size_t traceEvery = 1;
+    /// Frame inside each linear solve, every N conjugate-gradient iterations.
+    /// Off: a full run produces thousands of ~4 MB frames.
+    std::size_t cgFrameEvery = 0;
+    /// Write a bin-density heat map beside each placement frame.
+    bool densityMaps = true;
+    /// How many cells a legalizer places between snapshots. The legalizers own
+    /// their own cadence, since they know how much work a run is; this is only
+    /// where the default lives, so a reader has one place to look.
+    std::size_t legalFrameEvery = 20000;
 
     // The defaults, with the environment applied over them.
     [[nodiscard]] static PlotOptions fromEnvironment();

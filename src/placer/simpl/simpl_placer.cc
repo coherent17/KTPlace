@@ -7,7 +7,7 @@
 #include "util/kt_log.h"
 #include "util/kt_reportTable.h"
 #include "util/kt_scopedTimer.h"
-#include "visualization/kt_animator.h"
+#include "visualization/kt_visualizer.h"
 
 #include <algorithm>
 #include <atomic>
@@ -23,6 +23,7 @@
 #include <oneapi/tbb/blocked_range.h>
 #include <oneapi/tbb/parallel_for.h>
 #include <oneapi/tbb/parallel_reduce.h>
+#include <sstream>
 #include <vector>
 
 
@@ -181,7 +182,7 @@ public:
     explicit Impl(const simpl::Design &d)
         : design(d), rows(d.rows), fences(&d.fences), graph(d.graph) {}
 
-    SimplResult run(const SimplParams &P, const std::string &plotDir, bool useFences);
+    SimplResult run(const SimplParams &P, bool useFences);
 
 private:
     // --- setup -------------------------------------------------------------
@@ -226,7 +227,7 @@ private:
     /// axis reads rho ~ 0 with a coverage near zero on one axis.
     void describe(const std::vector<double> &px, const std::vector<double> &py,
                   const char *tag) const;
-    void writeFrame(const std::string &path, const std::vector<double> &px,
+    void writeFrame(const std::string &series, const std::vector<double> &px,
                     const std::vector<double> &py, double hp, double ovf, const std::string &note,
                     std::size_t step, std::size_t total);
     /// One frame from inside the CG loop: the current iterate of one axis
@@ -238,7 +239,7 @@ private:
     void writeCgFrame(const std::string &tag, std::size_t cgIter, double residX, double residY);
     /// Bin-density heat map: one rectangle per bin coloured by occ/avail, so a
     /// glance shows whether the placement is spreading or still a blob.
-    void writeDensityMap(const std::string &path, const std::vector<double> &px,
+    void writeDensityMap(const std::string &series, std::size_t step, const std::vector<double> &px,
                          const std::vector<double> &py, const std::string &note);
     /// Bin a placement into a throwaway occupancy array, without touching the
     /// live bin index the legalizer maintains. Returns the scaled overflow.
@@ -341,7 +342,7 @@ private:
         cellBin_[cell] = static_cast<std::uint32_t>(toBin);
     }
 
-    BBox die_{};
+    std::array<double, 4> die_{};
     double dieW_ = 1.0, dieH_ = 1.0;
 
     /// Queue Q of Algorithm 1.
@@ -350,9 +351,8 @@ private:
     std::size_t deepestLevel_ = 0;
     std::size_t maxBlockCells_ = 0;
 
-    /// Where placement frames go (<plotDir>/simpl, or the snapshot directory
+    /// Where placement frames go, when there is anywhere to go: empty means the
     /// when no plot directory was given). Empty disables all frames.
-    std::string frameDir_;
     /// Outer-loop context for the CG frames of the solve currently running.
     std::string cgTag_;
 
@@ -379,10 +379,6 @@ private:
     /// continuous run rather than three separate ones.
     /// Hold every movable cell inside the fence it belongs to.
     void enforceFences(std::vector<double> &px, std::vector<double> &py);
-
-    void recordGifFrame(const std::vector<float> &fx, const std::vector<float> &fy,
-                        std::size_t step, std::size_t total, double hp, double ovf,
-                        const std::string &note, bool mandatory = false);
 };
 
 // ---------------------------------------------------------------------------
@@ -518,7 +514,7 @@ void simplPlacer::Impl::buildGrid(const SimplParams &P) {
     // the legality check. See placementDieBox() there for why it is the union of
     // the fixed geometry, the declared die area and the rows.
     const std::array<double, 4> dieBox = design.die;
-    BBox die = BBox{dieBox[0], dieBox[1], dieBox[2], dieBox[3]};
+    const std::array<double, 4> die{dieBox[0], dieBox[1], dieBox[2], dieBox[3]};
     die_ = die;
     dieW_ = std::max(die[2] - die[0], 1e-9);
     dieH_ = std::max(die[3] - die[1], 1e-9);
@@ -1208,7 +1204,7 @@ void simplPlacer::Impl::solve(const std::string &tag, bool allowFrames, std::siz
         // governs the iterations between.
         const bool stillGoing =
             (ax.active && ax.resid > par_.cgTol) || (ay.active && ay.resid > par_.cgTol);
-        if (allowFrames && cgEvery > 0 && !frameDir_.empty() &&
+        if (allowFrames && cgEvery > 0 && design.onFrame &&
             (((it + 1) % cgEvery) == 0 || !stillGoing)) {
             writeCgFrame(tag, it + 1, ax.resid, ay.resid);
         }
@@ -2287,26 +2283,7 @@ void simplPlacer::Impl::enforceFences(std::vector<double> &px, std::vector<doubl
     }
 }
 
-void simplPlacer::Impl::recordGifFrame(const std::vector<float> &fx, const std::vector<float> &fy,
-                                       std::size_t step, std::size_t total, double hp, double ovf,
-                                       const std::string &note, bool mandatory) {
-    if (!animEnabled_) {
-        return;
-    }
-    if (design.onFrame) {
-        FrameInfo info;
-        info.note = note;
-        info.step = step;
-        info.numSteps = total;
-        info.hpwl = hp;
-        info.hpwlInitial = res_.hpwlSeed;
-        info.overflow = ovf;
-        info.mandatory = mandatory;
-        design.onFrame(fx, fy, info);
-    }
-}
-
-void simplPlacer::Impl::writeFrame(const std::string &path, const std::vector<double> &px,
+void simplPlacer::Impl::writeFrame(const std::string &series, const std::vector<double> &px,
                                    const std::vector<double> &py, double hp, double ovf,
                                    const std::string &note, std::size_t step, std::size_t total) {
     std::vector<float> fx(nv_), fy(nv_);
@@ -2329,7 +2306,7 @@ void simplPlacer::Impl::writeFrame(const std::string &path, const std::vector<do
         info.hpwlInitial = res_.hpwlSeed;
         info.overflow = ovf;
         info.mandatory = true;
-        info.path = path;
+        info.series = series;
         design.onFrame(fx, fy, info);
     }
     ++res_.framesWritten;
@@ -2360,7 +2337,7 @@ void simplPlacer::Impl::writeCgFrame(const std::string &tag, std::size_t cgIter,
     const double hp = nets_.empty() ? 0.0 : hpwl(solX_, solY_);
     const std::string note = fmt::format("CG {} iterate {} of {}, residual x {:.3e} / y {:.3e}",
                                          tag, cgIter, par_.cgMaxIter, residX, residY);
-    const std::string path = frameDir_ + "/simpl_cg_" + tag + "_" + frameStep(cgIter) + ".svg";
+    const std::string series = "cg_" + tag;
     if (design.onFrame) {
         FrameInfo info;
         info.note = note;
@@ -2368,16 +2345,10 @@ void simplPlacer::Impl::writeCgFrame(const std::string &tag, std::size_t cgIter,
         info.numSteps = par_.cgMaxIter;
         info.hpwl = hp;
         info.hpwlInitial = res_.hpwlSeed;
-        info.path = path;
         info.mandatory = true;
+        info.series = series;
         design.onFrame(fx, fy, info);
     }
-    // The same iterate, rasterised, so the animation shows the solve converging
-    // rather than jumping straight from one outer iteration to the next.
-    // Mandatory: every conjugate-gradient iterate of every solve, in the warm-up
-    // and in each LSS iteration alike. A global-placement iteration is a solve and
-    // not a single point, so one frame per iteration showed only its end state.
-    recordGifFrame(fx, fy, cgIter, par_.cgMaxIter, hp, 0.0, note, /*mandatory=*/true);
     ++res_.framesWritten;
 }
 
@@ -2399,8 +2370,14 @@ double simplPlacer::Impl::binLocal(const std::vector<double> &px, const std::vec
     return (grid_.totalAvail > 0.0) ? ex / grid_.totalAvail : 0.0;
 }
 
-void simplPlacer::Impl::writeDensityMap(const std::string &path, const std::vector<double> &px,
+void simplPlacer::Impl::writeDensityMap(const std::string &series, std::size_t step,
+                                        const std::vector<double> &px,
                                         const std::vector<double> &py, const std::string &note) {
+    // Built as text and handed to the sink, so the solver still learns no path.
+    if (!design.onSvg) {
+        return;
+    }
+    std::ostringstream svg;
     std::vector<double> occ;
     const double ovf = binLocal(px, py, occ);
 
@@ -2409,13 +2386,9 @@ void simplPlacer::Impl::writeDensityMap(const std::string &path, const std::vect
     // still looks like a blob at this scale, whereas the density field is
     // readable bin by bin.
     constexpr int W = 900, H = 620, PAD = 52;
-    std::ofstream out(path);
-    if (!out.is_open()) {
-        return;
-    }
-    out << "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"" << W << "\" height=\"" << H
+    svg << "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"" << W << "\" height=\"" << H
         << "\">\n<rect width=\"100%\" height=\"100%\" fill=\"#101418\"/>\n";
-    out << "<title>" << note << "</title>\n";
+    svg << "<title>" << note << "</title>\n";
     const double sx = (W - 2 * PAD) / dieW_;
     const double sy = (H - 2 * PAD) / dieH_;
     const auto toX = [&](double x) {
@@ -2447,7 +2420,7 @@ void simplPlacer::Impl::writeDensityMap(const std::string &path, const std::vect
                 g = static_cast<int>(90.0 + 150.0 * u);
                 b = static_cast<int>(190.0 * (1.0 - u));
             }
-            out << "<rect x=\"" << toX(grid_.binLoX(ix)) << "\" y=\""
+            svg << "<rect x=\"" << toX(grid_.binLoX(ix)) << "\" y=\""
                 << toY(grid_.binLoY(iy) + grid_.dy) << "\" width=\"" << bw << "\" height=\"" << bh
                 << "\" fill=\"rgb(" << r << ',' << g << ',' << b << ")\"/>\n";
         }
@@ -2458,12 +2431,12 @@ void simplPlacer::Impl::writeDensityMap(const std::string &path, const std::vect
         if (!(vert.width > 0.0) || !(vert.height > 0.0)) {
             continue;
         }
-        out << "<rect x=\"" << toX(vx_[fv]) << "\" y=\"" << toY(vy_[fv] + vert.height)
+        svg << "<rect x=\"" << toX(vx_[fv]) << "\" y=\"" << toY(vy_[fv] + vert.height)
             << "\" width=\"" << (vert.width * sx) << "\" height=\"" << (vert.height * sy)
             << "\" fill=\"#bdbdbd\" fill-opacity=\"0.45\" stroke=\"#bdbdbd\" "
                "stroke-width=\"0.5\"/>\n";
     }
-    out << "<text x=\"" << PAD
+    svg << "<text x=\"" << PAD
         << "\" y=\"24\" fill=\"#e0e0e0\" font-family=\"monospace\" "
            "font-size=\"14\">bin density "
         << note << "  ovf " << fmt::format("{:.4f}", ovf) << "</text>\n";
@@ -2483,14 +2456,15 @@ void simplPlacer::Impl::writeDensityMap(const std::string &path, const std::vect
             g = static_cast<int>(90.0 + 150.0 * u);
             b = static_cast<int>(190.0 * (1.0 - u));
         }
-        out << "<rect x=\"" << (lx0 + i * kLegendW) << "\" y=\"" << ly0 << "\" width=\"" << kLegendW
+        svg << "<rect x=\"" << (lx0 + i * kLegendW) << "\" y=\"" << ly0 << "\" width=\"" << kLegendW
             << "\" height=\"9\" fill=\"rgb(" << r << ',' << g << ',' << b << ")\"/>\n";
     }
-    out << "<text x=\"" << lx0 << "\" y=\"" << (ly0 + 22)
+    svg << "<text x=\"" << lx0 << "\" y=\"" << (ly0 + 22)
         << "\" fill=\"#9e9e9e\" "
            "font-family=\"monospace\" font-size=\"10\">utilisation 0 -> 1 -> 2 (red = "
            "overfull)</text>\n";
-    out << "</svg>\n";
+    svg << "</svg>\n";
+    design.onSvg(series, std::to_string(step), svg.str());
     ++res_.framesWritten;
 }
 
@@ -2554,8 +2528,7 @@ void simplPlacer::Impl::densityStats(const std::vector<double> &px, const std::v
 
 // ---------------------------------------------------------------------------
 
-SimplResult simplPlacer::Impl::run(const SimplParams &P, const std::string &plotDir,
-                                   bool useFences) {
+SimplResult simplPlacer::Impl::run(const SimplParams &P, bool useFences) {
     par_ = P;
     // The design's own fences, unless the run asked to measure their cost.
     fences_ = useFences ? fences : nullptr;
@@ -2625,17 +2598,10 @@ SimplResult simplPlacer::Impl::run(const SimplParams &P, const std::string &plot
             ktlog.fatal("KTPLACE_SIMPL_START must be one of: input, auto, uniform (got '{}')", v);
         }
     }
-    // Frame cadence. Per-CG-iteration frames are large, so cgEvery defaults to 1
-    // and the animator thins rather than the solve skipping.
-    if (const char *e = std::getenv("KTPLACE_SIMPL_CG_EVERY")) {
-        par_.cgEvery = static_cast<std::size_t>(std::max(std::atoi(e), 0));
-    }
-    if (const char *e = std::getenv("KTPLACE_SIMPL_TRACE_EVERY")) {
-        par_.traceEvery = static_cast<std::size_t>(std::atoll(e));
-    }
-    if (const char *e = std::getenv("KTPLACE_SIMPL_DENSITY_MAPS")) {
-        par_.densityMaps = std::atoi(e) != 0;
-    }
+    // Frame cadence comes from SimplParams, which the flow fills from
+    // PlotOptions. Nothing to read here: a stage's drawing cadence is a default
+    // like any other, and an environment override on top of it is a debugging
+    // tool, not part of the interface.
     // The pseudonet weight schedule is the only spreading force in the solve --
     // there is no density term -- so its base is the knob that decides whether the
     // run converges to a wirelength optimum or to a frozen spread state. Exposed
@@ -2659,16 +2625,14 @@ SimplResult simplPlacer::Impl::run(const SimplParams &P, const std::string &plot
     }
     g_ = std::clamp(par_.densityLimit, 0.05, 1.0);
 
-    // Frames go to <plotDir>/simpl. With no plot directory the run draws nothing,
-    // rather than falling back to the output's own directory.
-    frameDir_ = plotDir.empty() ? std::string() : plotDir + "/simpl";
-    if (!frameDir_.empty() && (par_.traceEvery > 0 || par_.cgEvery > 0)) {
-        ensureDir(frameDir_);
-    }
+    // Drawing is on exactly when the host installed a sink. With no sink the run
+    // draws nothing, rather than falling back to the output's own directory.
+    // The directories themselves are the visualizer's: it made them when the run
+    // was configured.
     // The GIF is assembled by the flow once the legalizer and the detailed
     // placer have added their frames, so that one animation covers the whole run
     // instead of stopping at the end of global placement.
-    animEnabled_ = PlacementAnimator::instance().enabled();
+    animEnabled_ = Visualizer::instance().animating();
 
     // Scoped to collect() alone. Declared at function scope it stayed alive until
     // place() returned, so "simpl-setup" reported the whole run -- 32s of which
@@ -2795,8 +2759,8 @@ SimplResult simplPlacer::Impl::run(const SimplParams &P, const std::string &plot
         // uniform over the die, and every frame after it is a solve of the star
         // model moving away from it, so without this the animation starts partway
         // through the warm-up with nothing to compare against.
-        if (!frameDir_.empty()) {
-            writeFrame(frameDir_ + "/simpl_LSS_init_seed.svg", lower, lowerY, res_.hpwlSeed, 0.0,
+        if (design.onFrame) {
+            writeFrame("LSS_init_seed", lower, lowerY, res_.hpwlSeed, 0.0,
                        "initial placement: uniform seed, before any solve", 0, par_.initMaxIters);
         }
         double bestInitHpwl = std::numeric_limits<double>::max();
@@ -2836,18 +2800,16 @@ SimplResult simplPlacer::Impl::run(const SimplParams &P, const std::string &plot
                 ++initStale;
             }
             densityStats(lower, lowerY, fmt::format("init{}", it).c_str());
-            if (par_.traceEvery > 0 && !frameDir_.empty()) {
+            if (par_.traceEvery > 0 && design.onFrame) {
                 // binLocal, not scaledOverflow: the live occupancy in grid_.occ is
                 // still describing the previous legalizer pass here.
                 std::vector<double> tmpOcc;
                 const double ovfInit = binLocal(lower, lowerY, tmpOcc);
                 const std::string note =
                     fmt::format("LSS init iteration {} of {}", it, par_.initMaxIters);
-                writeFrame(frameDir_ + "/simpl_LSS_init_" + frameStep(it) + ".svg", lower, lowerY,
-                           h, ovfInit, note, it, par_.initMaxIters);
+                writeFrame("LSS_init", lower, lowerY, h, ovfInit, note, it, par_.initMaxIters);
                 if (par_.densityMaps) {
-                    writeDensityMap(frameDir_ + "/simpl_density_init_" + frameStep(it) + ".svg",
-                                    lower, lowerY, note);
+                    writeDensityMap("density_init", it, lower, lowerY, note);
                 }
             }
             res_.hpwlInit = bestInitHpwl;
@@ -3210,18 +3172,17 @@ SimplResult simplPlacer::Impl::run(const SimplParams &P, const std::string &plot
             converged = true;
         }
 
-        if (par_.traceEvery > 0 && (it % par_.traceEvery) == 0 && !frameDir_.empty()) {
-            const std::string step = frameStep(it);
-            writeFrame(frameDir_ + "/simpl_LSS_" + step + ".svg", lower, lowerY, lowerHpwl,
-                       upperOvf, "LSS (linear system solve) - iteration " + std::to_string(it), it,
+        if (par_.traceEvery > 0 && (it % par_.traceEvery) == 0 && design.onFrame) {
+            writeFrame("LSS", lower, lowerY, lowerHpwl, upperOvf,
+                       "LSS (linear system solve) - iteration " + std::to_string(it), it,
                        par_.maxIters);
-            writeFrame(frameDir_ + "/simpl_LAL_" + step + ".svg", upper, upperY, upperHpwl,
-                       upperOvf, "LAL (look-ahead legalized) - iteration " + std::to_string(it), it,
+            writeFrame("LAL", upper, upperY, upperHpwl, upperOvf,
+                       "LAL (look-ahead legalized) - iteration " + std::to_string(it), it,
                        par_.maxIters);
             if (par_.densityMaps) {
-                writeDensityMap(frameDir_ + "/simpl_density_LSS_" + step + ".svg", lower, lowerY,
+                writeDensityMap("density_LSS", it, lower, lowerY,
                                 "LSS iteration " + std::to_string(it));
-                writeDensityMap(frameDir_ + "/simpl_density_LAL_" + step + ".svg", upper, upperY,
+                writeDensityMap("density_LAL", it, upper, upperY,
                                 "LAL iteration " + std::to_string(it));
             }
         }
@@ -3356,9 +3317,8 @@ SimplResult simplPlacer::Impl::run(const SimplParams &P, const std::string &plot
         outY[movVertex_[i]] = upperY[i];
     }
 
-    if (!plotDir.empty()) {
-        ensureDir(plotDir);
-        std::ofstream csv(plotDir + "/simpl_bounds.csv");
+    if (!design.artifactDir.empty()) {
+        std::ofstream csv(design.artifactDir + "/simpl_bounds.csv");
         csv << "iter,hpwl_upper,hpwl_lower,gap\n";
         for (std::size_t i = 0; i < curve.size(); ++i) {
             csv << i << ',' << curve[i].first << ',' << curve[i].second << ','
@@ -3371,7 +3331,7 @@ SimplResult simplPlacer::Impl::run(const SimplParams &P, const std::string &plot
             mx = std::max({mx, p.first, p.second});
         }
         const int W = 780, H = 340, PAD = 60;
-        std::ofstream svg(plotDir + "/simpl_bounds.svg");
+        std::ofstream svg(design.artifactDir + "/simpl_bounds.svg");
         svg << "<svg xmlns='http://www.w3.org/2000/svg' width='" << W << "' height='" << H
             << "'>\n<rect width='100%' height='100%' fill='white'/>\n"
             << "<text x='" << PAD
@@ -3404,14 +3364,13 @@ SimplResult simplPlacer::Impl::run(const SimplParams &P, const std::string &plot
                "bound</text>\n</svg>\n";
     }
 
-    if (!frameDir_.empty()) {
-        ensureDir(frameDir_);
-        writeFrame(frameDir_ + "/simpl_FINAL_LAL.svg", upper, upperY, res_.hpwlFinal,
-                   res_.overflowFinal, "FINAL = last LAL (look-ahead legalized) placement",
-                   res_.globalIters, std::max<std::size_t>(res_.globalIters, 1));
+    if (design.onFrame) {
+        writeFrame("FINAL_LAL", upper, upperY, res_.hpwlFinal, res_.overflowFinal,
+                   "FINAL = last LAL (look-ahead legalized) placement", res_.globalIters,
+                   std::max<std::size_t>(res_.globalIters, 1));
         if (par_.densityMaps) {
-            writeDensityMap(frameDir_ + "/simpl_density_FINAL.svg", upper, upperY, "FINAL LAL");
-            writeDensityMap(frameDir_ + "/simpl_density_FINAL_LSS.svg", lower, lowerY, "FINAL LSS");
+            writeDensityMap("density_FINAL", res_.globalIters, upper, upperY, "FINAL LAL");
+            writeDensityMap("density_FINAL_LSS", res_.globalIters, lower, lowerY, "FINAL LSS");
         }
         // The GIF itself is written by the flow, not here: it can only be
         // assembled once the legalizer and the detailed placer have added their
@@ -3424,7 +3383,11 @@ SimplResult simplPlacer::Impl::run(const SimplParams &P, const std::string &plot
         if (!animEnabled_) {
             // Nothing rastered; the SVG stills are indexed by name instead.
             std::vector<std::string> svgs;
-            for (const auto &e : std::filesystem::directory_iterator(frameDir_)) {
+            std::error_code ec;
+            for (const auto &e : std::filesystem::directory_iterator(design.artifactDir, ec)) {
+                if (ec) {
+                    break;
+                }
                 if (e.path().extension() == ".svg") {
                     svgs.push_back(e.path().filename().string());
                 }
@@ -3434,7 +3397,8 @@ SimplResult simplPlacer::Impl::run(const SimplParams &P, const std::string &plot
             // Raster stills now live in the run's animation directory, not
             // beside the SVGs, so index them from there.
             std::vector<std::string> stills;
-            const std::filesystem::path animDir = std::filesystem::path(plotDir) / "anim";
+            const std::filesystem::path animDir =
+                std::filesystem::path(design.artifactDir) / "anim";
             std::error_code ec;
             for (const auto &e : std::filesystem::directory_iterator(animDir, ec)) {
                 if (ec) {
@@ -3449,8 +3413,7 @@ SimplResult simplPlacer::Impl::run(const SimplParams &P, const std::string &plot
         }
     }
 
-    ktlog.trace("frames written: {} to {}", res_.framesWritten,
-                frameDir_.empty() ? "(none)" : frameDir_);
+    ktlog.trace("frames written: {}", res_.framesWritten);
     return res_;
 }
 
@@ -3461,9 +3424,8 @@ simplPlacer::~simplPlacer() = default;
 simplPlacer::simplPlacer(simplPlacer &&) noexcept = default;
 simplPlacer &simplPlacer::operator=(simplPlacer &&) noexcept = default;
 
-SimplResult simplPlacer::place(const SimplParams &params, const std::string &plotDir,
-                               bool useFences) {
-    SimplResult result = pImpl->run(params, plotDir, useFences);
+SimplResult simplPlacer::place(const SimplParams &params, bool useFences) {
+    SimplResult result = pImpl->run(params, useFences);
     answer.xs = pImpl->outX;
     answer.ys = pImpl->outY;
     return result;

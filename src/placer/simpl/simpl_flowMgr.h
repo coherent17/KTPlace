@@ -20,13 +20,13 @@ public:
     /// Runs against a database the caller owns, normally one the adaptor built.
     explicit flowMgr(simplDM &db) : dm(db) {}
 
-    /// Place, and return where every cell ended up. `plotDir` empty disables
-    /// frames; `useFences` false measures the design without its fences.
+    /// Place, and return where every cell ended up. Drawing follows the design:
+    /// a design with no frame sink writes nothing. `useFences` false measures the
+    /// design without its fences.
     ///
     /// Reports the solver's statistics from inside the run and returns only the
     /// placement, so the flow has one thing to do with the result: commit it.
-    simplSolution runGlobalPlacer(const SimplParams &params, const std::string &plotDir = {},
-                                  bool useFences = true);
+    simplSolution runGlobalPlacer(const SimplParams &params, bool useFences = true);
 
 private:
     simplDM &dm;

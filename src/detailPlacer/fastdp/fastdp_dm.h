@@ -13,7 +13,11 @@
 
 #include <string>
 
-namespace ktplace::fastdp {
+namespace ktplace {
+
+class ktDM;
+
+namespace fastdp {
 
 class fastdpDM {
 public:
@@ -41,4 +45,12 @@ private:
     Design d;
 };
 
-}  // namespace ktplace::fastdp
+/// ktDM -> fastdp::fastdpDM.
+///
+/// Only what this stage reads: the cells, the rows, and the netlist it reports the wirelength cost of
+/// displacement over. The stage itself never
+/// draws: it hands the positions to the visualizer, which decides where they go.
+[[nodiscard]] fastdpDM buildFastdpDM(const ktDM &db);
+
+}  // namespace fastdp
+}  // namespace ktplace

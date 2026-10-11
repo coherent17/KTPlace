@@ -1,9 +1,11 @@
-// @file kt_plotter.cc// Implementation of the SVG/HTML/CSV/PNG/GIF placement visualization helpers
+#include "visualization/kt_visualizer.h"
 
-
-#include "visualization/kt_plotter.h"
+#include "util/kt_log.h"
+#include "util/kt_scopedTimer.h"
+#include "visualization/kt_gif.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
@@ -17,9 +19,12 @@
 #include <map>
 #include <sstream>
 #include <stdexcept>
-#include <string>
+#include <system_error>
 #include <unordered_map>
-#include <vector>
+
+#include <fmt/format.h>
+#include <oneapi/tbb/parallel_for.h>
+#include <zlib.h>
 
 // CImg is a header-only library, so it is confined to this translation unit.
 // Drawing is done in RGB and then mapped onto a small fixed palette, which is
@@ -27,16 +32,317 @@
 #define cimg_display 0
 #define cimg_verbosity 0
 #include "visualization/CImg.h"
-#include "visualization/kt_gif.h"
-
-#include <fmt/format.h>
-#include <oneapi/tbb/parallel_for.h>
-#include <zlib.h>
 
 using cimg_library::CImg;
 using cimg_library::CImgList;
 
 namespace ktplace {
+namespace {
+
+/// Zero-padded so directory order is frame order. Matches the GIF writer's
+/// expectation of "frame_NNNN.ppm".
+std::string frameName(std::size_t n) {
+    std::string s = std::to_string(n);
+    while (s.size() < 4) {
+        s.insert(s.begin(), '0');
+    }
+    return "frame_" + s + ".ppm";
+}
+
+}  // namespace
+
+Visualizer &Visualizer::instance() noexcept {
+    static Visualizer viz;
+    return viz;
+}
+
+bool Visualizer::ensureDir(const std::string &where) const {
+    if (where.empty()) {
+        return true;  // nothing to make: the run asked for no output
+    }
+    // create_directories without an error_code throws, which would turn a
+    // plotting problem into a lost placement, so a failure is reported and the
+    // run carries on without output.
+    std::error_code ec;
+    std::filesystem::create_directories(where, ec);
+    if (ec) {
+        ktlog.warning("cannot create the plot directory '{}': {}. Continuing without output.",
+                      where, ec.message());
+        return false;
+    }
+    return true;
+}
+
+void Visualizer::reset() {
+    animOn = false;
+    framesKept = offered = held = 0;
+    stride = 1;
+    cappedNow = false;
+    havePrev = false;
+    prevX.clear();
+    prevY.clear();
+    drawingNow = false;
+}
+
+void Visualizer::configure(const std::string &outDir, const PlotOptions &options) {
+    this->dir = outDir;
+    this->opts = options;
+    // The directory the run was pointed at wins over whatever the options
+    // carried, so the stage sub-directories below resolve against it rather than
+    // against a setting nobody set.
+    this->opts.dir = outDir;
+    this->stage = StageVisual{};
+    drawingNow = false;
+    (void)ensureDir(outDir);
+
+    animOn = false;
+    framesKept = offered = held = 0;
+    stride = 1;
+    cappedNow = false;
+    havePrev = false;
+    if (!enabled() || !opts.animate) {
+        return;
+    }
+
+    // Budget by bytes, not by framesKept count. Placement frames are nearly
+    // incompressible, so size is essentially w * h * frames / 8: a framesKept count
+    // alone allowed an 8 GB file. Sizing to a byte target keeps the resolution
+    // and cuts the framesKept count instead.
+    const double animW = 768.0 * opts.frameZoom;
+    constexpr double kBytesPerPixel = 0.9 / 8.0;  // measured, not assumed
+    const std::size_t sizeCapFrames =
+        static_cast<std::size_t>(static_cast<double>(opts.gifByteCap) /
+                                 (animW * animW * kBytesPerPixel));
+    // One is the floor: a zero budget would make the recorder dead rather than
+    // small, and "no frames" is not the same as "no frame possible". Anything
+    // above one honours the request, so a byte cap that leaves room for only a
+    // handful is respected rather than quietly rounded up.
+    maxFrames = std::max<std::size_t>(1, std::min(opts.frameBudget, sizeCapFrames));
+    animDir = opts.sub("anim");
+    (void)ensureDir(animDir.string());
+    delayCs = opts.frameDelayCs;
+    blendSteps = opts.blendFrames;
+    frameZoom = opts.frameZoom;
+    animOn = true;
+}
+
+void Visualizer::beginStage(StageVisual s) {
+    stage = std::move(s);
+    drawingNow = false;
+    if (!enabled() || stage.stage.empty()) {
+        return;
+    }
+    drawingNow = ensureDir(dir + (stage.subdir.empty() ? "" : "/" + stage.subdir));
+}
+
+bool Visualizer::enabled() const noexcept {
+    return !dir.empty();
+}
+
+bool Visualizer::drawing() const noexcept {
+    return drawingNow;
+}
+
+void Visualizer::holdBack(std::size_t frames) {
+    if (!animOn) {
+        return;
+    }
+    // Never reserve more than exists; a reservation that cannot be spent would
+    // silently disable the stage it was meant to protect.
+    held = frames < maxFrames ? frames : maxFrames / 2;
+    cappedNow = false;
+}
+
+std::string Visualizer::framePath(const VisualFrame &shot) const {
+    char buf[16];
+    std::snprintf(buf, sizeof(buf), "%06zu", shot.step);
+    return dir + (stage.subdir.empty() ? "" : "/" + stage.subdir) + "/" + stage.stage +
+           (shot.series.empty() ? "" : "_" + shot.series) + "_" + buf + ".svg";
+}
+
+void Visualizer::frame(const Graph &graph, const std::vector<float> &x,
+                       const std::vector<float> &y, const std::array<double, 4> &die,
+                       const constraintMgr *fences, const VisualFrame &what) {
+    if (!drawingNow) {
+        return;
+    }
+    const BBox dieBox{die[0], die[1], die[2], die[3]};
+
+    // Every framesKept of a sequence is drawn at the same die-relative scale, so step
+    // 7 and step 8 are comparable instead of being auto-zoomed apart.
+    writeFrameSvg(framePath(what), graph, x, y, dieBox, what.step, what.numSteps, what.hpwl,
+                  what.hpwlInitial, what.overflow, what.note, fences, /*fixedView=*/true);
+
+    // And into the run's animation, so the GIF shows what this stage did rather
+    // than cutting straight from the stage before to the stage after.
+    if (animOn) {
+        recordFrame(graph, x, y, dieBox, what.step, what.numSteps, what.hpwl, what.hpwlInitial,
+                    what.overflow, what.note, fences, what.mandatory);
+    }
+}
+
+void Visualizer::writeSvg(const std::string &series, const std::string &step,
+                          const std::string &body) {
+    if (!drawingNow) {
+        return;
+    }
+    // A stage that numbers its own diagnostics passes the number as text; one
+    // that does not leaves it empty and the name stands on its own.
+    VisualFrame shot;
+    shot.series = series;
+    shot.step = step.empty() ? 0 : static_cast<std::size_t>(std::stoull(step));
+    std::ofstream out(framePath(shot));
+    if (out.is_open()) {
+        out << body;
+    }
+}
+
+void Visualizer::finalImage(const Graph &graph, const constraintMgr *fences, double hpwl) {
+    if (!enabled()) {
+        return;
+    }
+    const double zoom = std::max(1.0, opts.finalZoom);
+    ScopedTimer timer("final-image");
+
+    const std::string finalDir = opts.sub("final");
+    if (!ensureDir(finalDir)) {
+        return;
+    }
+
+    // PNG, not PPM: no viewer opens a PPM, and flat colour compresses to a
+    // couple of megabytes at this resolution.
+    writeFinalFrameRaster(finalDir + "/final.png", graph, fences, zoom, hpwl);
+    // The vector form, and the one to open when a region needs looking at
+    // closely. One <rect> per cell, so "every cell is in the picture" is a
+    // count, which is what the CI smoke test checks.
+    writeFinalFrameSvg(finalDir + "/final.svg", graph, fences, hpwl);
+    // 113 MB of raw pixels at this size, so only on request: the PNG is the
+    // artefact anyone looks at.
+    if (opts.writePpm) {
+        writeFinalFrameRaster(finalDir + "/final.ppm", graph, fences, zoom, hpwl);
+    }
+    const auto px = static_cast<int>(std::lround(zoom * 768.0));
+    ktlog.echo("final high-resolution image: {}/final.png ({}x{})", finalDir, px, px);
+}
+
+bool Visualizer::finish(const Graph &graph, const std::vector<float> &x,
+                        const std::vector<float> &y, const std::array<double, 4> &die,
+                        const constraintMgr *fences, double hpwl) {
+    if (!animOn || framesKept < 2) {
+        // One still is not an animation, and a two-frame GIF is a flicker; both
+        // are more likely to be a mistake in the run than something worth
+        // writing. Checked before the hold, so a run that recorded almost nothing
+        // does not manufacture an animation out of its own hold frames.
+        return false;
+    }
+    ScopedTimer timer("anim-finish");
+
+    // Hold the finished placement before the GIF is written. Without it the
+    // result -- the one picture anyone wants to look at -- is on screen for the
+    // same time as any other single frame, and the animation scrolls past the
+    // thing it spent minutes producing. Recorded rather than re-encoded, so it
+    // costs one placement pass.
+    const BBox dieBox{die[0], die[1], die[2], die[3]};
+    for (std::size_t i = 0; i < opts.finalHold; ++i) {
+        recordFrame(graph, x, y, dieBox, framesKept, framesKept, hpwl, 0.0, 0.0, "final placement", fences,
+                    /*mandatory=*/true);
+    }
+
+    return writeAnimatedGif(animDir, "placement.gif", delayCs);
+}
+
+/// Rasterise the placement as the next framesKept of the run. A no-op when the run
+/// is not animOn, when the cap is reached, or when `x` and `y` are not one
+/// entry per cell. The cap is checked before the work, not after, so a capped run
+/// costs nothing.
+void Visualizer::recordFrame(const Graph &g, const std::vector<float> &x,
+                             const std::vector<float> &y, const std::array<double, 4> &die,
+                             std::size_t step, std::size_t total, double hpwl, double hpwlInitial,
+                             double resid, const std::string &note, const constraintMgr *constraints,
+                             bool mandatory) {
+    const std::size_t limit = held < maxFrames ? maxFrames - held : maxFrames;
+    // A mandatory frame is one per global-placement iteration, or the legalizer's
+    // and the detail placer's own: sparse by construction. It is exempt from both
+    // the stage budget and the thinning stride, because the dense per-CG-iteration
+    // frames are what fill the budget and what gets thinned. Without the exemption
+    // the whole LSS/LAL sequence was dropped from the GIF -- 12 frames out of
+    // several hundred offered, so the stride skipped essentially all of them.
+    if (!animOn || (!mandatory && framesKept >= limit)) {
+        if (animOn && !cappedNow) {
+            cappedNow = true;
+            ktlog.echo(
+                "animation: this stage used its {} frame allowance; later stages may not be "
+                "represented. Raise KTPLACE_ANIM_MAX_FRAMES, or lower KTPLACE_SIMPL_CG_EVERY. "
+                "The per-iteration SVGs are unaffected.",
+                limit);
+        }
+        return;
+    }
+    // Every producer supplies one coordinate per vertex; a short vector would
+    // index past the end inside the renderer.
+    if (x.size() != g.getNumCells() || y.size() != g.getNumCells()) {
+        return;
+    }
+    const auto emit = [&](const std::vector<float> &ix, const std::vector<float> &iy) {
+        // Subsample rather than stop. Every CG iteration of every round is offered,
+        // and once the byte budget is spent the spacing widens, so the animation
+        // covers the whole run -- warm-up, LSS, LAL, legalization, detail placement
+        // -- instead of exhausting itself in the first rounds and ending before
+        // legalization begins.
+        ++offered;
+        // Mandatory frames bypass the stride. One framesKept per global-placement
+        // iteration is only 12 of the several hundred offered once every
+        // conjugate-gradient iteration is offered, so the subsampling that keeps
+        // the warm-up affordable was dropping the entire LSS and LAL sequence --
+        // the part of the run the animation most needs to show. Per-iteration
+        // frames are the sparse ones by construction, so they are kept and the
+        // dense ones are thinned instead.
+        if (!mandatory && stride > 1 && ((offered - 1) % stride) != 0) {
+            return true;
+        }
+        // Exempt for the same reason: the stage budget is reached long before the
+        // warm-up's several hundred offered frames are, so without the exemption
+        // the per-iteration frames still lost to the dense ones.
+        if (framesKept >= limit && !mandatory) {
+            stride *= 2;
+            return true;
+        }
+        const std::string path = (animDir / frameName(framesKept)).string();
+        // The caller's constraints, not nullptr: a run with fences drew them in
+        // the per-iteration SVGs and then dropped them from the GIF, so the one
+        // picture that gets looked at was missing the regions the placement was
+        // required to respect.
+        writeFrameRaster(path, g, ix, iy, die, step, total, hpwl, hpwlInitial, resid, note,
+                         constraints, /*fixedView=*/true, frameZoom);
+        ++framesKept;
+        return framesKept < limit;
+    };
+
+    // The in-between frames first, so the animation arrives at this placement
+    // rather than snapping to it.
+    if (havePrev && blendSteps > 1 && prevX.size() == x.size()) {
+        std::vector<float> bx(x.size()), by(y.size());
+        for (int k = 1; k < blendSteps; ++k) {
+            if (framesKept >= limit) {
+                break;
+            }
+            const double t = static_cast<double>(k) / static_cast<double>(blendSteps);
+            for (std::size_t v = 0; v < x.size(); ++v) {
+                bx[v] = static_cast<float>(prevX[v] + t * (x[v] - prevX[v]));
+                by[v] = static_cast<float>(prevY[v] + t * (y[v] - prevY[v]));
+            }
+            if (!emit(bx, by)) {
+                break;
+            }
+        }
+    }
+    emit(x, y);
+
+    prevX = x;
+    prevY = y;
+    havePrev = true;
+}
+
 
 namespace {
 
@@ -151,15 +457,6 @@ double toPxY(const ViewPort &vp, double v) {
 // ---------------------------------------------------------------------------
 // Raster (CImg) rendering
 // ---------------------------------------------------------------------------
-
-/// 24-bit colour, matching the format GIF's palette stores.
-struct Rgb24 {
-    std::uint8_t r = 0, g = 0, b = 0;
-    /// The three channels as an array, for filling an image a channel at a time.
-    std::array<std::uint8_t, 3> rgb() const {
-        return {r, g, b};
-    }
-};
 
 constexpr Rgb24 kBgColor{0x10, 0x14, 0x18};
 
@@ -955,6 +1252,8 @@ void putChunk(std::vector<std::uint8_t> &out, const char *type, const std::uint8
     putBe32(out, static_cast<std::uint32_t>(crc));
 }
 
+}  // namespace
+
 // Write interleaved 8-bit RGB @p rgb as a truecolour PNG.// Self-contained, like the GIF writer: the container, the CRC and the deflate are// all produced in-process, and the only dependency is zlib, which the build// already links. CImg cannot do this -- it writes PNG through libpng, whose// headers are not installed here -- and a PPM, the one format the raster path can// always write, is not something a browser or an image viewer will open. So a// final still that is meant to be looked at is written as a PNG instead.// The scanlines are stored with filter type 0 (None). PNG's predictors are a// size optimisation and a placement frame is mostly flat colour, which deflate// already handles; picking a real filter per scanline would buy a few percent for// a pass over every pixel that this image is written exactly once.
 
 bool writePng(const std::string &path, int w, int h, const std::vector<std::uint8_t> &rgb) {
@@ -1000,8 +1299,6 @@ bool writePng(const std::string &path, int w, int h, const std::vector<std::uint
     out.write(reinterpret_cast<const char *>(png.data()), static_cast<std::streamsize>(png.size()));
     return out.good();
 }
-
-}  // namespace
 
 bool ensureDir(const std::string &dir) {
     if (dir.empty()) {
@@ -1336,7 +1633,11 @@ void writeFrameRaster(const std::string &path, const Graph &g, const std::vector
                 rgb[i++] = img(px, py, 0, ch);
             }
         }
-        writePng(path, img.width(), img.height(), rgb);
+        // PNG goes through our own encoder, which is the only one that works
+        // here: CImg writes PNG through libpng, whose headers are not installed.
+        if (!writePng(path, img.width(), img.height(), rgb)) {
+            ktlog.warning("cannot write '{}'", path);
+        }
         return;
     }
     img.save(path.c_str());
@@ -1525,4 +1826,5 @@ bool writeAnimatedGif(const std::string &dir, const std::string &gifName, int de
     }
     return true;
 }
+
 }  // namespace ktplace

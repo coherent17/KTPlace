@@ -13,7 +13,11 @@
 
 #include <string>
 
-namespace ktplace::multirow {
+namespace ktplace {
+
+class ktDM;
+
+namespace multirow {
 
 class multirowDM {
 public:
@@ -41,4 +45,12 @@ private:
     Design d;
 };
 
-}  // namespace ktplace::multirow
+/// ktDM -> multirow::multirowDM.
+///
+/// Only what this stage reads: the cells and their sizes, the rows, the regions, and just enough
+/// netlist to report the wirelength the pass cost. The stage itself never
+/// draws: it hands the positions to the visualizer, which decides where they go.
+[[nodiscard]] multirowDM buildMultiRowDM(const ktDM &db);
+
+}  // namespace multirow
+}  // namespace ktplace

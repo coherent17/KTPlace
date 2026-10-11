@@ -16,7 +16,11 @@
 #include <string>
 #include <vector>
 
-namespace ktplace::simpl {
+namespace ktplace {
+
+class ktDM;
+
+namespace simpl {
 
 /// SimPL's design plus the state of the current run.
 class simplDM {
@@ -40,10 +44,21 @@ public:
     /// statistics are reported from inside the run; they are not returned, because
     /// nothing outside the solver can act on them. Nothing is written outside this
     /// object.
-    simplSolution run(const SimplParams &params, const std::string &plotDir, bool useFences);
+    simplSolution run(const SimplParams &params, bool useFences);
 
 private:
     Design d;
 };
 
-}  // namespace ktplace::simpl
+/// ktDM -> SimPL's own database.
+///
+/// The whole of SimPL's contact with the shared database, in one place. It
+/// returns a plain value: SimPL keeps no reference back to ktDM, so a stale
+/// design cannot be mistaken for a current one.
+///
+/// `plotDir` is where the host should write snapshots when SimPL asks for one.
+/// SimPL itself never draws; it hands the positions to the sink installed here.
+[[nodiscard]] simplDM buildSimplDM(const ktDM &db, const std::string &plotDir);
+
+}  // namespace simpl
+}  // namespace ktplace

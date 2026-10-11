@@ -162,8 +162,9 @@ private:
     double place(Subrow &sr, double grid, std::size_t i, RowUndo &undo);
     void rollback(Subrow &sr, RowUndo undo);
     [[nodiscard]] double hpwlOf(const std::vector<double> &x, const std::vector<double> &y) const;
-    void writeFrame(const std::string &path, const std::string &note, std::size_t step,
-                    std::size_t total) const;
+    /// Offer a snapshot to the sink. A no-op when the stage has no sink, so the
+    /// callers below do not each have to ask whether drawing is on.
+    void writeFrame(const std::string &note, std::size_t step, std::size_t total) const;
     void selfCheck(LegalizeResult &res) const;
 
     static constexpr std::size_t kNoRow = std::numeric_limits<std::size_t>::max();
@@ -467,8 +468,8 @@ double AbacusLegalizer::Impl::hpwlOf(const std::vector<double> &x,
     return total;
 }
 
-void AbacusLegalizer::Impl::writeFrame(const std::string &path, const std::string &note,
-                                       std::size_t step, std::size_t total) const {
+void AbacusLegalizer::Impl::writeFrame(const std::string &note, std::size_t step,
+                                       std::size_t total) const {
     const std::size_t nv = design.cells.size();
     std::vector<float> fx(nv), fy(nv);
     for (std::size_t v = 0; v < nv; ++v) {
@@ -479,9 +480,7 @@ void AbacusLegalizer::Impl::writeFrame(const std::string &path, const std::strin
         fx[mov_[i]] = static_cast<float>(xs_[i]);
         fy[mov_[i]] = static_cast<float>(ys_[i]);
     }
-    // The host draws; Abacus only says when. The same frame goes to the SVG and
-    // to the run's animation, so the GIF shows the legalizer pulling the
-    // placement back onto its rows rather than cutting from scattered to legal.
+    // The sink draws; Abacus only says when.
     if (design.onFrame) {
         abacus::FrameInfo info;
         info.note = note;
@@ -489,7 +488,6 @@ void AbacusLegalizer::Impl::writeFrame(const std::string &path, const std::strin
         info.numSteps = total;
         info.hpwl = hpwlOf(xs_, ys_);
         info.hpwlInitial = hpwlOf(xs_, ys_);
-        info.path = path;
         info.mandatory = true;
         design.onFrame(fx, fy, info);
     }
@@ -630,9 +628,8 @@ LegalizeResult AbacusLegalizer::Impl::run(const LegalizeParams &params) {
     }
     die_ = design.die;
 
-    if (!params.plotDir.empty()) {
-        std::filesystem::create_directories(params.plotDir);
-        writeFrame(params.plotDir + "/legalize_000000.svg", "input placement", 0, mov_.size());
+    if (design.onFrame) {
+        writeFrame("input placement", 0, mov_.size());
     }
 
     // Cells are legalized in order of target y, so rows fill from one side and
@@ -774,10 +771,8 @@ LegalizeResult AbacusLegalizer::Impl::run(const LegalizeParams &params) {
         }
         ++placed;
 
-        if (!params.plotDir.empty() && params.frameEvery > 0 && placed % params.frameEvery == 0) {
-            char name[64];
-            std::snprintf(name, sizeof(name), "/legalize_%06zu.svg", placed);
-            writeFrame(params.plotDir + name, "legalizing", placed, mov_.size());
+        if (design.onFrame && params.frameEvery > 0 && placed % params.frameEvery == 0) {
+            writeFrame("legalizing", placed, mov_.size());
         }
     }
 
@@ -818,10 +813,8 @@ LegalizeResult AbacusLegalizer::Impl::run(const LegalizeParams &params) {
     }
     res.unplaced = mov_.size() - placed;
     res.commitFailures = commitFail;
-    if (!params.plotDir.empty()) {
-        char name[64];
-        std::snprintf(name, sizeof(name), "/legalize_%06zu.svg", placed);
-        writeFrame(params.plotDir + name, "legal placement", placed, mov_.size());
+    if (design.onFrame) {
+        writeFrame("legal placement", placed, mov_.size());
     }
     selfCheck(res);
     res.seconds = timer.elapsedSeconds();

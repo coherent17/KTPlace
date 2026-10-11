@@ -5,7 +5,7 @@
 
 #include "util/kt_log.h"
 #include "util/kt_reportTable.h"
-#include "visualization/kt_animator.h"
+#include "visualization/kt_visualizer.h"
 
 #include <algorithm>
 #include <array>
@@ -486,10 +486,10 @@ void RatioPlacer::Impl::placeLeaf(const RatioRegion &r) {
 }
 
 void RatioPlacer::Impl::writeFrame(std::size_t depth, const char *note) const {
-    // Frames go through the run's animator, the same budgeted sink every other
-    // stage uses; past its cap record() is a no-op, so do not build the arrays.
-    PlacementAnimator &anim = PlacementAnimator::instance();
-    if (!anim.enabled() || anim.capped()) {
+    // Frames go through the run's visualizer, the same budgeted sink every other
+    // stage uses; past its cap recording is a no-op, so do not build the arrays.
+    Visualizer &viz = Visualizer::instance();
+    if (!viz.enabled() || viz.capped()) {
         return;
     }
     std::vector<float> xs(graph_.getNumCells(), 0.0f);
@@ -504,8 +504,8 @@ void RatioPlacer::Impl::writeFrame(std::size_t depth, const char *note) const {
         ys[mov_[i]] = static_cast<float>(posY_[i] - 0.5 * v.height);
     }
     const std::array<double, 4> box = db_.placementDieBox();
-    anim.record(graph_, xs, ys, box, depth, params_.maxLevels, 0.0, 0.0, 0.0, note, fences_,
-                /*mandatory=*/false);
+    viz.frame(graph_, xs, ys, box, fences_,
+              VisualFrame{"", depth, params_.maxLevels, note, 0.0, 0.0, 0.0, /*mandatory=*/false});
 }
 
 void RatioPlacer::Impl::divide(RatioRegion r) {

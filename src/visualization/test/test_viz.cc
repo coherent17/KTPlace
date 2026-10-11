@@ -4,9 +4,8 @@
 
 #define BOOST_TEST_MODULE ktplace_viz
 
-#include "visualization/kt_animator.h"
 #include "visualization/kt_gif.h"
-#include "visualization/kt_plotter.h"
+#include "visualization/kt_visualizer.h"
 
 #include <algorithm>
 #include <boost/test/included/unit_test.hpp>
@@ -862,6 +861,18 @@ BOOST_AUTO_TEST_CASE(assembling_a_gif_from_stills_of_different_sizes_works) {
 }
 
 // ---------------------------------------------------------------------------
+/// Plot options for a test that only cares about the animation: the frame budget,
+/// the delay, and how many in-between frames each placement gets.
+static PlotOptions animOptions(std::size_t maxFrames, int delayCs, int blend = 3) {
+    PlotOptions opts;
+    opts.animate = true;
+    opts.frameBudget = maxFrames;
+    opts.frameDelayCs = delayCs;
+    opts.blendFrames = blend;
+    opts.gifByteCap = static_cast<std::size_t>(1) << 40;  // do not cap on bytes here
+    return opts;
+}
+
 // PlacementAnimator
 // ---------------------------------------------------------------------------
 //
@@ -874,7 +885,7 @@ namespace {
 
 /// Reset the singleton so a case cannot leak state into the next one.
 void freshAnimator() {
-    PlacementAnimator::instance().reset();
+    Visualizer::instance().reset();
 }
 
 }  // namespace
@@ -882,31 +893,31 @@ void freshAnimator() {
 BOOST_AUTO_TEST_CASE(an_unconfigured_animator_records_nothing) {
     freshAnimator();
     const Graph g = sampleGraph();
-    BOOST_TEST(!PlacementAnimator::instance().enabled());
-    BOOST_TEST(PlacementAnimator::instance().budget() > 0u);  // default, not armed
+    BOOST_TEST(!Visualizer::instance().animating());
+    BOOST_TEST(Visualizer::instance().budget() > 0u);  // default, not armed
     // A no-op rather than a crash: a run with no plot directory still calls
     // record() from every stage.
-    BOOST_CHECK_NO_THROW(PlacementAnimator::instance().record(
+    BOOST_CHECK_NO_THROW(Visualizer::instance().recordFrame(
         g, sampleX(g), sampleY(g), fixedCellBBox(g), 0, 1, 1.0, 1.0, 0.0, "x"));
-    BOOST_TEST(PlacementAnimator::instance().frameCount() == 0u);
-    BOOST_TEST(!PlacementAnimator::instance().finish());
+    BOOST_TEST(Visualizer::instance().frameCount() == 0u);
+    BOOST_TEST(!Visualizer::instance().finish(g, sampleX(g), sampleY(g), fixedCellBBox(g)));
 }
 
 BOOST_AUTO_TEST_CASE(configure_creates_the_output_directory_and_arms_the_run) {
     const ScratchDir dir("animcfg");
     const std::string out = (dir.file("frames")).string();
     freshAnimator();
-    PlacementAnimator::instance().configure(out, 20, 7, 3);
-    BOOST_TEST(PlacementAnimator::instance().enabled());
+    Visualizer::instance().configure(out, animOptions(20, 7, 3));
+    BOOST_TEST(Visualizer::instance().enabled());
     BOOST_TEST(std::filesystem::is_directory(out));
-    BOOST_TEST(PlacementAnimator::instance().budget() == 20u);
+    BOOST_TEST(Visualizer::instance().budget() == 20u);
     freshAnimator();
 }
 
 BOOST_AUTO_TEST_CASE(configure_with_an_empty_directory_stays_disarmed) {
     freshAnimator();
-    PlacementAnimator::instance().configure("", 10, 5);
-    BOOST_TEST(!PlacementAnimator::instance().enabled());
+    Visualizer::instance().configure("", animOptions(10, 5));
+    BOOST_TEST(!Visualizer::instance().enabled());
     freshAnimator();
 }
 
@@ -915,9 +926,9 @@ BOOST_AUTO_TEST_CASE(a_zero_frame_budget_is_clamped_rather_than_dead) {
     // including the one that is supposed to draw the legalized result.
     const ScratchDir dir("animzero");
     freshAnimator();
-    PlacementAnimator::instance().configure(dir.str(), 0, 5);
-    BOOST_TEST(PlacementAnimator::instance().enabled());
-    BOOST_TEST(PlacementAnimator::instance().budget() == 1u);
+    Visualizer::instance().configure(dir.str(), animOptions(0, 5));
+    BOOST_TEST(Visualizer::instance().enabled());
+    BOOST_TEST(Visualizer::instance().budget() == 1u);
     freshAnimator();
 }
 
@@ -926,11 +937,11 @@ BOOST_AUTO_TEST_CASE(a_blend_below_two_disables_interpolation) {
     // rather than left to make a division by zero or an empty loop.
     const ScratchDir dir("animblend");
     freshAnimator();
-    PlacementAnimator::instance().configure(dir.str(), 10, 5, 1);
-    BOOST_TEST(PlacementAnimator::instance().blend() == 1);
+    Visualizer::instance().configure(dir.str(), animOptions(10, 5, 1));
+    BOOST_TEST(Visualizer::instance().animating());
     freshAnimator();
-    PlacementAnimator::instance().configure(dir.str(), 10, 5, 0);
-    BOOST_TEST(PlacementAnimator::instance().blend() == 1);
+    Visualizer::instance().configure(dir.str(), animOptions(10, 5, 0));
+    BOOST_TEST(Visualizer::instance().animating());
     freshAnimator();
 }
 
@@ -938,16 +949,16 @@ BOOST_AUTO_TEST_CASE(recording_writes_numbered_stills_and_counts_them) {
     const ScratchDir dir("animrec");
     const Graph g = sampleGraph();
     freshAnimator();
-    PlacementAnimator::instance().configure(dir.str(), 10, 5, 1);  // no blending
+    Visualizer::instance().configure(dir.str(), animOptions(10, 5, 1));  // no blending
 
-    PlacementAnimator::instance().record(g, sampleX(g), sampleY(g), fixedCellBBox(g), 0, 3, 1.0,
-                                         1.0, 0.0, "iter0");
-    PlacementAnimator::instance().record(g, sampleX(g), sampleY(g), fixedCellBBox(g), 1, 3, 1.0,
-                                         1.0, 0.0, "iter1");
-    BOOST_TEST(PlacementAnimator::instance().frameCount() == 2u);
+    Visualizer::instance().recordFrame(g, sampleX(g), sampleY(g), fixedCellBBox(g), 0, 3, 1.0, 1.0,
+                                       0.0, "iter0");
+    Visualizer::instance().recordFrame(g, sampleX(g), sampleY(g), fixedCellBBox(g), 1, 3, 1.0, 1.0,
+                                       0.0, "iter1");
+    BOOST_TEST(Visualizer::instance().frameCount() == 2u);
     // Zero-padded so directory order is frame order.
-    BOOST_TEST(std::filesystem::exists(dir.file("frame_0000.ppm")));
-    BOOST_TEST(std::filesystem::exists(dir.file("frame_0001.ppm")));
+    BOOST_TEST(std::filesystem::exists(dir.file("anim/frame_0000.ppm")));
+    BOOST_TEST(std::filesystem::exists(dir.file("anim/frame_0001.ppm")));
     freshAnimator();
 }
 
@@ -958,12 +969,12 @@ BOOST_AUTO_TEST_CASE(blending_emits_in_between_frames_that_arrive_at_the_new_pla
     const ScratchDir dir("animblend2");
     Graph g = sampleGraph();
     freshAnimator();
-    PlacementAnimator::instance().configure(dir.str(), 20, 5, 3);
+    Visualizer::instance().configure(dir.str(), animOptions(20, 5, 3));
 
     const std::vector<float> x = sampleX(g);
     std::vector<float> y = sampleY(g);
-    PlacementAnimator::instance().record(g, x, y, fixedCellBBox(g), 0, 2, 1.0, 1.0, 0.0, "a");
-    BOOST_TEST(PlacementAnimator::instance().frameCount() == 1u);
+    Visualizer::instance().recordFrame(g, x, y, fixedCellBBox(g), 0, 2, 1.0, 1.0, 0.0, "a");
+    BOOST_TEST(Visualizer::instance().frameCount() == 1u);
 
     std::vector<float> x2 = x;
     for (std::size_t i = 0; i < x2.size(); ++i) {
@@ -971,9 +982,9 @@ BOOST_AUTO_TEST_CASE(blending_emits_in_between_frames_that_arrive_at_the_new_pla
     }
     // 1 still for the first placement, then blend-1 in-between frames plus the
     // placement itself.
-    PlacementAnimator::instance().record(g, x2, y, fixedCellBBox(g), 1, 2, 1.0, 1.0, 0.0, "b");
-    BOOST_TEST(PlacementAnimator::instance().frameCount() == 4u);
-    BOOST_TEST(std::filesystem::exists(dir.file("frame_0003.ppm")));
+    Visualizer::instance().recordFrame(g, x2, y, fixedCellBBox(g), 1, 2, 1.0, 1.0, 0.0, "b");
+    BOOST_TEST(Visualizer::instance().frameCount() == 4u);
+    BOOST_TEST(std::filesystem::exists(dir.file("anim/frame_0003.ppm")));
     freshAnimator();
 }
 
@@ -984,12 +995,12 @@ BOOST_AUTO_TEST_CASE(a_record_with_the_wrong_number_of_coordinates_is_ignored) {
     const ScratchDir dir("animshort");
     const Graph g = sampleGraph();
     freshAnimator();
-    PlacementAnimator::instance().configure(dir.str(), 10, 5, 1);
+    Visualizer::instance().configure(dir.str(), animOptions(10, 5, 1));
     const std::vector<float> tooShort{1.0F, 2.0F};
-    PlacementAnimator::instance().record(g, tooShort, sampleY(g), fixedCellBBox(g), 0, 1, 1.0, 1.0,
-                                         0.0, "bad");
+    Visualizer::instance().recordFrame(g, tooShort, sampleY(g), fixedCellBBox(g), 0, 1, 1.0, 1.0,
+                                       0.0, "bad");
     // Nothing was recorded, so the first real frame is still 0000.
-    BOOST_TEST(PlacementAnimator::instance().frameCount() == 0u);
+    BOOST_TEST(Visualizer::instance().frameCount() == 0u);
     freshAnimator();
 }
 
@@ -997,17 +1008,17 @@ BOOST_AUTO_TEST_CASE(the_frame_cap_stops_recording_and_is_reported) {
     const ScratchDir dir("animcap");
     const Graph g = sampleGraph();
     freshAnimator();
-    PlacementAnimator::instance().configure(dir.str(), 2, 5, 1);
+    Visualizer::instance().configure(dir.str(), animOptions(2, 5, 1));
     for (int i = 0; i < 6; ++i) {
-        PlacementAnimator::instance().record(g, sampleX(g), sampleY(g), fixedCellBBox(g),
-                                             static_cast<std::size_t>(i), 6, 1.0, 1.0, 0.0, "i");
+        Visualizer::instance().recordFrame(g, sampleX(g), sampleY(g), fixedCellBBox(g),
+                                           static_cast<std::size_t>(i), 6, 1.0, 1.0, 0.0, "i");
     }
-    BOOST_TEST(PlacementAnimator::instance().frameCount() == 2u);
-    BOOST_TEST(PlacementAnimator::instance().capped());
-    BOOST_TEST(PlacementAnimator::instance().budget() == 0u);
+    BOOST_TEST(Visualizer::instance().frameCount() == 2u);
+    BOOST_TEST(Visualizer::instance().capped());
+    BOOST_TEST(Visualizer::instance().budget() == 0u);
     // The stills left behind are a browsable record of what was captured.
-    BOOST_TEST(std::filesystem::exists(dir.file("frame_0001.ppm")));
-    BOOST_TEST(!std::filesystem::exists(dir.file("frame_0002.ppm")));
+    BOOST_TEST(std::filesystem::exists(dir.file("anim/frame_0001.ppm")));
+    BOOST_TEST(!std::filesystem::exists(dir.file("anim/frame_0002.ppm")));
     freshAnimator();
 }
 
@@ -1018,14 +1029,14 @@ BOOST_AUTO_TEST_CASE(hold_back_reserves_frames_for_the_later_stages) {
     const ScratchDir dir("animhold");
     const Graph g = sampleGraph();
     freshAnimator();
-    PlacementAnimator::instance().configure(dir.str(), 10, 5, 1);
-    PlacementAnimator::instance().holdBack(4);
+    Visualizer::instance().configure(dir.str(), animOptions(10, 5, 1));
+    Visualizer::instance().holdBack(4);
 
     for (int i = 0; i < 10; ++i) {
-        PlacementAnimator::instance().record(g, sampleX(g), sampleY(g), fixedCellBBox(g),
-                                             static_cast<std::size_t>(i), 10, 1.0, 1.0, 0.0, "i");
+        Visualizer::instance().recordFrame(g, sampleX(g), sampleY(g), fixedCellBBox(g),
+                                           static_cast<std::size_t>(i), 10, 1.0, 1.0, 0.0, "i");
     }
-    BOOST_TEST(PlacementAnimator::instance().frameCount() == 6u);
+    BOOST_TEST(Visualizer::instance().frameCount() == 6u);
     freshAnimator();
 }
 
@@ -1037,16 +1048,16 @@ BOOST_AUTO_TEST_CASE(a_hold_back_larger_than_the_budget_is_reduced_to_half) {
     const ScratchDir dir("animholdbig");
     const Graph g = sampleGraph();
     freshAnimator();
-    PlacementAnimator::instance().configure(dir.str(), 8, 5, 1);
-    PlacementAnimator::instance().holdBack(1000);
-    BOOST_TEST(PlacementAnimator::instance().budget() == 8u);
-    BOOST_TEST(!PlacementAnimator::instance().capped());
+    Visualizer::instance().configure(dir.str(), animOptions(8, 5, 1));
+    Visualizer::instance().holdBack(1000);
+    BOOST_TEST(Visualizer::instance().budget() == 8u);
+    BOOST_TEST(!Visualizer::instance().capped());
 
     for (int i = 0; i < 8; ++i) {
-        PlacementAnimator::instance().record(g, sampleX(g), sampleY(g), fixedCellBBox(g),
-                                             static_cast<std::size_t>(i), 8, 1.0, 1.0, 0.0, "i");
+        Visualizer::instance().recordFrame(g, sampleX(g), sampleY(g), fixedCellBBox(g),
+                                           static_cast<std::size_t>(i), 8, 1.0, 1.0, 0.0, "i");
     }
-    BOOST_TEST(PlacementAnimator::instance().frameCount() == 4u);
+    BOOST_TEST(Visualizer::instance().frameCount() == 4u);
     freshAnimator();
 }
 
@@ -1056,11 +1067,11 @@ BOOST_AUTO_TEST_CASE(finish_needs_at_least_two_stills) {
     const ScratchDir dir("animfin");
     const Graph g = sampleGraph();
     freshAnimator();
-    PlacementAnimator::instance().configure(dir.str(), 10, 5, 1);
-    BOOST_TEST(!PlacementAnimator::instance().finish());
-    PlacementAnimator::instance().record(g, sampleX(g), sampleY(g), fixedCellBBox(g), 0, 2, 1.0,
-                                         1.0, 0.0, "only");
-    BOOST_TEST(!PlacementAnimator::instance().finish());
+    Visualizer::instance().configure(dir.str(), animOptions(10, 5, 1));
+    BOOST_TEST(!Visualizer::instance().finish(g, sampleX(g), sampleY(g), fixedCellBBox(g)));
+    Visualizer::instance().recordFrame(g, sampleX(g), sampleY(g), fixedCellBBox(g), 0, 2, 1.0, 1.0,
+                                       0.0, "only");
+    BOOST_TEST(!Visualizer::instance().finish(g, sampleX(g), sampleY(g), fixedCellBBox(g)));
     freshAnimator();
 }
 
@@ -1068,13 +1079,13 @@ BOOST_AUTO_TEST_CASE(finish_assembles_the_stills_into_a_looping_gif) {
     const ScratchDir dir("animgif");
     const Graph g = sampleGraph();
     freshAnimator();
-    PlacementAnimator::instance().configure(dir.str(), 10, 5, 1);
-    PlacementAnimator::instance().record(g, sampleX(g), sampleY(g), fixedCellBBox(g), 0, 2, 1.0,
-                                         1.0, 0.0, "a");
-    PlacementAnimator::instance().record(g, sampleX(g), sampleY(g), fixedCellBBox(g), 1, 2, 1.0,
-                                         1.0, 0.0, "b");
-    BOOST_TEST(PlacementAnimator::instance().finish("run.gif"));
-    const std::string gif = readAll(dir.file("run.gif"));
+    Visualizer::instance().configure(dir.str(), animOptions(10, 5, 1));
+    Visualizer::instance().recordFrame(g, sampleX(g), sampleY(g), fixedCellBBox(g), 0, 2, 1.0, 1.0,
+                                       0.0, "a");
+    Visualizer::instance().recordFrame(g, sampleX(g), sampleY(g), fixedCellBBox(g), 1, 2, 1.0, 1.0,
+                                       0.0, "b");
+    BOOST_TEST(Visualizer::instance().finish(g, sampleX(g), sampleY(g), fixedCellBBox(g)));
+    const std::string gif = readAll(dir.file("anim/placement.gif"));
     BOOST_TEST(contains(gif, "GIF89a"));
     BOOST_TEST(contains(gif, "NETSCAPE2.0"));
     freshAnimator();
@@ -1084,26 +1095,26 @@ BOOST_AUTO_TEST_CASE(configure_twice_is_a_fresh_run_not_an_append) {
     const ScratchDir dir("animtwice");
     const Graph g = sampleGraph();
     freshAnimator();
-    PlacementAnimator::instance().configure(dir.str(), 10, 5, 1);
-    PlacementAnimator::instance().record(g, sampleX(g), sampleY(g), fixedCellBBox(g), 0, 1, 1.0,
-                                         1.0, 0.0, "a");
-    BOOST_TEST(PlacementAnimator::instance().frameCount() == 1u);
+    Visualizer::instance().configure(dir.str(), animOptions(10, 5, 1));
+    Visualizer::instance().recordFrame(g, sampleX(g), sampleY(g), fixedCellBBox(g), 0, 1, 1.0, 1.0,
+                                       0.0, "a");
+    BOOST_TEST(Visualizer::instance().frameCount() == 1u);
 
-    PlacementAnimator::instance().configure(dir.str(), 10, 5, 1);
+    Visualizer::instance().configure(dir.str(), animOptions(10, 5, 1));
     // The counter, the held-back reservation and the "capped" flag all reset.
-    BOOST_TEST(PlacementAnimator::instance().frameCount() == 0u);
-    BOOST_TEST(PlacementAnimator::instance().budget() == 10u);
-    BOOST_TEST(!PlacementAnimator::instance().capped());
+    BOOST_TEST(Visualizer::instance().frameCount() == 0u);
+    BOOST_TEST(Visualizer::instance().budget() == 10u);
+    BOOST_TEST(!Visualizer::instance().capped());
     // No interpolation from the previous run either: the first still of the
     // second run is a real placement, not a blend towards it.
-    PlacementAnimator::instance().record(g, sampleX(g), sampleY(g), fixedCellBBox(g), 0, 1, 1.0,
-                                         1.0, 0.0, "a");
-    BOOST_TEST(PlacementAnimator::instance().frameCount() == 1u);
+    Visualizer::instance().recordFrame(g, sampleX(g), sampleY(g), fixedCellBBox(g), 0, 1, 1.0, 1.0,
+                                       0.0, "a");
+    BOOST_TEST(Visualizer::instance().frameCount() == 1u);
     freshAnimator();
 }
 
 BOOST_AUTO_TEST_CASE(the_singleton_is_one_object_for_the_whole_process) {
     // The three stages are constructed independently, which is the only reason
     // this is a singleton; they must therefore see the same instance.
-    BOOST_TEST(&PlacementAnimator::instance() == &PlacementAnimator::instance());
+    BOOST_TEST(&Visualizer::instance() == &Visualizer::instance());
 }

@@ -46,6 +46,8 @@ using DieBox = std::array<double, 4>;
 /// plotting code.
 struct FrameInfo {
     std::string note;
+    /// Which series of snapshots this is, for the file name.
+    std::string series;
     std::size_t step = 0;
     std::size_t numSteps = 0;
     double hpwl = 0.0;
@@ -54,13 +56,17 @@ struct FrameInfo {
     /// True for a frame that marks a milestone, which the host keeps even when
     /// it is sampling.
     bool mandatory = false;
-    /// Name the caller asked for. The host decides whether to honour it.
-    std::string path;
 };
 
 /// Host hook: called with the position of every cell. Null disables drawing.
 using FrameHook = std::function<void(const std::vector<float> &xs, const std::vector<float> &ys,
                                      const FrameInfo &info)>;
+
+/// Host hook for a diagnostic the solver draws itself, as SVG text. Null disables
+/// it. A separate hook because it is not a picture of a placement, and forcing it
+/// through the cell-frame path would make every stage carry a file writer.
+using SvgHook = std::function<void(const std::string &series, const std::string &step,
+                                   const std::string &body)>;
 
 /// A whole design as SimPL sees it.
 struct Design {
@@ -72,6 +78,11 @@ struct Design {
     Fences fences;
     /// Installed by the host. SimPL itself never draws.
     FrameHook onFrame;
+    SvgHook onSvg;
+    /// Where the solver's own artifacts go: the bounds curve it plots against,
+    /// which is a record of the solve rather than a picture of a placement. Set
+    /// by the host alongside the sink. Empty means the run records nothing.
+    std::string artifactDir;
 };
 
 }  // namespace ktplace::simpl

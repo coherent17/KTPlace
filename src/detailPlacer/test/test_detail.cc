@@ -4,7 +4,8 @@
 
 #define BOOST_TEST_MODULE ktplace_detail
 
-#include "adaptor/ktToFastdpAdaptor.h"
+#include "datamodel/kt_dm.h"
+#include "detailPlacer/fastdp/fastdp_dm.h"
 #include "detailPlacer/fastdp/fastdp_placer.h"
 #include "util/kt_log.h"
 
@@ -15,7 +16,7 @@
 // that asserted on the design without this would be asserting on its own input.
 static ktplace::DetailPlaceResult runAndCommit(ktplace::ktDM &db,
                                                const ktplace::DetailPlaceParams &params = {}) {
-    ktplace::fastdp::fastdpDM dpDB = ktplace::buildFastdpDM(db, "");
+    ktplace::fastdp::fastdpDM dpDB = ktplace::fastdp::buildFastdpDM(db);
     ktplace::FastDetailedPlacer dp(dpDB.design());
     const ktplace::DetailPlaceResult result = dp.place(params);
     db.setDetailedPlaceSolution(dp.solution());
@@ -560,7 +561,6 @@ BOOST_AUTO_TEST_CASE(the_default_parameters_run_every_technique) {
     BOOST_TEST(p.clusterPasses > 0u);
     BOOST_TEST(p.localReorderWindow > 0u);
     BOOST_TEST(p.minImprovement >= 0.0);
-    BOOST_TEST(p.plotDir.empty());
 }
 
 BOOST_AUTO_TEST_CASE(a_local_reorder_window_of_zero_does_not_hang) {
@@ -701,20 +701,17 @@ BOOST_AUTO_TEST_CASE(fences_are_accepted_without_being_enforced) {
     BOOST_TEST(isLegal(db));
 }
 
-BOOST_AUTO_TEST_CASE(an_unwritable_plot_directory_does_not_lose_the_placement) {
-    // The frames are a diagnostic. If the directory cannot be written, the run
-    // still has to improve the placement and still has to be legal.
+BOOST_AUTO_TEST_CASE(no_frame_sink_does_not_lose_the_placement) {
+    // The placer writes no files of its own: it hands snapshots to a sink the host
+    // installs, and a run with no sink draws nothing. So drawing being off cannot
+    // cost the placement, and cannot throw on the way past.
     ktDM db;
     addRow(db, 0, 40);
     for (int c = 0; c < 6; ++c) {
         addCell(db, "c" + std::to_string(c), 1.0 + c * 3.0, 0);
     }
-    DetailPlaceParams p;
-    p.plotDir = "/proc/self/nonexistent_frames";
     DetailPlaceResult r;
-    // The frames are a diagnostic. An unwritable directory must not throw out
-    // of place(), or a plotting problem loses a finished placement.
-    BOOST_CHECK_NO_THROW(runAndCommit(db, p));
+    BOOST_CHECK_NO_THROW(r = runAndCommit(db));
     BOOST_TEST(r.overlappingPairs == 0u);
     BOOST_TEST(isLegal(db));
 }

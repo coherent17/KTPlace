@@ -2,7 +2,7 @@
 // SimPL's own netlist model.
 //
 // Deliberately not the shared Graph: SimPL is its own library and knows nothing
-// about ktDM. The adaptor in ktToSimplAdaptor fills this in.
+// about ktDM. buildSimplDM in simpl_dm.cc fills this in.
 
 #pragma once
 
