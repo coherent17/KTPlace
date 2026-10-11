@@ -16,6 +16,7 @@ already carries.
 Endpoints
   GET    /                       the console page
   GET    /guide                  how a placement run works, as flow charts
+  GET    /bench                  benchmark results: designs x algorithms, ranked by HPWL
   GET    /api/benchmarks         designs the console can run
   GET    /api/system             machine CPU and memory, for the resource panel
   GET    /api/runs               run history with headline metrics
@@ -970,6 +971,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._serve_file(STATIC_DIR / "index.html")
         if parsed.path in ("/guide", "/guide.html"):
             return self._serve_file(STATIC_DIR / "guide.html")
+        if parsed.path in ("/bench", "/bench.html"):
+            return self._serve_file(STATIC_DIR / "bench.html")
         if parsed.path.startswith("/api/benchmarks"):
             return self._json(200, {"root": str(BENCH_ROOT), "designs": scan_benchmarks()})
         if parsed.path == "/api/system":
@@ -1143,6 +1146,9 @@ class Handler(BaseHTTPRequestHandler):
             # live heartbeat does not: it walks the frame directories, and is
             # only worth that for the run actually being watched.
             "summary": summary(run),
+            # The engine's HTML gallery is gone (726dae3); the finished image is
+            # the placement picture /bench links, and only when it exists.
+            "finalImage": (run.work / "plots" / "final" / "final.png").is_file(),
         }
         if run.status == "running":
             scan_progress(run)

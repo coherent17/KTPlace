@@ -1,0 +1,295 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>KTPlace benchmark results</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2032%2032'%3E%3Crect%20width='32'%20height='32'%20rx='6'%20fill='%2311171c'/%3E%3Cpath%20d='M5%2012%2012%205M5%2027l22-22M27%2020%2020%2027'%20stroke='%234a9eff'%20stroke-width='3'%20stroke-linecap='round'/%3E%3Ccircle%20cx='12'%20cy='5'%20r='3'%20fill='%233fba7d'/%3E%3C/svg%3E">
+<style>
+/* Same tokens as the console, so the two pages read as one tool. */
+:root {
+  color-scheme: dark;
+  --bg: #0b0f12; --panel: #11171c; --line: #22303a; --text: #d7e0e6;
+  --muted: #7f929e; --accent: #4a9eff; --ok: #3fba7d; --bad: #e5524c; --run: #e0a94a;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+* { box-sizing: border-box; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+body { margin: 0; background: var(--bg); color: var(--text);
+  font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+header { position: sticky; top: 0; z-index: 20; display: flex; align-items: center;
+  flex-wrap: wrap; gap: 4px 14px; padding: 12px 20px; border-bottom: 1px solid var(--line);
+  background: rgba(11, 15, 18, .92); backdrop-filter: blur(6px); }
+header h1 { margin: 0; font-size: 17px; color: #fff; letter-spacing: .3px; }
+header .sub { color: var(--muted); font-size: 12px; }
+header nav { margin-left: auto; display: flex; gap: 14px; font-size: 13px; }
+.wrap { max-width: 1200px; margin: 0 auto; padding: 20px 16px 60px; }
+section { background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+  padding: 16px 18px 18px; margin-bottom: 18px; }
+h2 { margin: 0 0 4px; font-size: 15px; color: #fff; }
+.lede { color: var(--muted); margin: 0 0 14px; max-width: 80ch; }
+
+/* toolbar */
+.toolbar { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center;
+  margin-bottom: 12px; }
+.toolbar input[type=search] { flex: 1 1 220px; min-width: 150px; }
+input[type=search], button, select {
+  background: #0d1216; color: var(--text); border: 1px solid var(--line);
+  border-radius: 6px; padding: 6px 10px; font: inherit; font-size: 13px; }
+input[type=search]::placeholder { color: var(--muted); }
+button { cursor: pointer; }
+button:hover { border-color: var(--accent); }
+.check { display: inline-flex; gap: 6px; align-items: center; color: var(--muted);
+  font-size: 13px; cursor: pointer; }
+.count { color: var(--muted); font-size: 12px; margin-left: auto; }
+
+/* the grid: bounded height so the toolbar and wins stay in view; the header row
+   and the design column stay put while the rest scrolls. */
+.tw { overflow: auto; max-height: 68vh; border: 1px solid var(--line);
+  border-radius: 6px; }
+table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 13px; }
+th, td { padding: 8px 11px; border-bottom: 1px solid var(--line); text-align: left;
+  vertical-align: top; background: var(--panel); }
+thead th { position: sticky; top: 0; z-index: 3; background: #0d1216; color: var(--muted);
+  font-weight: 600; text-transform: uppercase; font-size: 10px; letter-spacing: .5px;
+  white-space: nowrap; cursor: pointer; user-select: none; }
+thead th:hover { color: var(--text); }
+thead th.sorted { color: #fff; }
+thead th .arrow { color: var(--accent); }
+th[data-key]:focus-visible { outline-offset: -2px; }
+td.design, thead th:first-child { position: sticky; left: 0; z-index: 2; }
+thead th:first-child { z-index: 4; }
+td.design { white-space: nowrap; border-right: 1px solid var(--line); }
+tbody tr:hover td { background: #161f27; }
+tbody tr:hover td.win { background: rgba(63,188,125,.16); }
+.hpwl { font-family: var(--mono); color: #fff; }
+.ratio { color: var(--muted); font-size: 11px; margin-left: 5px; }
+.cellsub { font-size: 11px; color: var(--muted); margin-top: 3px; display: flex;
+  gap: 7px; align-items: center; white-space: nowrap; }
+.cellsub a { font-family: var(--mono); }
+td.win { background: rgba(63,188,125,.10); box-shadow: inset 3px 0 0 var(--ok); }
+td.none { color: var(--muted); }
+.pill { padding: 1px 8px; border-radius: 20px; font-size: 11px; font-weight: 600; }
+.pill.running { background: rgba(224,169,74,.15); color: var(--run); border: 1px solid var(--run); }
+.pill.done    { background: rgba(63,188,125,.15); color: var(--ok);  border: 1px solid var(--ok); }
+.pill.failed  { background: rgba(229,82,76,.15); color: var(--bad); border: 1px solid var(--bad); }
+.wins { display: flex; flex-wrap: wrap; gap: 10px; }
+.wincard { border: 1px solid var(--line); border-radius: 6px; padding: 7px 13px;
+  background: #0d1216; font-size: 12px; color: var(--muted); }
+.wincard b { font-family: var(--mono); color: #fff; font-size: 14px; margin-right: 4px; }
+#empty { color: var(--muted); padding: 24px; text-align: center; }
+footer { padding: 12px 20px; color: var(--muted); font-size: 12px;
+  border-top: 1px solid var(--line); }
+</style>
+</head>
+<body>
+<header>
+  <h1>Benchmark results</h1>
+  <span class="sub">each design, every algorithm's best run, ranked by HPWL</span>
+  <nav>
+    <a href="/">← Console</a>
+    <a href="/guide">How it works</a>
+  </nav>
+</header>
+<div class="wrap">
+  <section>
+    <h2>Wins by algorithm</h2>
+    <p class="lede">Designs where an algorithm produced the shortest wirelength among its
+    finished runs. Ties count for each algorithm that tied.</p>
+    <div class="wins" id="wins"></div>
+  </section>
+  <section>
+    <h2>Designs</h2>
+    <p class="lede">One row per design; each algorithm's best finished run in its column.
+    Click a heading to sort, the × under a cell is how many times the best HPWL on that
+    design. A running or failed run is shown but not ranked.</p>
+    <div class="toolbar">
+      <input type="search" id="q" placeholder="Filter designs…" aria-label="Filter designs">
+      <label class="check"><input type="checkbox" id="hideEmpty"> Only designs with a finished run</label>
+      <span class="count" id="count"></span>
+    </div>
+    <div class="tw"><table id="grid"></table></div>
+    <div id="empty" style="display:none">No runs yet. Start one from the console.</div>
+  </section>
+</div>
+<footer>Ranking reads each run's final HPWL from its transcript. Open the image to see the finished placement.</footer>
+<script>
+const $ = (id) => document.getElementById(id);
+function esc(s) {
+  return String(s == null ? "" : s).replace(/[&<>"']/g,
+    (c) => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
+}
+// The engine writes HPWL as e.g. "4.13004e+08"; "n/a" and blanks become null.
+function hpwlOf(run) {
+  const raw = run.summary && run.summary.hpwl;
+  const n = parseFloat(String(raw == null ? "" : raw).replace(/[^0-9eE+.\-]/g, ""));
+  return Number.isFinite(n) ? n : null;
+}
+// A run stores its benchmark as whatever was passed. An older run recorded the
+// absolute path (/ktplace/benchmark/ISPD_2005/adaptec1) where a newer one holds
+// the root-relative form; strip the root so one design is one row, without
+// collapsing distinct suites that share a design name.
+function benchLabel(b) {
+  const i = String(b).lastIndexOf("/benchmark/");
+  return i >= 0 ? String(b).slice(i + "/benchmark/".length) : b;
+}
+const isRanked = (e) => e.run.status === "done" && e.hp != null;
+// A candidate replaces the incumbent only if it is a real improvement: a
+// finished run beats an unfinished one, then lower HPWL, then lower runtime.
+function beats(a, b) {
+  const ra = isRanked(a), rb = isRanked(b);
+  if (ra !== rb) return ra;
+  if (!ra) return false;  // keep the newest unfinished run (list is newest-first)
+  if (a.hp !== b.hp) return a.hp < b.hp;
+  return a.run.elapsed < b.run.elapsed;
+}
+function fmtElapsed(s) {
+  if (!(s > 0)) return "0s";
+  if (s < 60) return s.toFixed(1) + "s";
+  const m = Math.floor(s / 60), r = Math.round(s - m * 60);
+  return m + "m" + String(r).padStart(2, "0") + "s";
+}
+function pill(status) {
+  return `<span class="pill ${esc(status)}">${esc(status)}</span>`;
+}
+
+// View state, kept across the periodic refresh so a filter or sort is not lost.
+const state = { q: "", sortKey: "design", dir: 1, hideEmpty: false };
+let DATA = null;     // { algos, byBm, tallies, coverage }, rebuilt only when the data moves
+let lastSig = null;  // cheap fingerprint of the run list, to skip no-op refreshes
+
+function build(runs) {
+  const algos = [...new Set(runs.map((r) => r.algorithm))].sort();
+  // design -> algorithm -> {run, hp}, keeping each algorithm's best run.
+  const byBm = new Map();
+  for (const r of runs) {
+    const bm = benchLabel(r.benchmark);
+    if (!byBm.has(bm)) byBm.set(bm, {});
+    const cell = byBm.get(bm);
+    const cand = { run: r, hp: hpwlOf(r) };
+    if (!cell[r.algorithm] || beats(cand, cell[r.algorithm])) cell[r.algorithm] = cand;
+  }
+  const tallies = {}, coverage = {};
+  for (const a of algos) { tallies[a] = 0; coverage[a] = 0; }
+  for (const cell of byBm.values()) {
+    let best = null;
+    for (const a of algos) {
+      const e = cell[a];
+      if (e && isRanked(e)) {
+        coverage[a]++;
+        if (best == null || e.hp < best) best = e.hp;
+      }
+    }
+    if (best != null) for (const a of algos) {
+      const e = cell[a];
+      if (e && isRanked(e) && e.hp === best) tallies[a]++;
+    }
+  }
+  DATA = { algos, byBm, tallies, coverage };
+  $("empty").style.display = byBm.size ? "none" : "block";
+}
+
+function renderWins() {
+  $("wins").innerHTML = DATA.algos.length
+    ? DATA.algos.map((a) => `<div class="wincard"><b>${DATA.tallies[a]}</b> ${esc(a)}` +
+        `<span> · ${DATA.coverage[a]} design${DATA.coverage[a] === 1 ? "" : "s"} ranked</span></div>`).join("")
+    : '<div class="wincard">no algorithms yet</div>';
+}
+
+function arrowFor(key) {
+  return key === state.sortKey ? ` <span class="arrow">${state.dir > 0 ? "▲" : "▼"}</span>` : "";
+}
+function sortValue(row) {
+  if (state.sortKey === "design") return row.bm;
+  const e = row.cell[state.sortKey.slice(5)];
+  return e && isRanked(e) ? e.hp : null;
+}
+
+function render() {
+  if (!DATA) return;
+  const { algos, byBm } = DATA;
+  const rows = [];
+  for (const bm of byBm.keys()) {
+    const cell = byBm.get(bm);
+    let best = null;
+    for (const a of algos) { const e = cell[a]; if (e && isRanked(e) && (best == null || e.hp < best)) best = e.hp; }
+    rows.push({ bm, cell, best });
+  }
+  const q = state.q.trim().toLowerCase();
+  const view = rows.filter((r) => (!q || r.bm.toLowerCase().includes(q)) &&
+    (!state.hideEmpty || r.best != null));
+  view.sort((x, y) => {
+    const a = sortValue(x), b = sortValue(y);
+    if (state.sortKey === "design") return state.dir * String(a).localeCompare(String(b));
+    if ((a == null) !== (b == null)) return a == null ? 1 : -1;  // unranked rows last, always
+    if (a == null) return x.bm.localeCompare(y.bm);
+    return a !== b ? state.dir * (a - b) : x.bm.localeCompare(y.bm);
+  });
+  $("count").textContent = `showing ${view.length} of ${rows.length} design${rows.length === 1 ? "" : "s"}`;
+
+  const head = `<thead><tr>` +
+    `<th data-key="design" tabindex="0" class="${state.sortKey === "design" ? "sorted" : ""}">` +
+    `design${arrowFor("design")}</th>` +
+    algos.map((a) => `<th data-key="algo:${esc(a)}" tabindex="0" class="${state.sortKey === "algo:" + a ? "sorted" : ""}">` +
+      `${esc(a)}${arrowFor("algo:" + a)}</th>`).join("") + `</tr></thead>`;
+
+  const body = view.map((row) => {
+    const tds = algos.map((a) => {
+      const e = row.cell[a];
+      if (!e) return `<td class="none">—</td>`;
+      const win = isRanked(e) && row.best != null && e.hp === row.best;
+      const hp = e.hp != null ? e.hp.toExponential(4) : "—";
+      const ratio = e.hp != null && row.best != null && e.hp > row.best * 1.00005
+        ? `<span class="ratio" title="times the best HPWL on this design">${(e.hp / row.best).toFixed(2)}×</span>`
+        : "";
+      // The finished image is the one placement picture the engine still writes;
+      // link it when it is there, else just show the run id.
+      const tail = e.run.status === "done" && e.run.finalImage
+        ? `<a href="/runs/${encodeURIComponent(e.run.id)}/plots/final/final.png" target="_blank" rel="noopener" title="${esc(e.run.label || e.run.id)}">image</a>`
+        : `<span title="${esc(e.run.label || e.run.id)}">${esc(e.run.id)}</span>`;
+      return `<td class="${win ? "win" : ""}"><div class="hpwl">${esc(hp)}${ratio}</div>` +
+        `<div class="cellsub">${pill(e.run.status)}<span>${fmtElapsed(e.run.elapsed)}</span>${tail}</div></td>`;
+    }).join("");
+    return `<tr><td class="design"><b>${esc(row.bm)}</b></td>${tds}</tr>`;
+  }).join("");
+
+  const span = algos.length + 1;
+  $("grid").innerHTML = head + `<tbody>${body ||
+    `<tr><td class="none" colspan="${span}">no designs match</td></tr>`}</tbody>`;
+
+  for (const th of document.querySelectorAll("#grid th[data-key]")) {
+    const sort = () => {
+      if (state.sortKey === th.dataset.key) state.dir = -state.dir;
+      else { state.sortKey = th.dataset.key; state.dir = 1; }
+      render();
+    };
+    th.addEventListener("click", sort);
+    th.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); sort(); }
+    });
+  }
+}
+
+async function refresh() {
+  let data;
+  try { data = await (await fetch("/api/runs")).json(); }
+  catch (e) { lastSig = null; $("grid").innerHTML = '<tr><td class="none">could not reach the server</td></tr>'; return; }
+  const runs = data.runs || [];
+  const sig = runs.map((r) => `${r.id}:${r.status}:${(r.summary || {}).hpwl}`).join("|");
+  if (sig === lastSig) return;  // nothing moved: leave the table (and the scroll) alone
+  lastSig = sig;
+  build(runs);
+  renderWins();
+  render();
+}
+
+$("q").addEventListener("input", (e) => { state.q = e.target.value; render(); });
+$("hideEmpty").addEventListener("change", (e) => { state.hideEmpty = e.target.checked; render(); });
+
+refresh();
+setInterval(refresh, 5000);  // a run finishing while the page is open updates the ranking
+</script>
+</body>
+</html>

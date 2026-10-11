@@ -32,6 +32,10 @@ ktplace.log
 benchmark/*
 !benchmark/fetch_benchmarks.py
 !benchmark/README.md
+# The baseline sweep's results are small, human-readable, and the point of
+# committing them: they are the reference the console's /bench page ranks
+# against, not the downloaded benchmark data the rule above keeps out.
+!benchmark/baseline.tsv
 
 # Two designs are the exceptions, and both are deliberate: one per feature that
 # CI has to be able to test without depending on a download.
