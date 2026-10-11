@@ -120,6 +120,8 @@ Open http://127.0.0.1:8080.
   output file is and the main tuning knobs.
 - **History**: every run with status, time, HPWL and verdict; label or delete
   runs there. Runs live in the `web-runs` volume and survive `down`/`up`.
+- **Benchmarks** (http://127.0.0.1:8080/bench): one row per design, a column per
+  algorithm, each its best finished run ranked by HPWL (runtime breaks ties).
 
 **The Terminal panel** runs a one-shot command in the *console* container and
 streams its output. Use it for quick checks next to your runs:
