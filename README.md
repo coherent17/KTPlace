@@ -86,8 +86,8 @@ The drawing settings below are `KTPLACE_*` environment variables. Every
 `KTPLACE_*` variable the engine reads -- these, and the SimPL, NTUPlace1, Abacus
 and FastDP tuning knobs -- is declared once, with its type, default and range,
 in `src/util/kt_param.cc`; that list is the source of truth, and `test_util`
-fails if a declared parameter goes missing from it. Keep this table in step with
-it. Numbers are read as `std::stod` reads them, and text that is not a number
+checks it against the variables the engine reads. This table is kept in step
+with it by hand. Numbers are read as `std::stod` reads them, and text that is not a number
 leaves the default.
 
 | variable | effect |
