@@ -4,6 +4,7 @@
 
 #define BOOST_TEST_MODULE ktplace_detail
 
+#include "constraint/kt_constraintMgr.h"
 #include "datamodel/kt_dm.h"
 #include "detailPlacer/fastdp/fastdp_dm.h"
 #include "detailPlacer/fastdp/fastdp_placer.h"
@@ -784,6 +785,85 @@ BOOST_AUTO_TEST_CASE(failed_vertical_swap_restores_the_row_the_cell_is_in) {
         }
     }
     (void)cx;
+}
+
+BOOST_AUTO_TEST_CASE(cells_stay_on_their_side_of_a_fence) {
+    // A legal, fence-respecting start: members of fence "f0" (x 0..20, rows 0-1)
+    // sit inside it, a non-member sits outside. Their nets then pull each across
+    // the boundary -- the member towards a pad far right, the non-member towards
+    // one inside the fence -- which is exactly what a wirelength-driven move would
+    // follow if the fence did not stop it.
+    ktDM db;
+    for (int r = 0; r < 4; ++r) {
+        addRow(db, r, 100);
+    }
+    addCell(db, "m0", 5.0, 0);
+    addCell(db, "m1", 8.0, 1);
+    addCell(db, "o0", 40.0, 0);
+    addFixed(db, "padR", 99.0, 3);
+    addFixed(db, "padL", 2.0, 3);
+    addNet(db, "n0", "m0", "padR");
+    addNet(db, "n1", "m1", "padR");
+    addNet(db, "n2", "o0", "padL");
+    {
+        constraintMgr mgr;
+        const int id = mgr.addRegion("f0", {Point{0.0, 0.0}, Point{20.0, 20.0}});
+        (void)mgr.assignByPrefix(id, "m", db.getGraph());
+        db.setConstraints(std::move(mgr));
+    }
+
+    (void)runAndCommit(db);
+
+    for (const char *m : {"m0", "m1"}) {
+        const auto [x, y] = db.getCellPosition(m);
+        BOOST_TEST((x >= 0.0 && x + 1.0 <= 20.0 + 1e-9 && y + kRowHeight <= 20.0 + 1e-9),
+                   m << " left its fence: (" << x << ", " << y << ")");
+    }
+    const auto [ox, oy] = db.getCellPosition("o0");
+    const bool insideFence = ox < 20.0 - 1e-9 && oy < 20.0 - 1e-9;
+    BOOST_TEST(!insideFence, "o0 entered the fence: (" << ox << ", " << oy << ")");
+}
+
+BOOST_AUTO_TEST_CASE(a_vertical_swap_does_not_carry_cells_across_a_fence) {
+    // Fence "f0" is row 1 over x 0..30. A member sits in it and a non-member
+    // directly above it in row 2. The member is wired to a cell in row 3 and the
+    // non-member to one in row 0, so swapping the two rows shortens both nets --
+    // exactly what vertical swap looks for, and it would put each cell on the
+    // wrong side of the fence. The anchors are movable cells, not pads: FastDP
+    // prices a fixed pin by its x only, so a pad could not pull vertically.
+    ktDM db;
+    for (int r = 0; r < 4; ++r) {
+        addRow(db, r, 100);
+    }
+    addCell(db, "m0", 10.0, 1);
+    addCell(db, "o0", 10.0, 2);
+    addCell(db, "up", 10.0, 3);
+    addCell(db, "dn", 10.0, 0);
+    addNet(db, "n0", "m0", "up");
+    addNet(db, "n1", "o0", "dn");
+    {
+        constraintMgr mgr;
+        const int id = mgr.addRegion("f0", {Point{0.0, 10.0}, Point{30.0, 20.0}});
+        (void)mgr.assignByPrefix(id, "m", db.getGraph());
+        db.setConstraints(std::move(mgr));
+    }
+
+    // Run twice on one placer object, which also checks that no per-run state
+    // (the cells' regions among it) carries over between calls.
+    fastdp::fastdpDM dpDB = fastdp::buildFastdpDM(db);
+    FastDetailedPlacer dp(dpDB.design());
+    (void)dp.place(only(1));
+    (void)dp.place(only(1));
+    db.setDetailedPlaceSolution(dp.solution());
+
+    const auto [mx, my] = db.getCellPosition("m0");
+    BOOST_TEST((my == 10.0 && mx >= 0.0 && mx + 1.0 <= 30.0 + 1e-9),
+               "m0 left its fence: (" << mx << ", " << my << ")");
+    for (const char *o : {"o0", "up", "dn"}) {
+        const auto [ox, oy] = db.getCellPosition(o);
+        BOOST_TEST(!(oy == 10.0 && ox < 30.0),
+                   o << " entered the fence: (" << ox << ", " << oy << ")");
+    }
 }
 
 BOOST_AUTO_TEST_SUITE_END()

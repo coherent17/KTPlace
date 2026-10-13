@@ -7,6 +7,7 @@
 #include "legalizer/abacus/abacus_design.h"
 #include "util/kt_log.h"
 #include "util/kt_reportTable.h"
+#include "util/kt_rowFence.h"
 #include "util/kt_scopedTimer.h"
 
 #include <algorithm>
@@ -108,6 +109,9 @@ struct Cluster {
 struct Subrow {
     double xlo = 0.0;
     double xhi = 0.0;
+    /// The fence this piece belongs to, or kNoRegion for open space. Only a cell
+    /// of the same region may be placed here.
+    int region = abacus::kNoRegion;
     /// Clusters assigned here, in increasing left edge.
     std::vector<Cluster> clusters;
     double cost = 0.0;
@@ -151,6 +155,8 @@ public:
 
 private:
     void buildRows();
+    /// Split each row's pieces at the fence boundaries and tag them by region.
+    void splitByFences();
     /// Insert slot `i` into row `r` and re-place the affected clusters.
     /// Returns the row's cost delta, or kInfeasible. `xsOut` receives the
     /// clusters' new left edges for the suffix that moved.
@@ -160,6 +166,11 @@ private:
     /// unused candidate leaves nothing behind. `undo` records enough to roll
     /// the row back in time proportional to what actually moved.
     double place(Subrow &sr, double grid, std::size_t i, RowUndo &undo);
+    /// Like place(), but when the subrow overflows its right edge the clusters
+    /// are shifted left into the gaps before them instead of the insert failing.
+    /// Used only for a cell no subrow accepted through place(), so its O(clusters)
+    /// cost is paid by the few cells that need it.
+    double placeSqueeze(Subrow &sr, double grid, std::size_t i, RowUndo &undo);
     void rollback(Subrow &sr, RowUndo undo);
     [[nodiscard]] double hpwlOf(const std::vector<double> &x, const std::vector<double> &y) const;
     /// Offer a snapshot to the sink. A no-op when the stage has no sink, so the
@@ -175,6 +186,7 @@ private:
     std::vector<double> w_, h_;     ///< per movable slot
     std::vector<double> x0_, y0_;   ///< pre-legalization position (the target)
     std::vector<double> xs_, ys_;   ///< live position
+    std::vector<int> region_;       ///< fence of each movable slot, or kNoRegion
     std::unordered_map<std::size_t, std::size_t> slotOf_;
     std::vector<FixedBox> fixed_;
     abacus::DieBox die_ = {0.0, 0.0, 0.0, 0.0};
@@ -258,15 +270,47 @@ void AbacusLegalizer::Impl::buildRows() {
                 pieces.push_back(piece);
             }
         }
+        r.subrows = std::move(pieces);
+    }
+    splitByFences();
+    for (RowTrack &r : rows_) {
         // Subrows too narrow to be worth searching are dropped: a sliver a cell
         // cannot fit into only makes the search slower and can never be chosen.
         std::vector<Subrow> kept;
-        for (Subrow &piece : pieces) {
+        for (Subrow &piece : r.subrows) {
             if (piece.width() >= r.siteWidth * minSubrowSites()) {
                 kept.push_back(std::move(piece));
             }
         }
         r.subrows = std::move(kept);
+    }
+}
+
+void AbacusLegalizer::Impl::splitByFences() {
+    const abacus::Fences &fences = design.fences;
+    if (fences.numRegions() == 0) {
+        return;
+    }
+    std::vector<FenceRect> rects;
+    for (int id = 0; id < static_cast<int>(fences.numRegions()); ++id) {
+        for (const abacus::Rect &rc : fences.region(id).rects) {
+            rects.push_back(FenceRect{rc.xlo, rc.ylo, rc.xhi, rc.yhi, id});
+        }
+    }
+    for (RowTrack &r : rows_) {
+        std::vector<Subrow> out;
+        for (const Subrow &sr : r.subrows) {
+            for (const RowPiece &rp :
+                 splitRowByFences(sr.xlo, sr.xhi, r.y, r.y + r.height, r.siteWidth, rects)) {
+                Subrow piece = sr;
+                piece.xlo = rp.xlo;
+                piece.xhi = rp.xhi;
+                piece.used = rp.xlo;
+                piece.region = rp.region;
+                out.push_back(piece);
+            }
+        }
+        r.subrows = std::move(out);
     }
 }
 
@@ -397,6 +441,97 @@ double AbacusLegalizer::Impl::place(Subrow &sr, double grid, std::size_t i, RowU
         rollback(sr, undo);
         return kInfeasible;
     }
+    sr.cost += delta;
+    return delta;
+}
+
+double AbacusLegalizer::Impl::placeSqueeze(Subrow &sr, double grid, std::size_t i, RowUndo &undo) {
+    // Free width first: if the members do not fit end to end, nothing can help.
+    double occupied = w_[i];
+    for (const Cluster &c : sr.clusters) {
+        occupied += c.w;
+    }
+    if (occupied > sr.width() + 1e-9) {
+        undo = RowUndo{};
+        return kInfeasible;
+    }
+    undo = RowUndo{};
+    undo.savedSize = sr.clusters.size();
+    undo.savedCost = sr.cost;
+    undo.savedUsed = sr.used;
+
+    // Insert as its own cluster at its place in target order. No merge here: a
+    // merge would move the neighbour's members, and the whole point is to keep
+    // what is already placed as close to its targets as the room allows.
+    const double target = x0_[i];
+    std::size_t at = 0;
+    while (at < sr.clusters.size() && sr.clusters[at].x <= target) {
+        ++at;
+    }
+    {
+        Cluster c;
+        c.members.push_back(i);
+        c.n = 1.0;
+        c.w = w_[i];
+        c.a = -target;
+        c.b = target * target;
+        c.x = target;
+        sr.clusters.insert(sr.clusters.begin() + static_cast<long>(at), std::move(c));
+        undo.inserted = true;
+        undo.insertIdx = at;
+    }
+
+    // Every cluster's position may change, so all of them are recorded.
+    const std::size_t n = sr.clusters.size();
+    std::vector<double> oldX(n), newX(n);
+    double before = 0.0;
+    for (std::size_t k = 0; k < n; ++k) {
+        oldX[k] = sr.clusters[k].x;
+        if (k != at) {
+            before += sr.clusters[k].costAt(oldX[k]);
+        }
+    }
+    // Left to right: each cluster at its ideal, inside the subrow, past the
+    // previous one.
+    double cursor = sr.xlo;
+    for (std::size_t k = 0; k < n; ++k) {
+        const Cluster &c = sr.clusters[k];
+        double x = std::max(c.ideal(), sr.xlo);
+        if (grid > 0.0) {
+            x = std::round(x / grid) * grid;
+        }
+        x = std::max(x, cursor);
+        newX[k] = x;
+        cursor = x + c.w;
+    }
+    // Right to left: anything past the right edge, or past its successor, moves
+    // left into the slack before it. Order is kept, so no two clusters overlap.
+    double limit = sr.xhi;
+    for (std::size_t k = n; k-- > 0;) {
+        const Cluster &c = sr.clusters[k];
+        if (newX[k] + c.w > limit + 1e-9) {
+            double x = limit - c.w;
+            if (grid > 0.0) {
+                x = std::floor(x / grid + 1e-9) * grid;
+            }
+            newX[k] = x;
+        }
+        limit = newX[k];
+    }
+    if (newX[0] < sr.xlo - 1e-9) {
+        rollback(sr, undo);
+        return kInfeasible;
+    }
+    double after = 0.0;
+    for (std::size_t k = 0; k < n; ++k) {
+        if (k != at) {
+            undo.moved.emplace_back(k, oldX[k]);
+        }
+        sr.clusters[k].x = newX[k];
+        after += sr.clusters[k].costAt(newX[k]);
+    }
+    sr.used = newX[n - 1] + sr.clusters[n - 1].w;
+    const double delta = after - before;
     sr.cost += delta;
     return delta;
 }
@@ -601,6 +736,12 @@ LegalizeResult AbacusLegalizer::Impl::run(const LegalizeParams &params) {
         slotOf_[v] = slot;
         w_.push_back(cell.width);
         h_.push_back(cell.height);
+        // A region id the design does not have is treated as unfenced rather than
+        // as a fence no piece can ever match.
+        region_.push_back(cell.region >= 0 &&
+                                  static_cast<std::size_t>(cell.region) < design.fences.numRegions()
+                              ? cell.region
+                              : abacus::kNoRegion);
         x0_.push_back(cell.x);
         y0_.push_back(cell.y);
     }
@@ -643,6 +784,34 @@ LegalizeResult AbacusLegalizer::Impl::run(const LegalizeParams &params) {
     std::size_t placed = 0;
     std::size_t commitFail = 0;
 
+    // Per fence: how much member area there is against how much room its pieces
+    // offer. A fence whose members do not fit is a design fact, not a legalizer
+    // bug, and this is where it shows.
+    const std::size_t nFences = design.fences.numRegions();
+    std::vector<std::size_t> fenceUnplaced(nFences, 0);
+    if (nFences > 0) {
+        std::vector<double> demand(nFences, 0.0), room(nFences, 0.0);
+        std::vector<std::size_t> members(nFences, 0);
+        for (std::size_t i = 0; i < mov_.size(); ++i) {
+            if (region_[i] != abacus::kNoRegion) {
+                demand[static_cast<std::size_t>(region_[i])] += w_[i] * h_[i];
+                ++members[static_cast<std::size_t>(region_[i])];
+            }
+        }
+        for (const RowTrack &r : rows_) {
+            for (const Subrow &sr : r.subrows) {
+                if (sr.region != abacus::kNoRegion) {
+                    room[static_cast<std::size_t>(sr.region)] += sr.width() * r.height;
+                }
+            }
+        }
+        for (std::size_t f = 0; f < nFences; ++f) {
+            ktlog.trace(
+                "  fence {}: {} member(s), cell area {:.4g}, row area {:.4g} ({:.1f}% full)", f,
+                members[f], demand[f], room[f], room[f] > 0.0 ? 100.0 * demand[f] / room[f] : 0.0);
+        }
+    }
+
     for (const std::size_t i : order) {
         // Home row: the band containing the cell's target y, else the nearest.
         std::size_t home = 0;
@@ -674,6 +843,11 @@ LegalizeResult AbacusLegalizer::Impl::run(const LegalizeParams &params) {
             RowTrack &R = rows_[ri];
             Subrow &sr = R.subrows[si];
             if (h_[i] > R.height + 1e-9) {
+                return;
+            }
+            // Fences are exclusive: a member only goes into its own region's
+            // pieces, and every other cell only into open space.
+            if (sr.region != region_[i]) {
                 return;
             }
             // Only the geometric width is pre-filtered. Whether there is room is
@@ -754,8 +928,57 @@ LegalizeResult AbacusLegalizer::Impl::run(const LegalizeParams &params) {
             }
         }
 
+        if (bestRow == kNoRow && region_[i] != abacus::kNoRegion) {
+            // A fenced cell whose global placement left it far from its region
+            // finds no piece of it within the bounded scan above. Rather than
+            // leave it unplaced, look at every row: only its region's pieces can
+            // match, so this costs the region's rows, not the design's.
+            for (std::size_t ri = 0; ri < rows_.size(); ++ri) {
+                tryRow(ri);
+            }
+        }
+        bool squeezed = false;
+        if (bestRow == kNoRow) {
+            // No subrow took the cell as is: every candidate was full at its right
+            // edge. Allow the clusters already there to slide left into their
+            // gaps, and take the cheapest subrow where that makes room.
+            for (std::size_t ri = 0; ri < rows_.size(); ++ri) {
+                RowTrack &R = rows_[ri];
+                if (h_[i] > R.height + 1e-9) {
+                    continue;
+                }
+                const double dy = (y0_[i] < R.y)              ? (R.y - y0_[i])
+                                  : (y0_[i] > R.y + R.height) ? (y0_[i] - (R.y + R.height))
+                                                              : 0.0;
+                if (dy * dy >= bestCost) {
+                    continue;
+                }
+                for (std::size_t si = 0; si < R.subrows.size(); ++si) {
+                    Subrow &sr = R.subrows[si];
+                    if (sr.region != region_[i] || w_[i] > sr.width() + 1e-9) {
+                        continue;
+                    }
+                    RowUndo undo;
+                    const double delta = placeSqueeze(sr, R.siteWidth, i, undo);
+                    if (!std::isfinite(delta)) {
+                        continue;
+                    }
+                    const double total = delta + dy * dy;
+                    if (total < bestCost) {
+                        bestCost = total;
+                        bestRow = ri;
+                        bestSub = si;
+                    }
+                    rollback(sr, undo);
+                }
+            }
+            squeezed = bestRow != kNoRow;
+        }
         if (bestRow == kNoRow) {
             ++res.unplaced;
+            if (region_[i] != abacus::kNoRegion) {
+                ++fenceUnplaced[static_cast<std::size_t>(region_[i])];
+            }
             continue;
         }
         // Commit: place the cell in the winning subrow for real. The commit can
@@ -764,8 +987,10 @@ LegalizeResult AbacusLegalizer::Impl::run(const LegalizeParams &params) {
         // rolled back and the cell in no cluster at all, so it must be counted
         // rather than assumed placed.
         RowUndo commitUndo;
-        if (!std::isfinite(
-                place(rows_[bestRow].subrows[bestSub], rows_[bestRow].siteWidth, i, commitUndo))) {
+        Subrow &win = rows_[bestRow].subrows[bestSub];
+        const double grid = rows_[bestRow].siteWidth;
+        if (!std::isfinite(squeezed ? placeSqueeze(win, grid, i, commitUndo)
+                                    : place(win, grid, i, commitUndo))) {
             ++commitFail;
             continue;
         }
@@ -773,6 +998,13 @@ LegalizeResult AbacusLegalizer::Impl::run(const LegalizeParams &params) {
 
         if (design.onFrame && params.frameEvery > 0 && placed % params.frameEvery == 0) {
             writeFrame("legalizing", placed, mov_.size());
+        }
+    }
+
+    for (std::size_t f = 0; f < fenceUnplaced.size(); ++f) {
+        if (fenceUnplaced[f] > 0) {
+            ktlog.trace("  fence {}: {} member(s) found no piece of their region", f,
+                        fenceUnplaced[f]);
         }
     }
 
