@@ -1,9 +1,13 @@
 #pragma once
 
+#include <atomic>
+#include <condition_variable>
 #include <cstddef>
 #include <cstdlib>
 #include <fmt/format.h>
 #include <fstream>
+#include <functional>
+#include <memory>
 #include <mutex>
 #include <string>
 #include <string_view>
@@ -45,6 +49,9 @@ private:
     std::string msg;
 };
 
+/// Severity of a log record, as passed to a sink.
+enum class LogLevel { Echo, Trace, Warning, Fatal };
+
 class Logger {
 public:
     static constexpr std::size_t kMaxRecordBytes = 8000;
@@ -70,17 +77,17 @@ public:
 
     template <typename... Args>
     void echo(fmt::format_string<Args...> fmtStr, Args &&...args) {
-        emit(Level::Echo, fmt::format(fmtStr, std::forward<Args>(args)...));
+        emit(LogLevel::Echo, fmt::format(fmtStr, std::forward<Args>(args)...));
     }
 
     template <typename... Args>
     void trace(fmt::format_string<Args...> fmtStr, Args &&...args) {
-        emit(Level::Trace, fmt::format(fmtStr, std::forward<Args>(args)...));
+        emit(LogLevel::Trace, fmt::format(fmtStr, std::forward<Args>(args)...));
     }
 
     template <typename... Args>
     void warning(fmt::format_string<Args...> fmtStr, Args &&...args) {
-        emit(Level::Warning, fmt::format(fmtStr, std::forward<Args>(args)...));
+        emit(LogLevel::Warning, fmt::format(fmtStr, std::forward<Args>(args)...));
     }
 
     /// Writes a fatal record and throws FatalError carrying its message. The log
@@ -92,31 +99,81 @@ public:
     }
 
     void echo(std::string_view message) {
-        emit(Level::Echo, std::string(message));
+        emit(LogLevel::Echo, std::string(message));
     }
     void trace(std::string_view message) {
-        emit(Level::Trace, std::string(message));
+        emit(LogLevel::Trace, std::string(message));
     }
     void warning(std::string_view message) {
-        emit(Level::Warning, std::string(message));
+        emit(LogLevel::Warning, std::string(message));
     }
     [[noreturn]] void fatal(std::string_view message) {
         std::string text(message);
-        emit(Level::Fatal, text);
+        emit(LogLevel::Fatal, text);
         throw FatalError(std::move(text));
     }
 
     void shutdown();
 
+    /// The tag a record carries in the transcript: "echo", "trace", "warning",
+    /// "fatal".
+    [[nodiscard]] static const char *levelTag(LogLevel level);
+
+    // ---- Sinks ------------------------------------------------------------
+    //
+    // A sink receives every record (trace included, whatever `verbose` says, so
+    // the sink does its own filtering) with the same text the transcript gets,
+    // after the file and stderr writes. stdout is still never written to.
+    //
+    // Threading contract:
+    //  - A sink runs on the thread that emitted the record, which is often a TBB
+    //    worker. It must be safe to call concurrently from several threads, and a
+    //    GUI sink should queue the record to its own thread rather than touch
+    //    widgets.
+    //  - It runs OUTSIDE the logger's write mutex. Holding that mutex would make
+    //    a slow sink stall every thread that logs, and a sink that logs (or calls
+    //    anything that does) would deadlock on the non-recursive mutex. The cost
+    //    is ordering: records from different threads may reach a sink in a
+    //    different order than the transcript has them. Records from one thread
+    //    arrive in the order that thread emitted them.
+    //  - A record emitted from inside a sink, on that sink's thread, goes to the
+    //    file and stderr but is not delivered to sinks again, so a logging sink
+    //    cannot recurse without bound.
+    //  - A sink that throws is contained: the exception is dropped, the other
+    //    sinks and the transcript are unaffected, and the first failure of each
+    //    sink is reported once as a warning.
+    //  - addSink and removeSink may be called from any thread, including from
+    //    inside a sink. Once removeSink returns, the sink is not running and will
+    //    not be called again, so whatever it captured can be destroyed. The one
+    //    exception is removeSink called from inside a sink callback: it cannot
+    //    wait for in-flight calls (it may be one of them), so it only guarantees
+    //    no new calls start. A sink must therefore not block waiting on a thread
+    //    that may be inside removeSink, or the two wait for each other.
+    using SinkId = std::size_t;
+    using Sink = std::function<void(LogLevel, std::string_view)>;
+
+    /// Registers `sink`; returns the id that removes it. An empty function is
+    /// accepted and never called.
+    SinkId addSink(Sink sink);
+
+    /// Unregisters a sink. An unknown or already removed id is ignored.
+    void removeSink(SinkId id);
+
 private:
-    enum class Level { Echo, Trace, Warning, Fatal };
+    struct SinkSlot;
 
     Logger() = default;
 
-    void emit(Level level, const std::string &message);
-    static const char *levelTag(Level level);
-    static const char *levelColor(Level level);
+    void emit(LogLevel level, const std::string &message);
+    void dispatchToSinks(LogLevel level, std::string_view body);
+    static const char *levelColor(LogLevel level);
     void closeFiles();
+
+    std::mutex sinkMutex;
+    std::condition_variable sinkIdle;  // a slot's in-flight count reached zero
+    std::vector<std::shared_ptr<SinkSlot>> sinks;
+    std::atomic<std::size_t> sinkCount{0};  // lets emit skip sinkMutex when there are none
+    SinkId nextSinkId = 1;
 
     mutable std::mutex mutex;
     std::string path;

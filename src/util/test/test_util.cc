@@ -3,14 +3,23 @@
 #include "util/kt_log.h"
 #include "util/kt_scopedTimer.h"
 
+#include <atomic>
 #include <boost/test/unit_test.hpp>
+#include <chrono>
 #include <exception>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <mutex>
+#include <set>
 #include <sstream>
+#include <stdexcept>
 #include <string>
 #include <string_view>
+#include <tbb/parallel_for.h>
+#include <thread>
+#include <utility>
+#include <vector>
 
 using namespace ktplace;
 
@@ -264,4 +273,199 @@ BOOST_AUTO_TEST_CASE(parallelism_of_an_unrun_timer_is_zero_not_a_division) {
     BOOST_TEST(serial.parallelism() == 1.0);
     const TimerStats parallel{1.0, 4.0, 1};
     BOOST_TEST(parallel.parallelism() == 4.0);
+}
+
+namespace {
+
+/// Removes a sink at scope exit, so a failing check cannot leave it registered
+/// for the tests that follow.
+class SinkGuard {
+public:
+    explicit SinkGuard(Logger::Sink sink) : id(ktlog.addSink(std::move(sink))) {}
+    ~SinkGuard() {
+        ktlog.removeSink(id);
+    }
+    SinkGuard(const SinkGuard &) = delete;
+    SinkGuard &operator=(const SinkGuard &) = delete;
+
+    Logger::SinkId id;
+};
+
+/// A thread-safe record of what a sink saw.
+struct Collected {
+    std::mutex mutex;
+    std::vector<std::pair<LogLevel, std::string>> records;
+
+    Logger::Sink sink() {
+        return [this](LogLevel level, std::string_view text) {
+            const std::lock_guard<std::mutex> lock(mutex);
+            records.emplace_back(level, std::string(text));
+        };
+    }
+    std::size_t size() {
+        const std::lock_guard<std::mutex> lock(mutex);
+        return records.size();
+    }
+};
+
+}  // namespace
+
+BOOST_AUTO_TEST_CASE(a_sink_receives_every_record_with_its_level) {
+    TempLog log;
+    ktlog.configure(log.str(), false);  // not verbose: trace stays off stderr...
+    Collected seen;
+    {
+        const SinkGuard guard(seen.sink());
+        CaptureCerr cap;
+        ktlog.echo("e {}", 1);
+        ktlog.trace("t {}", 2);  // ...but a sink still gets it, to filter itself
+        ktlog.warning("w {}", 3);
+        BOOST_CHECK_THROW(ktlog.fatal("f {}", 4), FatalError);
+    }
+    BOOST_REQUIRE_EQUAL(seen.records.size(), 4U);
+    BOOST_TEST((seen.records[0] == std::pair{LogLevel::Echo, std::string("e 1")}));
+    BOOST_TEST((seen.records[1] == std::pair{LogLevel::Trace, std::string("t 2")}));
+    BOOST_TEST((seen.records[2] == std::pair{LogLevel::Warning, std::string("w 3")}));
+    BOOST_TEST((seen.records[3] == std::pair{LogLevel::Fatal, std::string("f 4")}));
+    BOOST_TEST(std::string(Logger::levelTag(LogLevel::Warning)) == "warning");
+    ktlog.configure("", false);
+}
+
+BOOST_AUTO_TEST_CASE(a_removed_sink_stops_receiving) {
+    CaptureCerr cap;
+    Collected kept;
+    Collected dropped;
+    const SinkGuard keep(kept.sink());
+    const Logger::SinkId id = ktlog.addSink(dropped.sink());
+    ktlog.echo("before");
+    ktlog.removeSink(id);
+    ktlog.removeSink(id);       // twice is harmless
+    ktlog.removeSink(9999999);  // so is an id never handed out
+    ktlog.echo("after");
+    BOOST_TEST(dropped.size() == 1U);
+    BOOST_TEST(kept.size() == 2U);
+}
+
+BOOST_AUTO_TEST_CASE(concurrent_records_all_reach_a_sink) {
+    constexpr int kThreads = 8;
+    constexpr int kPerThread = 500;
+    CaptureCerr cap;
+    Collected seen;
+    {
+        const SinkGuard guard(seen.sink());
+        std::vector<std::thread> workers;
+        for (int t = 0; t < kThreads; ++t) {
+            workers.emplace_back([t] {
+                for (int i = 0; i < kPerThread; ++i) {
+                    ktlog.echo("t{} r{}", t, i);
+                }
+            });
+        }
+        for (std::thread &w : workers) {
+            w.join();
+        }
+    }
+    BOOST_REQUIRE_EQUAL(seen.records.size(), static_cast<std::size_t>(kThreads * kPerThread));
+    std::set<std::string> distinct;
+    for (const auto &[level, text] : seen.records) {
+        BOOST_TEST((level == LogLevel::Echo));
+        distinct.insert(text);
+    }
+    BOOST_TEST(distinct.size() == static_cast<std::size_t>(kThreads * kPerThread));
+}
+
+BOOST_AUTO_TEST_CASE(a_throwing_sink_is_contained) {
+    TempLog log;
+    ktlog.configure(log.str(), false);
+    Collected after;
+    {
+        CaptureCerr cap;
+        const SinkGuard bad([](LogLevel, std::string_view) {
+            throw std::runtime_error("boom");
+        });
+        const SinkGuard worse([](LogLevel, std::string_view) {
+            throw 42;
+        });
+        const SinkGuard good(after.sink());
+        BOOST_CHECK_NO_THROW(ktlog.echo("first"));
+        BOOST_CHECK_NO_THROW(ktlog.echo("second"));
+        // A fatal still throws its own FatalError, not the sink's exception.
+        BOOST_CHECK_THROW(ktlog.fatal("third"), FatalError);
+    }
+    // The sink after the throwing ones still got every record.
+    BOOST_TEST(after.size() == 3U);
+    const std::string file = log.contents();
+    BOOST_TEST(file.find("first") != std::string::npos);
+    BOOST_TEST(file.find("second") != std::string::npos);
+    BOOST_TEST(file.find("[fatal] third") != std::string::npos);
+    // Each throwing sink is reported once, not once per record.
+    std::size_t reports = 0;
+    for (std::size_t at = file.find("threw"); at != std::string::npos;
+         at = file.find("threw", at + 1)) {
+        ++reports;
+    }
+    BOOST_TEST(reports == 2U);
+    BOOST_TEST(file.find("boom") != std::string::npos);
+    ktlog.configure("", false);
+}
+
+BOOST_AUTO_TEST_CASE(a_sink_may_log_and_remove_itself_without_deadlock) {
+    TempLog log;
+    ktlog.configure(log.str(), false);
+    CaptureCerr cap;
+    std::atomic<int> calls{0};
+    Logger::SinkId self = 0;
+    self = ktlog.addSink([&](LogLevel, std::string_view text) {
+        ++calls;
+        // Reaches the transcript, but is not fed back into the sinks.
+        ktlog.echo("sink saw: {}", text);
+        ktlog.removeSink(self);
+    });
+    ktlog.echo("trigger");
+    ktlog.echo("not delivered");
+    BOOST_TEST(calls.load() == 1);
+    BOOST_TEST(log.contents().find("sink saw: trigger") != std::string::npos);
+    ktlog.configure("", false);
+}
+
+BOOST_AUTO_TEST_CASE(remove_sink_waits_for_an_in_flight_call) {
+    CaptureCerr cap;
+    std::atomic<bool> entered{false};
+    std::atomic<bool> release{false};
+    std::atomic<bool> removed{false};
+    const Logger::SinkId id = ktlog.addSink([&](LogLevel, std::string_view) {
+        entered = true;
+        while (!release) {
+            std::this_thread::yield();
+        }
+    });
+    std::thread emitter([] {
+        ktlog.echo("held");
+    });
+    while (!entered) {
+        std::this_thread::yield();
+    }
+    std::thread remover([&] {
+        ktlog.removeSink(id);
+        removed = true;
+    });
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    BOOST_TEST(!removed.load());  // the callback is still running
+    release = true;
+    remover.join();
+    emitter.join();
+    BOOST_TEST(removed.load());
+}
+
+BOOST_AUTO_TEST_CASE(a_fatal_inside_a_tbb_region_reaches_the_caller) {
+    CaptureCerr cap;
+    BOOST_CHECK_EXCEPTION(tbb::parallel_for(0, 64,
+                                            [](int i) {
+                                                if (i == 17) {
+                                                    ktlog.fatal("worker {} failed", i);
+                                                }
+                                            }),
+                          FatalError, [](const FatalError &e) {
+                              return e.message() == "worker 17 failed";
+                          });
 }
