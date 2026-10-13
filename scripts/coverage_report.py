@@ -133,7 +133,7 @@ def run_tests() -> list[str]:
     # because a per-conjugate-gradient-iterate frame is recorded as "mandatory",
     # and a mandatory frame is exempt from both the stage budget and the thinning
     # stride. So the budget does not bound it: the last iterate of every solve is
-    # always recorded whatever KTPLACE_SIMPL_CG_EVERY says, and that is enough
+    # always recorded whatever KTPLACE_ANIM_CG_EVERY says, and that is enough
     # frames, each one an SVG written plus a frame rasterised, to cost 190s.
     #
     # So the coverage run takes the animation off -- which drops the solver's

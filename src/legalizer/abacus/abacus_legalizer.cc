@@ -6,6 +6,7 @@
 
 #include "legalizer/abacus/abacus_design.h"
 #include "util/kt_log.h"
+#include "util/kt_param.h"
 #include "util/kt_reportTable.h"
 #include "util/kt_scopedTimer.h"
 
@@ -53,8 +54,7 @@ struct FixedBox {
 /// cell can never hold it, and keeping them only makes the row search walk
 /// candidates that cannot win.
 double minSubrowSites() {
-    const char *e = std::getenv("KTPLACE_ABACUS_MIN_SUBROW_SITES");
-    return e ? std::atof(e) : 1.0;
+    return param<double>("KTPLACE_ABACUS_MIN_SUBROW_SITES");
 }
 
 /// Cost of a candidate that does not fit; no real cost reaches this.
@@ -64,8 +64,7 @@ constexpr double kInfeasible = std::numeric_limits<double>::infinity();
 /// be merged into one cluster. Abacus uses a small constant gap here; clustering
 /// is what stops a row's cells from being dragged apart one at a time.
 double clusterGapSites() {
-    const char *e = std::getenv("KTPLACE_ABACUS_CLUSTER_GAP");
-    return e ? std::atof(e) : 0.0;
+    return param<double>("KTPLACE_ABACUS_CLUSTER_GAP");
 }
 
 /// A run of adjacent cells treated as one placeable item.
@@ -178,6 +177,11 @@ private:
     std::unordered_map<std::size_t, std::size_t> slotOf_;
     std::vector<FixedBox> fixed_;
     abacus::DieBox die_ = {0.0, 0.0, 0.0, 0.0};
+    /// minSubrowSites() and clusterGapSites(), read once per run: place() runs
+    /// for every candidate row of every cell, and a parameter read is a lock and
+    /// an environment lookup, not a load.
+    double minSubrowSites_ = 1.0;
+    double clusterGapSites_ = 0.0;
 
 public:
     /// What legalize() reads to build the placement it hands back. The pass never
@@ -262,7 +266,7 @@ void AbacusLegalizer::Impl::buildRows() {
         // cannot fit into only makes the search slower and can never be chosen.
         std::vector<Subrow> kept;
         for (Subrow &piece : pieces) {
-            if (piece.width() >= r.siteWidth * minSubrowSites()) {
+            if (piece.width() >= r.siteWidth * minSubrowSites_) {
                 kept.push_back(std::move(piece));
             }
         }
@@ -286,7 +290,7 @@ double AbacusLegalizer::Impl::place(Subrow &sr, double grid, std::size_t i, RowU
     while (at < sr.clusters.size() && sr.clusters[at].x <= target) {
         ++at;
     }
-    const double gap = clusterGapSites() * grid;
+    const double gap = clusterGapSites_ * grid;
     std::size_t merge = sr.clusters.size();
     double bestGap = std::numeric_limits<double>::max();
     if (at < sr.clusters.size()) {
@@ -588,7 +592,8 @@ LegalizeResult AbacusLegalizer::Impl::run(const LegalizeParams &params) {
     // so legalization appears in the flow's Timings table next to load, place
     // and write instead of reporting a private duration.
     ScopedTimer timer("legalize");
-
+    minSubrowSites_ = minSubrowSites();
+    clusterGapSites_ = clusterGapSites();
 
     for (std::size_t v = 0; v < design.cells.size(); ++v) {
         const abacus::Cell &cell = design.cells[v];

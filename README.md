@@ -78,25 +78,36 @@ and stderr, so redirecting stdout stays clean.
 Under `<work-dir>/plots/`: SVG frames for the placement stages (`simpl/`, and
 `legalize/` for the Abacus path), the detail placer (`detailplace/`), the density
 bound trace (`simpl_bounds.csv`/`.svg`), the animation (`anim/placement.gif`,
-when `KTPLACE_ANIM` is set), and a high-resolution still of the finished
+unless `KTPLACE_ANIM=0`), and a high-resolution still of the finished
 placement (`final/final.png`, 6144x6144 by default). All generated in C++ — no
 image library beyond the vendored CImg, no external tools.
 
+The drawing settings below are `KTPLACE_*` environment variables. Every
+`KTPLACE_*` variable the engine reads -- these, and the SimPL, NTUPlace1, Abacus
+and FastDP tuning knobs -- is declared once, with its type, default and range,
+in `src/util/kt_param.cc`; that list is the source of truth, and `test_util`
+checks it against the variables the engine reads. This table is kept in step
+with it by hand. Numbers are read as `std::stod` reads them, and text that is not a number
+leaves the default.
+
 | variable | effect |
 | --- | --- |
-| `KTPLACE_ANIM` | enable the animation |
+| `KTPLACE_ANIM` | record frames and assemble the GIF (default 1; `0` turns it off) |
 | `KTPLACE_ANIM_MAX_FRAMES` | frame budget for the run (default 1200) |
+| `KTPLACE_ANIM_MAX_BYTES` | size cap of the GIF, in bytes (default 96 MB) |
 | `KTPLACE_ANIM_ZOOM` | frame scale, vs 768x768 (default 2) |
 | `KTPLACE_ANIM_BLEND` | in-between frames per placement (default 3) |
-| `KTPLACE_ANIM_DELAY_CS` | GIF frame delay, in hundredths of a second |
+| `KTPLACE_ANIM_DELAY_CS` | GIF frame delay, in hundredths of a second (default 12) |
+| `KTPLACE_ANIM_FINAL_HOLD` | extra frames the finished placement is held (default 8) |
+| `KTPLACE_ANIM_DENSITY_MAPS` | bin-density heat map beside each placement frame (default 1) |
+| `KTPLACE_ANIM_TRACE_EVERY` | global-placement frame every N iterations (default 1; `0` keeps only the final one) |
+| `KTPLACE_ANIM_CG_EVERY` | frame every N conjugate-gradient iterates (default 0, off) |
 | `KTPLACE_FINAL_ZOOM` | final still scale, vs 768x768 (default 8) |
-| `KTPLACE_FINAL_PPM` | also write the lossless PPM beside the PNG (off) |
-| `KTPLACE_SIMPL_CG_EVERY` | SVG frame every N conjugate-gradient iterates; `0` turns them off |
-| `KTPLACE_SIMPL_TRACE_EVERY` | SVG frame every N global iterations; `0` turns them off |
+| `KTPLACE_FINAL_PPM` | also write the lossless PPM beside the PNG (default 0, off) |
 
 On a large design the frames are most of global placement's time. When only the
-placement matters, set both to `0` (the HPWL is the same), or pass `--no-plots`
-to skip every picture.
+placement matters, set `KTPLACE_ANIM=0` and `KTPLACE_ANIM_TRACE_EVERY=0` (the
+HPWL is the same), or pass `--no-plots` to skip every picture.
 
 Timing is measured with `ScopedTimer` (`src/util/kt_scopedTimer.h`), which
 records wall and processor time per named phase and reports the table once at

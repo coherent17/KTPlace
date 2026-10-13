@@ -934,7 +934,7 @@ traceEl.addEventListener("scroll", () => {
 $("runbtn").onclick = submitRun;
 $("benchfilter").addEventListener("input", renderBenchOptions);
 $("presetfast").onclick = () => {
-  $("env").value = "KTPLACE_SIMPL_ITERS=25\nKTPLACE_SIMPL_TRACE_EVERY=0\nKTPLACE_SIMPL_CG_EVERY=0\n";
+  $("env").value = "KTPLACE_SIMPL_ITERS=25\nKTPLACE_ANIM_TRACE_EVERY=0\nKTPLACE_ANIM_CG_EVERY=0\n";
 };
 $("presetclear").onclick = () => { $("env").value = ""; };
 $("execrun").onclick = runCommand;

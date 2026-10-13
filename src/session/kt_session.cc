@@ -19,6 +19,7 @@
 #include "placer/simpl/simpl_flowMgr.h"
 #include "placer/simpl/simpl_placer.h"
 #include "util/kt_log.h"
+#include "util/kt_param.h"
 #include "util/kt_reportTable.h"
 #include "util/kt_scopedTimer.h"
 #include "visualization/kt_visualizer.h"
@@ -127,8 +128,7 @@ void ktSession::globalPlace(const std::string &algorithm) {
         //
         // KTPLACE_SIMPL_FENCES=0 shows the placement without them, which is the only
         // way to see what the constraint costs.
-        const char *fenceEnv = std::getenv("KTPLACE_SIMPL_FENCES");
-        const bool fencesOn = (fenceEnv == nullptr) || (std::atoi(fenceEnv) != 0);
+        const bool fencesOn = param<bool>("KTPLACE_SIMPL_FENCES");
         if (!fencesOn) {
             ktlog.echo("SimPL: fence enforcement DISABLED by KTPLACE_SIMPL_FENCES=0");
         }
@@ -150,17 +150,17 @@ void ktSession::globalPlace(const std::string &algorithm) {
         ktlog.echo("Running NTUPlace1 global placement (ratio partitioning)...");
         RatioPlacer placer(d);
         RatioPlaceParams params;
-        if (const char *e = std::getenv("KTPLACE_NTU_LEAF_CELLS")) {
-            params.targetLeafCells = static_cast<std::size_t>(std::atoll(e));
+        if (const auto v = paramOverride<std::size_t>("KTPLACE_NTU_LEAF_CELLS")) {
+            params.targetLeafCells = *v;
         }
-        if (const char *e = std::getenv("KTPLACE_NTU_MAX_LEVELS")) {
-            params.maxLevels = static_cast<std::size_t>(std::atoll(e));
+        if (const auto v = paramOverride<std::size_t>("KTPLACE_NTU_MAX_LEVELS")) {
+            params.maxLevels = *v;
         }
-        if (const char *e = std::getenv("KTPLACE_NTU_RETRIES")) {
-            params.maxRatioRetries = static_cast<std::size_t>(std::atoll(e));
+        if (const auto v = paramOverride<std::size_t>("KTPLACE_NTU_RETRIES")) {
+            params.maxRatioRetries = *v;
         }
-        if (const char *e = std::getenv("KTPLACE_NTU_VERBOSE")) {
-            params.verbose = std::atoll(e) != 0;
+        if (const auto v = paramOverride<bool>("KTPLACE_NTU_VERBOSE")) {
+            params.verbose = *v;
         }
         const RatioPlaceResult res = placer.place(params);
         reportNtuPlace1(res);
@@ -198,8 +198,8 @@ void ktSession::legalize() {
 
     ktlog.echo("Running Abacus legalization...");
     LegalizeParams lparams;
-    if (const char *e = std::getenv("KTPLACE_ABACUS_MAX_ROW_DIST")) {
-        lparams.maxRowDistance = static_cast<std::size_t>(std::atoll(e));
+    if (const auto v = paramOverride<std::size_t>("KTPLACE_ABACUS_MAX_ROW_DIST")) {
+        lparams.maxRowDistance = *v;
     }
     lparams.frameEvery = plot.legalFrameEvery;
     // Build Abacus's own database, run it there, commit the answer.
@@ -243,8 +243,8 @@ void ktSession::detailPlace() {
     // costs a little HPWL; detailed placement wins it back.
     ktlog.echo("Running FastDP detailed placement...");
     DetailPlaceParams dparams;
-    if (const char *e = std::getenv("KTPLACE_DP_WINDOW")) {
-        dparams.localReorderWindow = static_cast<std::size_t>(std::atoll(e));
+    if (const auto v = paramOverride<std::size_t>("KTPLACE_DP_WINDOW")) {
+        dparams.localReorderWindow = *v;
     }
     // Build FastDP's own database, run it there, commit the answer.
     fastdp::fastdpDM dpDB = fastdp::buildFastdpDM(d);

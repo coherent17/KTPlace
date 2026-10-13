@@ -99,8 +99,8 @@ KTPLACE_SIMPL_ITERS=25 KTPLACE_SIMPL_SEED=1 \
 
 Common ones: `KTPLACE_SIMPL_ITERS`, `KTPLACE_SIMPL_SEED`, `KTPLACE_SIMPL_GRID`,
 `KTPLACE_SIMPL_DENSITY`, `KTPLACE_DP_WINDOW`, `KTPLACE_ANIM` (animated GIF),
-`KTPLACE_FINAL_ZOOM`. `grep -rhoE 'KTPLACE_[A-Z0-9_]+' src | sort -u` lists
-them all.
+`KTPLACE_FINAL_ZOOM`. All of them are declared, with type, default, range and a
+one-line description, in `src/util/kt_param.cc`.
 
 ### 4. From the browser: the web console
 
