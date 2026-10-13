@@ -43,7 +43,7 @@ BIN_DIR := $(BUILD_DIR)/bin
 LIB_DIR := $(BUILD_DIR)/lib
 
 # Subdirectories
-SUBDIRS := datamodel adaptor constraint placer legalizer detailPlacer visualization util
+SUBDIRS := datamodel adaptor constraint placer legalizer detailPlacer session visualization util
 
 # Source files in current directory
 LOCAL_SRCS := kt_flowMgr.cc kt_place.cc kt_option.cc
@@ -178,10 +178,14 @@ TEST_option := test/test_option.cc
 TEST_viz := visualization/test/test_viz.cc
 TEST_detail := detailPlacer/test/test_detail.cc
 TEST_ntuplace1 := placer/ntuplace1/test/test_ntuplace1.cc
+TEST_session := session/test/test_session.cc
+# Shared by the suites that run whole stages on a synthetic design. Listed as a
+# prerequisite, because the test rules do not generate dependency files.
+TEST_DESIGN_HELPERS := test/kt_testDesign.h
 
 TEST_BINS := $(BIN_DIR)/test_datamodel $(BIN_DIR)/test_adaptor $(BIN_DIR)/test_flow \
              $(BIN_DIR)/test_util $(BIN_DIR)/test_constraint $(BIN_DIR)/test_option $(BIN_DIR)/test_viz \
-             $(BIN_DIR)/test_detail $(BIN_DIR)/test_ntuplace1
+             $(BIN_DIR)/test_detail $(BIN_DIR)/test_ntuplace1 $(BIN_DIR)/test_session
 
 # Builds the test binaries without running them. `make coverage` needs this:
 # the coverage driver wants to run the binaries itself, once, under the
@@ -208,7 +212,7 @@ $(BIN_DIR)/test_adaptor: $(TEST_adaptor) $(LIB_OBJS) | dirs
 	@echo "  Building test_adaptor..."
 	@$(CXX) $(CXXFLAGS) $(INCLUDES) -o $@ $(TEST_adaptor) $(LIB_OBJS) $(LIBS) $(COVERAGE_LDFLAGS) $(TEST_LIBS)
 
-$(BIN_DIR)/test_flow: $(TEST_flow) $(LIB_OBJS) | dirs
+$(BIN_DIR)/test_flow: $(TEST_flow) $(TEST_DESIGN_HELPERS) $(LIB_OBJS) | dirs
 	@echo "  Building test_flow..."
 	@$(CXX) $(CXXFLAGS) $(INCLUDES) -o $@ $(TEST_flow) $(LIB_OBJS) $(LIBS) $(COVERAGE_LDFLAGS) $(TEST_LIBS)
 
@@ -235,6 +239,10 @@ $(BIN_DIR)/test_detail: $(TEST_detail) $(LIB_OBJS) | dirs
 $(BIN_DIR)/test_ntuplace1: $(TEST_ntuplace1) $(LIB_OBJS) | dirs
 	@echo "  Building test_ntuplace1..."
 	@$(CXX) $(CXXFLAGS) $(INCLUDES) -o $@ $(TEST_ntuplace1) $(LIB_OBJS) $(LIBS) $(COVERAGE_LDFLAGS) $(TEST_LIBS)
+
+$(BIN_DIR)/test_session: $(TEST_session) $(TEST_DESIGN_HELPERS) $(LIB_OBJS) | dirs
+	@echo "  Building test_session..."
+	@$(CXX) $(CXXFLAGS) $(INCLUDES) -o $@ $(TEST_session) $(LIB_OBJS) $(LIBS) $(COVERAGE_LDFLAGS) $(TEST_LIBS)
 
 # ============================================================================
 # Line coverage
