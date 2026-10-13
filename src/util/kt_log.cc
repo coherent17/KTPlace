@@ -3,6 +3,7 @@
 #include <chrono>
 #include <cstdio>
 #include <ctime>
+#include <exception>
 #include <iostream>
 
 namespace ktplace {
@@ -28,30 +29,42 @@ std::string timestamp() {
     return buf;
 }
 
+// How many sink dispatches are running on this thread. Non-zero means the
+// current record was emitted from inside a sink: it is not dispatched again, and
+// removeSink must not wait for in-flight calls (this thread is one of them).
+thread_local int sinkDispatchDepth = 0;
+
 }  // namespace
 
-const char *Logger::levelTag(Level tag) {
+struct Logger::SinkSlot {
+    SinkId id = 0;
+    Sink fn;
+    std::size_t inFlight = 0;  // guarded by Logger::sinkMutex
+    std::atomic<bool> reportedThrow{false};
+};
+
+const char *Logger::levelTag(LogLevel tag) {
     switch (tag) {
-        case Level::Echo:
+        case LogLevel::Echo:
             return "echo";
-        case Level::Trace:
+        case LogLevel::Trace:
             return "trace";
-        case Level::Warning:
+        case LogLevel::Warning:
             return "warning";
-        case Level::Fatal:
+        case LogLevel::Fatal:
             return "fatal";
     }
     return "?";
 }
 
-const char *Logger::levelColor(Level tag) {
+const char *Logger::levelColor(LogLevel tag) {
     switch (tag) {
-        case Level::Warning:
+        case LogLevel::Warning:
             return "\033[1;33m";
-        case Level::Fatal:
+        case LogLevel::Fatal:
             return "\033[1;31m";
-        case Level::Echo:
-        case Level::Trace:
+        case LogLevel::Echo:
+        case LogLevel::Trace:
             break;
     }
     return "";
@@ -119,8 +132,8 @@ std::size_t Logger::recordCount() const {
     return records;
 }
 
-void Logger::emit(Level level, const std::string &message) {
-    const bool isTrace = (level == Level::Trace);
+void Logger::emit(LogLevel level, const std::string &message) {
+    const bool isTrace = (level == LogLevel::Trace);
 
     std::string body = message;
     if (body.size() > kMaxRecordBytes) {
@@ -128,26 +141,145 @@ void Logger::emit(Level level, const std::string &message) {
         body += " ...[truncated]";
     }
 
-    std::lock_guard<std::mutex> lock(mutex);
-    ++records;
+    {
+        std::lock_guard<std::mutex> lock(mutex);
+        ++records;
 
-    if (isTrace) {
-        if (traceFile.is_open()) {
-            traceFile << timestamp() << " [trace] " << body << '\n';
-            traceFile.flush();
+        if (isTrace) {
+            if (traceFile.is_open()) {
+                traceFile << timestamp() << " [trace] " << body << '\n';
+                traceFile.flush();
+            }
+        } else if (file.is_open()) {
+            file << timestamp() << " [" << levelTag(level) << "] " << body << '\n';
+            file.flush();
         }
-    } else if (file.is_open()) {
-        file << timestamp() << " [" << levelTag(level) << "] " << body << '\n';
-        file.flush();
+
+        if (!isTrace || verboseEnabled) {
+            const char *color = levelColor(level);
+            if (color[0] != '\0') {
+                std::cerr << color << '[' << levelTag(level) << "] \033[0m " << body << '\n';
+            } else {
+                std::cerr << body << '\n';
+            }
+        }
     }
 
-    if (!isTrace || verboseEnabled) {
-        const char *color = levelColor(level);
-        if (color[0] != '\0') {
-            std::cerr << color << '[' << levelTag(level) << "] \033[0m " << body << '\n';
-        } else {
-            std::cerr << body << '\n';
+    // Outside the write mutex on purpose; see the threading contract in kt_log.h.
+    // Sink exceptions are contained inside dispatchToSinks; this only catches an
+    // allocation failure taking the snapshot, which must not turn a fatal()'s
+    // FatalError into std::bad_alloc or make logging throw.
+    if (sinkCount.load(std::memory_order_acquire) != 0 && sinkDispatchDepth == 0) {
+        try {
+            dispatchToSinks(level, body);
+        } catch (...) {
         }
+    }
+}
+
+void Logger::dispatchToSinks(LogLevel level, std::string_view body) {
+    std::vector<std::shared_ptr<SinkSlot>> snapshot;
+    {
+        std::lock_guard<std::mutex> lock(sinkMutex);
+        snapshot = sinks;
+        for (const std::shared_ptr<SinkSlot> &slot : snapshot) {
+            ++slot->inFlight;
+        }
+    }
+
+    // Undo the depth and in-flight counts on every exit path. Were either left
+    // raised, this thread would never feed the sinks again, and removeSink on
+    // any of these slots would wait forever.
+    struct DispatchGuard {
+        Logger &logger;
+        const std::vector<std::shared_ptr<SinkSlot>> &slots;
+        DispatchGuard(Logger &owner, const std::vector<std::shared_ptr<SinkSlot>> &taken)
+            : logger(owner), slots(taken) {
+            ++sinkDispatchDepth;
+        }
+        ~DispatchGuard() {
+            --sinkDispatchDepth;
+            {
+                std::lock_guard<std::mutex> lock(logger.sinkMutex);
+                for (const std::shared_ptr<SinkSlot> &slot : slots) {
+                    --slot->inFlight;
+                }
+            }
+            logger.sinkIdle.notify_all();
+        }
+        DispatchGuard(const DispatchGuard &) = delete;
+        DispatchGuard &operator=(const DispatchGuard &) = delete;
+    };
+    const DispatchGuard guard(*this, snapshot);
+
+    for (const std::shared_ptr<SinkSlot> &slot : snapshot) {
+        // Only record *that* it threw inside the handler (current_exception is
+        // noexcept); anything that allocates happens below, under its own try.
+        std::exception_ptr thrown;
+        try {
+            slot->fn(level, body);
+        } catch (...) {
+            thrown = std::current_exception();
+        }
+        if (!thrown || slot->reportedThrow.exchange(true)) {
+            continue;
+        }
+        try {
+            std::string what = "unknown exception";
+            try {
+                std::rethrow_exception(thrown);
+            } catch (const FatalError &e) {
+                what = "FatalError: " + e.message();
+            } catch (const std::exception &e) {
+                what = e.what();
+            } catch (...) {
+            }
+            if (what.empty()) {
+                what = "no message";
+            }
+            // Still inside the dispatch, so this reaches the transcript and
+            // stderr but not the sinks, and cannot loop.
+            emit(LogLevel::Warning,
+                 fmt::format("log sink {} threw ({}); further failures of this sink are "
+                             "not reported",
+                             slot->id, what));
+        } catch (...) {  // nothing sensible left to do; logging must go on
+        }
+    }
+}
+
+Logger::SinkId Logger::addSink(Sink sink) {
+    std::lock_guard<std::mutex> lock(sinkMutex);
+    const SinkId id = nextSinkId++;
+    if (!sink) {
+        return id;  // nothing to call; the id is still valid to remove
+    }
+    auto slot = std::make_shared<SinkSlot>();
+    slot->id = id;
+    slot->fn = std::move(sink);
+    sinks.push_back(std::move(slot));
+    sinkCount.store(sinks.size(), std::memory_order_release);
+    return id;
+}
+
+void Logger::removeSink(SinkId id) {
+    std::shared_ptr<SinkSlot> removed;
+    std::unique_lock<std::mutex> lock(sinkMutex);
+    for (auto it = sinks.begin(); it != sinks.end(); ++it) {
+        if ((*it)->id == id) {
+            removed = std::move(*it);
+            sinks.erase(it);
+            break;
+        }
+    }
+    if (!removed) {
+        return;
+    }
+    sinkCount.store(sinks.size(), std::memory_order_release);
+    if (sinkDispatchDepth == 0) {
+        sinkIdle.wait(lock, [&removed] {
+            return removed->inFlight == 0;
+        });
     }
 }
 

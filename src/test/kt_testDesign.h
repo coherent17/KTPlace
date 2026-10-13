@@ -1,21 +1,22 @@
 // @file kt_testDesign.h
 // Shared helpers for the suites that run whole stages on a synthetic design:
-// a scratch directory, a tiny Bookshelf design written into it, and a death
-// test for the ktlog.fatal paths.
+// a scratch directory, a tiny Bookshelf design written into it, and a check
+// for the ktlog.fatal paths.
 //
 // Header-only, and included after the suite's BOOST_TEST_MODULE definition,
 // because the helpers use Boost.Test assertions.
 
 #pragma once
 
+#include "util/kt_log.h"
+
 #include <boost/test/unit_test.hpp>
-#include <cstdio>
-#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <functional>
+#include <iostream>
+#include <sstream>
 #include <string>
-#include <sys/wait.h>
 #include <unistd.h>
 #include <vector>
 
@@ -107,45 +108,31 @@ End
 )");
 }
 
-/// Run `fn` in a forked child and require that it terminates the process with
-/// EXIT_FAILURE after printing `needle` on stderr.
-///
-/// Boost.Test 1.83 ships no death-test macros, so this is done with fork(2).
-/// The child exits via _exit() so it never flushes the parent's test buffers.
-inline void expectFatalExit(const std::function<void()> &fn, const std::string &needle) {
-    int channel[2];
-    BOOST_REQUIRE_EQUAL(::pipe(channel), 0);
-
-    const pid_t pid = ::fork();
-    BOOST_REQUIRE(pid >= 0);
-    if (pid == 0) {
-        ::close(channel[0]);
-        ::dup2(channel[1], STDERR_FILENO);
-        ::close(channel[1]);
-        std::FILE *devNull = std::fopen("/dev/null", "w");
-        if (devNull != nullptr) {
-            ::dup2(::fileno(devNull), STDOUT_FILENO);
-        }
+/// Require that `fn` raises a FatalError whose message contains `needle`, and
+/// that the same text reached stderr as a fatal record.
+inline void expectFatal(const std::function<void()> &fn, const std::string &needle) {
+    std::ostringstream captured;
+    std::streambuf *original = std::cerr.rdbuf(captured.rdbuf());
+    std::string message;
+    bool raised = false;
+    try {
         fn();
-        std::fflush(nullptr);
-        ::_exit(EXIT_SUCCESS);  // only reached when the call did NOT terminate
+    } catch (const FatalError &e) {
+        raised = true;
+        message = e.message();
+    } catch (...) {
+        std::cerr.rdbuf(original);
+        throw;
     }
+    std::cerr.rdbuf(original);
 
-    ::close(channel[1]);
-    std::string captured;
-    char buffer[512];
-    ssize_t got = 0;
-    while ((got = ::read(channel[0], buffer, sizeof(buffer))) > 0) {
-        captured.append(buffer, static_cast<std::size_t>(got));
-    }
-    ::close(channel[0]);
-
-    int status = 0;
-    ::waitpid(pid, &status, 0);
-    BOOST_CHECK(WIFEXITED(status));
-    BOOST_CHECK_EQUAL(WEXITSTATUS(status), EXIT_FAILURE);
-    BOOST_CHECK_MESSAGE(captured.find(needle) != std::string::npos,
-                        "stderr did not contain \"" << needle << "\"; got: " << captured);
+    BOOST_CHECK_MESSAGE(raised, "expected a FatalError containing \"" << needle << "\"");
+    BOOST_CHECK_MESSAGE(message.find(needle) != std::string::npos,
+                        "FatalError did not contain \"" << needle << "\"; got: " << message);
+    const std::string console = captured.str();
+    BOOST_CHECK_MESSAGE(
+        console.find("[fatal]") != std::string::npos && console.find(needle) != std::string::npos,
+        "stderr did not carry the fatal record; got: " << console);
 }
 
 inline std::size_t countNonEmptyLines(const std::filesystem::path &file) {

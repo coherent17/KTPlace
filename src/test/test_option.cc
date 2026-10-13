@@ -14,14 +14,12 @@
 #include "util/kt_log.h"
 
 #include <boost/test/included/unit_test.hpp>
-#include <cstdio>
-#include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <iostream>
+#include <sstream>
 #include <stdexcept>
 #include <string>
-#include <sys/wait.h>
-#include <unistd.h>
 #include <utility>
 #include <vector>
 
@@ -77,51 +75,54 @@ kt_option parse(const std::vector<std::string> &args) {
     return opt;
 }
 
-/// What a forked child did: its exit status, and everything it wrote to stdout and
-/// stderr together.
-struct ChildRun {
-    int status = 0;
-    std::string output;
+/// Redirects one standard stream into a string for the lifetime of the object.
+class CaptureStream {
+public:
+    explicit CaptureStream(std::ostream &stream)
+        : target(stream), original(stream.rdbuf(buffer.rdbuf())) {}
+    ~CaptureStream() {
+        target.rdbuf(original);
+    }
+    CaptureStream(const CaptureStream &) = delete;
+    CaptureStream &operator=(const CaptureStream &) = delete;
+
+    [[nodiscard]] std::string str() const {
+        return buffer.str();
+    }
+
+private:
+    std::ostream &target;
+    std::ostringstream buffer;
+    std::streambuf *original;
 };
 
-/// Runs `body` in a child process and collects its output. Needed for the paths
-/// that go through ktlog.fatal, which is [[noreturn]] and exits, so the parent
-/// could not observe them any other way.
-template <typename Fn>
-ChildRun runInChild(Fn body) {
-    int channel[2];
-    BOOST_REQUIRE_EQUAL(::pipe(channel), 0);
-    const pid_t pid = ::fork();
-    BOOST_REQUIRE(pid >= 0);
-    if (pid == 0) {
-        ::close(channel[0]);
-        ::dup2(channel[1], STDOUT_FILENO);
-        ::dup2(channel[1], STDERR_FILENO);
-        ::close(channel[1]);
-        body();
-        std::fflush(nullptr);
-        ::_exit(EXIT_SUCCESS);  // only reached if fatal() did not terminate
-    }
-    ::close(channel[1]);
-    ChildRun run;
-    char buffer[1024];
-    ssize_t got = 0;
-    while ((got = ::read(channel[0], buffer, sizeof(buffer))) > 0) {
-        run.output.append(buffer, static_cast<std::size_t>(got));
-    }
-    ::close(channel[0]);
-    ::waitpid(pid, &run.status, 0);
-    return run;
-}
+/// What one parse did: whether it said there is something to run, the fatal it
+/// raised (if any), and what it wrote to each stream.
+struct ParseOutcome {
+    bool ready = false;
+    bool fatal = false;
+    std::string fatalMessage;
+    std::string console;  // stderr, where every log record goes
+    std::string stdoutText;
+};
 
-/// Parse a command line in a child, since a bad one may exit rather than throw.
-ChildRun parseInChild(const std::vector<std::string> &args) {
+/// Parse a command line in-process, catching the FatalError a bad one raises.
+ParseOutcome parseCapturing(const std::vector<std::string> &args) {
     std::vector<std::string> copy = args;
     std::vector<char *> argv = argvOf(copy);
-    return runInChild([&argv] {
+    ParseOutcome out;
+    CaptureStream err(std::cerr);
+    CaptureStream sout(std::cout);
+    try {
         kt_option opt;
-        opt.parse(static_cast<int>(argv.size()), argv.data());
-    });
+        out.ready = opt.parse(static_cast<int>(argv.size()), argv.data());
+    } catch (const FatalError &e) {
+        out.fatal = true;
+        out.fatalMessage = e.message();
+    }
+    out.console = err.str();
+    out.stdoutText = sout.str();
+    return out;
 }
 
 std::string cwd() {
@@ -224,51 +225,37 @@ BOOST_AUTO_TEST_CASE(a_flag_at_the_end_without_a_value_is_rejected) {
 }
 
 BOOST_AUTO_TEST_CASE(an_unknown_flag_is_reported_and_stops_the_run) {
-    const ChildRun run = parseInChild({"ktplace", kDesign, "--nonesuch"});
-    BOOST_TEST(WIFEXITED(run.status));
-    BOOST_TEST(WEXITSTATUS(run.status) == EXIT_FAILURE);
-    BOOST_TEST(run.output.find("Unknown command-line option") != std::string::npos);
-    BOOST_TEST(run.output.find("--nonesuch") != std::string::npos);
+    const ParseOutcome run = parseCapturing({"ktplace", kDesign, "--nonesuch"});
+    BOOST_TEST(run.fatal);
+    BOOST_TEST(run.fatalMessage == "Unknown command-line option: --nonesuch");
+    BOOST_TEST(run.console.find("Unknown command-line option") != std::string::npos);
+    BOOST_TEST(run.console.find("--nonesuch") != std::string::npos);
+    BOOST_TEST(run.stdoutText.empty());
 }
 
 BOOST_AUTO_TEST_CASE(no_input_directory_is_a_fatal_error) {
-    // parse reports through ktlog.fatal, which exits the process rather than
-    // throwing, so this is only observable in a child.
-    const ChildRun run = parseInChild({"ktplace"});
-    BOOST_TEST(WIFEXITED(run.status));
-    BOOST_TEST(WEXITSTATUS(run.status) == EXIT_FAILURE);
-    BOOST_TEST(run.output.find("Insufficient command-line arguments") != std::string::npos);
+    const ParseOutcome run = parseCapturing({"ktplace"});
+    BOOST_TEST(run.fatal);
+    BOOST_TEST(run.fatalMessage == "Insufficient command-line arguments");
+    BOOST_TEST(run.console.find("Insufficient command-line arguments") != std::string::npos);
+    BOOST_TEST(run.stdoutText.empty());
 }
 
 BOOST_AUTO_TEST_CASE(help_and_version_stop_before_anything_else) {
     // Help has to win over a missing argument list, otherwise `ktplace --help`
     // would be an error instead of an answer.
     for (const char *flag : {"-h", "--help", "-V", "--version"}) {
-        std::vector<std::string> copy{"ktplace", flag};
-        std::vector<char *> argv = argvOf(copy);
-        const ChildRun run = runInChild([&argv] {
-            kt_option opt;
-            const bool ready = opt.parse(static_cast<int>(argv.size()), argv.data());
+        const ParseOutcome run = parseCapturing({"ktplace", flag});
+        BOOST_TEST_CONTEXT(flag) {
+            BOOST_TEST(!run.fatal);
             // A parser that reported Ready here would be claiming there is
             // something to run.
-            std::fflush(nullptr);
-            ::_exit(ready ? EXIT_FAILURE : EXIT_SUCCESS);
-        });
-        BOOST_TEST_CONTEXT(flag) {
-            BOOST_TEST(WIFEXITED(run.status));
-            BOOST_TEST(WEXITSTATUS(run.status) == EXIT_SUCCESS);
-            BOOST_TEST(!run.output.empty());
+            BOOST_TEST(!run.ready);
+            BOOST_TEST(!run.console.empty());
+            BOOST_TEST(run.stdoutText.empty());
         }
     }
-    BOOST_TEST(runInChild([] {
-                   std::vector<std::string> a{"ktplace", "--help"};
-                   std::vector<char *> v;
-                   for (std::string &s : a) {
-                       v.push_back(s.data());
-                   }
-                   kt_option opt;
-                   opt.parse(static_cast<int>(v.size()), v.data());
-               }).output.find("Usage:") != std::string::npos);
+    BOOST_TEST(parseCapturing({"ktplace", "--help"}).console.find("Usage:") != std::string::npos);
 }
 
 BOOST_AUTO_TEST_CASE(the_parser_can_be_copied) {

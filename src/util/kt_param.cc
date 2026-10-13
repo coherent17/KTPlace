@@ -198,49 +198,50 @@ std::vector<ParamDef> declarations() {
 
 std::optional<ParamValue> parseEnv(const ParamDef &def, const char *raw) {
     switch (def.envParse) {
-    case EnvParse::Presence:
-        return ParamValue(true);
-    case EnvParse::Text:
-        return ParamValue(std::in_place_type<std::string>, raw);
-    case EnvParse::CNumber:
-        switch (def.type) {
-        case ParamType::Bool:
-            return ParamValue(std::strtoll(raw, nullptr, 10) != 0);
-        case ParamType::Int:
-            return ParamValue(std::in_place_type<std::int64_t>, std::strtoll(raw, nullptr, 10));
-        case ParamType::Size:
-            // static_cast<std::size_t>(std::atoll(e)), as the sites did: a
-            // negative number wraps.
-            return ParamValue(std::in_place_type<std::size_t>,
-                              static_cast<std::size_t>(std::strtoll(raw, nullptr, 10)));
-        case ParamType::Double:
-            return ParamValue(std::in_place_type<double>, std::strtod(raw, nullptr));
-        case ParamType::String:
+        case EnvParse::Presence:
+            return ParamValue(true);
+        case EnvParse::Text:
             return ParamValue(std::in_place_type<std::string>, raw);
+        case EnvParse::CNumber:
+            switch (def.type) {
+                case ParamType::Bool:
+                    return ParamValue(std::strtoll(raw, nullptr, 10) != 0);
+                case ParamType::Int:
+                    return ParamValue(std::in_place_type<std::int64_t>,
+                                      std::strtoll(raw, nullptr, 10));
+                case ParamType::Size:
+                    // static_cast<std::size_t>(std::atoll(e)), as the sites did: a
+                    // negative number wraps.
+                    return ParamValue(std::in_place_type<std::size_t>,
+                                      static_cast<std::size_t>(std::strtoll(raw, nullptr, 10)));
+                case ParamType::Double:
+                    return ParamValue(std::in_place_type<double>, std::strtod(raw, nullptr));
+                case ParamType::String:
+                    return ParamValue(std::in_place_type<std::string>, raw);
+            }
+            break;
+        case EnvParse::NumberOrDefault: {
+            double v = 0.0;
+            try {
+                v = std::stod(raw);
+            } catch (const std::exception &) {
+                return std::nullopt;
+            }
+            switch (def.type) {
+                case ParamType::Bool:
+                    return ParamValue(v != 0.0);
+                case ParamType::Int:
+                    return ParamValue(std::in_place_type<std::int64_t>,
+                                      static_cast<std::int64_t>(static_cast<int>(v)));
+                case ParamType::Size:
+                    return ParamValue(std::in_place_type<std::size_t>, static_cast<std::size_t>(v));
+                case ParamType::Double:
+                    return ParamValue(std::in_place_type<double>, v);
+                case ParamType::String:
+                    return ParamValue(std::in_place_type<std::string>, raw);
+            }
+            break;
         }
-        break;
-    case EnvParse::NumberOrDefault: {
-        double v = 0.0;
-        try {
-            v = std::stod(raw);
-        } catch (const std::exception &) {
-            return std::nullopt;
-        }
-        switch (def.type) {
-        case ParamType::Bool:
-            return ParamValue(v != 0.0);
-        case ParamType::Int:
-            return ParamValue(std::in_place_type<std::int64_t>,
-                              static_cast<std::int64_t>(static_cast<int>(v)));
-        case ParamType::Size:
-            return ParamValue(std::in_place_type<std::size_t>, static_cast<std::size_t>(v));
-        case ParamType::Double:
-            return ParamValue(std::in_place_type<double>, v);
-        case ParamType::String:
-            return ParamValue(std::in_place_type<std::string>, raw);
-        }
-        break;
-    }
     }
     return std::nullopt;
 }
@@ -259,15 +260,16 @@ std::string_view trim(std::string_view s) {
 
 std::string lower(std::string_view s) {
     std::string out(s);
-    std::ranges::transform(out, out.begin(),
-                           [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    std::ranges::transform(out, out.begin(), [](unsigned char c) {
+        return static_cast<char>(std::tolower(c));
+    });
     return out;
 }
 
 ParamError malformed(const ParamDef &def, std::string_view textIn) {
-    return {ParamError::Kind::Malformed,
-            std::string(def.name) + ": '" + std::string(textIn) + "' is not a valid " +
-                std::string(ParamRegistry::typeName(def.type))};
+    return {ParamError::Kind::Malformed, std::string(def.name) + ": '" + std::string(textIn) +
+                                             "' is not a valid " +
+                                             std::string(ParamRegistry::typeName(def.type))};
 }
 
 template <typename T>
@@ -284,34 +286,34 @@ std::optional<T> fromChars(std::string_view s) {
 std::expected<ParamValue, ParamError> parseStrict(const ParamDef &def, std::string_view raw) {
     const std::string_view s = trim(raw);
     switch (def.type) {
-    case ParamType::Bool: {
-        const std::string l = lower(s);
-        if (l == "1" || l == "true" || l == "on" || l == "yes") {
-            return ParamValue(true);
+        case ParamType::Bool: {
+            const std::string l = lower(s);
+            if (l == "1" || l == "true" || l == "on" || l == "yes") {
+                return ParamValue(true);
+            }
+            if (l == "0" || l == "false" || l == "off" || l == "no") {
+                return ParamValue(false);
+            }
+            return std::unexpected(malformed(def, raw));
         }
-        if (l == "0" || l == "false" || l == "off" || l == "no") {
-            return ParamValue(false);
-        }
-        return std::unexpected(malformed(def, raw));
-    }
-    case ParamType::Int:
-        if (const auto v = fromChars<std::int64_t>(s)) {
-            return ParamValue(std::in_place_type<std::int64_t>, *v);
-        }
-        return std::unexpected(malformed(def, raw));
-    case ParamType::Size:
-        // from_chars on an unsigned type already refuses a leading '-'.
-        if (const auto v = fromChars<std::size_t>(s)) {
-            return ParamValue(std::in_place_type<std::size_t>, *v);
-        }
-        return std::unexpected(malformed(def, raw));
-    case ParamType::Double:
-        if (const auto v = fromChars<double>(s); v && std::isfinite(*v)) {
-            return ParamValue(std::in_place_type<double>, *v);
-        }
-        return std::unexpected(malformed(def, raw));
-    case ParamType::String:
-        return ParamValue(std::in_place_type<std::string>, std::string(s));
+        case ParamType::Int:
+            if (const auto v = fromChars<std::int64_t>(s)) {
+                return ParamValue(std::in_place_type<std::int64_t>, *v);
+            }
+            return std::unexpected(malformed(def, raw));
+        case ParamType::Size:
+            // from_chars on an unsigned type already refuses a leading '-'.
+            if (const auto v = fromChars<std::size_t>(s)) {
+                return ParamValue(std::in_place_type<std::size_t>, *v);
+            }
+            return std::unexpected(malformed(def, raw));
+        case ParamType::Double:
+            if (const auto v = fromChars<double>(s); v && std::isfinite(*v)) {
+                return ParamValue(std::in_place_type<double>, *v);
+            }
+            return std::unexpected(malformed(def, raw));
+        case ParamType::String:
+            return ParamValue(std::in_place_type<std::string>, std::string(s));
     }
     return std::unexpected(malformed(def, raw));
 }
@@ -537,28 +539,28 @@ std::string ParamRegistry::format(const ParamValue &value) {
 
 std::string_view ParamRegistry::typeName(ParamType type) {
     switch (type) {
-    case ParamType::Bool:
-        return "bool";
-    case ParamType::Int:
-        return "int";
-    case ParamType::Size:
-        return "size";
-    case ParamType::Double:
-        return "double";
-    case ParamType::String:
-        return "string";
+        case ParamType::Bool:
+            return "bool";
+        case ParamType::Int:
+            return "int";
+        case ParamType::Size:
+            return "size";
+        case ParamType::Double:
+            return "double";
+        case ParamType::String:
+            return "string";
     }
     return "unknown";
 }
 
 std::string_view ParamRegistry::sourceName(ParamSource source) {
     switch (source) {
-    case ParamSource::Default:
-        return "default";
-    case ParamSource::Environment:
-        return "env";
-    case ParamSource::Explicit:
-        return "set";
+        case ParamSource::Default:
+            return "default";
+        case ParamSource::Environment:
+            return "env";
+        case ParamSource::Explicit:
+            return "set";
     }
     return "unknown";
 }

@@ -19,7 +19,7 @@
 using namespace ktplace;
 using ktplace::testing::countNonEmptyLines;
 using ktplace::testing::designDir;
-using ktplace::testing::expectFatalExit;
+using ktplace::testing::expectFatal;
 using ktplace::testing::ScratchDir;
 using ktplace::testing::writeBookshelfDesign;
 namespace fs = std::filesystem;
@@ -180,37 +180,37 @@ BOOST_AUTO_TEST_CASE(session_reading_again_replaces_the_design) {
 }
 
 BOOST_AUTO_TEST_CASE(session_stages_fail_before_a_design_is_loaded) {
-    expectFatalExit(
+    expectFatal(
         [] {
             ktSession session;
             session.legalize();
         },
         "legalize: no design loaded");
-    expectFatalExit(
+    expectFatal(
         [] {
             ktSession session;
             session.globalPlace("simpl");
         },
         "global_place: no design loaded");
-    expectFatalExit(
+    expectFatal(
         [] {
             ktSession session;
             session.detailPlace();
         },
         "detail_place: no design loaded");
-    expectFatalExit(
+    expectFatal(
         [] {
             const ktSession session;
             session.writeDesign("/dev/null");
         },
         "write_design: no design loaded");
-    expectFatalExit(
+    expectFatal(
         [] {
             const ktSession session;
             (void)session.hpwl();
         },
         "report_hpwl: no design loaded");
-    expectFatalExit(
+    expectFatal(
         [] {
             const ktSession session;
             (void)session.checkPlacement();
@@ -221,7 +221,7 @@ BOOST_AUTO_TEST_CASE(session_stages_fail_before_a_design_is_loaded) {
 BOOST_AUTO_TEST_CASE(session_fails_on_an_unknown_algorithm) {
     const ScratchDir dir("session_badalgo");
     writeBookshelfDesign(dir);
-    expectFatalExit(
+    expectFatal(
         [&] {
             ktSession session;
             session.readDesign(designDir(dir).string());
@@ -232,7 +232,7 @@ BOOST_AUTO_TEST_CASE(session_fails_on_an_unknown_algorithm) {
 
 BOOST_AUTO_TEST_CASE(session_fails_when_the_input_directory_is_missing) {
     const ScratchDir dir("session_badinput");
-    expectFatalExit(
+    expectFatal(
         [&] {
             ktSession session;
             session.readDesign(dir.str() + "/no_such_dir");
@@ -243,7 +243,7 @@ BOOST_AUTO_TEST_CASE(session_fails_when_the_input_directory_is_missing) {
 BOOST_AUTO_TEST_CASE(session_fails_when_the_output_cannot_be_opened) {
     const ScratchDir dir("session_badoutput");
     writeBookshelfDesign(dir);
-    expectFatalExit(
+    expectFatal(
         [&] {
             ktSession session;
             session.readDesign(designDir(dir).string());

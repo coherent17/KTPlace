@@ -4,7 +4,7 @@
 #define BOOST_TEST_MODULE ktplace_flow
 #define BOOST_TEST_DYN_LINK
 #include <boost/test/unit_test.hpp>
-// Death tests verify the ktlog::fatal paths, which end the process on purpose.
+// The ktlog::fatal paths throw FatalError, so they are checked in-process.
 #include "kt_flowMgr.h"
 #include "kt_option.h"
 
@@ -19,7 +19,7 @@
 using namespace ktplace;
 using ktplace::testing::countNonEmptyLines;
 using ktplace::testing::designDir;
-using ktplace::testing::expectFatalExit;
+using ktplace::testing::expectFatal;
 using ktplace::testing::ScratchDir;
 using ktplace::testing::writeBookshelfDesign;
 namespace fs = std::filesystem;
@@ -183,10 +183,10 @@ END DESIGN
     BOOST_TEST(countNonEmptyLines(opt.getOutputPath()) == 4);  // 3 components + 1 pad
 }
 
-BOOST_AUTO_TEST_CASE(flow_exits_on_an_unknown_algorithm) {
+BOOST_AUTO_TEST_CASE(flow_fails_on_an_unknown_algorithm) {
     const ScratchDir dir("badalgo");
     writeBookshelfDesign(dir);
-    expectFatalExit(
+    expectFatal(
         [&] {
             FlowMgr flow;
             kt_option opt = optionsFor(dir, designDir(dir).string());
@@ -196,9 +196,9 @@ BOOST_AUTO_TEST_CASE(flow_exits_on_an_unknown_algorithm) {
         "Unknown placement algorithm");
 }
 
-BOOST_AUTO_TEST_CASE(flow_exits_when_the_input_directory_is_missing) {
+BOOST_AUTO_TEST_CASE(flow_fails_when_the_input_directory_is_missing) {
     const ScratchDir dir("badinput");
-    expectFatalExit(
+    expectFatal(
         [&] {
             FlowMgr flow;
             flow.run(optionsFor(dir, dir.str() + "/no_such_dir"));
@@ -206,11 +206,11 @@ BOOST_AUTO_TEST_CASE(flow_exits_when_the_input_directory_is_missing) {
         "cannot read input directory");
 }
 
-BOOST_AUTO_TEST_CASE(flow_exits_when_the_design_files_are_missing) {
+BOOST_AUTO_TEST_CASE(flow_fails_when_the_design_files_are_missing) {
     const ScratchDir dir("nofiles");
     // The directory exists but holds no .nodes, which must not be mistaken for
     // an empty design.
-    expectFatalExit(
+    expectFatal(
         [&] {
             FlowMgr flow;
             flow.run(optionsFor(dir, dir.str()));

@@ -2613,9 +2613,8 @@ SimplResult simplPlacer::Impl::run(const SimplParams &P, bool useFences) {
     // runs after the one above has accepted only "inv" or "const", and it maps
     // everything but "constant" to InverseLength -- so "const" ends up inverse.
     if (const auto e = paramOverride<std::string>("KTPLACE_SIMPL_PSEUDONET")) {
-        par_.pseudonetLaw = (*e == "constant")
-                                ? SimplParams::PseudonetLaw::ConstantStiffness
-                                : SimplParams::PseudonetLaw::InverseLength;
+        par_.pseudonetLaw = (*e == "constant") ? SimplParams::PseudonetLaw::ConstantStiffness
+                                               : SimplParams::PseudonetLaw::InverseLength;
     }
     if (const auto v = paramOverride<double>("KTPLACE_SIMPL_ALPHA_BASE")) {
         par_.alphaBase = *v;
