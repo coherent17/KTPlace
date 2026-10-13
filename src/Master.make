@@ -261,6 +261,9 @@ coverage-clean:
 # Clean
 clean:
 	@echo "Cleaning..."
+	# The env wrappers point at $(BIN_DIR)/ktplace, so leaving them behind would
+	# leave a ktplace.sh that reports a missing binary until the next build.
+	@rm -f $(ENV_SCRIPTS)
 	@rm -rf $(BUILD_DIR)
 	@$(foreach dir,$(SUBDIRS),$(MAKE) -C $(dir) -f Master.make clean;)
 

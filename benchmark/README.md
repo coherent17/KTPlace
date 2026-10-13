@@ -22,9 +22,9 @@ UMich mirror has no copy and the tarball DREAMPlace points at now returns 403,
 while the suite itself is redistributed by dozens of placement papers without a
 canonical home. Vendoring one 5.4 MB design is a fair price for a smoke test
 that cannot fail on someone else's uptime. The other seven ISPD 2005 designs
-(`adaptec2`–`adaptec4`, `bigblue1`–`bigblue4`) stay ignored, and
-`output/run_ispd2005.sh` skips any design it cannot find, so a partial checkout
-still runs the designs it has.
+(`adaptec2`–`adaptec4`, `bigblue1`–`bigblue4`) stay ignored; `fetch_benchmarks.py`
+skips any design it cannot fetch, so a partial checkout still runs the designs it
+has.
 
 ## The second vendored design: `ICCAD04/ibm01`
 

@@ -13,14 +13,9 @@ build-cov/
 /ktplace.sh
 /ktplace.csh
 
-# Generated placements and plots
+# Generated placements, plots, logs and suite drivers: a run writes here, so
+# nothing in it belongs in the commit.
 output/
-# ...except the ISPD 2005 suite driver, which is the regression entry point and
-# refers to the vendored adaptec1, so it belongs next to it rather than only on
-# whoever's machine happens to have written it.
-!output/
-output/*
-!output/run_ispd2005.sh
 out.pl
 
 # Run transcript
