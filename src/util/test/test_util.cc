@@ -409,6 +409,37 @@ BOOST_AUTO_TEST_CASE(a_throwing_sink_is_contained) {
     ktlog.configure("", false);
 }
 
+BOOST_AUTO_TEST_CASE(a_sink_throwing_an_empty_message_is_still_reported) {
+    TempLog log;
+    ktlog.configure(log.str(), false);
+    {
+        CaptureCerr cap;
+        const SinkGuard silent([](LogLevel, std::string_view) {
+            throw std::runtime_error("");
+        });
+        ktlog.echo("record");
+    }
+    BOOST_TEST(log.contents().find("threw (no message)") != std::string::npos);
+    ktlog.configure("", false);
+}
+
+BOOST_AUTO_TEST_CASE(a_sink_may_add_another_sink) {
+    CaptureCerr cap;
+    Collected late;
+    Logger::SinkId added = 0;
+    {
+        const SinkGuard adder([&](LogLevel, std::string_view) {
+            if (added == 0) {
+                added = ktlog.addSink(late.sink());
+            }
+        });
+        ktlog.echo("one");  // the new sink is not in this record's snapshot
+        ktlog.echo("two");
+    }
+    ktlog.removeSink(added);
+    BOOST_TEST(late.size() == 1U);
+}
+
 BOOST_AUTO_TEST_CASE(a_sink_may_log_and_remove_itself_without_deadlock) {
     TempLog log;
     ktlog.configure(log.str(), false);

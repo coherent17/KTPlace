@@ -141,7 +141,9 @@ public:
     //    cannot recurse without bound.
     //  - A sink that throws is contained: the exception is dropped, the other
     //    sinks and the transcript are unaffected, and the first failure of each
-    //    sink is reported once as a warning.
+    //    sink is reported once as a warning. That warning is emitted from inside
+    //    the dispatch, so by the rule above it goes to the transcript and stderr
+    //    only, never to the sinks.
     //  - addSink and removeSink may be called from any thread, including from
     //    inside a sink. Once removeSink returns, the sink is not running and will
     //    not be called again, so whatever it captured can be destroyed. The one

@@ -187,39 +187,65 @@ void Logger::dispatchToSinks(LogLevel level, std::string_view body) {
         }
     }
 
-    ++sinkDispatchDepth;
+    // Undo the depth and in-flight counts on every exit path. Were either left
+    // raised, this thread would never feed the sinks again, and removeSink on
+    // any of these slots would wait forever.
+    struct DispatchGuard {
+        Logger &logger;
+        const std::vector<std::shared_ptr<SinkSlot>> &slots;
+        DispatchGuard(Logger &owner, const std::vector<std::shared_ptr<SinkSlot>> &taken)
+            : logger(owner), slots(taken) {
+            ++sinkDispatchDepth;
+        }
+        ~DispatchGuard() {
+            --sinkDispatchDepth;
+            {
+                std::lock_guard<std::mutex> lock(logger.sinkMutex);
+                for (const std::shared_ptr<SinkSlot> &slot : slots) {
+                    --slot->inFlight;
+                }
+            }
+            logger.sinkIdle.notify_all();
+        }
+        DispatchGuard(const DispatchGuard &) = delete;
+        DispatchGuard &operator=(const DispatchGuard &) = delete;
+    };
+    const DispatchGuard guard(*this, snapshot);
+
     for (const std::shared_ptr<SinkSlot> &slot : snapshot) {
-        std::string failure;
+        // Only record *that* it threw inside the handler (current_exception is
+        // noexcept); anything that allocates happens below, under its own try.
+        std::exception_ptr thrown;
         try {
             slot->fn(level, body);
-        } catch (const FatalError &e) {
-            failure = "FatalError: " + e.message();
-        } catch (const std::exception &e) {
-            failure = e.what();
         } catch (...) {
-            failure = "unknown exception";
+            thrown = std::current_exception();
         }
-        if (!failure.empty() && !slot->reportedThrow.exchange(true)) {
+        if (!thrown || slot->reportedThrow.exchange(true)) {
+            continue;
+        }
+        try {
+            std::string what = "unknown exception";
+            try {
+                std::rethrow_exception(thrown);
+            } catch (const FatalError &e) {
+                what = "FatalError: " + e.message();
+            } catch (const std::exception &e) {
+                what = e.what();
+            } catch (...) {
+            }
+            if (what.empty()) {
+                what = "no message";
+            }
             // Still inside the dispatch, so this reaches the transcript and
             // stderr but not the sinks, and cannot loop.
-            try {
-                emit(LogLevel::Warning,
-                     fmt::format("log sink {} threw ({}); further failures of this sink are "
-                                 "not reported",
-                                 slot->id, failure));
-            } catch (...) {  // nothing sensible left to do; logging must go on
-            }
+            emit(LogLevel::Warning,
+                 fmt::format("log sink {} threw ({}); further failures of this sink are "
+                             "not reported",
+                             slot->id, what));
+        } catch (...) {  // nothing sensible left to do; logging must go on
         }
     }
-    --sinkDispatchDepth;
-
-    {
-        std::lock_guard<std::mutex> lock(sinkMutex);
-        for (const std::shared_ptr<SinkSlot> &slot : snapshot) {
-            --slot->inFlight;
-        }
-    }
-    sinkIdle.notify_all();
 }
 
 Logger::SinkId Logger::addSink(Sink sink) {
