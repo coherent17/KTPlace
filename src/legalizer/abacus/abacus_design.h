@@ -16,9 +16,8 @@
 
 namespace ktplace::abacus {
 
-/// A cell to place. Abacus needs its size and where it started; it does not need
-/// a name, a netlist identity, or a region, because legality here is defined
-/// entirely by rows.
+/// A cell to place. Abacus needs its size, where it started, and the fence it is
+/// bound to, if any; it does not need a name or a netlist identity.
 struct Cell {
     double x = 0.0;
     double y = 0.0;
@@ -26,7 +25,13 @@ struct Cell {
     double height = 0.0;
     bool isFixed = false;
     bool isTerminal = false;
+    /// Index into Design::fences, or kNoRegion. A fenced cell may only be placed
+    /// inside its region, and no other cell may be placed inside any region.
+    int region = -1;
 };
+
+/// Region id of a cell bound to no fence.
+inline constexpr int kNoRegion = -1;
 
 /// A pin on a cell. Only its offset from the cell origin matters, for HPWL.
 struct Pin {
@@ -101,9 +106,10 @@ struct Region {
 
 /// The regions of one design. Empty means a correctly unconstrained design.
 ///
-/// Abacus only ever asks whether a cell is where its region says it should be.
-/// It has no push-out or clamp, because legality here comes from the rows; the
-/// regions are a check, not a constraint it solves against.
+/// Fences are exclusive, as in the ISPD 2015 contest: a region's member cells
+/// must lie inside it, and every other cell outside. Abacus enforces both by
+/// splitting each row into pieces at the fence boundaries and only offering a
+/// cell the pieces that belong to its own region (see buildRows()).
 class Fences {
 public:
     [[nodiscard]] std::size_t numRegions() const noexcept {

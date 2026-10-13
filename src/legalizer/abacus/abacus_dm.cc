@@ -22,6 +22,7 @@ void copyCells(const ktplace::Graph &graph, std::vector<Cell> &out) {
         c.height = cell.height;
         c.isFixed = cell.isFixed;
         c.isTerminal = cell.isTerminal;
+        c.region = cell.regionId;
     }
 }
 

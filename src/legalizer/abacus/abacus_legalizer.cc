@@ -7,6 +7,7 @@
 #include "legalizer/abacus/abacus_design.h"
 #include "util/kt_log.h"
 #include "util/kt_reportTable.h"
+#include "util/kt_rowFence.h"
 #include "util/kt_scopedTimer.h"
 
 #include <algorithm>
@@ -108,6 +109,9 @@ struct Cluster {
 struct Subrow {
     double xlo = 0.0;
     double xhi = 0.0;
+    /// The fence this piece belongs to, or kNoRegion for open space. Only a cell
+    /// of the same region may be placed here.
+    int region = abacus::kNoRegion;
     /// Clusters assigned here, in increasing left edge.
     std::vector<Cluster> clusters;
     double cost = 0.0;
@@ -151,6 +155,8 @@ public:
 
 private:
     void buildRows();
+    /// Split each row's pieces at the fence boundaries and tag them by region.
+    void splitByFences();
     /// Insert slot `i` into row `r` and re-place the affected clusters.
     /// Returns the row's cost delta, or kInfeasible. `xsOut` receives the
     /// clusters' new left edges for the suffix that moved.
@@ -175,6 +181,7 @@ private:
     std::vector<double> w_, h_;     ///< per movable slot
     std::vector<double> x0_, y0_;   ///< pre-legalization position (the target)
     std::vector<double> xs_, ys_;   ///< live position
+    std::vector<int> region_;       ///< fence of each movable slot, or kNoRegion
     std::unordered_map<std::size_t, std::size_t> slotOf_;
     std::vector<FixedBox> fixed_;
     abacus::DieBox die_ = {0.0, 0.0, 0.0, 0.0};
@@ -258,15 +265,47 @@ void AbacusLegalizer::Impl::buildRows() {
                 pieces.push_back(piece);
             }
         }
+        r.subrows = std::move(pieces);
+    }
+    splitByFences();
+    for (RowTrack &r : rows_) {
         // Subrows too narrow to be worth searching are dropped: a sliver a cell
         // cannot fit into only makes the search slower and can never be chosen.
         std::vector<Subrow> kept;
-        for (Subrow &piece : pieces) {
+        for (Subrow &piece : r.subrows) {
             if (piece.width() >= r.siteWidth * minSubrowSites()) {
                 kept.push_back(std::move(piece));
             }
         }
         r.subrows = std::move(kept);
+    }
+}
+
+void AbacusLegalizer::Impl::splitByFences() {
+    const abacus::Fences &fences = design.fences;
+    if (fences.numRegions() == 0) {
+        return;
+    }
+    std::vector<FenceRect> rects;
+    for (int id = 0; id < static_cast<int>(fences.numRegions()); ++id) {
+        for (const abacus::Rect &rc : fences.region(id).rects) {
+            rects.push_back(FenceRect{rc.xlo, rc.ylo, rc.xhi, rc.yhi, id});
+        }
+    }
+    for (RowTrack &r : rows_) {
+        std::vector<Subrow> out;
+        for (const Subrow &sr : r.subrows) {
+            for (const RowPiece &rp :
+                 splitRowByFences(sr.xlo, sr.xhi, r.y, r.y + r.height, r.siteWidth, rects)) {
+                Subrow piece = sr;
+                piece.xlo = rp.xlo;
+                piece.xhi = rp.xhi;
+                piece.used = rp.xlo;
+                piece.region = rp.region;
+                out.push_back(piece);
+            }
+        }
+        r.subrows = std::move(out);
     }
 }
 
@@ -601,6 +640,12 @@ LegalizeResult AbacusLegalizer::Impl::run(const LegalizeParams &params) {
         slotOf_[v] = slot;
         w_.push_back(cell.width);
         h_.push_back(cell.height);
+        // A region id the design does not have is treated as unfenced rather than
+        // as a fence no piece can ever match.
+        region_.push_back(cell.region >= 0 &&
+                                  static_cast<std::size_t>(cell.region) < design.fences.numRegions()
+                              ? cell.region
+                              : abacus::kNoRegion);
         x0_.push_back(cell.x);
         y0_.push_back(cell.y);
     }
@@ -643,6 +688,34 @@ LegalizeResult AbacusLegalizer::Impl::run(const LegalizeParams &params) {
     std::size_t placed = 0;
     std::size_t commitFail = 0;
 
+    // Per fence: how much member area there is against how much room its pieces
+    // offer. A fence whose members do not fit is a design fact, not a legalizer
+    // bug, and this is where it shows.
+    const std::size_t nFences = design.fences.numRegions();
+    std::vector<std::size_t> fenceUnplaced(nFences, 0);
+    if (nFences > 0) {
+        std::vector<double> demand(nFences, 0.0), room(nFences, 0.0);
+        std::vector<std::size_t> members(nFences, 0);
+        for (std::size_t i = 0; i < mov_.size(); ++i) {
+            if (region_[i] != abacus::kNoRegion) {
+                demand[static_cast<std::size_t>(region_[i])] += w_[i] * h_[i];
+                ++members[static_cast<std::size_t>(region_[i])];
+            }
+        }
+        for (const RowTrack &r : rows_) {
+            for (const Subrow &sr : r.subrows) {
+                if (sr.region != abacus::kNoRegion) {
+                    room[static_cast<std::size_t>(sr.region)] += sr.width() * r.height;
+                }
+            }
+        }
+        for (std::size_t f = 0; f < nFences; ++f) {
+            ktlog.trace(
+                "  fence {}: {} member(s), cell area {:.4g}, row area {:.4g} ({:.1f}% full)", f,
+                members[f], demand[f], room[f], room[f] > 0.0 ? 100.0 * demand[f] / room[f] : 0.0);
+        }
+    }
+
     for (const std::size_t i : order) {
         // Home row: the band containing the cell's target y, else the nearest.
         std::size_t home = 0;
@@ -674,6 +747,11 @@ LegalizeResult AbacusLegalizer::Impl::run(const LegalizeParams &params) {
             RowTrack &R = rows_[ri];
             Subrow &sr = R.subrows[si];
             if (h_[i] > R.height + 1e-9) {
+                return;
+            }
+            // Fences are exclusive: a member only goes into its own region's
+            // pieces, and every other cell only into open space.
+            if (sr.region != region_[i]) {
                 return;
             }
             // Only the geometric width is pre-filtered. Whether there is room is
@@ -754,8 +832,20 @@ LegalizeResult AbacusLegalizer::Impl::run(const LegalizeParams &params) {
             }
         }
 
+        if (bestRow == kNoRow && region_[i] != abacus::kNoRegion) {
+            // A fenced cell whose global placement left it far from its region
+            // finds no piece of it within the bounded scan above. Rather than
+            // leave it unplaced, look at every row: only its region's pieces can
+            // match, so this costs the region's rows, not the design's.
+            for (std::size_t ri = 0; ri < rows_.size(); ++ri) {
+                tryRow(ri);
+            }
+        }
         if (bestRow == kNoRow) {
             ++res.unplaced;
+            if (region_[i] != abacus::kNoRegion) {
+                ++fenceUnplaced[static_cast<std::size_t>(region_[i])];
+            }
             continue;
         }
         // Commit: place the cell in the winning subrow for real. The commit can
@@ -773,6 +863,13 @@ LegalizeResult AbacusLegalizer::Impl::run(const LegalizeParams &params) {
 
         if (design.onFrame && params.frameEvery > 0 && placed % params.frameEvery == 0) {
             writeFrame("legalizing", placed, mov_.size());
+        }
+    }
+
+    for (std::size_t f = 0; f < fenceUnplaced.size(); ++f) {
+        if (fenceUnplaced[f] > 0) {
+            ktlog.trace("  fence {}: {} member(s) found no piece of their region", f,
+                        fenceUnplaced[f]);
         }
     }
 
