@@ -5,6 +5,7 @@
 #include "placer/simpl/simpl_placer.h"
 
 #include "util/kt_log.h"
+#include "util/kt_param.h"
 #include "util/kt_reportTable.h"
 #include "util/kt_scopedTimer.h"
 #include "visualization/kt_visualizer.h"
@@ -578,10 +579,9 @@ void simplPlacer::Impl::buildGrid(const SimplParams &P) {
         double t =
             std::clamp(std::sqrt(static_cast<double>(std::max<std::size_t>(numMovable_, 1)) / 51.0),
                        16.0, 256.0);
-        if (const char *e = std::getenv("KTPLACE_SIMPL_GRID")) {
-            const long v = std::strtol(e, nullptr, 10);
-            if (v >= 8 && v <= 1024) {
-                t = static_cast<double>(v);
+        if (const auto v = paramOverride<std::int64_t>("KTPLACE_SIMPL_GRID")) {
+            if (*v >= 8 && *v <= 1024) {
+                t = static_cast<double>(*v);
             }
         }
         nbx = static_cast<std::size_t>(t);
@@ -1163,18 +1163,20 @@ void simplPlacer::Impl::solve(const std::string &tag, bool allowFrames, std::siz
     setup(ax, Ax_, rhsX_, solX_);
     setup(ay, Ay_, rhsY_, solY_);
 
-    for (std::size_t it = 0; it < par_.cgMaxIter; ++it) {
-        // Overridable, because on this system the residual has a floor: every
-        // solve runs the full cgMaxIter and finishes between 1e-3 and 5e-3, so
-        // cgTol = 1e-3 is below what Jacobi preconditioning reaches and the cap is
-        // the only thing stopping it. That makes cgMaxIter, not the tolerance, the
-        // real stopping rule, and it is why a 100-iteration run costs 20 minutes.
-        if (const char *e = std::getenv("KTPLACE_SIMPL_CG_TOL")) {
-            const double v = std::atof(e);
-            if (v > 0.0) {
-                par_.cgTol = v;
-            }
+    // Overridable, because on this system the residual has a floor: every
+    // solve runs the full cgMaxIter and finishes between 1e-3 and 5e-3, so
+    // cgTol = 1e-3 is below what Jacobi preconditioning reaches and the cap is
+    // the only thing stopping it. That makes cgMaxIter, not the tolerance, the
+    // real stopping rule, and it is why a 100-iteration run costs 20 minutes.
+    //
+    // Read once per solve rather than once per CG iteration, as it used to be:
+    // the override sticks in par_ either way, so only the cost differs.
+    if (const auto v = paramOverride<double>("KTPLACE_SIMPL_CG_TOL")) {
+        if (*v > 0.0) {
+            par_.cgTol = *v;
         }
+    }
+    for (std::size_t it = 0; it < par_.cgMaxIter; ++it) {
         const bool liveX = ax.active && ax.resid > par_.cgTol;
         const bool liveY = ay.active && ay.resid > par_.cgTol;
         if (!liveX && !liveY) {
@@ -2536,8 +2538,8 @@ SimplResult simplPlacer::Impl::run(const SimplParams &P, bool useFences) {
     fencePushes_ = 0;
     // Debugging cap: the legalizer is the expensive part, so a short run is
     // needed to iterate on it. Unset in normal use.
-    if (const char *e = std::getenv("KTPLACE_SIMPL_STRIPE_SCALE")) {
-        const std::string v(e);
+    if (const auto e = paramOverride<std::string>("KTPLACE_SIMPL_STRIPE_SCALE")) {
+        const std::string &v = *e;
         if (v == "tight") {
             par_.stripeScaleMode = SimplParams::StripeScale::Tight;
         } else if (v == "both") {
@@ -2550,34 +2552,34 @@ SimplResult simplPlacer::Impl::run(const SimplParams &P, bool useFences) {
             ktlog.warning("unknown stripe scale mode '{}', keeping tight", v);
         }
     }
-    if (const char *e = std::getenv("KTPLACE_SIMPL_INIT_NET")) {
-        par_.initNetModel = netModelFor(e, par_.initNetModel);
+    if (const auto e = paramOverride<std::string>("KTPLACE_SIMPL_INIT_NET")) {
+        par_.initNetModel = netModelFor(e->c_str(), par_.initNetModel);
     }
-    if (const char *e = std::getenv("KTPLACE_SIMPL_LSS_NET")) {
-        par_.lssNetModel = netModelFor(e, par_.lssNetModel);
+    if (const auto e = paramOverride<std::string>("KTPLACE_SIMPL_LSS_NET")) {
+        par_.lssNetModel = netModelFor(e->c_str(), par_.lssNetModel);
     }
-    if (const char *e = std::getenv("KTPLACE_SIMPL_INIT_ITERS")) {
-        par_.initMaxIters = static_cast<std::size_t>(std::atoll(e));
+    if (const auto v = paramOverride<std::size_t>("KTPLACE_SIMPL_INIT_ITERS")) {
+        par_.initMaxIters = *v;
     }
-    if (const char *e = std::getenv("KTPLACE_SIMPL_ITERS")) {
-        par_.maxIters = static_cast<std::size_t>(std::max(std::atoi(e), 1));
+    if (const auto v = paramOverride<std::int64_t>("KTPLACE_SIMPL_ITERS")) {
+        par_.maxIters = static_cast<std::size_t>(std::max<std::int64_t>(*v, 1));
     }
-    if (const char *e = std::getenv("KTPLACE_SIMPL_SEED")) {
-        par_.seed = static_cast<std::uint64_t>(std::atoll(e));
+    if (const auto v = paramOverride<std::size_t>("KTPLACE_SIMPL_SEED")) {
+        par_.seed = static_cast<std::uint64_t>(*v);
     }
     // The paper requires 0 < g < 1 (Section 4.2). At g = 1 every stripe is filled
     // to 100% of its available area, so look-ahead legalization's only solution
     // is to spread cells uniformly over the whole die -- a maximum-entropy
     // spread that destroys the density variation wirelength optimisation wants,
     // and the reason legalization looked so pessimistic. Expose it for sweeps.
-    if (const char *e = std::getenv("KTPLACE_SIMPL_DENSITY")) {
-        par_.densityLimit = std::atof(e);
+    if (const auto v = paramOverride<double>("KTPLACE_SIMPL_DENSITY")) {
+        par_.densityLimit = *v;
     }
-    if (const char *e = std::getenv("KTPLACE_SIMPL_GLOBAL_CLUSTER")) {
-        par_.globalClusterFrac = std::atof(e);
+    if (const auto v = paramOverride<double>("KTPLACE_SIMPL_GLOBAL_CLUSTER")) {
+        par_.globalClusterFrac = *v;
     }
-    if (const char *e = std::getenv("KTPLACE_SIMPL_PSEUDONET")) {
-        const std::string v = e;
+    if (const auto e = paramOverride<std::string>("KTPLACE_SIMPL_PSEUDONET")) {
+        const std::string &v = *e;
         if (v == "inv") {
             par_.pseudonetLaw = SimplParams::PseudonetLaw::InverseLength;
         } else if (v == "const") {
@@ -2586,8 +2588,8 @@ SimplResult simplPlacer::Impl::run(const SimplParams &P, bool useFences) {
             ktlog.fatal("KTPLACE_SIMPL_PSEUDONET must be 'inv' or 'const' (got '{}')", v);
         }
     }
-    if (const char *e = std::getenv("KTPLACE_SIMPL_START")) {
-        const std::string v = e;
+    if (const auto e = paramOverride<std::string>("KTPLACE_SIMPL_START")) {
+        const std::string &v = *e;
         if (v == "input") {
             par_.start = SimplParams::StartPlacement::Input;
         } else if (v == "auto") {
@@ -2606,22 +2608,26 @@ SimplResult simplPlacer::Impl::run(const SimplParams &P, bool useFences) {
     // there is no density term -- so its base is the knob that decides whether the
     // run converges to a wirelength optimum or to a frozen spread state. Exposed
     // because it is worth sweeping per design, not because the default is wrong.
-    if (const char *e = std::getenv("KTPLACE_SIMPL_PSEUDONET")) {
-        par_.pseudonetLaw = (std::string(e) == "constant")
+    //
+    // Known defect, kept as found: this second read of KTPLACE_SIMPL_PSEUDONET
+    // runs after the one above has accepted only "inv" or "const", and it maps
+    // everything but "constant" to InverseLength -- so "const" ends up inverse.
+    if (const auto e = paramOverride<std::string>("KTPLACE_SIMPL_PSEUDONET")) {
+        par_.pseudonetLaw = (*e == "constant")
                                 ? SimplParams::PseudonetLaw::ConstantStiffness
                                 : SimplParams::PseudonetLaw::InverseLength;
     }
-    if (const char *e = std::getenv("KTPLACE_SIMPL_ALPHA_BASE")) {
-        par_.alphaBase = std::atof(e);
+    if (const auto v = paramOverride<double>("KTPLACE_SIMPL_ALPHA_BASE")) {
+        par_.alphaBase = *v;
     }
-    if (const char *e = std::getenv("KTPLACE_SIMPL_ALPHA_DECAY")) {
-        par_.alphaDecay = std::atof(e);
+    if (const auto v = paramOverride<double>("KTPLACE_SIMPL_ALPHA_DECAY")) {
+        par_.alphaDecay = *v;
     }
-    if (const char *e = std::getenv("KTPLACE_SIMPL_ALPHA_DECAY_BELOW")) {
-        par_.alphaDecayBelow = std::atof(e);
+    if (const auto v = paramOverride<double>("KTPLACE_SIMPL_ALPHA_DECAY_BELOW")) {
+        par_.alphaDecayBelow = *v;
     }
-    if (const char *e = std::getenv("KTPLACE_SIMPL_NO_LAL")) {
-        par_.lookAhead = std::atoi(e) == 0;
+    if (const auto v = paramOverride<bool>("KTPLACE_SIMPL_NO_LAL")) {
+        par_.lookAhead = !*v;
     }
     g_ = std::clamp(par_.densityLimit, 0.05, 1.0);
 
@@ -2837,8 +2843,8 @@ SimplResult simplPlacer::Impl::run(const SimplParams &P, bool useFences) {
     // the same symptom -- "the legalizer cannot spread" versus "the loop never
     // accumulates" -- by holding the input fixed and asking whether repeated
     // projection alone converges.
-    if (const char *envRounds = std::getenv("KTPLACE_SIMPL_LAL_ONLY")) {
-        const int rounds = std::max(std::atoi(envRounds), 1);
+    if (const auto envRounds = paramOverride<std::int64_t>("KTPLACE_SIMPL_LAL_ONLY")) {
+        const int rounds = static_cast<int>(std::max<std::int64_t>(*envRounds, 1));
         std::vector<double> lx = lower;
         std::vector<double> ly = lowerY;
         double prev = std::numeric_limits<double>::max();

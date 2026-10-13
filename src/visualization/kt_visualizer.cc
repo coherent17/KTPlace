@@ -271,7 +271,7 @@ void Visualizer::recordFrame(const Graph &g, const std::vector<float> &x,
             cappedNow = true;
             ktlog.echo(
                 "animation: this stage used its {} frame allowance; later stages may not be "
-                "represented. Raise KTPLACE_ANIM_MAX_FRAMES, or lower KTPLACE_SIMPL_CG_EVERY. "
+                "represented. Raise KTPLACE_ANIM_MAX_FRAMES, or lower KTPLACE_ANIM_CG_EVERY. "
                 "The per-iteration SVGs are unaffected.",
                 limit);
         }
