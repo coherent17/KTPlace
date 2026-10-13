@@ -37,7 +37,10 @@ struct Span {
     /// against this; comparing against the site width (1 on adaptec1, whose row
     /// pitch is 12) made every pair look non-adjacent and the technique never ran.
     double pitch = 1.0;
-    std::size_t row = 0;             ///< index of the row this span belongs to
+    std::size_t row = 0;  ///< index of the row this span belongs to
+    /// The fence this span lies in, or kOpenSpace. Only cells of the same region
+    /// may sit in it, which is how a move keeps every cell on its side of a fence.
+    int region = kOpenSpace;
     std::vector<std::size_t> cells;  ///< ascending x
 
     [[nodiscard]] bool contains(double px, double pw) const {
@@ -156,6 +159,7 @@ public:
 
 private:
     std::vector<double> w_, h_;        ///< per movable slot
+    std::vector<int> region_;          ///< fence of each movable slot, or kOpenSpace
     std::vector<std::size_t> spanOf_;  ///< span index per movable slot
     std::vector<Span> spans_;
     std::vector<std::vector<NetPin>> netPins_;
@@ -224,16 +228,22 @@ void FastDetailedPlacer::Impl::buildSpans() {
                     }
                     hi = std::min(hi, o.first);
                 }
-                Span sp;
-                sp.row = r;
-                sp.ylo = ri.coordinate;
-                sp.yhi = ri.coordinate + ri.height;
-                sp.xlo = lo;
-                sp.xhi = hi;
-                sp.site = site;
-                sp.pitch = ri.height > 0.0 ? ri.height : 1.0;
-                if (sp.xhi > sp.xlo + 1e-9) {
-                    spans_.push_back(std::move(sp));
+                // Cut at the fences and label each piece with its region.
+                if (hi > lo + 1e-9) {
+                    for (const RowPiece &rp :
+                         splitRowByFences(lo, hi, ri.coordinate, ri.coordinate + ri.height, site,
+                                          design.fences)) {
+                        Span sp;
+                        sp.row = r;
+                        sp.ylo = ri.coordinate;
+                        sp.yhi = ri.coordinate + ri.height;
+                        sp.xlo = rp.xlo;
+                        sp.xhi = rp.xhi;
+                        sp.site = site;
+                        sp.pitch = ri.height > 0.0 ? ri.height : 1.0;
+                        sp.region = rp.region;
+                        spans_.push_back(std::move(sp));
+                    }
                 }
                 // Resume at the obstacle that cut the run short, so the rest of the
                 // row is still visited.
@@ -271,7 +281,11 @@ void FastDetailedPlacer::Impl::buildSpans() {
             }
             for (const std::size_t s : spansInRow[r]) {
                 const Span &sp = spans_[s];
-                if (y >= sp.ylo - 1e-6 && y < sp.yhi - 1e-6 && sp.contains(x_[i], w_[i])) {
+                // A cell only joins a span of its own region. One the legalizer
+                // left on the wrong side of a fence finds no span and is left
+                // where it is.
+                if (sp.region == region_[i] && y >= sp.ylo - 1e-6 && y < sp.yhi - 1e-6 &&
+                    sp.contains(x_[i], w_[i])) {
                     spanOf_[i] = s;
                     spans_[s].cells.push_back(i);
                     placed = true;
@@ -698,7 +712,7 @@ bool FastDetailedPlacer::Impl::locate(std::size_t c) {
     spanOf_[c] = kNoSlot;
     for (std::size_t s = 0; s < spans_.size(); ++s) {
         const Span &sp = spans_[s];
-        if (y_[c] < sp.ylo - 1e-6 || y_[c] >= sp.yhi - 1e-6) {
+        if (sp.region != region_[c] || y_[c] < sp.ylo - 1e-6 || y_[c] >= sp.yhi - 1e-6) {
             continue;
         }
         if (!sp.contains(x_[c], w_[c])) {
@@ -888,6 +902,11 @@ std::size_t FastDetailedPlacer::Impl::verticalSwap() {
             };
             for (const std::size_t d : cands) {
                 if (d == kNoSlot) {
+                    continue;
+                }
+                // Each cell lands in the other's span, so each span must be of the
+                // region of the cell coming in.
+                if (sp2.region != region_[c] || spans_[sc].region != region_[d]) {
                     continue;
                 }
                 // Validate the whole exchange before touching anything.
@@ -1363,6 +1382,7 @@ DetailPlaceResult FastDetailedPlacer::Impl::place(const DetailPlaceParams &param
     h_.clear();
     x_.clear();
     y_.clear();
+    region_.clear();
     fixed_.clear();
     netPins_.clear();
     die_ = std::array<double, 4>{};
@@ -1409,6 +1429,7 @@ DetailPlaceResult FastDetailedPlacer::Impl::place(const DetailPlaceParams &param
         h_.push_back(vert.height);
         x_.push_back(vert.x);
         y_.push_back(vert.y);
+        region_.push_back(vert.region);
     }
     if (mov_.empty()) {
         return res;

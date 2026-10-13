@@ -9,6 +9,8 @@
 
 #pragma once
 
+#include "util/kt_rowFence.h"
+
 #include <array>
 #include <cstddef>
 #include <functional>
@@ -26,6 +28,9 @@ struct Cell {
     double height = 0.0;
     bool isFixed = false;
     bool isTerminal = false;
+    /// The fence the cell is bound to, or kOpenSpace. Moves keep a fenced cell in
+    /// its region and every other cell out of all regions.
+    int region = kOpenSpace;
 };
 
 /// A pin on a cell. Only its offset from the cell origin matters, for HPWL.
@@ -95,6 +100,8 @@ struct Design {
     std::vector<Net> nets;
     std::vector<RowInfo> rows;
     DieBox die{};
+    /// Fence rectangles, each tagged with its region. Empty when unconstrained.
+    std::vector<FenceRect> fences;
     /// Installed by the host. The placer never draws.
     FrameHook onFrame;
 };
