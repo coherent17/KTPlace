@@ -4,15 +4,13 @@
 #include "util/kt_scopedTimer.h"
 
 #include <boost/test/unit_test.hpp>
-#include <cstdio>
-#include <cstdlib>
+#include <exception>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <sstream>
 #include <string>
-#include <sys/wait.h>
-#include <unistd.h>
+#include <string_view>
 
 using namespace ktplace;
 
@@ -128,38 +126,53 @@ BOOST_AUTO_TEST_CASE(warning_accepts_a_preassembled_message) {
     ktlog.configure("", false);
 }
 
-BOOST_AUTO_TEST_CASE(fatal_is_red_and_exits) {
+BOOST_AUTO_TEST_CASE(fatal_throws_a_fatal_error_carrying_the_message) {
     TempLog log;
-    const std::string transcript = log.str();
-
-    int channel[2];
-    BOOST_REQUIRE_EQUAL(::pipe(channel), 0);
-
-    const pid_t pid = ::fork();
-    BOOST_REQUIRE(pid >= 0);
-    if (pid == 0) {
-        ::close(channel[0]);
-        ::dup2(channel[1], STDERR_FILENO);
-        ::close(channel[1]);
-        ktlog.configure(transcript, false);
-        ktlog.fatal("cannot open {}", "x.nodes");
-        std::fflush(nullptr);
-        ::_exit(EXIT_SUCCESS);
+    ktlog.configure(log.str(), false);
+    {
+        CaptureCerr cap;
+        BOOST_CHECK_EXCEPTION(
+            ktlog.fatal("cannot open {}", "x.nodes"), FatalError, [](const FatalError &e) {
+                return e.message() == "cannot open x.nodes" && std::string(e.what()) == e.message();
+            });
+        // The preassembled overload takes the same route.
+        BOOST_CHECK_EXCEPTION(ktlog.fatal(std::string_view("literal {brace}")), FatalError,
+                              [](const FatalError &e) {
+                                  return e.message() == "literal {brace}";
+                              });
     }
+    ktlog.configure("", false);
+}
 
-    ::close(channel[1]);
+BOOST_AUTO_TEST_CASE(fatal_is_not_a_std_exception) {
+    // Library code catches std::exception to skip one bad input record. A fatal
+    // must not be mistaken for one of those, so it has to get past such a handler.
+    CaptureCerr cap;
+    bool swallowed = false;
+    bool escaped = false;
+    try {
+        try {
+            ktlog.fatal("must not be swallowed");
+        } catch (const std::exception &) {
+            swallowed = true;
+        }
+    } catch (const FatalError &) {
+        escaped = true;
+    }
+    BOOST_TEST(!swallowed);
+    BOOST_TEST(escaped);
+}
+
+BOOST_AUTO_TEST_CASE(fatal_is_red_and_logged_and_the_log_stays_open) {
+    TempLog log;
+    ktlog.configure(log.str(), false);
+
     std::string console;
-    char buffer[512];
-    ssize_t got = 0;
-    while ((got = ::read(channel[0], buffer, sizeof(buffer))) > 0) {
-        console.append(buffer, static_cast<std::size_t>(got));
+    {
+        CaptureCerr cap;
+        BOOST_CHECK_THROW(ktlog.fatal("cannot open {}", "x.nodes"), FatalError);
+        console = cap.str();
     }
-    ::close(channel[0]);
-
-    int status = 0;
-    ::waitpid(pid, &status, 0);
-    BOOST_REQUIRE(WIFEXITED(status));
-    BOOST_REQUIRE(WEXITSTATUS(status) != 0);
 
     BOOST_TEST(console.find(kRed) != std::string::npos);
     BOOST_TEST(console.find("fatal") != std::string::npos);
@@ -169,6 +182,18 @@ BOOST_AUTO_TEST_CASE(fatal_is_red_and_exits) {
     BOOST_TEST(file.find("[fatal]") != std::string::npos);
     BOOST_TEST(file.find("cannot open x.nodes") != std::string::npos);
     BOOST_TEST(file.find('\033') == std::string::npos);
+
+    // fatal() no longer shuts the log down, so a host that caught the error can
+    // keep logging into the same transcript.
+    const std::size_t before = ktlog.recordCount();
+    {
+        CaptureCerr cap;
+        ktlog.echo("still here after the fatal");
+    }
+    BOOST_TEST(ktlog.recordCount() == before + 1);
+    const std::string after = log.contents();
+    BOOST_TEST(after.find("still here after the fatal") != std::string::npos);
+    BOOST_TEST(after.find("[fatal]") < after.find("still here after the fatal"));
     ktlog.configure("", false);
 }
 

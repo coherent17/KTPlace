@@ -4,20 +4,19 @@
 #define BOOST_TEST_MODULE ktplace_flow
 #define BOOST_TEST_DYN_LINK
 #include <boost/test/unit_test.hpp>
-// Death tests verify the ktlog::fatal paths, which end the process on purpose.
+// The ktlog::fatal paths throw FatalError, so they are checked in-process.
 #include "kt_flowMgr.h"
 #include "kt_option.h"
 
+#include "util/kt_log.h"
+
 #include <boost/test/unit_test_suite.hpp>
-#include <cstdio>
-#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <functional>
+#include <iostream>
 #include <sstream>
 #include <string>
-#include <sys/wait.h>
-#include <unistd.h>
 
 using namespace ktplace;
 namespace fs = std::filesystem;
@@ -131,45 +130,31 @@ End
 )");
 }
 
-/// Run `fn` in a forked child and require that it terminates the process with
-/// EXIT_FAILURE after printing `needle` on stderr.
-///
-/// Boost.Test 1.83 ships no death-test macros, so this is done with fork(2).
-/// The child exits via _exit() so it never flushes the parent's test buffers.
-void expectFatalExit(const std::function<void()> &fn, const std::string &needle) {
-    int channel[2];
-    BOOST_REQUIRE_EQUAL(::pipe(channel), 0);
-
-    const pid_t pid = ::fork();
-    BOOST_REQUIRE(pid >= 0);
-    if (pid == 0) {
-        ::close(channel[0]);
-        ::dup2(channel[1], STDERR_FILENO);
-        ::close(channel[1]);
-        std::FILE *devNull = std::fopen("/dev/null", "w");
-        if (devNull != nullptr) {
-            ::dup2(::fileno(devNull), STDOUT_FILENO);
-        }
+/// Require that `fn` raises a FatalError whose message contains `needle`, and
+/// that the same text reached stderr as a fatal record.
+void expectFatal(const std::function<void()> &fn, const std::string &needle) {
+    std::ostringstream captured;
+    std::streambuf *original = std::cerr.rdbuf(captured.rdbuf());
+    std::string message;
+    bool raised = false;
+    try {
         fn();
-        std::fflush(nullptr);
-        ::_exit(EXIT_SUCCESS);  // only reached when the call did NOT terminate
+    } catch (const FatalError &e) {
+        raised = true;
+        message = e.message();
+    } catch (...) {
+        std::cerr.rdbuf(original);
+        throw;
     }
+    std::cerr.rdbuf(original);
 
-    ::close(channel[1]);
-    std::string captured;
-    char buffer[512];
-    ssize_t got = 0;
-    while ((got = ::read(channel[0], buffer, sizeof(buffer))) > 0) {
-        captured.append(buffer, static_cast<std::size_t>(got));
-    }
-    ::close(channel[0]);
-
-    int status = 0;
-    ::waitpid(pid, &status, 0);
-    BOOST_CHECK(WIFEXITED(status));
-    BOOST_CHECK_EQUAL(WEXITSTATUS(status), EXIT_FAILURE);
-    BOOST_CHECK_MESSAGE(captured.find(needle) != std::string::npos,
-                        "stderr did not contain \"" << needle << "\"; got: " << captured);
+    BOOST_CHECK_MESSAGE(raised, "expected a FatalError containing \"" << needle << "\"");
+    BOOST_CHECK_MESSAGE(message.find(needle) != std::string::npos,
+                        "FatalError did not contain \"" << needle << "\"; got: " << message);
+    const std::string console = captured.str();
+    BOOST_CHECK_MESSAGE(
+        console.find("[fatal]") != std::string::npos && console.find(needle) != std::string::npos,
+        "stderr did not carry the fatal record; got: " << console);
 }
 
 std::size_t countNonEmptyLines(const fs::path &file) {
@@ -330,10 +315,10 @@ END DESIGN
     BOOST_TEST(countNonEmptyLines(opt.getOutputPath()) == 4);  // 3 components + 1 pad
 }
 
-BOOST_AUTO_TEST_CASE(flow_exits_on_an_unknown_algorithm) {
+BOOST_AUTO_TEST_CASE(flow_fails_on_an_unknown_algorithm) {
     const ScratchDir dir("badalgo");
     writeBookshelfDesign(dir);
-    expectFatalExit(
+    expectFatal(
         [&] {
             FlowMgr flow;
             kt_option opt = optionsFor(dir, designDir(dir).string());
@@ -343,9 +328,9 @@ BOOST_AUTO_TEST_CASE(flow_exits_on_an_unknown_algorithm) {
         "Unknown placement algorithm");
 }
 
-BOOST_AUTO_TEST_CASE(flow_exits_when_the_input_directory_is_missing) {
+BOOST_AUTO_TEST_CASE(flow_fails_when_the_input_directory_is_missing) {
     const ScratchDir dir("badinput");
-    expectFatalExit(
+    expectFatal(
         [&] {
             FlowMgr flow;
             flow.run(optionsFor(dir, dir.str() + "/no_such_dir"));
@@ -353,11 +338,11 @@ BOOST_AUTO_TEST_CASE(flow_exits_when_the_input_directory_is_missing) {
         "cannot read input directory");
 }
 
-BOOST_AUTO_TEST_CASE(flow_exits_when_the_design_files_are_missing) {
+BOOST_AUTO_TEST_CASE(flow_fails_when_the_design_files_are_missing) {
     const ScratchDir dir("nofiles");
     // The directory exists but holds no .nodes, which must not be mistaken for
     // an empty design.
-    expectFatalExit(
+    expectFatal(
         [&] {
             FlowMgr flow;
             flow.run(optionsFor(dir, dir.str()));
