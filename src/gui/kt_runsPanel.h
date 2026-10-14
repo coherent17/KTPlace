@@ -1,23 +1,27 @@
 // @file kt_runsPanel.h
-// The Runs panel: the run history as a table, newest first, one row per run
-// with its stages underneath.
+// The Runs panel: the benchmark designs and every run of them, in one tree.
 //
-// A row shows when the run started, the design, the algorithm, the wirelength
-// after global placement and at the end, the last placement check and the time
-// spent. The panel only shows the history; what its actions do (open the
-// design again, run the flow on it) is the window's, through the callbacks, so
-// they go through the console like every other action. Renaming and deleting
-// change the history itself, which is then saved.
+//   Design / run          SimPL       NTUPlace1   Check   Time   Label
+//   ISPD_2005/adaptec1    7.95e+07    8.40e+07                          best of each
+//     2026-10-14 21:03    7.95e+07                legal   93.1s  tuned  a run
+//       global_place      8.12e+07                        61.0s         its stages
+//
+// An algorithm column is "the HPWL with this algorithm" on every row: the best
+// complete run on a design's row, the final one on a run's, the stage's on a
+// stage's. The designs are those found under the benchmark root plus any the
+// history has runs of, so a design opened from elsewhere is listed too.
+//
+// Double-click opens a design; the context menu runs the flow on it, and
+// renames or deletes a run. The history is the window's (see kt_runHistory.h).
 
 #pragma once
 
-#include <QString>
+#include <QStringList>
 #include <QWidget>
 #include <functional>
 
 class QLabel;
 class QTreeWidget;
-class QTreeWidgetItem;
 
 namespace ktplace {
 
@@ -25,35 +29,40 @@ class RunHistory;
 
 class RunsPanel : public QWidget {
 public:
-    /// Shows @p history, which must outlive the panel.
+    /// The algorithms with a column, in column order.
+    static const QStringList &algorithms();
+
     explicit RunsPanel(RunHistory &history, QWidget *parent = nullptr);
 
-    /// Rebuild the table from the history, keeping the selection.
+    /// List the designs under @p root (rescanning) together with the history.
+    void setRoot(const QString &root);
+    /// Rebuild the tree from the history and the last scan.
     void refresh();
-
-    [[nodiscard]] QTreeWidget *tree() const {
-        return tree_;
-    }
-
-    /// The run's id, for the selected row (or the run a stage row belongs to).
-    [[nodiscard]] QString selectedRun() const;
 
     bool renameRun(const QString &id, const QString &label);
     bool deleteRun(const QString &id);
 
-    /// Read the run's design again.
+    /// The design directories under @p root, relative to it and sorted. A
+    /// directory is a design when it holds a .def or .nodes file (gzipped too).
+    [[nodiscard]] static QStringList scan(const QString &root);
+    [[nodiscard]] const QStringList &designs() const {
+        return designs_;
+    }
+    [[nodiscard]] QTreeWidget *tree() const {
+        return tree_;
+    }
+
+    /// Open a design (read_design), or run the flow on it with an algorithm.
     std::function<void(const QString &design)> onOpen;
-    /// Run the whole flow on the run's design with @p algorithm.
-    std::function<void(const QString &design, const QString &algorithm)> onRerun;
-    /// The history changed here (a rename or a delete).
-    std::function<void()> onChanged;
+    std::function<void(const QString &design, const QString &algorithm)> onRun;
 
 private:
     void contextMenu(const QPoint &at);
     void exportTsv();
-    void persist();
 
     RunHistory &history_;
+    QString root_;
+    QStringList designs_;  // relative to root_
     QTreeWidget *tree_ = nullptr;
     QLabel *where_ = nullptr;
 };

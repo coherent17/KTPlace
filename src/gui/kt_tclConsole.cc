@@ -4,6 +4,7 @@
 #include "gui/kt_tclConsole.h"
 
 #include "gui/kt_engine.h"
+#include "gui/kt_logView.h"
 #include "tcl/kt_tclShell.h"
 
 #include <QFontDatabase>
@@ -103,13 +104,7 @@ void TclConsole::appendText(const QString &text, const QColor &color) {
     if (color.isValid()) {
         format.setForeground(color);
     }
-    QTextCursor cursor(view_->document());
-    cursor.movePosition(QTextCursor::End);
-    if (!view_->document()->isEmpty()) {
-        cursor.insertBlock();
-    }
-    cursor.insertText(text, format);
-    view_->ensureCursorVisible();
+    appendLine(view_, text, format);
 }
 
 void TclConsole::submitLine() {

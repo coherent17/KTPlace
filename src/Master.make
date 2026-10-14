@@ -299,7 +299,7 @@ QT_CFLAGS = $(shell pkg-config --cflags $(QT_MODULES)) -DQT_NO_KEYWORDS
 QT_LIBS = $(shell pkg-config --libs $(QT_MODULES))
 
 GUI_SRCS := gui/kt_engine.cc gui/kt_logView.cc gui/kt_tclConsole.cc gui/kt_mainWindow.cc \
-            gui/kt_metricsView.cc gui/kt_runHistory.cc gui/kt_runsPanel.cc gui/kt_benchmarkPanel.cc \
+            gui/kt_metricsView.cc gui/kt_runHistory.cc gui/kt_runsPanel.cc \
             gui/kt_layoutSnapshot.cc gui/kt_layoutView.cc gui/kt_propertyPanel.cc
 GUI_OBJS := $(GUI_SRCS:%.cc=$(OBJ_DIR)/%.o)
 GUI_MAIN_OBJ := $(OBJ_DIR)/gui/kt_gui.o

@@ -1,7 +1,7 @@
 # How the GUI embeds the engine
 
 `ktplace-gui` is the Qt window: the layout view on top, the Log and Tcl Console
-docked underneath, Properties, Metrics, Runs and Benchmarks around them. This
+docked underneath, with Properties, Metrics and Runs around them. This
 note explains how it drives the same placement code as the command line, which
 threads exist, and how to add to it. For starting and viewing it, see
 [docker.md](docker.md#5-the-desktop-gui).

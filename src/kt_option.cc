@@ -16,7 +16,7 @@ namespace ktplace {
 
 using ktplace::ktlog;
 
-bool kt_option::parse(int argc, char *argv[]) {
+bool kt_option::parse(int argc, char *argv[], bool inputOptional) {
     for (int i = 0; i < argc; ++i) {
         const std::string_view arg = argv[i];
         if (arg == "-h" || arg == "--help") {
@@ -50,6 +50,8 @@ bool kt_option::parse(int argc, char *argv[]) {
             workDir = value();
         } else if (arg == "-t" || arg == "--tcl") {
             tclScript = value();
+        } else if (arg == "-b" || arg == "--bench-root") {
+            benchRoot = value();
         } else if (arg == "-c" || arg == "--config") {
             configScripts.push_back(value());
         } else if (arg == "-v" || arg == "--verbose") {
@@ -65,7 +67,7 @@ bool kt_option::parse(int argc, char *argv[]) {
         }
     }
 
-    if (inputPath.empty() && tclScript.empty()) {
+    if (inputPath.empty() && tclScript.empty() && !inputOptional) {
         ktlog.echo("");
         printUsage();
         ktlog.fatal("Insufficient command-line arguments");
@@ -123,6 +125,7 @@ Options:
   -w, --work-dir <dir>      Where to write everything; created if missing
                             (default: the current directory)
   --no-plots                Draw nothing; skip every frame and picture
+  -b, --bench-root <dir>    With --gui: where the Runs panel finds designs
   --gui                     Open the design in ktplace-gui, the Qt window,
                             instead of running the flow. The other arguments
                             go to it (input_dir, -w, -c, -t, -a, -v); `make gui`

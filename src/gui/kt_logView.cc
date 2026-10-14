@@ -63,13 +63,17 @@ void LogView::appendRecord(LogLevel level, const QString &text) {
         case LogLevel::Echo:
             break;
     }
-    QTextCursor cursor(document());
+    appendLine(this, text, format);
+}
+
+void appendLine(QPlainTextEdit *view, const QString &text, const QTextCharFormat &format) {
+    QTextCursor cursor(view->document());
     cursor.movePosition(QTextCursor::End);
-    if (!document()->isEmpty()) {
+    if (!view->document()->isEmpty()) {
         cursor.insertBlock();
     }
     cursor.insertText(text, format);
-    ensureCursorVisible();
+    view->ensureCursorVisible();
 }
 
 }  // namespace ktplace

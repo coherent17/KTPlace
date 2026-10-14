@@ -5,7 +5,6 @@
 
 #include "kt_option.h"
 
-#include "gui/kt_benchmarkPanel.h"
 #include "gui/kt_engine.h"
 #include "gui/kt_layoutSnapshot.h"
 #include "gui/kt_layoutView.h"
@@ -26,11 +25,18 @@
 #include <QMessageBox>
 #include <QStatusBar>
 #include <QToolBar>
-#include <memory>
 #include <utility>
 #include <vector>
 
 namespace ktplace {
+
+namespace {
+
+enum Dialog { kOpenDirectory, kOpenFile, kSaveFile };
+// docks_, in the order the constructor adds them.
+enum Dock { kPropertiesDock, kLogDock, kConsoleDock, kMetricsDock, kRunsDock };
+
+}  // namespace
 
 MainWindow::MainWindow(Engine &engine, QWidget *parent) : QMainWindow(parent), engine_(engine) {
     setWindowTitle(QStringLiteral("KTPlace"));
@@ -48,59 +54,32 @@ MainWindow::MainWindow(Engine &engine, QWidget *parent) : QMainWindow(parent), e
     setCentralWidget(layout_);
 
     properties_ = new PropertyPanel(this);
-    propertiesDock_ = new QDockWidget(QStringLiteral("Properties"), this);
-    propertiesDock_->setObjectName(QStringLiteral("propertiesDock"));
-    propertiesDock_->setWidget(properties_);
-    addDockWidget(Qt::RightDockWidgetArea, propertiesDock_);
-    resizeDocks({propertiesDock_}, {280}, Qt::Horizontal);
-
     log_ = new LogView(this);
     console_ = new TclConsole(engine_, this);
     console_->onBusyChanged = [this](bool busy) {
         setBusy(busy);
     };
-
-    logDock_ = new QDockWidget(QStringLiteral("Log"), this);
-    logDock_->setObjectName(QStringLiteral("logDock"));
-    logDock_->setWidget(log_);
-    consoleDock_ = new QDockWidget(QStringLiteral("Tcl Console"), this);
-    consoleDock_->setObjectName(QStringLiteral("consoleDock"));
-    consoleDock_->setWidget(console_);
     metrics_ = new MetricsView(this);
-    metricsDock_ = new QDockWidget(QStringLiteral("Metrics"), this);
-    metricsDock_->setObjectName(QStringLiteral("metricsDock"));
-    metricsDock_->setWidget(metrics_);
-    addDockWidget(Qt::BottomDockWidgetArea, logDock_);
-    addDockWidget(Qt::BottomDockWidgetArea, consoleDock_);
     runs_ = new RunsPanel(history_, this);
     runs_->onOpen = [this](const QString &design) {
         console_->run("read_design " + tclQuote(design));
     };
-    runs_->onRerun = [this](const QString &design, const QString &algorithm) {
+    runs_->onRun = [this](const QString &design, const QString &algorithm) {
         runFlowOn(design, algorithm);
     };
-    runsDock_ = new QDockWidget(QStringLiteral("Runs"), this);
-    runsDock_->setObjectName(QStringLiteral("runsDock"));
-    runsDock_->setWidget(runs_);
-    addDockWidget(Qt::BottomDockWidgetArea, metricsDock_);
-    addDockWidget(Qt::BottomDockWidgetArea, runsDock_);
-    tabifyDockWidget(logDock_, consoleDock_);
-    tabifyDockWidget(consoleDock_, metricsDock_);
-    tabifyDockWidget(metricsDock_, runsDock_);
 
-    benchmarks_ = new BenchmarkPanel(history_, this);
-    benchmarks_->onOpen = runs_->onOpen;
-    benchmarks_->onRun = runs_->onRerun;
-    runs_->onChanged = [this] {
-        benchmarks_->refreshResults();
-    };
-    benchmarksDock_ = new QDockWidget(QStringLiteral("Benchmarks"), this);
-    benchmarksDock_->setObjectName(QStringLiteral("benchmarksDock"));
-    benchmarksDock_->setWidget(benchmarks_);
-    addDockWidget(Qt::LeftDockWidgetArea, benchmarksDock_);
-    resizeDocks({benchmarksDock_}, {300}, Qt::Horizontal);
-    consoleDock_->raise();
-    resizeDocks({consoleDock_}, {300}, Qt::Vertical);
+    QDockWidget *props =
+        addDock(QStringLiteral("Properties"), properties_, Qt::RightDockWidgetArea);
+    resizeDocks({props}, {280}, Qt::Horizontal);
+    QDockWidget *bottom = addDock(QStringLiteral("Log"), log_, Qt::BottomDockWidgetArea);
+    for (auto [title, widget] : {std::pair<const char *, QWidget *>{"Tcl Console", console_},
+                                 {"Metrics", metrics_},
+                                 {"Runs", runs_}}) {
+        QDockWidget *dock = addDock(QString::fromLatin1(title), widget, Qt::BottomDockWidgetArea);
+        tabifyDockWidget(bottom, dock);
+    }
+    docks_[kConsoleDock]->raise();
+    resizeDocks({docks_[kConsoleDock]}, {300}, Qt::Vertical);
 
     status_ = new QLabel(QStringLiteral("Ready"), this);
     statusBar()->addWidget(status_, 1);
@@ -109,13 +88,19 @@ MainWindow::MainWindow(Engine &engine, QWidget *parent) : QMainWindow(parent), e
     statusBar()->addPermanentWidget(cursor_);
 
     buildMenus();
-    buildToolBar();
-    stop_->setEnabled(false);
-
     engine_.watchProgress(this, [this](const Engine::LiveUpdate &update) {
         showProgress(update.sample, update.layout);
     });
     console_->setFocus();
+}
+
+QDockWidget *MainWindow::addDock(const QString &title, QWidget *widget, Qt::DockWidgetArea area) {
+    auto *dock = new QDockWidget(title, this);
+    dock->setObjectName(title);
+    dock->setWidget(widget);
+    addDockWidget(area, dock);
+    docks_ << dock;
+    return dock;
 }
 
 QString MainWindow::tclQuote(const QString &word) {
@@ -137,9 +122,7 @@ QString MainWindow::tclQuote(const QString &word) {
 QAction *MainWindow::engineAction(QMenu *menu, const QString &text, const QString &script,
                                   const QKeySequence &shortcut) {
     QAction *action = menu->addAction(text);
-    if (!shortcut.isEmpty()) {
-        action->setShortcut(shortcut);
-    }
+    action->setShortcut(shortcut);
     connect(action, &QAction::triggered, this, [this, script] {
         console_->run(script);
     });
@@ -147,55 +130,50 @@ QAction *MainWindow::engineAction(QMenu *menu, const QString &text, const QStrin
     return action;
 }
 
+void MainWindow::pathAction(QMenu *menu, const QString &text, const QString &command,
+                            const QKeySequence &shortcut, int dialog) {
+    QAction *action = menu->addAction(text);
+    action->setShortcut(shortcut);
+    connect(action, &QAction::triggered, this, [this, text, command, dialog] {
+        const QString title = QString(text).remove('&').remove(QStringLiteral("..."));
+        const QString path =
+            dialog == kOpenDirectory ? QFileDialog::getExistingDirectory(this, title)
+            : dialog == kOpenFile
+                ? QFileDialog::getOpenFileName(this, title, {},
+                                               QStringLiteral("Tcl scripts (*.tcl);;All files (*)"))
+                : QFileDialog::getSaveFileName(
+                      this, title, QStringLiteral("placed.pl"),
+                      QStringLiteral("Bookshelf placement (*.pl);;All files (*)"));
+        if (!path.isEmpty()) {
+            console_->run(command + ' ' + tclQuote(path));
+        }
+    });
+    engineActions_ << action;
+}
+
 void MainWindow::buildMenus() {
     QMenu *file = menuBar()->addMenu(QStringLiteral("&File"));
-    QAction *open = file->addAction(QStringLiteral("&Open Design..."));
-    open->setShortcut(QKeySequence::Open);
-    connect(open, &QAction::triggered, this, [this] {
-        const QString dir = QFileDialog::getExistingDirectory(this, QStringLiteral("Open design"));
-        if (!dir.isEmpty()) {
-            console_->run("read_design " + tclQuote(dir));
-        }
-    });
-    engineActions_ << open;
-    QAction *source = file->addAction(QStringLiteral("&Source Script..."));
-    connect(source, &QAction::triggered, this, [this] {
-        const QString path =
-            QFileDialog::getOpenFileName(this, QStringLiteral("Source Tcl script"), QString(),
-                                         QStringLiteral("Tcl scripts (*.tcl);;All files (*)"));
-        if (!path.isEmpty()) {
-            console_->run("source " + tclQuote(path));
-        }
-    });
-    engineActions_ << source;
-    QAction *write = file->addAction(QStringLiteral("&Write Placement..."));
-    write->setShortcut(QKeySequence::Save);
-    connect(write, &QAction::triggered, this, [this] {
-        const QString path = QFileDialog::getSaveFileName(
-            this, QStringLiteral("Write placement"), QStringLiteral("placed.pl"),
-            QStringLiteral("Bookshelf placement (*.pl);;All files (*)"));
-        if (!path.isEmpty()) {
-            console_->run("write_design " + tclQuote(path));
-        }
-    });
-    engineActions_ << write;
+    pathAction(file, QStringLiteral("&Open Design..."), QStringLiteral("read_design"),
+               QKeySequence::Open, kOpenDirectory);
+    pathAction(file, QStringLiteral("&Source Script..."), QStringLiteral("source"), {}, kOpenFile);
+    pathAction(file, QStringLiteral("&Write Placement..."), QStringLiteral("write_design"),
+               QKeySequence::Save, kSaveFile);
     file->addSeparator();
-    QAction *quit = file->addAction(QStringLiteral("&Quit"));
-    quit->setShortcut(QKeySequence::Quit);
-    connect(quit, &QAction::triggered, this, &QWidget::close);
+    connect(file->addAction(QStringLiteral("&Quit")), &QAction::triggered, this, &QWidget::close);
+    file->actions().last()->setShortcut(QKeySequence::Quit);
 
     QMenu *place = menuBar()->addMenu(QStringLiteral("&Place"));
-    globalPlace_ = engineAction(place, QStringLiteral("&Global Place"),
-                                QStringLiteral("global_place"), QKeySequence(Qt::Key_F5));
+    QAction *global = engineAction(place, QStringLiteral("&Global Place"),
+                                   QStringLiteral("global_place"), Qt::Key_F5);
     engineAction(place, QStringLiteral("Global Place (&NTUPlace1)"),
                  QStringLiteral("global_place -algo ntuplace1"));
-    legalize_ = engineAction(place, QStringLiteral("&Legalize"), QStringLiteral("legalize"),
-                             QKeySequence(Qt::Key_F6));
-    detailPlace_ = engineAction(place, QStringLiteral("&Detail Place"),
-                                QStringLiteral("detail_place"), QKeySequence(Qt::Key_F7));
+    QAction *legalize =
+        engineAction(place, QStringLiteral("&Legalize"), QStringLiteral("legalize"), Qt::Key_F6);
+    QAction *detail = engineAction(place, QStringLiteral("&Detail Place"),
+                                   QStringLiteral("detail_place"), Qt::Key_F7);
     place->addSeparator();
-    runFlow_ = engineAction(place, QStringLiteral("Run &Full Flow"),
-                            flowScript(QStringLiteral("simpl")), QKeySequence(Qt::Key_F9));
+    QAction *flow = engineAction(place, QStringLiteral("Run &Full Flow"),
+                                 flowScript(QStringLiteral("simpl")), Qt::Key_F9);
     place->addSeparator();
     // Not an engine action: it is the one thing to do while the engine is busy.
     stop_ = place->addAction(QStringLiteral("&Stop"));
@@ -203,6 +181,7 @@ void MainWindow::buildMenus() {
     stop_->setToolTip(
         QStringLiteral("End the running stage with the best placement it has, "
                        "and the rest of the script (Ctrl+.)"));
+    stop_->setEnabled(false);
     connect(stop_, &QAction::triggered, this, [this] {
         if (console_->busy()) {
             ktlog.echo("stop requested");
@@ -212,28 +191,26 @@ void MainWindow::buildMenus() {
     });
 
     QMenu *report = menuBar()->addMenu(QStringLiteral("&Report"));
-    engineAction(report, QStringLiteral("&Design"), QStringLiteral("report_design"));
-    engineAction(report, QStringLiteral("&HPWL"), QStringLiteral("report_hpwl"));
-    engineAction(report, QStringLiteral("&Check Placement"), QStringLiteral("check_placement"));
-    engineAction(report, QStringLiteral("&Timing"), QStringLiteral("report_timing"));
-    engineAction(report, QStringLiteral("&Options"), QStringLiteral("report_options"));
+    for (auto [text, command] : {std::pair<const char *, const char *>{"&Design", "report_design"},
+                                 {"&HPWL", "report_hpwl"},
+                                 {"&Check Placement", "check_placement"},
+                                 {"&Timing", "report_timing"},
+                                 {"&Options", "report_options"}}) {
+        engineAction(report, QString::fromLatin1(text), QString::fromLatin1(command));
+    }
 
     QMenu *view = menuBar()->addMenu(QStringLiteral("&View"));
     QAction *fit = view->addAction(QStringLiteral("Zoom &Fit"));
-    zoomFit_ = fit;
-    fit->setShortcut(QKeySequence(Qt::Key_F));
+    fit->setShortcut(Qt::Key_F);
     fit->setShortcutContext(Qt::WidgetWithChildrenShortcut);
     layout_->addAction(fit);
     connect(fit, &QAction::triggered, this, [this] {
         layout_->zoomFit();
     });
     view->addSeparator();
-    view->addAction(propertiesDock_->toggleViewAction());
-    view->addAction(logDock_->toggleViewAction());
-    view->addAction(consoleDock_->toggleViewAction());
-    view->addAction(metricsDock_->toggleViewAction());
-    view->addAction(runsDock_->toggleViewAction());
-    view->addAction(benchmarksDock_->toggleViewAction());
+    for (QDockWidget *dock : docks_) {
+        view->addAction(dock->toggleViewAction());
+    }
     QAction *trace = view->addAction(QStringLiteral("Show &Trace in Log"));
     trace->setCheckable(true);
     connect(trace, &QAction::toggled, this, [this](bool on) {
@@ -242,13 +219,30 @@ void MainWindow::buildMenus() {
 
     QMenu *help = menuBar()->addMenu(QStringLiteral("&Help"));
     engineAction(help, QStringLiteral("&Commands"), QStringLiteral("help"));
-    QAction *about = help->addAction(QStringLiteral("&About KTPlace"));
-    connect(about, &QAction::triggered, this, [this] {
+    connect(help->addAction(QStringLiteral("&About KTPlace")), &QAction::triggered, this, [this] {
         QMessageBox::about(
             this, QStringLiteral("About KTPlace"),
             QStringLiteral("KTPlace v%1\nKnow Thyself Placement Engine")
                 .arg(QString::fromUtf8(VERSION.data(), static_cast<qsizetype>(VERSION.size()))));
     });
+
+    // The toolbar shows the same actions, by short names.
+    QToolBar *bar = addToolBar(QStringLiteral("Flow"));
+    bar->setObjectName(QStringLiteral("flowToolBar"));
+    bar->setMovable(false);
+    bar->setToolButtonStyle(Qt::ToolButtonTextOnly);
+    for (auto [action, name] : {std::pair<QAction *, const char *>{flow, "Run Flow"},
+                                {stop_, nullptr},
+                                {global, "Global"},
+                                {legalize, "Legalize"},
+                                {detail, "Detail"},
+                                {fit, nullptr},
+                                {docks_[kMetricsDock]->toggleViewAction(), nullptr}}) {
+        if (name) {
+            action->setIconText(QString::fromLatin1(name));
+        }
+        bar->addAction(action);
+    }
 }
 
 QString MainWindow::flowScript(const QString &algorithm) {
@@ -272,11 +266,10 @@ void MainWindow::setHistoryFile(const QString &file) {
         ktlog.warning("cannot read the run history {}; starting a new one", file.toStdString());
     }
     runs_->refresh();
-    benchmarks_->refreshResults();
 }
 
 void MainWindow::setBenchmarkRoot(const QString &root) {
-    benchmarks_->setRoot(root);
+    runs_->setRoot(root);
 }
 
 void MainWindow::recordRun() {
@@ -306,40 +299,16 @@ void MainWindow::recordRun() {
                 ktlog.warning("cannot write the run history {}", history_.file().toStdString());
             }
             runs_->refresh();
-            benchmarks_->refreshResults();
         });
-}
-
-void MainWindow::buildToolBar() {
-    QToolBar *bar = addToolBar(QStringLiteral("Flow"));
-    bar->setObjectName(QStringLiteral("flowToolBar"));
-    bar->setMovable(false);
-    bar->setToolButtonStyle(Qt::ToolButtonTextOnly);
-    globalPlace_->setIconText(QStringLiteral("Global"));
-    legalize_->setIconText(QStringLiteral("Legalize"));
-    detailPlace_->setIconText(QStringLiteral("Detail"));
-    runFlow_->setIconText(QStringLiteral("Run Flow"));
-    bar->addAction(runFlow_);
-    bar->addAction(stop_);
-    bar->addSeparator();
-    bar->addAction(globalPlace_);
-    bar->addAction(legalize_);
-    bar->addAction(detailPlace_);
-    bar->addSeparator();
-    bar->addAction(zoomFit_);
-    bar->addSeparator();
-    bar->addAction(metricsDock_->toggleViewAction());
 }
 
 void MainWindow::showProgress(const ProgressSample &sample,
                               const std::shared_ptr<const LayoutSnapshot> &layout) {
-    const bool newRun = sample.run != liveRun_;
-    liveRun_ = sample.run;
     metrics_->addSample(sample);
-    if (newRun) {
-        // The plot is where the run is told; show it once, at its start, and
-        // leave the docks alone after that if the user switches away.
-        metricsDock_->raise();
+    if (sample.run != liveRun_) {
+        // Shown once, when a run starts; after that the user's choice of tab stands.
+        liveRun_ = sample.run;
+        docks_[kMetricsDock]->raise();
     }
     if (layout) {
         layout_->setSnapshot(layout);
@@ -357,8 +326,8 @@ void MainWindow::showProgress(const ProgressSample &sample,
 }
 
 void MainWindow::refreshLayout() {
-    // The shared_ptr is filled on the engine thread and read on this one once
-    // the query's completion arrives, which is ordered after the write.
+    // Filled on the engine thread and read here once the query's completion
+    // arrives, which is ordered after the write.
     auto result = std::make_shared<std::shared_ptr<const LayoutSnapshot>>();
     engine_.query(
         [result](const ktSession &session) {
@@ -374,8 +343,7 @@ void MainWindow::refreshLayout() {
                                      .arg((*result)->cells.size())
                                      .arg((*result)->hpwl, 0, 'e', 6));
             }
-            // The selected cell may have moved: look it up again.
-            inspect(layout_->selection());
+            inspect(layout_->selection());  // the selected cell may have moved
         });
 }
 
@@ -407,7 +375,7 @@ void MainWindow::inspect(std::optional<std::size_t> cell) {
                 }
             }
             layout_->setNetOverlay(std::move(nets));
-            propertiesDock_->raise();
+            docks_[kPropertiesDock]->raise();
         });
 }
 
@@ -416,15 +384,14 @@ void MainWindow::setBusy(bool busy) {
         action->setEnabled(!busy);
     }
     stop_->setEnabled(busy);
+    status_->setText(busy ? QStringLiteral("Running...") : QStringLiteral("Ready"));
     if (busy) {
-        status_->setText(QStringLiteral("Running..."));
         QApplication::setOverrideCursor(Qt::BusyCursor);
-    } else {
-        status_->setText(QStringLiteral("Ready"));
-        QApplication::restoreOverrideCursor();
-        refreshLayout();
-        recordRun();
+        return;
     }
+    QApplication::restoreOverrideCursor();
+    refreshLayout();
+    recordRun();
 }
 
 }  // namespace ktplace

@@ -12,7 +12,13 @@
 
 #include <QPlainTextEdit>
 
+class QTextCharFormat;
+
 namespace ktplace {
+
+/// Append @p text to @p view as a new line in @p format, and scroll to it. The
+/// Log panel and the console's transcript both write this way.
+void appendLine(QPlainTextEdit *view, const QString &text, const QTextCharFormat &format);
 
 class LogView : public QPlainTextEdit {
 public:

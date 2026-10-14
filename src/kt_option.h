@@ -19,6 +19,8 @@ public:
     /// Configuration scripts (-c), run in order before the flow or the -t
     /// script: add_option lines that set the stages' options.
     std::vector<std::string> configScripts;
+    /// ktplace-gui only (-b): where its Runs panel looks for designs.
+    std::string benchRoot;
     std::string algorithm = "simpl";
     bool verbose = false;
     std::string workDir = std::filesystem::current_path().string();
@@ -39,7 +41,9 @@ public:
     // the environment can override; see PlotOptions.
     bool plot = true;
 
-    bool parse(int argc, char *argv[]);
+    /// @p inputOptional: ktplace-gui's case, where a window may open with no
+    /// design and no script.
+    bool parse(int argc, char *argv[], bool inputOptional = false);
 
     void report() const;
 

@@ -9,7 +9,7 @@
 //
 // Results per design and algorithm come from here too: best() is the shortest
 // final wirelength among the runs that got as far as detailed placement, which
-// is what the Benchmarks panel ranks by.
+// is what the Runs panel shows on each design's row.
 
 #pragma once
 

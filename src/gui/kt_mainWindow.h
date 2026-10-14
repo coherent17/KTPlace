@@ -1,27 +1,14 @@
 // @file kt_mainWindow.h
-// The KTPlace main window, laid out the way EDA tools are: the design view on
-// top, and a tabbed dock underneath with the Log and the Tcl Console.
+// The KTPlace main window: the layout view in the middle, Properties on the
+// right, and a tabbed dock underneath with the Log, the Tcl Console, Metrics
+// and Runs. See docs/gui.md for how it drives the engine.
 //
-// Every menu action is a Tcl command run through the console, so it is echoed
-// there and in the log like a typed one; the window holds no engine logic of
-// its own. Actions that need the engine are disabled while a script runs.
-//
-// The central area is the layout view. After every script the window asks the
-// engine for a fresh snapshot of the placement, so whatever a command changed
-// -- typed, or from a menu -- is on screen when the prompt comes back. Picking a
-// cell looks it up on the engine thread and shows it in the Properties panel,
-// with its nets drawn over the view.
-//
-// While a global placement runs, the view follows it live: each iteration's
-// placement replaces the picture (without moving the view), the Metrics panel
-// plots its wirelength and overflow, and Stop (the toolbar, or Ctrl+.) ends the
-// stage with the best placement it has and abandons the rest of the script.
-//
-// Every design read is a run in the history (the Runs tab), with the stages run
-// on it; after each script the window asks the engine for the session's stage
-// log and updates it. The Benchmarks panel on the left lists the designs under
-// the benchmark root with the best result each algorithm has reached, and opens
-// or runs any of them.
+// Every menu and toolbar action is a Tcl command run through the console, so it
+// is echoed there and in the log like a typed one; actions that need the engine
+// are disabled while a script runs. After each script the window shows a fresh
+// snapshot of the placement and brings the run history up to date. While a
+// stage runs, the view and the Metrics plot follow it, and Stop (Ctrl+.) ends it
+// with the best placement it has.
 
 #pragma once
 
@@ -44,7 +31,6 @@ namespace ktplace {
 
 struct LayoutSnapshot;
 struct ProgressSample;
-class BenchmarkPanel;
 class Engine;
 class LayoutView;
 class LogView;
@@ -75,9 +61,6 @@ public:
     [[nodiscard]] RunsPanel *runs() const {
         return runs_;
     }
-    [[nodiscard]] BenchmarkPanel *benchmarks() const {
-        return benchmarks_;
-    }
     [[nodiscard]] const RunHistory &history() const {
         return history_;
     }
@@ -85,27 +68,24 @@ public:
     /// Keep the run history in @p file (loaded now, saved after each change);
     /// until this is called it is kept in memory only.
     void setHistoryFile(const QString &file);
-    /// List the designs under @p root in the Benchmarks panel.
+    /// List the designs under @p root in the Runs panel.
     void setBenchmarkRoot(const QString &root);
 
     /// The whole flow after a read, as one script: what Run Full Flow runs.
     [[nodiscard]] static QString flowScript(const QString &algorithm);
     /// Read @p design and run the flow on it with @p algorithm, in the console.
     void runFlowOn(const QString &design, const QString &algorithm);
-    /// Bring the run history up to date with the session's stage log. Runs
-    /// after every script; public so tests can wait on it.
+    /// Bring the run history up to date with the session's stage log, and show
+    /// the current placement. Both run after every script; public for tests.
     void recordRun();
+    void refreshLayout();
+    /// Look up @p cell (or clear the panel) and draw its nets.
+    void inspect(std::optional<std::size_t> cell);
 
     /// Ends the running stage; enabled only while the engine is busy.
     [[nodiscard]] QAction *stopAction() const {
         return stop_;
     }
-
-    /// Ask the engine for the current placement and show it. Runs after every
-    /// script; public so tests can wait on it.
-    void refreshLayout();
-    /// Look up @p cell (or clear the panel) and draw its nets.
-    void inspect(std::optional<std::size_t> cell);
     /// The actions that run something on the engine, disabled while it is busy.
     [[nodiscard]] const QList<QAction *> &engineActions() const {
         return engineActions_;
@@ -115,39 +95,30 @@ public:
     [[nodiscard]] static QString tclQuote(const QString &word);
 
 private:
+    QDockWidget *addDock(const QString &title, QWidget *widget, Qt::DockWidgetArea area);
     void buildMenus();
-    void buildToolBar();
-    /// One progress report from the running stage.
-    void showProgress(const ProgressSample &sample,
-                      const std::shared_ptr<const LayoutSnapshot> &layout);
     QAction *engineAction(QMenu *menu, const QString &text, const QString &script,
                           const QKeySequence &shortcut = {});
+    /// An engine action whose script needs a path from a file dialog first.
+    void pathAction(QMenu *menu, const QString &text, const QString &command,
+                    const QKeySequence &shortcut, int dialog);
+    void showProgress(const ProgressSample &sample,
+                      const std::shared_ptr<const LayoutSnapshot> &layout);
     void setBusy(bool busy);
 
     Engine &engine_;
+    RunHistory history_;
     LayoutView *layout_ = nullptr;
     PropertyPanel *properties_ = nullptr;
-    QDockWidget *propertiesDock_ = nullptr;
-    QLabel *cursor_ = nullptr;
     LogView *log_ = nullptr;
     TclConsole *console_ = nullptr;
-    QDockWidget *logDock_ = nullptr;
-    QDockWidget *consoleDock_ = nullptr;
     MetricsView *metrics_ = nullptr;
-    QDockWidget *metricsDock_ = nullptr;
-    RunHistory history_;
     RunsPanel *runs_ = nullptr;
-    QDockWidget *runsDock_ = nullptr;
-    BenchmarkPanel *benchmarks_ = nullptr;
-    QDockWidget *benchmarksDock_ = nullptr;
+    QList<QDockWidget *> docks_;  // in View-menu order
     QLabel *status_ = nullptr;
+    QLabel *cursor_ = nullptr;
     QList<QAction *> engineActions_;
     QAction *stop_ = nullptr;
-    QAction *runFlow_ = nullptr;
-    QAction *globalPlace_ = nullptr;
-    QAction *legalize_ = nullptr;
-    QAction *detailPlace_ = nullptr;
-    QAction *zoomFit_ = nullptr;
     std::size_t liveRun_ = 0;  // the run the Metrics panel is plotting
 };
 

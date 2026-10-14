@@ -4,7 +4,6 @@
 
 #define BOOST_TEST_MODULE ktplace_gui
 #define BOOST_TEST_DYN_LINK
-#include "gui/kt_benchmarkPanel.h"
 #include "gui/kt_engine.h"
 #include "gui/kt_layoutSnapshot.h"
 #include "gui/kt_layoutView.h"
@@ -22,6 +21,7 @@
 
 #include <QAction>
 #include <QApplication>
+#include <QDir>
 #include <QElapsedTimer>
 #include <QKeyEvent>
 #include <QThread>
@@ -730,71 +730,58 @@ BOOST_AUTO_TEST_CASE(the_history_updates_ranks_and_survives_a_restart) {
     BOOST_TEST(!bad.load());
 }
 
-BOOST_AUTO_TEST_CASE(the_runs_panel_lists_newest_first_and_edits_the_history) {
-    RunHistory h;
-    h.update(1, "/designs/one", flowStages("simpl", 310.0));
-    h.update(2, "/designs/two", flowStages("ntuplace1", 410.0, false));
-    RunsPanel panel(h);
-    BOOST_REQUIRE(panel.tree()->topLevelItemCount() == 2);
-    const QTreeWidgetItem *newest = panel.tree()->topLevelItem(0);
-    BOOST_TEST(newest->text(1).toStdString() == "two");
-    BOOST_TEST(newest->text(2).toStdString() == "ntuplace1");
-    BOOST_TEST(newest->text(5).toStdString() == "2 defects");
-    BOOST_TEST(newest->childCount() == 5);
-
-    bool changed = false;
-    panel.onChanged = [&] {
-        changed = true;
-    };
-    BOOST_TEST(panel.renameRun(h.runs()[0].id, "baseline"));
-    BOOST_TEST(changed);
-    BOOST_TEST(panel.tree()->topLevelItem(1)->text(7).toStdString() == "baseline");
-    BOOST_TEST(panel.deleteRun(h.runs()[1].id));
-    BOOST_TEST(panel.tree()->topLevelItemCount() == 1);
-}
-
-BOOST_AUTO_TEST_CASE(the_benchmark_panel_finds_designs_and_shows_their_best_results) {
-    const ScratchDir root("gui_bench");
+BOOST_AUTO_TEST_CASE(the_runs_panel_groups_runs_under_their_designs) {
+    const ScratchDir root("gui_runs");
     // Two designs, one nested a level deeper, and a directory that is not one.
-    const ScratchDir *dirs[] = {&root};
-    static_cast<void>(dirs);
     std::filesystem::create_directories(root.file("suiteA/tiny"));
     std::filesystem::create_directories(root.file("suiteB/deeper/tiny2"));
     std::filesystem::create_directories(root.file("empty"));
     std::ofstream(root.file("suiteA/tiny/tiny.nodes")) << "UCLA nodes 1.0\n";
     std::ofstream(root.file("suiteB/deeper/tiny2/tiny2.def")) << "VERSION 5.8 ;\n";
-    std::ofstream(root.file("baseline.tsv")) << "# a comment\n"
-                                             << "design\talgorithm\tstatus\thpwl\tverdict\n"
-                                             << "suiteA/tiny\tsimpl\tdone\t123.5\tPASS\n"
-                                             << "suiteA/tiny\tntuplace1\tfailed\t1\tFAIL\n";
-
     const QString rootPath = QString::fromStdString(root.str());
-    BOOST_TEST(BenchmarkPanel::scan(rootPath).join(",").toStdString() ==
+    BOOST_TEST(RunsPanel::scan(rootPath).join(",").toStdString() ==
                "suiteA/tiny,suiteB/deeper/tiny2");
-    BOOST_TEST(BenchmarkPanel::scan(rootPath + "/no_such_dir").isEmpty());
+    BOOST_TEST(RunsPanel::scan(rootPath + "/no_such_dir").isEmpty());
 
     RunHistory h;
     const QString tiny = QString::fromStdString(root.file("suiteA/tiny").string());
     h.update(1, tiny, flowStages("simpl", 310.0));
-    h.update(2, tiny, flowStages("ntuplace1", 290.0));
-    BenchmarkPanel panel(h);
-    BOOST_TEST(panel.designs().isEmpty());
+    h.update(2, tiny, flowStages("ntuplace1", 290.0, false));
+    h.update(3, "/elsewhere/other", flowStages("simpl", 500.0));
+    RunsPanel panel(h);
+    BOOST_TEST(panel.tree()->topLevelItemCount() == 2);  // only the history's designs
     panel.setRoot(rootPath);
-    BOOST_REQUIRE(panel.tree()->topLevelItemCount() == 2);
+    BOOST_REQUIRE(panel.tree()->topLevelItemCount() == 3);  // scanned ones, plus elsewhere
+
+    // A design's row: the best complete run per algorithm, the better in bold.
     const QTreeWidgetItem *row = panel.tree()->findItems("suiteA/tiny", Qt::MatchExactly)[0];
     BOOST_TEST(row->text(1).toStdString() == QString::number(310.0, 'e', 4).toStdString());
-    BOOST_TEST(row->text(2).toStdString() == QString::number(123.5, 'e', 4).toStdString());
-    BOOST_TEST(row->text(3).toStdString() == QString::number(290.0, 'e', 4).toStdString());
-    BOOST_TEST(row->text(4).isEmpty());  // a failed baseline row is no baseline
-    BOOST_TEST(row->font(3).bold());     // the better of the two
+    BOOST_TEST(row->text(2).toStdString() == QString::number(290.0, 'e', 4).toStdString());
+    BOOST_TEST(row->font(2).bold());
     BOOST_TEST(!row->font(1).bold());
+    // Its runs, newest first, each HPWL under its own algorithm, stages below.
+    BOOST_REQUIRE(row->childCount() == 2);
+    const QTreeWidgetItem *newest = row->child(0);
+    BOOST_TEST(newest->text(1).isEmpty());
+    BOOST_TEST(!newest->text(2).isEmpty());
+    BOOST_TEST(newest->text(3).toStdString() == "2 defects");
+    BOOST_TEST(newest->childCount() == 5);
+    BOOST_TEST(panel.tree()->findItems("suiteB/deeper/tiny2", Qt::MatchExactly)[0]->childCount() ==
+               0);
+
+    BOOST_TEST(panel.renameRun(h.runs()[0].id, "baseline"));
+    row = panel.tree()->findItems("suiteA/tiny", Qt::MatchExactly)[0];
+    BOOST_TEST(row->child(1)->text(5).toStdString() == "baseline");
+    BOOST_TEST(panel.deleteRun(h.runs()[1].id));
+    row = panel.tree()->findItems("suiteA/tiny", Qt::MatchExactly)[0];
+    BOOST_TEST(row->childCount() == 1);
 
     QString opened;
     panel.onOpen = [&](const QString &path) {
         opened = path;
     };
-    Q_EMIT panel.tree()->itemDoubleClicked(const_cast<QTreeWidgetItem *>(row), 0);
-    BOOST_TEST(opened == tiny);
+    Q_EMIT panel.tree()->itemDoubleClicked(const_cast<QTreeWidgetItem *>(row->child(0)), 0);
+    BOOST_TEST(opened == QDir::cleanPath(tiny));
 }
 
 BOOST_AUTO_TEST_CASE(the_window_records_each_run_in_the_history) {
@@ -808,7 +795,7 @@ BOOST_AUTO_TEST_CASE(the_window_records_each_run_in_the_history) {
         MainWindow window(engine);
         window.setHistoryFile(file);
         window.setBenchmarkRoot(QString::fromStdString(dir.str()));
-        BOOST_TEST(window.benchmarks()->designs().join(",").toStdString() == "tiny");
+        BOOST_TEST(window.runs()->designs().join(",").toStdString() == "tiny");
 
         window.runFlowOn(design, "simpl");
         BOOST_REQUIRE(waitFor([&] {
@@ -819,7 +806,7 @@ BOOST_AUTO_TEST_CASE(the_window_records_each_run_in_the_history) {
         BOOST_TEST(r.algorithm().toStdString() == "simpl");
         BOOST_TEST(r.verdict().toStdString() == "legal");
         BOOST_TEST(window.runs()->tree()->topLevelItemCount() == 1);
-        BOOST_TEST(!window.benchmarks()->tree()->topLevelItem(0)->text(1).isEmpty());
+        BOOST_TEST(!window.runs()->tree()->topLevelItem(0)->text(1).isEmpty());
 
         // A command on the same design moves the same run on.
         window.console()->run("global_place -algo ntuplace1");
