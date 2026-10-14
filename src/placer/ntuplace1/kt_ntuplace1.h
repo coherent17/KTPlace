@@ -73,6 +73,10 @@ struct RatioPlaceResult {
     // Look-ahead retries per accepted cut. A run that needed many is one whose
     // balance was fighting the design, and that is worth seeing.
     double meanImbalance = 0.0;
+    // Fence regions in the design, and fenced cells the returned placement still
+    // has outside their region (0 unless a region cannot hold its members).
+    std::size_t fenceRegions = 0;
+    std::size_t fenceViolations = 0;
 };
 
 // The partitioner's own summary, emitted from the component that produced it.
