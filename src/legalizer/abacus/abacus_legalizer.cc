@@ -5,9 +5,9 @@
 #include "legalizer/abacus/abacus_legalizer.h"
 
 #include "legalizer/abacus/abacus_design.h"
+#include "legalizer/kt_rowFence.h"
 #include "util/kt_log.h"
 #include "util/kt_reportTable.h"
-#include "util/kt_rowFence.h"
 #include "util/kt_scopedTimer.h"
 
 #include <algorithm>

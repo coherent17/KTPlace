@@ -9,7 +9,7 @@
 
 #pragma once
 
-#include "util/kt_rowFence.h"
+#include "legalizer/kt_rowFence.h"
 
 #include <array>
 #include <cstddef>

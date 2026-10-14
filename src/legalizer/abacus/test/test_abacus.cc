@@ -15,6 +15,7 @@
 #include "datamodel/kt_dm.h"
 #include "legalizer/abacus/abacus_dm.h"
 #include "legalizer/abacus/abacus_legalizer.h"
+#include "legalizer/kt_rowFence.h"
 #include "util/kt_log.h"
 
 #include <boost/test/included/unit_test.hpp>
@@ -135,6 +136,68 @@ BOOST_AUTO_TEST_CASE(an_unfenced_design_is_legalized_as_before) {
     BOOST_TEST(res.unplaced == 0u);
     BOOST_TEST(res.overlappingPairs == 0u);
     (void)cells;
+}
+
+// ---- splitRowByFences ------------------------------------------------------
+
+BOOST_AUTO_TEST_CASE(a_fence_covering_the_row_becomes_member_space) {
+    // Row [0,100) x [0,10); fence 0 covers x 20..50 over the whole band.
+    const std::vector<RowPiece> p =
+        splitRowByFences(0.0, 100.0, 0.0, 10.0, 1.0, {FenceRect{20.0, 0.0, 50.0, 10.0, 0}});
+    BOOST_TEST_REQUIRE(p.size() == 3u);
+    BOOST_TEST(p[0].xlo == 0.0);
+    BOOST_TEST(p[0].xhi == 20.0);
+    BOOST_TEST(p[0].region == kOpenSpace);
+    BOOST_TEST(p[1].xlo == 20.0);
+    BOOST_TEST(p[1].xhi == 50.0);
+    BOOST_TEST(p[1].region == 0);
+    BOOST_TEST(p[2].xlo == 50.0);
+    BOOST_TEST(p[2].xhi == 100.0);
+    BOOST_TEST(p[2].region == kOpenSpace);
+}
+
+BOOST_AUTO_TEST_CASE(a_fence_reaching_partly_into_the_row_blocks_it_for_everyone) {
+    // Covers only the top half of the band: a member would stick out, any other
+    // cell would sit inside it, so the stretch is dropped.
+    const std::vector<RowPiece> p =
+        splitRowByFences(0.0, 100.0, 0.0, 10.0, 1.0, {FenceRect{60.0, 5.0, 70.0, 20.0, 0}});
+    BOOST_TEST_REQUIRE(p.size() == 2u);
+    BOOST_TEST(p[0].xhi == 60.0);
+    BOOST_TEST(p[1].xlo == 70.0);
+    BOOST_TEST(p[0].region == kOpenSpace);
+    BOOST_TEST(p[1].region == kOpenSpace);
+}
+
+BOOST_AUTO_TEST_CASE(fence_edges_off_the_site_grid_are_snapped_inward) {
+    // Fence edges at 20.5 and 49.5 on a 1-unit grid: the member piece shrinks to
+    // [21,49] and the open pieces stop at 20 and resume at 50, so no cell can sit
+    // across the boundary.
+    const std::vector<RowPiece> p =
+        splitRowByFences(0.0, 100.0, 0.0, 10.0, 1.0, {FenceRect{20.5, 0.0, 49.5, 10.0, 3}});
+    BOOST_TEST_REQUIRE(p.size() == 3u);
+    BOOST_TEST(p[0].xhi == 20.0);
+    BOOST_TEST(p[1].xlo == 21.0);
+    BOOST_TEST(p[1].xhi == 49.0);
+    BOOST_TEST(p[1].region == 3);
+    BOOST_TEST(p[2].xlo == 50.0);
+}
+
+BOOST_AUTO_TEST_CASE(adjacent_rectangles_of_one_region_merge_and_rows_without_fences_pass_through) {
+    // An L-shaped region as two touching rectangles is one stretch of member space.
+    const std::vector<RowPiece> p = splitRowByFences(
+        0.0, 100.0, 0.0, 10.0, 1.0,
+        {FenceRect{10.0, 0.0, 30.0, 10.0, 1}, FenceRect{30.0, 0.0, 40.0, 50.0, 1}});
+    BOOST_TEST_REQUIRE(p.size() == 3u);
+    BOOST_TEST(p[1].xlo == 10.0);
+    BOOST_TEST(p[1].xhi == 40.0);
+    BOOST_TEST(p[1].region == 1);
+    // A row the fences do not reach is returned whole.
+    const std::vector<RowPiece> q =
+        splitRowByFences(0.0, 100.0, 200.0, 210.0, 1.0, {FenceRect{10.0, 0.0, 30.0, 10.0, 1}});
+    BOOST_TEST_REQUIRE(q.size() == 1u);
+    BOOST_TEST(q[0].xlo == 0.0);
+    BOOST_TEST(q[0].xhi == 100.0);
+    BOOST_TEST(q[0].region == kOpenSpace);
 }
 
 BOOST_AUTO_TEST_SUITE_END()

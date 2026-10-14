@@ -7,6 +7,10 @@
 // label -- the region it belongs to, or open space -- and only letting a cell
 // use stretches with its own label. This is that labelling, kept free of any
 // stage's data model so each stage can apply it to its own rows.
+//
+// It lives with the legalizer, which owns what "legal next to a fence" means;
+// FastDP includes it from here rather than keeping a copy, so the detailed
+// placer can never accept a position the legalizer would refuse, or the reverse.
 
 #pragma once
 
