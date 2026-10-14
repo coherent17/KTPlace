@@ -69,7 +69,7 @@ struct SimplParams {
     /// Number of look-ahead legalization passes applied to the lower bound each
     /// outer iteration. One pass is not enough once the top-down partitioning is
     /// given the whole die: it spreads into the space and leaves holes mid-die.
-    /// The isolated measurement (KTPLACE_SIMPL_LAL_ONLY) reached 0.026 overflow
+    /// The isolated measurement (simpl lal_only_rounds) reached 0.026 overflow
     /// in two passes on adaptec1, so the machinery converges -- the loop just
     /// never gave it the rounds. Passes stop early once the overflow stops
     /// improving.
@@ -256,7 +256,7 @@ struct SimplParams {
     // equation in this paper, and the text above is the actual statement.
     //
     // alpha = 0.01 x (1 + it) is unchanged and already matches the paper exactly.
-    // KTPLACE_SIMPL_PSEUDONET=inv selects the other law for comparison.
+    // `add_option simpl pseudonet inverse` selects the other law for comparison.
     PseudonetLaw pseudonetLaw = PseudonetLaw::ConstantStiffness;
 
     // --- convergence --------------------------------------------------------

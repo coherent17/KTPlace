@@ -9,7 +9,6 @@
 #include "session/kt_session.h"
 #include "tcl/kt_tcl.h"
 #include "util/kt_log.h"
-#include "util/kt_param.h"
 #include "util/kt_progress.h"
 #include "util/kt_reportTable.h"
 #include "util/kt_scopedTimer.h"
@@ -343,7 +342,7 @@ void TclShell::Impl::registerCommands() {
 
     // --- pictures ------------------------------------------------------------
     add("set_plot_dir", "set_plot_dir <dir>",
-        "draw into <dir> (\"\" draws nothing); the KTPLACE_ANIM_* parameters are read now",
+        "draw into <dir> (\"\" draws nothing); the visualizer options are read now",
         [this](const Command &c, const Words &w) -> Tcl_Obj * {
             expectWords(c, w, 1, 1);
             PlotOptions plot = w[0].empty() ? PlotOptions{} : PlotOptions::fromOptions();
@@ -418,67 +417,6 @@ void TclShell::Impl::registerCommands() {
             expectWords(c, w, 0, 0);
             OptionDb::instance().report();
             return nullptr;
-        });
-
-    // --- parameters ----------------------------------------------------------
-    add("set_param", "set_param <name> <value>",
-        "set a KTPLACE_* parameter for this session; it overrides the environment",
-        [](const Command &c, const Words &w) -> Tcl_Obj * {
-            expectWords(c, w, 2, 2);
-            if (const auto ok = ParamRegistry::instance().set(w[0], w[1]); !ok) {
-                throw UsageError(ok.error().message);
-            }
-            return nullptr;
-        });
-    add("get_param", "get_param <name>", "return a KTPLACE_* parameter's current value",
-        [](const Command &c, const Words &w) -> Tcl_Obj * {
-            expectWords(c, w, 1, 1);
-            const auto state = ParamRegistry::instance().state(w[0]);
-            if (!state) {
-                throw UsageError(state.error().message);
-            }
-            return newString(state->text);
-        });
-    add("reset_param", "reset_param ?name?",
-        "drop the set_param value of one parameter, or of all, back to the environment or "
-        "default",
-        [](const Command &c, const Words &w) -> Tcl_Obj * {
-            expectWords(c, w, 0, 1);
-            auto &reg = ParamRegistry::instance();
-            if (w.empty()) {
-                reg.resetAll();
-            } else if (const auto ok = reg.reset(w[0]); !ok) {
-                throw UsageError(ok.error().message);
-            }
-            return nullptr;
-        });
-    add("report_params", "report_params ?group?",
-        "log every parameter (or one group's) with its value and where it came from",
-        [](const Command &c, const Words &w) -> Tcl_Obj * {
-            expectWords(c, w, 0, 1);
-            ktReportTable table(w.empty() ? std::string("Parameters")
-                                          : "Parameters (" + w[0] + ")");
-            table.setHeaders({"name", "value", "source", "description"});
-            Tcl_Obj *names = Tcl_NewListObj(0, nullptr);
-            for (const ParamState &s : ParamRegistry::instance().list()) {
-                if (!w.empty() && s.def->group != w[0]) {
-                    continue;
-                }
-                table.addRow({std::string(s.def->name), s.text,
-                              std::string(ParamRegistry::sourceName(s.source)),
-                              std::string(s.def->description)});
-                Tcl_ListObjAppendElement(nullptr, names, newString(s.def->name));
-            }
-            int count = 0;
-            Tcl_ListObjLength(nullptr, names, &count);
-            if (count == 0) {
-                // The list was never handed to Tcl, so it is freed here.
-                Tcl_IncrRefCount(names);
-                Tcl_DecrRefCount(names);
-                throw UsageError("report_params: no parameter group \"" + w[0] + "\"");
-            }
-            table.emit();
-            return names;
         });
 
     // --- help ----------------------------------------------------------------

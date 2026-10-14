@@ -4,7 +4,7 @@
 #
 # Produces the same placed.pl, plots and log records as running the design
 # without -t (src/kt_flowMgr.cc), so it is the starting point for a custom flow:
-# copy it and change the stages, or put set_param lines in front. `help` lists
+# copy it and change the stages, or put add_option lines in front. `help` lists
 # every command.
 
 read_design $ktplace(input_dir)

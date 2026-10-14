@@ -4,7 +4,6 @@
 #include "datamodel/kt_optionDb.h"
 
 #include "util/kt_log.h"
-#include "util/kt_param.h"
 #include "util/kt_reportTable.h"
 
 #include <algorithm>
@@ -29,100 +28,6 @@ std::string toText(const OptionValue &value) {
     return std::get<std::string>(value);
 }
 
-// Which KTPLACE_* parameter stands behind each option. The registry owns the
-// environment (how each variable has always been parsed) and set_param; an
-// option no script set falls back to whatever it says.
-struct ParamLink {
-    const char *component;
-    const char *key;
-    const char *param;
-};
-
-constexpr ParamLink kLinks[] = {
-    {"simpl", "grid", "KTPLACE_SIMPL_GRID"},
-    {"simpl", "cg_tol", "KTPLACE_SIMPL_CG_TOL"},
-    {"simpl", "init_iters", "KTPLACE_SIMPL_INIT_ITERS"},
-    {"simpl", "iters", "KTPLACE_SIMPL_ITERS"},
-    {"simpl", "seed", "KTPLACE_SIMPL_SEED"},
-    {"simpl", "init_net", "KTPLACE_SIMPL_INIT_NET"},
-    {"simpl", "lss_net", "KTPLACE_SIMPL_LSS_NET"},
-    {"simpl", "pseudonet", "KTPLACE_SIMPL_PSEUDONET"},
-    {"simpl", "start", "KTPLACE_SIMPL_START"},
-    {"simpl", "no_lal", "KTPLACE_SIMPL_NO_LAL"},
-    {"simpl", "lal_only_rounds", "KTPLACE_SIMPL_LAL_ONLY"},
-    {"simpl", "fences", "KTPLACE_SIMPL_FENCES"},
-    {"simpl", "density", "KTPLACE_SIMPL_DENSITY"},
-    {"simpl", "global_cluster", "KTPLACE_SIMPL_GLOBAL_CLUSTER"},
-    {"simpl", "alpha_base", "KTPLACE_SIMPL_ALPHA_BASE"},
-    {"simpl", "alpha_decay", "KTPLACE_SIMPL_ALPHA_DECAY"},
-    {"simpl", "alpha_decay_below", "KTPLACE_SIMPL_ALPHA_DECAY_BELOW"},
-    {"simpl", "stripe_scale", "KTPLACE_SIMPL_STRIPE_SCALE"},
-    {"ntuplace1", "leaf_cells", "KTPLACE_NTU_LEAF_CELLS"},
-    {"ntuplace1", "max_levels", "KTPLACE_NTU_MAX_LEVELS"},
-    {"ntuplace1", "retries", "KTPLACE_NTU_RETRIES"},
-    {"ntuplace1", "verbose", "KTPLACE_NTU_VERBOSE"},
-    {"abacus", "max_row_dist", "KTPLACE_ABACUS_MAX_ROW_DIST"},
-    {"abacus", "min_subrow_sites", "KTPLACE_ABACUS_MIN_SUBROW_SITES"},
-    {"abacus", "cluster_gap", "KTPLACE_ABACUS_CLUSTER_GAP"},
-    {"fastdp", "window", "KTPLACE_DP_WINDOW"},
-    {"fastdp", "no_median", "KTPLACE_DP_NO_MEDIAN"},
-    {"visualizer", "anim", "KTPLACE_ANIM"},
-    {"visualizer", "anim_max_frames", "KTPLACE_ANIM_MAX_FRAMES"},
-    {"visualizer", "anim_zoom", "KTPLACE_ANIM_ZOOM"},
-    {"visualizer", "final_zoom", "KTPLACE_FINAL_ZOOM"},
-    {"visualizer", "final_ppm", "KTPLACE_FINAL_PPM"},
-    {"visualizer", "anim_max_bytes", "KTPLACE_ANIM_MAX_BYTES"},
-    {"visualizer", "anim_delay_cs", "KTPLACE_ANIM_DELAY_CS"},
-    {"visualizer", "anim_blend", "KTPLACE_ANIM_BLEND"},
-    {"visualizer", "anim_final_hold", "KTPLACE_ANIM_FINAL_HOLD"},
-    {"visualizer", "anim_trace_every", "KTPLACE_ANIM_TRACE_EVERY"},
-    {"visualizer", "anim_cg_every", "KTPLACE_ANIM_CG_EVERY"},
-    {"visualizer", "anim_density_maps", "KTPLACE_ANIM_DENSITY_MAPS"},
-};
-
-struct Fallback {
-    OptionValue value;
-    OptionOrigin origin;
-};
-
-// The registry's value for an option, when the environment or set_param
-// overrides the registry's default; nothing otherwise, so the component's own
-// default stands.
-std::optional<Fallback> fallbackFor(const std::string &component, const std::string &key) {
-    const auto link = std::ranges::find_if(kLinks, [&](const ParamLink &l) {
-        return component == l.component && key == l.key;
-    });
-    if (link == std::end(kLinks)) {
-        return std::nullopt;
-    }
-    const auto state = ParamRegistry::instance().state(link->param);
-    if (!state || state->source == ParamSource::Default) {
-        return std::nullopt;
-    }
-    const OptionOrigin origin =
-        state->source == ParamSource::Explicit ? OptionOrigin::Script : OptionOrigin::Env;
-    OptionValue value = std::visit(
-        [](const auto &v) -> OptionValue {
-            using T = std::decay_t<decltype(v)>;
-            if constexpr (std::is_same_v<T, bool> || std::is_same_v<T, double> ||
-                          std::is_same_v<T, std::string>) {
-                return v;
-            } else {
-                // Counts and integers: the option store's integer is an int, as a
-                // script's is.
-                return static_cast<int>(v);
-            }
-        },
-        state->value);
-    // The one word the two spell differently: the registry's "const"/"inv" law
-    // is the option's "constant"/"inverse".
-    if (component == "simpl" && key == "pseudonet") {
-        const std::string law = std::get<std::string>(value);
-        value = law == "const" ? std::string("constant") : std::string("inverse");
-    }
-    return Fallback{std::move(value), origin};
-}
-
 }  // namespace
 
 const char *toString(OptionOrigin origin) {
@@ -131,8 +36,6 @@ const char *toString(OptionOrigin origin) {
             return "default";
         case OptionOrigin::Script:
             return "script";
-        case OptionOrigin::Env:
-            return "environment";
     }
     return "unknown";
 }
@@ -165,15 +68,7 @@ std::optional<OptionMap> OptionDb::optionsFor(const std::string &component) cons
             out.emplace(entry.first, entry.second.value);
         }
     }
-    // What the environment or set_param says, for the keys no script set.
-    for (const ParamLink &link : kLinks) {
-        if (component == link.component && !out.contains(link.key)) {
-            if (auto fallback = fallbackFor(component, link.key)) {
-                out.emplace(link.key, std::move(fallback->value));
-            }
-        }
-    }
-    if (out.empty() && found == byComponent.end()) {
+    if (found == byComponent.end()) {
         return std::nullopt;
     }
     return out;
@@ -188,9 +83,6 @@ std::optional<OptionValue> OptionDb::find(const std::string &component,
             return entry->second.value;
         }
     }
-    if (auto fallback = fallbackFor(component, key)) {
-        return std::move(fallback->value);
-    }
     return std::nullopt;
 }
 
@@ -202,9 +94,6 @@ std::optional<OptionOrigin> OptionDb::originOf(const std::string &component,
         if (entry != found->second.end()) {
             return entry->second.origin;
         }
-    }
-    if (const auto fallback = fallbackFor(component, key)) {
-        return fallback->origin;
     }
     return std::nullopt;
 }

@@ -7,8 +7,8 @@
 // The same arguments as ktplace, all optional: a design given here is read on
 // start-up, a script is sourced after it, and -w is where the log, the
 // pictures and the run history (runs.json) go. -b is the directory the
-// Benchmarks panel lists designs from; without it, $KTPLACE_BENCH_ROOT, or
-// ./benchmark when there is one. Qt's own options (-platform xcb, -style, ...)
+// Benchmarks panel lists designs from; without it, ./benchmark when there is
+// one. -c configuration scripts are sourced before anything else. Qt's own options (-platform xcb, -style, ...)
 // are taken first. Unlike ktplace, nothing runs unless asked for; the window
 // waits for commands.
 
@@ -27,6 +27,7 @@
 #include <string>
 #include <string_view>
 #include <system_error>
+#include <vector>
 
 using namespace ktplace;
 
@@ -38,6 +39,7 @@ struct GuiOptions {
     std::string workDir = std::filesystem::current_path().string();
     std::string benchRoot;
     std::string algorithm = "simpl";
+    std::vector<std::string> configs;
     bool verbose = false;
 };
 
@@ -58,6 +60,8 @@ GuiOptions parseArguments(int argc, char *argv[]) {
             options.script = value();
         } else if (arg == "-b" || arg == "--bench-root") {
             options.benchRoot = value();
+        } else if (arg == "-c" || arg == "--config") {
+            options.configs.push_back(value());
         } else if (arg == "-a" || arg == "--algorithm") {
             options.algorithm = value();
         } else if (arg == "-v" || arg == "--verbose") {
@@ -73,9 +77,8 @@ GuiOptions parseArguments(int argc, char *argv[]) {
     }
     std::filesystem::create_directories(options.workDir);
     if (options.benchRoot.empty()) {
-        if (const char *env = std::getenv("KTPLACE_BENCH_ROOT"); env != nullptr && *env != '\0') {
-            options.benchRoot = env;
-        } else if (std::error_code ec; std::filesystem::is_directory("benchmark", ec)) {
+        // -b, or the repository's own benchmark/ when run from the repository.
+        if (std::error_code ec; std::filesystem::is_directory("benchmark", ec)) {
             options.benchRoot = std::filesystem::absolute("benchmark").string();
         }
     }
@@ -96,7 +99,8 @@ int main(int argc, char *argv[]) {
         options = parseArguments(argc, argv);
     } catch (const std::exception &e) {
         ktlog.echo(
-            "usage: ktplace-gui [input_dir] [-w work_dir] [-t script.tcl] [-a algorithm] [-b "
+            "usage: ktplace-gui [input_dir] [-w work_dir] [-c config.tcl] [-t script.tcl] [-a "
+            "algorithm] [-b "
             "bench_root] [-v]");
         ktlog.warning("{}", e.what());
         ktlog.shutdown();
@@ -131,6 +135,10 @@ int main(int argc, char *argv[]) {
         // Once the event loop runs, so the commands appear in the console as
         // they execute. One script, so the read is finished before sourcing.
         QString startup;
+        // Configuration first, so the stages read what it set.
+        for (const std::string &config : options.configs) {
+            startup += "source " + MainWindow::tclQuote(QString::fromStdString(config)) + "\n";
+        }
         if (!options.inputPath.empty()) {
             startup += "read_design " +
                        MainWindow::tclQuote(QString::fromStdString(options.inputPath)) + "\n";

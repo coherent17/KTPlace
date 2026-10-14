@@ -582,7 +582,7 @@ void simplPlacer::Impl::buildGrid(const SimplParams &P) {
         // Measured over 64..700 on adaptec1, the coarse end is the balanced one:
         // 64 gives the lowest scaled overflow (0.206 against 0.305 at 229) and the
         // least lopsided placement, for 4.07e+08 against 5.40e+08 end to end.
-        // KTPLACE_SIMPL_GRID overrides it; 700 is better still on wirelength alone.
+        // the simpl grid option overrides it; 700 is better still on wirelength alone.
         double t =
             std::clamp(std::sqrt(static_cast<double>(std::max<std::size_t>(numMovable_, 1)) / 51.0),
                        16.0, 256.0);
@@ -3033,7 +3033,7 @@ SimplResult simplPlacer::Impl::run(const SimplParams &P, bool useFences) {
         // Applied repeatedly until the overflow stops improving. A single pass is
         // not enough once the top-down partitioning is handed the whole usable
         // die: it spreads into the space and leaves holes mid-die. Measured in
-        // isolation (KTPLACE_SIMPL_LAL_ONLY) the same projection takes adaptec1
+        // isolation (simpl lal_only_rounds) the same projection takes adaptec1
         // from 0.508 to 0.143 in one pass and on to 0.026 in two, so the
         // machinery does converge -- the outer loop was simply never giving it
         // the rounds.
@@ -3323,7 +3323,7 @@ SimplResult simplPlacer::Impl::run(const SimplParams &P, bool useFences) {
     }
     // The placement handed on honours the fences on every path. After a normal
     // run this changes nothing -- each upper bound was fenced when it was made --
-    // but the fallback above and KTPLACE_SIMPL_NO_LAL return a lower bound.
+    // but the fallback above and simpl no_lal return a lower bound.
     enforceFences(upper, upperY);
     res_.hpwlFinal = hpwl(upper, upperY);
     res_.hpwlLower = hpwl(lower, lowerY);
@@ -3360,7 +3360,7 @@ SimplResult simplPlacer::Impl::run(const SimplParams &P, bool useFences) {
         // net model can produce with all the overlap intact, so a downstream
         // legalizer's cost is an honest measure of the net model alone.
         ktlog.echo(
-            "SimPL: look-ahead legalization DISABLED (KTPLACE_SIMPL_NO_LAL); returning the "
+            "SimPL: look-ahead legalization DISABLED (simpl no_lal); returning the "
             "overlapping lower bound, HPWL {:.6e}, scaled overflow {:.6e}",
             res_.hpwlFinal, res_.overflowFinal);
     }

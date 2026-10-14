@@ -216,7 +216,7 @@ void MainWindow::buildMenus() {
     engineAction(report, QStringLiteral("&HPWL"), QStringLiteral("report_hpwl"));
     engineAction(report, QStringLiteral("&Check Placement"), QStringLiteral("check_placement"));
     engineAction(report, QStringLiteral("&Timing"), QStringLiteral("report_timing"));
-    engineAction(report, QStringLiteral("&Parameters"), QStringLiteral("report_params"));
+    engineAction(report, QStringLiteral("&Options"), QStringLiteral("report_options"));
 
     QMenu *view = menuBar()->addMenu(QStringLiteral("&View"));
     QAction *fit = view->addAction(QStringLiteral("Zoom &Fit"));

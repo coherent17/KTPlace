@@ -15,8 +15,7 @@ namespace ktplace {
 //
 //     add_option ntuplace1 leaf_cells 64
 //
-// Each was a KTPLACE_NTU_* environment variable, which still works as a fallback
-// for anything a script does not set.
+// Set with `add_option ntuplace1 <option> <value>`; the defaults are below.
 struct Ntuplace1Options {
     // When to stop subdividing. A leaf holds this many cells, at most.
     std::size_t leafCells = 100;

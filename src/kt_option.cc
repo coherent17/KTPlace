@@ -32,6 +32,7 @@ bool kt_option::parse(int argc, char *argv[]) {
     // Cleared, so a second parse describes only the second command line.
     inputPath.clear();
     tclScript.clear();
+    configScripts.clear();
 
     for (int i = 1; i < argc; ++i) {
         const std::string arg = argv[i];
@@ -49,6 +50,8 @@ bool kt_option::parse(int argc, char *argv[]) {
             workDir = value();
         } else if (arg == "-t" || arg == "--tcl") {
             tclScript = value();
+        } else if (arg == "-c" || arg == "--config") {
+            configScripts.push_back(value());
         } else if (arg == "-v" || arg == "--verbose") {
             verbose = true;
         } else if (arg == "--no-plots") {
@@ -84,6 +87,9 @@ void kt_option::report() const {
     if (!tclScript.empty()) {
         config.add("tcl script", tclScript);
     }
+    for (const std::string &script : configScripts) {
+        config.add("config script", script);
+    }
     config.add("work directory", workDir);
     config.add("output path", getOutputPath());
     config.add("plot directory", getPlotDir());
@@ -107,6 +113,9 @@ Arguments:
 
 Options:
   -a, --algorithm <name>    Placement algorithm (default: simpl)
+  -c, --config <script>     Configure the run: a Tcl script of add_option lines
+                            (add_option simpl iters 50), run before the flow
+                            or the -t script. May be given more than once
   -t, --tcl <script>        Run a Tcl script instead of the fixed flow. The
                             script sees ktplace(input_dir), ktplace(work_dir),
                             ktplace(output), ktplace(plot_dir) and
@@ -116,7 +125,7 @@ Options:
   --no-plots                Draw nothing; skip every frame and picture
   --gui                     Open the design in ktplace-gui, the Qt window,
                             instead of running the flow. The other arguments
-                            go to it (input_dir, -w, -t, -a, -v); `make gui`
+                            go to it (input_dir, -w, -c, -t, -a, -v); `make gui`
                             builds it. Needs a display: in the dev container
                             that is the VNC one (see docs/docker.md)
   -v, --verbose             Also send trace diagnostics to the console.
@@ -129,14 +138,16 @@ Options:
 Everything a run writes goes under the work directory: placed.pl, plots/, and
 ktplace.log. Logging goes to that file and stderr; stdout is never written to.
 
-The picture settings -- animation on or off, frame budget, zoom levels -- are
-defaults that the environment can override (KTPLACE_ANIM, KTPLACE_ANIM_MAX_FRAMES,
-KTPLACE_FINAL_ZOOM, ...), so tuning them does not need a flag each.
+Every stage setting is an option, set by a configuration script rather than a
+flag each: `add_option <component> <option> <value>`, for the components simpl,
+ntuplace1, abacus, fastdp and visualizer. Each stage logs its full option table
+when it runs, with what set each value.
 
 Examples:
   ktplace benchmark/ISPD_2005/adaptec1
   ktplace benchmark/ISPD_2005/adaptec1 -w output
   ktplace benchmark/ISPD_2005/adaptec1 -w output -a simpl
+  ktplace benchmark/ISPD_2005/adaptec1 -w output -c tuning.tcl
   ktplace -t scripts/flow.tcl benchmark/ISPD_2005/adaptec1 -w output
   ktplace --gui benchmark/ISPD_2005/adaptec1 -w output
 )";

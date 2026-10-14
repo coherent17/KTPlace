@@ -141,7 +141,7 @@ BOOST_AUTO_TEST_CASE(session_legalizes_without_a_global_placement_first) {
 }
 
 BOOST_AUTO_TEST_CASE(session_rejects_an_out_of_range_detail_window) {
-    // KTPLACE_DP_WINDOW used to be read twice: unchecked by the flow, then 2..14
+    // The FastDP window used to be read twice: unchecked by the flow, then 2..14
     // by FastDP, and the flow's copy won. Now only FastDP reads it, so 20 is
     // refused with a warning and the stage runs with its own window.
     const ScratchDir dir("session_dpwindow");
@@ -149,18 +149,18 @@ BOOST_AUTO_TEST_CASE(session_rejects_an_out_of_range_detail_window) {
     loadTiny(session, dir);
     session.legalize();
 
-    ::setenv("KTPLACE_DP_WINDOW", "20", 1);
+    OptionDb::instance().set("fastdp", "window", 20);
     std::ostringstream captured;
     std::streambuf *original = std::cerr.rdbuf(captured.rdbuf());
     try {
         session.detailPlace();
     } catch (...) {
         std::cerr.rdbuf(original);
-        ::unsetenv("KTPLACE_DP_WINDOW");
+        OptionDb::instance().clear();
         throw;
     }
     std::cerr.rdbuf(original);
-    ::unsetenv("KTPLACE_DP_WINDOW");
+    OptionDb::instance().clear();
 
     BOOST_TEST(captured.str().find("fastdp window 20 is outside 2..14") != std::string::npos);
     BOOST_TEST(session.checkPlacement().empty());

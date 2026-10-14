@@ -1362,8 +1362,8 @@ DetailPlaceResult FastDetailedPlacer::Impl::place(const DetailPlaceParams &param
     // The subset DP costs 2^k per window, so the window is the one knob that sets
     // the price of re-ordering. Measured on adaptec1: k=8 costs about 36 of 52
     // seconds for a few tenths of a percent. Overridable so the curve can be
-    // walked without a rebuild. Applied only when something sets it (a script,
-    // set_param or KTPLACE_DP_WINDOW), and refused out of range.
+    // walked without a rebuild. Applied only when a script sets it
+    // (add_option fastdp window <k>), and refused out of range.
     if (const auto v = Option<std::size_t>{"fastdp", "window", 0}.tryGet()) {
         if (*v >= 2 && *v <= 14) {
             localWindow_ = *v;

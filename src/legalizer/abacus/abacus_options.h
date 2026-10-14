@@ -14,7 +14,7 @@ namespace ktplace {
 //
 //     add_option abacus max_row_dist 3
 //
-// Each was a KTPLACE_ABACUS_* environment variable, still honoured as a fallback.
+// Set with `add_option abacus <option> <value>`; the defaults are below.
 struct AbacusOptions {
     // How far a cell may be dragged along its row to make it fit. Unlimited would
     // legalize at the cost of a wirelength nobody asked for.

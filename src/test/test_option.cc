@@ -364,3 +364,12 @@ BOOST_AUTO_TEST_CASE(the_gui_binary_is_looked_for_beside_the_running_one) {
         BOOST_TEST(gui.parent_path() == self.parent_path());
     }
 }
+
+BOOST_AUTO_TEST_CASE(configuration_scripts_are_kept_in_order) {
+    const kt_option opt = parse({"ktplace", kDesign, "-c", "a.tcl", "--config", "b.tcl"});
+    const std::vector<std::string> expected{"a.tcl", "b.tcl"};
+    BOOST_TEST(opt.configScripts == expected, boost::test_tools::per_element());
+    BOOST_TEST(opt.inputPath == kDesign);
+    BOOST_TEST(parse({"ktplace", kDesign}).configScripts.empty());
+    BOOST_CHECK_THROW(parse({"ktplace", kDesign, "-c"}), std::runtime_error);
+}

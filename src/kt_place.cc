@@ -2,6 +2,8 @@
 #include "kt_option.h"
 
 #include "session/kt_session.h"
+#include "tcl/kt_tcl.h"
+#include "tcl/kt_tclMgr.h"
 #include "tcl/kt_tclShell.h"
 #include "util/kt_log.h"
 #include "visualization/kt_plotOptions.h"
@@ -22,7 +24,7 @@ namespace {
 
 // `ktplace -t script.tcl`: the script in place of FlowMgr's fixed sequence. The
 // session starts drawing where the fixed flow would (-w, --no-plots and the
-// KTPLACE_ANIM_* parameters apply), and the script can change that with
+// visualizer options apply), and the script can change that with
 // set_plot_dir. A failing command fails the run with Tcl's own trace, which
 // names the command, the procedure and the line.
 int runScript(const kt_option &options) {
@@ -99,6 +101,16 @@ int run(int argc, char *argv[]) {
         ktlog.echo("KTPlace - Know Thyself Placement Engine v{}", VERSION);
         ktlog.echo("========================================");
         options.report();
+
+        // The configuration first, so every stage below reads what it set.
+        for (const std::string &script : options.configScripts) {
+            ktlog.echo("Configuring from {}...", script);
+            try {
+                tcl::TclMgr::instance().loadScript(script);
+            } catch (const tcl::Error &e) {
+                ktlog.fatal("configuration script {} failed: {}", script, e.what());
+            }
+        }
 
         if (!options.tclScript.empty()) {
             return runScript(options);

@@ -24,19 +24,16 @@ using OptionMap = std::unordered_map<std::string, OptionValue>;
 // Where a value came from, so a report can say why an option is what it is.
 enum class OptionOrigin {
     Default,  // never set: the option's own default stands
-    Script,   // an add_option in the Tcl file
-    Env,      // a KTPLACE_<COMPONENT>_<KEY> variable, as a fallback
+    Script,   // an add_option in a Tcl script
 };
 
 [[nodiscard]] const char *toString(OptionOrigin origin);
 
 // Every option a run has been given.
 //
-// What a script set (add_option) comes first. An option no script set falls
-// back to the KTPLACE_* parameter behind it (util/kt_param.h): a set_param
-// value, then the environment variable, parsed the way it always has been. Only
-// then does the option's own default apply. The fallback is read live, so a
-// set_param or a setenv takes effect at the next read.
+// What a script set (add_option) is the value; an option no script set has its
+// own default. Nothing is read from the environment: a run is configured by the
+// script it is given, so what configured it is in the script and in the log.
 //
 // A process-wide instance because a run configures one thing and every component
 // asks the same question; passing it around would be plumbing with no gain.

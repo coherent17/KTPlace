@@ -19,7 +19,6 @@
 #include "placer/simpl/simpl_flowMgr.h"
 #include "placer/simpl/simpl_placer.h"
 #include "util/kt_log.h"
-#include "util/kt_param.h"
 #include "util/kt_progress.h"
 #include "util/kt_reportTable.h"
 #include "util/kt_scopedTimer.h"

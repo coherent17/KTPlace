@@ -8,6 +8,7 @@
 #include "kt_flowMgr.h"
 #include "kt_option.h"
 
+#include "datamodel/kt_optionDb.h"
 #include "test/kt_testDesign.h"
 
 #include <filesystem>
@@ -29,12 +30,34 @@ namespace {
 /// The options a run under test gets: a design to read and a work directory to
 /// write into. The output and plot paths are derived from the latter, so tests
 /// read them back off the options rather than naming them twice.
+///
+/// Drawing is off: it is most of a run's time and none of these tests look at
+/// it. The one that does turns it back on (see below).
 kt_option optionsFor(const ScratchDir &dir, const std::string &inputPath) {
     kt_option opt;
     opt.inputPath = inputPath;
     opt.workDir = dir.str();
+    opt.plot = false;
     return opt;
 }
+
+/// Small pictures for the test that draws, set the way a run is configured
+/// (add_option visualizer ...), and cleared again when it ends. The frame size
+/// and count do not change what is exercised: every writer still runs.
+struct SmallPictures {
+    SmallPictures() {
+        auto &db = OptionDb::instance();
+        db.set("visualizer", "anim", true);
+        db.set("visualizer", "anim_max_frames", 40);
+        db.set("visualizer", "anim_zoom", 1.0);
+        db.set("visualizer", "final_zoom", 1.0);
+    }
+    ~SmallPictures() {
+        OptionDb::instance().clear();
+    }
+    SmallPictures(const SmallPictures &) = delete;
+    SmallPictures &operator=(const SmallPictures &) = delete;
+};
 
 }  // namespace
 
@@ -95,7 +118,9 @@ BOOST_AUTO_TEST_CASE(flow_places_a_bookshelf_design_and_writes_pl) {
 BOOST_AUTO_TEST_CASE(flow_writes_visualization_output_when_asked) {
     const ScratchDir dir("plots");
     writeBookshelfDesign(dir);
-    const kt_option opt = optionsFor(dir, designDir(dir).string());
+    const SmallPictures pictures;
+    kt_option opt = optionsFor(dir, designDir(dir).string());
+    opt.plot = true;
     const fs::path plots = opt.getPlotDir();
 
     FlowMgr flow;

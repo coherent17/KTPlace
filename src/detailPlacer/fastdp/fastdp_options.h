@@ -14,7 +14,7 @@ namespace ktplace {
 //
 //     add_option fastdp window 2
 //
-// Each was a KTPLACE_DP_* environment variable, still honoured as a fallback.
+// Set with `add_option fastdp <option> <value>`; the defaults are below.
 struct FastdpOptions {
     // How many neighbouring cells a local reorder may swap across. Zero leaves
     // reordering off, which is the setting that makes the placer a no-op.

@@ -243,9 +243,9 @@ BOOST_AUTO_TEST_CASE(the_console_shows_errors_and_completes_command_names) {
     BOOST_TEST((console.transcript() == before));
 
     // Ambiguous: extended to the common prefix, candidates listed.
-    console.input()->setText("report_p");
+    console.input()->setText("report_o");
     console.input()->onTab();
-    BOOST_TEST(console.input()->text().toStdString() == "report_params ");
+    BOOST_TEST(console.input()->text().toStdString() == "report_options ");
     console.input()->setText("rep");
     console.input()->onTab();
     BOOST_TEST(console.input()->text().toStdString() == "report_");

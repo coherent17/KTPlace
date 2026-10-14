@@ -1101,7 +1101,7 @@ void report(const LegalizeResult &r) {
     if (r.outOfRows > 0) {
         ktlog.warning(
             "{} cell(s) could not be placed in any row and are still at their global placement "
-            "positions (no room within KTPLACE_ABACUS_MAX_ROW_DIST rows, or taller than a row). "
+            "positions (no room within abacus max_row_dist rows, or taller than a row). "
             "The placement is not legal; see \"cells out of rows\" above.",
             r.outOfRows);
     }

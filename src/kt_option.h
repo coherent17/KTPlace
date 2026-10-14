@@ -16,6 +16,9 @@ public:
     /// A Tcl script to run instead of the fixed flow; see tcl/kt_tclShell.h.
     /// With one, the input directory is optional: the script reads its design.
     std::string tclScript;
+    /// Configuration scripts (-c), run in order before the flow or the -t
+    /// script: add_option lines that set the stages' options.
+    std::vector<std::string> configScripts;
     std::string algorithm = "simpl";
     bool verbose = false;
     std::string workDir = std::filesystem::current_path().string();
