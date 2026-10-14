@@ -7,6 +7,7 @@
 
 #include "adaptor/kt_inputReader.h"
 #include "datamodel/kt_dm.h"
+#include "datamodel/kt_optionDb.h"
 #include "detailPlacer/fastdp/fastdp_dm.h"
 #include "detailPlacer/fastdp/fastdp_flowMgr.h"
 #include "detailPlacer/fastdp/fastdp_placer.h"
@@ -34,6 +35,8 @@
 #include <vector>
 
 namespace ktplace {
+
+namespace components = ktplace::components;
 
 class FlowMgr::Impl {
 public:
@@ -107,8 +110,16 @@ void FlowMgr::Impl::reportDesign() {
 }
 
 void FlowMgr::Impl::placeDesign(const kt_option &options) {
-    const std::string &algorithm = options.algorithm;
     ScopedTimer timer("place");
+
+    // Which placer runs is the flow's business: it is the one that knows what
+    // placers exist. The script chooses with `add_option flow algorithm ...`, and
+    // SimPL runs when nothing says otherwise.
+    const std::string algorithm =
+        getComponentOption<components::Id::Flow, std::string>("algorithm").value_or("simpl");
+    if (algorithm != "simpl" && algorithm != "ntuplace1") {
+        ktlog.fatal("unknown placer '{}'; expected simpl or ntuplace1", algorithm);
+    }
     if (!db) {
         ktlog.fatal("No placement database loaded");
     }

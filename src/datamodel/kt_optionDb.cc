@@ -12,6 +12,14 @@
 
 namespace ktplace {
 
+namespace components {
+bool known(std::string_view name) noexcept {
+    return name == toString(Id::Simpl) || name == toString(Id::NtuPlace1) ||
+           name == toString(Id::Abacus) || name == toString(Id::FastDp) ||
+           name == toString(Id::Visualizer) || name == toString(Id::Flow);
+}
+}  // namespace components
+
 namespace {
 
 // The text a report prints for any of the variant's types.

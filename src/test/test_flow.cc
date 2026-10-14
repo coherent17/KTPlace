@@ -8,6 +8,8 @@
 #include "kt_flowMgr.h"
 #include "kt_option.h"
 
+#include "datamodel/kt_optionDb.h"
+
 #include <boost/test/unit_test_suite.hpp>
 #include <cstdio>
 #include <cstdlib>
@@ -336,11 +338,11 @@ BOOST_AUTO_TEST_CASE(flow_exits_on_an_unknown_algorithm) {
     expectFatalExit(
         [&] {
             FlowMgr flow;
-            kt_option opt = optionsFor(dir, designDir(dir).string());
-            opt.algorithm = "no_such_algo";
+            OptionDb::instance().set("flow", "algorithm", OptionValue{std::string("no_such_algo")});
+            const kt_option opt = optionsFor(dir, designDir(dir).string());
             flow.run(opt);
         },
-        "Unknown placement algorithm");
+        "unknown placer");
 }
 
 BOOST_AUTO_TEST_CASE(flow_exits_when_the_input_directory_is_missing) {
