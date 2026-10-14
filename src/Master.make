@@ -25,8 +25,13 @@ endif
 INCLUDES := -I.
 
 # External libraries (oneTBB for parallelism, Boost.Iostreams/zlib for gzip
-# input, fmt for log message formatting)
-LIBS := -ltbb -lboost_iostreams -lz -lfmt
+# input, fmt for log message formatting, Tcl 8.6 for the command layer).
+# Ubuntu ships no pkg-config file for Tcl, so it is named; override TCL_CFLAGS
+# and TCL_LIBS for another layout. The header path is needed here as well as in
+# tcl/Master.make, because the object rule below also matches tcl/*.cc.
+TCL_CFLAGS ?= -I/usr/include/tcl8.6
+TCL_LIBS ?= -ltcl8.6
+LIBS := -ltbb -lboost_iostreams -lz -lfmt $(TCL_LIBS)
 
 # Directories
 SRC_DIR := .
@@ -43,7 +48,7 @@ BIN_DIR := $(BUILD_DIR)/bin
 LIB_DIR := $(BUILD_DIR)/lib
 
 # Subdirectories
-SUBDIRS := datamodel adaptor constraint placer legalizer detailPlacer session visualization util
+SUBDIRS := datamodel adaptor constraint placer legalizer detailPlacer session tcl visualization util
 
 # Source files in current directory
 LOCAL_SRCS := kt_flowMgr.cc kt_place.cc kt_option.cc
@@ -105,7 +110,7 @@ dirs:
 # Build subdirectories
 $(SUBDIRS):
 	@echo "Building $@..."
-	@$(MAKE) -C $@ -f Master.make OBJ_DIR=$(OBJ_DIR)/$@ INCLUDES="$(INCLUDES)" CXX="$(CXX)" CXXFLAGS="$(CXXFLAGS)"
+	@$(MAKE) -C $@ -f Master.make OBJ_DIR=$(OBJ_DIR)/$@ INCLUDES="$(INCLUDES)" CXX="$(CXX)" CXXFLAGS="$(CXXFLAGS)" TCL_CFLAGS="$(TCL_CFLAGS)"
 
 # Main executable
 $(TARGET): $(ALL_OBJS) | dirs
@@ -154,7 +159,7 @@ $(STATIC_LIB): $(LIB_OBJS) | dirs
 $(OBJ_DIR)/%.o: %.cc
 	@mkdir -p $(dir $@)
 	@echo "Compiling $<..."
-	@$(CXX) $(CXXFLAGS) $(INCLUDES) -MMD -MP -c $< -o $@
+	@$(CXX) $(CXXFLAGS) $(INCLUDES) $(TCL_CFLAGS) -MMD -MP -c $< -o $@
 
 # Include dependency files
 -include $(DEPS)
@@ -179,13 +184,15 @@ TEST_viz := visualization/test/test_viz.cc
 TEST_detail := detailPlacer/test/test_detail.cc
 TEST_ntuplace1 := placer/ntuplace1/test/test_ntuplace1.cc
 TEST_session := session/test/test_session.cc
+TEST_tcl := tcl/test/test_tcl.cc
 # Shared by the suites that run whole stages on a synthetic design. Listed as a
 # prerequisite, because the test rules do not generate dependency files.
 TEST_DESIGN_HELPERS := test/kt_testDesign.h
 
 TEST_BINS := $(BIN_DIR)/test_datamodel $(BIN_DIR)/test_adaptor $(BIN_DIR)/test_flow \
              $(BIN_DIR)/test_util $(BIN_DIR)/test_constraint $(BIN_DIR)/test_option $(BIN_DIR)/test_viz \
-             $(BIN_DIR)/test_detail $(BIN_DIR)/test_ntuplace1 $(BIN_DIR)/test_session
+             $(BIN_DIR)/test_detail $(BIN_DIR)/test_ntuplace1 $(BIN_DIR)/test_session \
+             $(BIN_DIR)/test_tcl
 
 # Builds the test binaries without running them. `make coverage` needs this:
 # the coverage driver wants to run the binaries itself, once, under the
@@ -243,6 +250,10 @@ $(BIN_DIR)/test_ntuplace1: $(TEST_ntuplace1) $(LIB_OBJS) | dirs
 $(BIN_DIR)/test_session: $(TEST_session) $(TEST_DESIGN_HELPERS) $(LIB_OBJS) | dirs
 	@echo "  Building test_session..."
 	@$(CXX) $(CXXFLAGS) $(INCLUDES) -o $@ $(TEST_session) $(LIB_OBJS) $(LIBS) $(COVERAGE_LDFLAGS) $(TEST_LIBS)
+
+$(BIN_DIR)/test_tcl: $(TEST_tcl) $(TEST_DESIGN_HELPERS) $(LIB_OBJS) | dirs
+	@echo "  Building test_tcl..."
+	@$(CXX) $(CXXFLAGS) $(INCLUDES) -o $@ $(TEST_tcl) $(LIB_OBJS) $(LIBS) $(COVERAGE_LDFLAGS) $(TEST_LIBS)
 
 # ============================================================================
 # Line coverage

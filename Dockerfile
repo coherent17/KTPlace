@@ -15,7 +15,7 @@
 #          docker run -v "$PWD/output:/ktplace/output" ktplace \
 #              ktplace benchmark/ISPD_2005/adaptec1 -w output/adaptec1-linux
 #
-#   runtime the base `run` and `web` are both made of: the four libraries the
+#   runtime the base `run` and `web` are both made of: the five libraries the
 #          binary links, plus the vendored adaptec1. No toolchain, no engine --
 #          selecting it by hand has no point.
 #
@@ -51,6 +51,7 @@ RUN apt-get update \
         libboost-test-dev \
         zlib1g-dev \
         libfmt-dev \
+        tcl-dev \
         clang-format \
     && rm -rf /var/lib/apt/lists/*
 
@@ -136,7 +137,7 @@ RUN make -j"$(nproc)" && strip build/bin/ktplace
 
 # ------------------------------------------------------------------ runtime
 # What `run` and `web` are both made of, and the reason neither carries a
-# toolchain: these four are the runtime packages behind the toolchain stage's
+# toolchain: these five are the runtime packages behind the toolchain stage's
 # -dev packages, on the same Ubuntu the binary was built on, so what runs on
 # them is exactly what was built -- a tenth of the ci image's size.
 #
@@ -153,6 +154,7 @@ RUN apt-get update \
         libboost-iostreams1.83.0 \
         zlib1g \
         libfmt9 \
+        libtcl8.6 \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /ktplace

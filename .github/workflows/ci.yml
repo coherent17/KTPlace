@@ -31,13 +31,14 @@ jobs:
             libboost-test-dev \
             zlib1g-dev \
             libfmt-dev \
+            tcl-dev \
             clang-format
 
       - name: Show toolchain
         run: |
           g++ --version | head -1
           clang-format --version
-          dpkg -l | grep -E 'libtbb|libboost-test|libfmt' | awk '{print $2, $3}'
+          dpkg -l | grep -E 'libtbb|libboost-test|libfmt|tcl8.6-dev' | awk '{print $2, $3}'
 
       - name: Check formatting
         run: |
