@@ -56,6 +56,15 @@ struct LayoutSnapshot {
     /// Copy the session's current placement. Engine thread only; the session
     /// must hold a design.
     [[nodiscard]] static std::shared_ptr<const LayoutSnapshot> capture(const ktSession &session);
+    /// The same, with every cell at the lower-left corner given by @p x and
+    /// @p y (indexed by cell id) instead of where the design has it, and @p hpwl
+    /// as the wirelength: a stage's placement in the middle of the stage, before
+    /// it is written back. Falls back to the design's positions when the arrays
+    /// are not one entry per cell.
+    [[nodiscard]] static std::shared_ptr<const LayoutSnapshot> capture(const ktSession &session,
+                                                                       const std::vector<float> &x,
+                                                                       const std::vector<float> &y,
+                                                                       double hpwl);
 
     /// The cell under the point, preferring the smallest one when cells overlap
     /// (a standard cell drawn over a macro). nullopt where there is none.

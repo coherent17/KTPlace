@@ -31,10 +31,14 @@ Engine::Engine() {
 }
 
 Engine::~Engine() {
+    // Stop a running stage rather than wait for it to converge.
+    Progress::instance().requestStop();
     // Queued behind any script still running, so this waits for it.
     QMetaObject::invokeMethod(
         context_,
         [this] {
+            Progress::instance().clearObserver();
+            Progress::instance().clearStop();
             shell_.reset();
             session_.reset();
         },
@@ -52,6 +56,8 @@ void Engine::submit(const QString &script, QObject *receiver, Done done) {
     QMetaObject::invokeMethod(
         context_,
         [this, text = script.toStdString(), target, done = std::move(done)] {
+            // A stop asked for during the previous script is not for this one.
+            Progress::instance().clearStop();
             TclShell::Result result = shell_->eval(text);
             --pending_;
             if (target.isNull()) {
@@ -81,6 +87,55 @@ void Engine::query(std::function<void(const ktSession &)> work, QObject *receive
             }
         },
         Qt::QueuedConnection);
+}
+
+void Engine::watchProgress(QObject *receiver, Live live) {
+    QPointer<QObject> target(receiver);
+    QMetaObject::invokeMethod(
+        context_,
+        [this, target, live = std::move(live)] {
+            // Called on this thread, from inside the stage, between two of its
+            // iterations: the session's cells are the design as it was read
+            // and the stage's placement is in the sample, so the snapshot is
+            // taken from the two.
+            //
+            // A watcher destroyed before its snapshot arrived never cleared the
+            // flag, so a new one starts clear.
+            framePending_->store(false);
+            Progress::instance().setObserver(
+                [this, target, live](ProgressSample &&sample) {
+                    if (target.isNull()) {
+                        return;
+                    }
+                    LiveUpdate update;
+                    if (!sample.x.empty() && !framePending_->exchange(true)) {
+                        update.layout =
+                            LayoutSnapshot::capture(*session_, sample.x, sample.y, sample.hpwl);
+                    }
+                    sample.x = {};
+                    sample.y = {};
+                    update.sample = std::move(sample);
+                    QMetaObject::invokeMethod(
+                        target.data(),
+                        [live, update = std::move(update), pending = framePending_] {
+                            if (update.layout) {
+                                pending->store(false);
+                            }
+                            live(update);
+                        },
+                        Qt::QueuedConnection);
+                },
+                /*positions=*/true);
+        },
+        // Queued, not blocking: it takes effect before any script submitted
+        // after it, without holding the caller up behind a running one.
+        Qt::QueuedConnection);
+}
+
+void Engine::requestStop() {
+    if (busy()) {
+        Progress::instance().requestStop();
+    }
 }
 
 void Engine::setGlobal(const QString &key, const QString &value) {

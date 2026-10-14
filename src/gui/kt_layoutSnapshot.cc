@@ -25,18 +25,27 @@ float median(std::vector<float> values, float fallback) {
 }  // namespace
 
 std::shared_ptr<const LayoutSnapshot> LayoutSnapshot::capture(const ktSession &session) {
+    return capture(session, {}, {}, session.hpwl());
+}
+
+std::shared_ptr<const LayoutSnapshot> LayoutSnapshot::capture(const ktSession &session,
+                                                              const std::vector<float> &x,
+                                                              const std::vector<float> &y,
+                                                              double hpwl) {
     auto snap = std::make_shared<LayoutSnapshot>();
     snap->die = session.placementDieBox();
-    snap->hpwl = session.hpwl();
+    snap->hpwl = hpwl;
 
     const auto cells = session.cells();
+    const bool moved = x.size() == cells.size() && y.size() == cells.size();
     snap->cells.reserve(cells.size());
     std::vector<float> widths;
     std::vector<float> heights;
-    for (const Vertex &v : cells) {
+    for (std::size_t i = 0; i < cells.size(); ++i) {
+        const Vertex &v = cells[i];
         Cell c;
-        c.x = static_cast<float>(v.x);
-        c.y = static_cast<float>(v.y);
+        c.x = moved ? x[i] : static_cast<float>(v.x);
+        c.y = moved ? y[i] : static_cast<float>(v.y);
         c.w = static_cast<float>(v.width);
         c.h = static_cast<float>(v.height);
         c.kind = v.isTerminal ? Kind::Terminal : (v.isFixed ? Kind::Fixed : Kind::Movable);

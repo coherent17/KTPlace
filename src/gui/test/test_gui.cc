@@ -9,11 +9,13 @@
 #include "gui/kt_layoutView.h"
 #include "gui/kt_logView.h"
 #include "gui/kt_mainWindow.h"
+#include "gui/kt_metricsView.h"
 #include "gui/kt_propertyPanel.h"
 #include "gui/kt_tclConsole.h"
 #include "session/kt_session.h"
 #include "test/kt_testDesign.h"
 #include "util/kt_log.h"
+#include "util/kt_progress.h"
 
 #include <QAction>
 #include <QApplication>
@@ -28,6 +30,7 @@
 #include <optional>
 #include <sstream>
 #include <string>
+#include <vector>
 
 using namespace ktplace;
 using ktplace::testing::designDir;
@@ -493,4 +496,143 @@ BOOST_AUTO_TEST_CASE(the_window_shows_each_commands_placement_and_inspects_a_pic
     BOOST_TEST(window.properties()->tree()->topLevelItem(0)->text(1).toStdString() == "c0");
     window.inspect(std::nullopt);
     BOOST_TEST(window.properties()->tree()->topLevelItemCount() == 1);
+}
+
+// ------------------------------------------------------------ live placement
+
+BOOST_AUTO_TEST_CASE(a_snapshot_can_show_a_stage_placement_before_it_is_written_back) {
+    TinySession tiny;
+    const std::size_t n = tiny.session.cells().size();
+    std::vector<float> x(n, 2.0F);
+    std::vector<float> y(n, 0.0F);
+    x[0] = 7.0F;
+    const auto snap = LayoutSnapshot::capture(tiny.session, x, y, 123.0);
+    BOOST_TEST(snap->hpwl == 123.0);
+    BOOST_TEST(snap->cells[0].x == 7.0F);
+    BOOST_TEST(snap->cells[1].x == 2.0F);
+    BOOST_TEST(snap->cells[0].w == static_cast<float>(tiny.session.cells()[0].width));
+    BOOST_TEST(snap->cellAt(7.5, 0.5).value() == 0U);
+
+    // Arrays of the wrong length are ignored, not read past.
+    const auto same = LayoutSnapshot::capture(tiny.session, {1.0F}, {1.0F}, 1.0);
+    BOOST_TEST(same->cells[0].x == static_cast<float>(tiny.session.cells()[0].x));
+}
+
+BOOST_AUTO_TEST_CASE(the_metrics_view_plots_one_run_at_a_time) {
+    MetricsView view;
+    view.resize(500, 220);
+    BOOST_TEST(view.points().empty());
+    BOOST_TEST(!view.grab().isNull());  // the empty state paints
+
+    ProgressSample s;
+    s.run = 7;
+    s.stage = "simpl";
+    s.phase = "init";
+    s.total = 10;
+    for (std::size_t i = 0; i < 3; ++i) {
+        s.iter = i;
+        s.hpwl = 1e6 / static_cast<double>(i + 1);
+        view.addSample(s);
+    }
+    s.phase = "global";
+    s.hpwl = 4e5;
+    s.hpwlLower = 2e5;
+    s.overflow = 0.0;  // a value, not "unmeasured"
+    view.addSample(s);
+    BOOST_TEST(view.points().size() == 4U);
+    BOOST_TEST(view.title().toStdString() == "simpl run 7");
+    BOOST_TEST(!view.grab().isNull());
+
+    s.run = 8;
+    view.addSample(s);
+    BOOST_TEST(view.points().size() == 1U);
+    view.clear();
+    BOOST_TEST(view.points().empty());
+}
+
+BOOST_AUTO_TEST_CASE(the_engine_streams_a_placement_live_and_can_stop_it) {
+    const ScratchDir dir("gui_live");
+    writeBookshelfDesign(dir);
+    Engine engine;
+    QObject receiver;
+    QuietStderr quiet;
+
+    std::vector<Engine::LiveUpdate> updates;
+    engine.watchProgress(&receiver, [&](const Engine::LiveUpdate &u) {
+        BOOST_TEST((QThread::currentThread() == receiver.thread()));
+        updates.push_back(u);
+    });
+    std::optional<TclShell::Result> result;
+    const auto run = [&](const std::string &script) {
+        result.reset();
+        engine.submit(QString::fromStdString(script), &receiver, [&](const TclShell::Result &r) {
+            result = r;
+        });
+        BOOST_REQUIRE(waitFor([&] {
+            return result.has_value();
+        }));
+    };
+    run("read_design {" + designDir(dir).string() + "}");
+    BOOST_REQUIRE(result->ok);
+    run("global_place");
+    BOOST_REQUIRE(result->ok);
+    QCoreApplication::processEvents();
+    BOOST_REQUIRE(!updates.empty());
+    bool sawLayout = false;
+    for (const Engine::LiveUpdate &u : updates) {
+        BOOST_TEST(u.sample.x.empty());  // the positions travel as the snapshot
+        if (u.layout) {
+            sawLayout = true;
+            BOOST_TEST(u.layout->cells.size() == 6U);
+            BOOST_TEST(u.layout->hpwl == u.sample.hpwl);
+        }
+    }
+    BOOST_TEST(sawLayout);
+
+    // Stop from the first report of the next run: the stage ends early, and
+    // the command after it fails.
+    updates.clear();
+    bool asked = false;
+    engine.watchProgress(&receiver, [&](const Engine::LiveUpdate &u) {
+        updates.push_back(u);
+        if (!asked) {
+            asked = true;
+            engine.requestStop();
+        }
+    });
+    run("global_place; after 200; report_hpwl");
+    BOOST_TEST(!result->ok);
+    BOOST_TEST(result->text == "report_hpwl: stopped on request");
+    BOOST_TEST(asked);
+
+    // The next script is not stopped.
+    run("report_hpwl");
+    BOOST_TEST(result->ok);
+    // Asking while idle stops nothing later.
+    engine.requestStop();
+    run("report_hpwl");
+    BOOST_TEST(result->ok);
+}
+
+BOOST_AUTO_TEST_CASE(the_window_follows_a_run_and_offers_stop_while_busy) {
+    const ScratchDir dir("gui_window_live");
+    writeBookshelfDesign(dir);
+    Engine engine;
+    MainWindow window(engine);
+    QuietStderr quiet;
+    BOOST_TEST(!window.stopAction()->isEnabled());
+
+    window.console()->run("read_design " +
+                          MainWindow::tclQuote(QString::fromStdString(designDir(dir).string())));
+    BOOST_REQUIRE(waitFor([&] {
+        return window.layout()->snapshot() != nullptr && !window.console()->busy();
+    }));
+    window.console()->run("global_place; after 300");
+    BOOST_TEST(window.stopAction()->isEnabled());
+    BOOST_REQUIRE(waitFor([&] {
+        return !window.console()->busy();
+    }));
+    BOOST_TEST(!window.stopAction()->isEnabled());
+    BOOST_TEST(!window.metrics()->points().empty());
+    BOOST_TEST(window.metrics()->title().startsWith("simpl run"));
 }

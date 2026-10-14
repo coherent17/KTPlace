@@ -11,6 +11,11 @@
 // -- typed, or from a menu -- is on screen when the prompt comes back. Picking a
 // cell looks it up on the engine thread and shows it in the Properties panel,
 // with its nets drawn over the view.
+//
+// While a global placement runs, the view follows it live: each iteration's
+// placement replaces the picture (without moving the view), the Metrics panel
+// plots its wirelength and overflow, and Stop (the toolbar, or Ctrl+.) ends the
+// stage with the best placement it has and abandons the rest of the script.
 
 #pragma once
 
@@ -19,6 +24,7 @@
 #include <QMainWindow>
 #include <QString>
 #include <cstddef>
+#include <memory>
 #include <optional>
 
 class QAction;
@@ -28,9 +34,12 @@ class QMenu;
 
 namespace ktplace {
 
+struct LayoutSnapshot;
+struct ProgressSample;
 class Engine;
 class LayoutView;
 class LogView;
+class MetricsView;
 class PropertyPanel;
 class TclConsole;
 
@@ -50,6 +59,13 @@ public:
     [[nodiscard]] PropertyPanel *properties() const {
         return properties_;
     }
+    [[nodiscard]] MetricsView *metrics() const {
+        return metrics_;
+    }
+    /// Ends the running stage; enabled only while the engine is busy.
+    [[nodiscard]] QAction *stopAction() const {
+        return stop_;
+    }
 
     /// Ask the engine for the current placement and show it. Runs after every
     /// script; public so tests can wait on it.
@@ -66,6 +82,10 @@ public:
 
 private:
     void buildMenus();
+    void buildToolBar();
+    /// One progress report from the running stage.
+    void showProgress(const ProgressSample &sample,
+                      const std::shared_ptr<const LayoutSnapshot> &layout);
     QAction *engineAction(QMenu *menu, const QString &text, const QString &script,
                           const QKeySequence &shortcut = {});
     void setBusy(bool busy);
@@ -79,8 +99,17 @@ private:
     TclConsole *console_ = nullptr;
     QDockWidget *logDock_ = nullptr;
     QDockWidget *consoleDock_ = nullptr;
+    MetricsView *metrics_ = nullptr;
+    QDockWidget *metricsDock_ = nullptr;
     QLabel *status_ = nullptr;
     QList<QAction *> engineActions_;
+    QAction *stop_ = nullptr;
+    QAction *runFlow_ = nullptr;
+    QAction *globalPlace_ = nullptr;
+    QAction *legalize_ = nullptr;
+    QAction *detailPlace_ = nullptr;
+    QAction *zoomFit_ = nullptr;
+    std::size_t liveRun_ = 0;  // the run the Metrics panel is plotting
 };
 
 }  // namespace ktplace
