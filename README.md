@@ -62,6 +62,7 @@ else is loaded as Bookshelf.
 | `-a, --algorithm <name>` | `simpl` (default) or `ntuplace1` |
 | `-w, --work-dir <dir>` | where everything is written (default: cwd) |
 | `--no-plots` | draw nothing |
+| `--record` | record the pictures to `plots/trace.ktrace` instead of drawing them |
 | `-v, --verbose` | also echo the trace log to the console |
 
 `-w` is the single artifact root: the run derives `placed.pl`, `plots/` and
@@ -97,6 +98,12 @@ image library beyond the vendored CImg, no external tools.
 On a large design the frames are most of global placement's time. When only the
 placement matters, set both to `0` (the HPWL is the same), or pass `--no-plots`
 to skip every picture.
+
+Or pass `--record`: the run writes one compressed trace instead of drawing, and
+`ktplace-viz <work-dir>/plots/trace.ktrace` draws the same pictures from it
+afterwards, byte for byte. On adaptec1 that takes the run from 124 s to 26 s.
+[docs/visualization.md](docs/visualization.md) covers how stages, the flow and
+the visualizer fit together, and the trace format.
 
 Timing is measured with `ScopedTimer` (`src/util/kt_scopedTimer.h`), which
 records wall and processor time per named phase and reports the table once at
