@@ -284,3 +284,45 @@ BOOST_AUTO_TEST_CASE(the_plot_directory_can_be_turned_off) {
     ok(f.shell, "set_plot_dir {" + plots + "}");
     BOOST_TEST(f.session.plotOptions().dir == plots);
 }
+
+BOOST_AUTO_TEST_CASE(a_sourced_script_is_echoed_but_procedure_bodies_are_not) {
+    const ScratchDir dir("tcl_source");
+    const std::string inner = dir.file("inner.tcl").string();
+    const std::string outer = dir.file("outer.tcl").string();
+    {
+        std::ofstream out(inner);
+        out << "set from_inner 1\nproc triple {x} { expr {$x * 3} }\ntriple 4\n";
+    }
+    {
+        std::ofstream out(outer);
+        out << "set from_outer 1\nsource {" << inner << "}\nset after_inner 1\n";
+    }
+    Fixture f;
+    Capture err(std::cerr);
+    ok(f.shell, "source {" + outer + "}");
+    const std::string log = err.str();
+    for (const char *line : {"tcl> set from_outer 1", "tcl> set from_inner 1", "tcl> triple 4",
+                             "tcl> set after_inner 1"}) {
+        BOOST_TEST_CONTEXT(line) {
+            BOOST_TEST(log.find(line) != std::string::npos);
+        }
+    }
+    BOOST_TEST(log.find("tcl> expr") == std::string::npos);
+    BOOST_TEST(log.find("::tcl::kt_") == std::string::npos);
+    BOOST_TEST(ok(f.shell, "triple 5") == "15");
+
+    // A procedure that sources a file: its body is not echoed, nor is the file.
+    Capture again(std::cerr);
+    ok(f.shell, "proc load_it {} { source {" + inner + "} }; load_it");
+    BOOST_TEST(again.str().find("tcl> set from_inner") == std::string::npos);
+
+    // The other forms still reach Tcl's own source, and errors keep their line.
+    ok(f.shell, "source -encoding utf-8 {" + inner + "}");
+    {
+        std::ofstream out(dir.file("bad.tcl"));
+        out << "set ok 1\nlegalize\n";
+    }
+    const TclShell::Result r = f.shell.eval("source {" + dir.file("bad.tcl").string() + "}");
+    BOOST_TEST(!r.ok);
+    BOOST_TEST(r.trace.find("line 2") != std::string::npos);
+}

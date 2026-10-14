@@ -62,6 +62,9 @@ std::string_view trimTrailing(std::string_view s) {
     return s;
 }
 
+// Passed to Tcl_CreateObjTrace to trace commands at any nesting depth.
+constexpr int kTraceAllLevels = 1 << 20;
+
 // Tcl wants the executable's location once per process before the first
 // interpreter, to find its encodings and init scripts.
 void initTclLibrary() {
@@ -87,15 +90,25 @@ public:
     Tcl_Interp *interp = nullptr;
     std::vector<std::unique_ptr<Command>> commands;
 
+    // The command echo. Commands at or below echoLevel are echoed: 1 is the
+    // script being evaluated; each `source` from an echoed command raises it by
+    // one for the file's duration, so a sourced script is in the log too. The
+    // bodies of procedures stay out at any depth. lastLevel is the level of the
+    // command most recently traced -- inside `source`, that is the source itself.
+    int echoLevel = 1;
+    int lastLevel = 0;
+
 private:
     using Fn = std::function<Tcl_Obj *(const Command &, const Words &)>;
 
     void add(std::string name, std::string synopsis, std::string summary, Fn run);
     void registerCommands();
     void reroutePuts();
+    void rerouteSource();
 
     static int dispatch(ClientData data, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]);
     static int puts(ClientData data, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]);
+    static int source(ClientData data, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]);
     static int echo(ClientData data, Tcl_Interp *interp, int level, const char *command,
                     Tcl_Command info, int objc, Tcl_Obj *const objv[]);
 };
@@ -112,9 +125,10 @@ TclShell::Impl::Impl(ktSession &s) : session(s) {
     }
     registerCommands();
     reroutePuts();
-    // Level 1: the commands of the script being evaluated, not the ones inside
-    // the procedures they call, so the log reads like the script.
-    Tcl_CreateObjTrace(interp, 1, 0, &Impl::echo, nullptr, nullptr);
+    rerouteSource();
+    // Every level is traced and echo() picks what to show (see echoLevel), so
+    // the log reads like the script, sourced files included.
+    Tcl_CreateObjTrace(interp, kTraceAllLevels, 0, &Impl::echo, this, nullptr);
 }
 
 TclShell::Impl::~Impl() {
@@ -157,10 +171,48 @@ int TclShell::Impl::dispatch(ClientData data, Tcl_Interp *interp, int objc, Tcl_
     return TCL_ERROR;
 }
 
-int TclShell::Impl::echo(ClientData, Tcl_Interp *, int, const char *command, Tcl_Command, int,
-                         Tcl_Obj *const[]) {
-    ktlog.echo("tcl> {}", trimTrailing(command));
+int TclShell::Impl::echo(ClientData data, Tcl_Interp *, int level, const char *command, Tcl_Command,
+                         int, Tcl_Obj *const[]) {
+    auto &self = *static_cast<Impl *>(data);
+    self.lastLevel = level;
+    const std::string_view text = trimTrailing(command);
+    // The renamed originals are called by the reroutes, never typed.
+    if (level <= self.echoLevel && !text.starts_with("::tcl::kt_")) {
+        ktlog.echo("tcl> {}", text);
+    }
     return TCL_OK;
+}
+
+void TclShell::Impl::rerouteSource() {
+    if (Tcl_Eval(interp, "rename ::source ::tcl::kt_source") != TCL_OK) {
+        throw std::logic_error(std::string("cannot reroute source: ") +
+                               Tcl_GetStringResult(interp));
+    }
+    Tcl_CreateObjCommand(interp, "::source", &Impl::source, this, nullptr);
+}
+
+// source fileName
+//
+// Tcl_EvalFile, as Tcl's own source does, with the echo level raised for the
+// file when the source itself was echoed. The other forms (-encoding) go to the
+// original unchanged.
+int TclShell::Impl::source(ClientData data, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
+    auto &self = *static_cast<Impl *>(data);
+    if (objc != 2) {
+        std::vector<Tcl_Obj *> args(objv, objv + objc);
+        args[0] = Tcl_NewStringObj("::tcl::kt_source", -1);
+        Tcl_IncrRefCount(args[0]);
+        const int code = Tcl_EvalObjv(interp, objc, args.data(), 0);
+        Tcl_DecrRefCount(args[0]);
+        return code;
+    }
+    const int saved = self.echoLevel;
+    if (self.lastLevel <= self.echoLevel) {
+        self.echoLevel = self.lastLevel + 1;
+    }
+    const int code = Tcl_EvalFile(interp, Tcl_GetString(objv[1]));
+    self.echoLevel = saved;
+    return code;
 }
 
 void TclShell::Impl::reroutePuts() {
