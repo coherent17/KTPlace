@@ -73,8 +73,15 @@ private:
     // Fiduccia-Mattheyses min-cut aiming at `target` cell area on side 0, within
     // +-tol. Pins outside the region are fixed on the side of the cut they lie
     // on (terminal propagation). Returns the number of nets cut.
+    /// Which child a fenced cell must go to: 0 or 1 when its region lies only in
+    /// that child, -1 when it may go either way (or it has no fence).
+    [[nodiscard]] int forcedSide(int region, const RatioRegion &r0, const RatioRegion &r1) const;
+    /// Members into their region, every other cell out of all regions; returns
+    /// how many members still lie outside theirs.
+    std::size_t applyFences();
     std::size_t bipartition(const std::vector<std::uint32_t> &cells, bool vertical, double cut,
-                            double target, double tol, std::vector<std::uint8_t> &side);
+                            double target, double tol, const std::vector<std::int8_t> &forced,
+                            std::vector<std::uint8_t> &side);
     void placeLeaf(const RatioRegion &r);
     void setRegionCentre(const RatioRegion &r);
     void writeFrame(std::size_t depth, const char *note) const;
@@ -83,6 +90,9 @@ private:
     const Graph &graph_;
     std::vector<std::uint32_t> mov_;  // movable, non-terminal vertex ids
     std::vector<double> area_;        // area of each movable
+    // Fence of each movable, or constraintMgr::kNoRegion. Fences are exclusive
+    // (ISPD 2015): members belong inside their region, every other cell outside.
+    std::vector<int> region_;
     std::vector<HyperNet> nets_;
     // For each movable, the nets it is on, so a gain update does not rescan the
     // whole netlist.
@@ -127,6 +137,7 @@ void RatioPlacer::Impl::build() {
         }
         mov_.push_back(static_cast<std::uint32_t>(v));
         area_.push_back(vert.width * vert.height);
+        region_.push_back(vert.regionId);
     }
     res_.numMovable = mov_.size();
     res_.numFixed = fixedRects_.size();
@@ -255,6 +266,7 @@ double RatioPlacer::Impl::movableArea(const std::vector<std::uint32_t> &cells) c
 
 std::size_t RatioPlacer::Impl::bipartition(const std::vector<std::uint32_t> &cells, bool vertical,
                                            double cut, double target, double tol,
+                                           const std::vector<std::int8_t> &forced,
                                            std::vector<std::uint8_t> &side) {
     const std::size_t n = cells.size();
     side.assign(n, 0);
@@ -297,8 +309,22 @@ std::size_t RatioPlacer::Impl::bipartition(const std::vector<std::uint32_t> &cel
 
     // Initial partition: fill side 0 up to the target in netlist order. FM's
     // passes are what make it a min-cut; this only has to be balanced.
+    // Fenced cells whose region lies in one child are placed there first, and FM
+    // never moves them (see `locked` below), so the rest balance around them.
+    const bool anyForced = !forced.empty();
     double a0 = 0.0;
+    if (anyForced) {
+        for (std::uint32_t i = 0; i < n; ++i) {
+            if (forced[i] == 0) {
+                a0 += area_[cells[i]];
+            }
+        }
+    }
     for (std::uint32_t i = 0; i < n; ++i) {
+        if (anyForced && forced[i] >= 0) {
+            side[i] = static_cast<std::uint8_t>(forced[i]);
+            continue;
+        }
         if (a0 + 0.5 * area_[cells[i]] <= target) {
             a0 += area_[cells[i]];
             side[i] = 0;
@@ -346,8 +372,10 @@ std::size_t RatioPlacer::Impl::bipartition(const std::vector<std::uint32_t> &cel
         std::priority_queue<Entry> heap[2];
         for (std::uint32_t i = 0; i < n; ++i) {
             gain[i] = gainOf(i);
-            locked[i] = 0;
-            heap[side[i]].push({gain[i], i});
+            locked[i] = (anyForced && forced[i] >= 0) ? 1 : 0;
+            if (!locked[i]) {
+                heap[side[i]].push({gain[i], i});
+            }
         }
 
         moves.clear();
@@ -508,6 +536,53 @@ void RatioPlacer::Impl::writeFrame(std::size_t depth, const char *note) const {
               VisualFrame{"", depth, params_.maxLevels, note, 0.0, 0.0, 0.0, /*mandatory=*/false});
 }
 
+int RatioPlacer::Impl::forcedSide(int region, const RatioRegion &r0, const RatioRegion &r1) const {
+    const Region *reg = fences_->region(region);
+    if (reg == nullptr) {
+        return -1;
+    }
+    const auto overlapArea = [&](const RatioRegion &b) {
+        double a = 0.0;
+        for (const Rect &rc : reg->rects) {
+            const double w = std::min(rc.hi.x, b.x1) - std::max(rc.lo.x, b.x0);
+            const double h = std::min(rc.hi.y, b.y1) - std::max(rc.lo.y, b.y0);
+            if (w > 0.0 && h > 0.0) {
+                a += w * h;
+            }
+        }
+        return a;
+    };
+    const double a0 = overlapArea(r0), a1 = overlapArea(r1);
+    if (a0 > 0.0 && a1 <= 0.0) {
+        return 0;
+    }
+    if (a1 > 0.0 && a0 <= 0.0) {
+        return 1;
+    }
+    return -1;
+}
+
+std::size_t RatioPlacer::Impl::applyFences() {
+    if (fences_ == nullptr || fences_->numRegions() == 0) {
+        return 0;
+    }
+    // The same rule SimPL applies to what it hands on, on the lower-left corner
+    // the database stores: members into their region, every other cell out. The
+    // legalizer then keeps whole cells on the right side.
+    std::size_t outside = 0;
+    for (std::size_t i = 0; i < mov_.size(); ++i) {
+        auto [x, y] = db_.getCellPosition(mov_[i]);
+        if (region_[i] != constraintMgr::kNoRegion) {
+            fences_->clampToRegion(region_[i], x, y);
+            outside += fences_->contains(region_[i], x, y) ? 0u : 1u;
+        } else {
+            (void)fences_->pushOutOfRegions(x, y, box_[0], box_[1], box_[2], box_[3]);
+        }
+        db_.setCellPosition(mov_[i], x, y);
+    }
+    return outside;
+}
+
 void RatioPlacer::Impl::divide(RatioRegion r) {
     res_.maxDepth = std::max(res_.maxDepth, r.depth);
     if (r.cells.size() <= params_.targetLeafCells || r.depth >= params_.maxLevels) {
@@ -566,10 +641,28 @@ void RatioPlacer::Impl::divide(RatioRegion r) {
     }
     double tol = std::max(kBalanceSlack * total, 2.0 * maxCell);
 
+    // Fenced cells whose region lies in only one child are sent there, so the
+    // recursion carries every member towards its fence.
+    std::vector<std::int8_t> forced;
+    if (fences_ != nullptr && fences_->numRegions() > 0) {
+        bool any = false;
+        forced.assign(r.cells.size(), -1);
+        for (std::size_t i = 0; i < r.cells.size(); ++i) {
+            const int reg = region_[r.cells[i]];
+            if (reg != constraintMgr::kNoRegion) {
+                forced[i] = static_cast<std::int8_t>(forcedSide(reg, r0, r1));
+                any = any || forced[i] >= 0;
+            }
+        }
+        if (!any) {
+            forced.clear();
+        }
+    }
+
     std::vector<std::uint8_t> side;
     std::size_t cutNets = 0;
     for (std::size_t attempt = 0;; ++attempt) {
-        cutNets = bipartition(r.cells, vertical, cut, target, tol, side);
+        cutNets = bipartition(r.cells, vertical, cut, target, tol, forced, side);
         r0.cells.clear();
         r1.cells.clear();
         for (std::size_t i = 0; i < r.cells.size(); ++i) {
@@ -640,6 +733,8 @@ RatioPlaceResult RatioPlacer::Impl::place(const RatioPlaceParams &params) {
             std::clamp(posY_[i] - 0.5 * v.height, box_[1], std::max(box_[1], box_[3] - v.height));
         db_.setCellPosition(mov_[i], x, y);
     }
+    res_.fenceRegions = fences_ != nullptr ? fences_->numRegions() : 0;
+    res_.fenceViolations = applyFences();
 
     // HPWL over the answer, from cell centres and fixed pin points: the
     // partitioner's own estimate. The flow reports the pin-exact figure after
@@ -691,6 +786,10 @@ void reportNtuPlace1(const RatioPlaceResult &r) {
     t.addRow({"recursion depth reached", fmt::format("{}", r.maxDepth)});
     t.addRow({"smallest leaf", fmt::format("{}", r.minLeafCells)});
     t.addRow({"HPWL estimate (pre-legalization)", fmt::format("{:.6}", r.hpwlFinal)});
+    if (r.fenceRegions > 0) {
+        t.addRow({"fence regions", fmt::format("{}", r.fenceRegions)});
+        t.addRow({"cells outside their fence", fmt::format("{}", r.fenceViolations)});
+    }
     t.emit();
 }
 }  // namespace ktplace

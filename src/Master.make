@@ -186,6 +186,11 @@ TEST_BINS := $(BIN_DIR)/test_datamodel $(BIN_DIR)/test_adaptor $(BIN_DIR)/test_f
              $(BIN_DIR)/test_detail $(BIN_DIR)/test_ntuplace1 $(BIN_DIR)/test_abacus \
              $(BIN_DIR)/test_tcl
 
+# SimPL's suite, appended rather than listed above so the line other suites add
+# themselves to stays untouched.
+TEST_simpl := placer/simpl/test/test_simpl.cc
+TEST_BINS += $(BIN_DIR)/test_simpl
+
 # Builds the test binaries without running them. `make coverage` needs this:
 # the coverage driver wants to run the binaries itself, once, under the
 # instrumented build, rather than have make run them before gcov is ready.
@@ -203,6 +208,10 @@ test check: $(TEST_BINS)
 	echo "All unit tests passed."
 
 # Each test binary: its own source plus the engine objects (no main()).
+$(BIN_DIR)/test_simpl: $(TEST_simpl) $(LIB_OBJS) | dirs
+	@echo "  Building test_simpl..."
+	@$(CXX) $(CXXFLAGS) $(INCLUDES) -o $@ $(TEST_simpl) $(LIB_OBJS) $(LIBS) $(COVERAGE_LDFLAGS) $(TEST_LIBS)
+
 $(BIN_DIR)/test_datamodel: $(TEST_datamodel) $(LIB_OBJS) | dirs
 	@echo "  Building test_datamodel..."
 	@$(CXX) $(CXXFLAGS) $(INCLUDES) -o $@ $(TEST_datamodel) $(LIB_OBJS) $(LIBS) $(COVERAGE_LDFLAGS) $(TEST_LIBS)
