@@ -256,7 +256,7 @@ struct SimplParams {
     // equation in this paper, and the text above is the actual statement.
     //
     // alpha = 0.01 x (1 + it) is unchanged and already matches the paper exactly.
-    // KTPLACE_SIMPL_PSEUDONET=inverse selects the other law for comparison.
+    // KTPLACE_SIMPL_PSEUDONET=inv selects the other law for comparison.
     PseudonetLaw pseudonetLaw = PseudonetLaw::ConstantStiffness;
 
     // --- convergence --------------------------------------------------------
