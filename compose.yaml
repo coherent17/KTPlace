@@ -1,12 +1,18 @@
-# The Linux development container: the repository mounted live at /workspace,
-# reached over SSH on localhost:2222. Works the same from macOS, Windows and
-# Linux:
+# The Docker environment: two containers sharing one Linux build.
+#
+#   dev   the repository mounted live at /workspace, reached over SSH on
+#         127.0.0.1:2222; it builds and tests ktplace, and serves ktplace-gui
+#         over VNC on 127.0.0.1:5901 (scripts/gui-vnc.sh)
+#   web   the browser console on http://127.0.0.1:8080, running the binary the
+#         dev container built
+#
+# Works the same from macOS, Windows and Linux:
 #
 #   docker compose up -d --build          # any OS, PowerShell included
 #   ssh -p 2222 dev@127.0.0.1             # Windows 10+ ships this ssh client
 #
 # scripts/devenv.sh wraps the same steps for a bash shell (macOS, Linux, WSL,
-# Git Bash) and picks whichever SSH key you have.
+# Git Bash) and picks whichever SSH key you have; docs/docker.md is the guide.
 
 # Fixed, so the volumes are the same whatever the clone's directory is called;
 # compose otherwise names them after the directory.
@@ -23,7 +29,7 @@ services:
     ports:
       # Loopback only: the container is reachable from this machine, not the LAN.
       - "127.0.0.1:${KTPLACE_SSH_PORT:-2222}:22"
-      # ktplace-gui's VNC display (scripts/devenv.sh gui). 5901 on the host,
+      # The GUI's VNC display (docker/dev-entrypoint.sh). 5901 on the host,
       # because macOS's own screen sharing may already hold 5900.
       - "127.0.0.1:${KTPLACE_VNC_PORT:-5901}:5900"
     volumes:
@@ -53,6 +59,12 @@ services:
         read_only: true
         bind:
           create_host_path: false
+    environment:
+      # The GUI's display, set up when the container starts
+      # (docker/dev-entrypoint.sh): window size in points, and the VNC password
+      # ("" for none; macOS Screen Sharing needs one, TigerVNC does not).
+      KTPLACE_GUI_SIZE: ${KTPLACE_GUI_SIZE:-1440x900}
+      KTPLACE_VNC_PASSWORD: ${KTPLACE_VNC_PASSWORD-ktplace}
     restart: unless-stopped
 
   # The web console: runs ktplace inside the container and serves the results.

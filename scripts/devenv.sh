@@ -13,11 +13,15 @@
 #                                      'make && make test')
 #   scripts/devenv.sh exec [cmd]       the same through `docker exec`, no SSH
 #                                      involved
-#   scripts/devenv.sh gui [args]       build and start ktplace-gui in the dev
-#                                      container, served over VNC, then open
-#                                      it (args as for ktplace-gui; the work
-#                                      dir defaults to output/gui; see
-#                                      scripts/gui-vnc.sh for size and scale)
+#   scripts/devenv.sh gui [args]       build ktplace-gui, open it on the dev
+#                                      container's VNC display as
+#                                      `ktplace --gui [args]`, then open the
+#                                      viewer (the work dir defaults to
+#                                      output/gui)
+#   scripts/devenv.sh x11 [args]       the same window as a native one on the
+#                                      host's X server (XQuartz on macOS),
+#                                      through ssh -Y instead of VNC; it runs
+#                                      until the window is closed
 #   scripts/devenv.sh status           what is running, and on which ports
 #   scripts/devenv.sh ssh-config       print an ~/.ssh/config entry for it
 #   scripts/devenv.sh stop             stop them; containers and volumes kept
@@ -31,6 +35,9 @@
 #                       (default 8080)
 #   KTPLACE_VNC_PORT    host port for the GUI's VNC display, bound to 127.0.0.1
 #                       (default 5901; 5900 is often macOS's own screen sharing)
+#   KTPLACE_GUI_SIZE    the GUI display's size in points (default 1440x900)
+#   KTPLACE_VNC_PASSWORD  its VNC password (default "ktplace"; "" for none);
+#                       both are fixed when the dev container is created
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -152,7 +159,8 @@ case "${1:-}" in
         echo "Ready. One environment, both halves:"
         echo "  shell   scripts/devenv.sh ssh        (ssh -p $port dev@127.0.0.1)"
         echo "  web     http://127.0.0.1:${KTPLACE_WEB_PORT:-8080}"
-        echo "  engine  build/bin/ktplace -- one Linux build, shared by both"
+        echo "  gui     scripts/devenv.sh gui [design]   (VNC on 127.0.0.1:${KTPLACE_VNC_PORT:-5901})"
+        echo "  engine  build/bin/ktplace -- one Linux build, shared by all three"
         echo "Rebuild with scripts/devenv.sh build; the console needs no restart."
         ;;
     ssh)
@@ -198,17 +206,46 @@ case "${1:-}" in
             *" -w "* | *" --work-dir "*) ;;
             *) args+=(-w output/gui) ;;
         esac
-        # Xvfb + x11vnc + the window, inside the container (scripts/gui-vnc.sh);
-        # compose publishes the VNC port on the host's loopback only.
-        docker exec -u dev -w /workspace \
-            -e KTPLACE_GUI_SIZE -e KTPLACE_GUI_SCALE -e KTPLACE_VNC_PASSWORD \
+        # `ktplace --gui` on the container's display (scripts/gui-vnc.sh);
+        # compose publishes its VNC port on the host's loopback only.
+        docker exec -u dev -w /workspace -e KTPLACE_GUI_SIZE -e KTPLACE_VNC_PASSWORD \
             ktplace-dev scripts/gui-vnc.sh ${args[@]+"${args[@]}"}
         url="vnc://127.0.0.1:${KTPLACE_VNC_PORT:-5901}"
-        echo "devenv: ktplace-gui is serving on $url"
+        echo "devenv: ktplace-gui is on $url (password: ${KTPLACE_VNC_PASSWORD-ktplace}," \
+            "or none if it is empty)"
         if [ "$(uname -s)" = Darwin ]; then
             sleep 2
             open "$url"
         fi
+        ;;
+    x11)
+        shift
+        if [ -z "$(compose ps -q dev 2>/dev/null)" ]; then
+            echo "devenv: the dev container is not running; run scripts/devenv.sh up." >&2
+            exit 1
+        fi
+        if [ "$(uname -s)" = Darwin ] && [ ! -x /opt/X11/bin/xauth ]; then
+            echo "devenv: x11 needs an X server on this Mac: install XQuartz" >&2
+            echo "        (brew install --cask xquartz, or https://www.xquartz.org)," >&2
+            echo "        log out and back in, then run this again." >&2
+            exit 1
+        fi
+        build_tree gui
+        args=("$@")
+        case " $* " in
+            *" -w "* | *" --work-dir "*) ;;
+            *) args+=(-w output/gui) ;;
+        esac
+        ssh_opts
+        # -Y (trusted) rather than -X: Qt uses X extensions the untrusted mode
+        # refuses. sshd sets DISPLAY to the forwarded display, which .bashrc
+        # then leaves alone. Words are quoted for the remote shell one by one.
+        quoted=""
+        for a in "${args[@]}"; do
+            quoted+=" $(printf '%q' "$a")"
+        done
+        exec ssh "${ssh_opts[@]}" -Y -o StrictHostKeyChecking=accept-new dev@127.0.0.1 \
+            "cd /workspace && ktplace --gui$quoted"
         ;;
     status)
         compose ps
@@ -232,7 +269,8 @@ EOF
         compose down
         ;;
     *)
-        sed -n '2,33p' "$0" | sed 's/^# \{0,1\}//'
+        # The header comment above, whatever its length.
+        awk 'NR == 1 { next } /^#/ { sub(/^# ?/, ""); print; next } { exit }' "$0"
         exit 2
         ;;
 esac

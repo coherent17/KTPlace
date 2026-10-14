@@ -15,3 +15,8 @@ if [ "$PWD" = "$HOME" ] && [ "${SHLVL:-1}" -le 1 ] && [ -d /workspace ]; then
     cd /workspace
 fi
 
+# The GUI's display: the virtual one the container serves over VNC, unless this
+# is an `ssh -Y` session, where sshd has already pointed DISPLAY at the host's
+# own X server.
+export DISPLAY="${DISPLAY:-:1}"
+

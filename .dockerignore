@@ -9,6 +9,9 @@ ktplace.csh
 logs/
 .claude/
 .opencode/
+# Tool caches and browser-automation scratch from the host.
+.cache/
+.playwright-mcp/
 
 # Byte-code a host Python wrote: the container's own interpreter is a different
 # version and ignores it, so it is only weight. `**/`, unlike .gitignore, has

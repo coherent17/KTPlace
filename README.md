@@ -45,8 +45,11 @@ scripts/devenv.sh ssh       # shell in /workspace (or: ssh -p 2222 dev@127.0.0.1
 docker compose up -d        # the same without bash, e.g. from PowerShell
 ```
 
-`scripts/devenv.sh gui [design]` starts the desktop GUI (`make gui`, Qt 6) and
-opens it over VNC; see [docs/docker.md](docs/docker.md#5-the-desktop-gui).
+The desktop GUI (Qt 6): `ktplace --gui [design]` inside the dev container.
+From the host, `scripts/devenv.sh gui [design]` shows it over VNC
+(`vnc://127.0.0.1:5901`), or `scripts/devenv.sh x11 [design]` as a native window
+on your X server (XQuartz on macOS); see
+[docs/docker.md](docs/docker.md#5-the-desktop-gui).
 
 `docker build -t ktplace .` builds and unit-tests a copy of the tree the way CI
 does. [docs/docker.md](docs/docker.md) covers the rest: running commands, the
@@ -67,6 +70,7 @@ else is loaded as Bookshelf.
 | --- | --- |
 | `-a, --algorithm <name>` | `simpl` (default) or `ntuplace1` |
 | `-t, --tcl <script>` | run a Tcl script instead of the fixed flow (see below) |
+| `--gui` | open the design in the Qt window instead; the other options go to it |
 | `-w, --work-dir <dir>` | where everything is written (default: cwd) |
 | `--no-plots` | draw nothing |
 | `-v, --verbose` | also echo the trace log to the console |

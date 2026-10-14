@@ -1,7 +1,7 @@
 #!/bin/sh
 # Entry point of the dev container: match the dev user to the repository's
-# owner, install the SSH key it was given, make sure it has a host key, then run
-# sshd in the foreground as the container's process.
+# owner, install the SSH key it was given, make sure it has a host key, start
+# the GUI's display, then run sshd in the foreground as the container's process.
 set -eu
 
 # Give `dev` the uid/gid that owns the mounted repository, so files the
@@ -45,5 +45,29 @@ fi
 
 # The build trees are volumes, which Docker creates owned by root.
 chown dev:dev /workspace/build /workspace/build-cov 2>/dev/null || true
+
+# The GUI's display: a virtual X screen :1 and a VNC server publishing it on
+# port 5900, which compose maps to 127.0.0.1:5901 on the host. Started here, so
+# it is there before anyone asks: `ktplace --gui` from an SSH session, or
+# scripts/devenv.sh gui from the host, only opens a window on it.
+#
+# -ac lets the dev user's window onto root's display. Nothing else can reach
+# it: no TCP listener, and the VNC port is published on the host's loopback.
+# The VNC password defaults to "ktplace", because macOS Screen Sharing will not
+# connect to a server without one; set KTPLACE_VNC_PASSWORD="" for none.
+gui_size=${KTPLACE_GUI_SIZE:-1440x900}
+Xvfb :1 -screen 0 "${gui_size}x24" -nolisten tcp -ac >/var/log/ktplace-xvfb.log 2>&1 &
+vnc_password=${KTPLACE_VNC_PASSWORD-ktplace}
+if [ -n "$vnc_password" ]; then
+    x11vnc -storepasswd "$vnc_password" /etc/ktplace-vnc.pass >/dev/null 2>&1
+    vnc_auth="-rfbauth /etc/ktplace-vnc.pass"
+else
+    vnc_auth="-nopw"
+fi
+sleep 1
+# shellcheck disable=SC2086  # vnc_auth is one or two words on purpose
+x11vnc -display :1 -forever -shared -quiet -rfbport 5900 $vnc_auth \
+    -bg -o /var/log/ktplace-x11vnc.log >/dev/null 2>&1 \
+    || echo "dev-entrypoint: the VNC server did not start; see /var/log/ktplace-x11vnc.log" >&2
 
 exec /usr/sbin/sshd -D -e

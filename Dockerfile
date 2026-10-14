@@ -3,38 +3,48 @@
 # be reproduced on any machine -- including a Mac, where Docker runs it in a
 # Linux VM of the host's own architecture, and on Windows, where it runs in WSL 2.
 #
-# Stages:
+# Stages, in file order:
 #
-#   build  copies the sources in and builds them; the compile that `ci` and
-#          `run` below share, not meant to be selected by hand.
+#   toolchain      what the engine builds with: the packages of CI's main job.
 #
-#   ci     (the default) the build plus the unit tests, so `docker build`
-#          alone is a Linux CI run:
+#   gui-toolchain  toolchain plus Qt 6 for ktplace-gui: the packages of CI's
+#                  GUI job. Its own stage, so the images that never build the
+#                  GUI (`ci`, `run`, `web`) do not carry Qt.
 #
-#          docker build -t ktplace .
-#          docker run -v "$PWD/output:/ktplace/output" ktplace \
-#              ktplace benchmark/ISPD_2005/adaptec1 -w output/adaptec1-linux
+#   dev            a long-lived development container you SSH into, with the
+#                  repository mounted live rather than copied, able to build and
+#                  show the GUI. Start it with scripts/devenv.sh, which drives
+#                  compose.yaml; see docs/docker.md.
 #
-#   runtime the base `run` and `web` are both made of: the five libraries the
-#          binary links, plus the vendored adaptec1. No toolchain, no engine --
-#          selecting it by hand has no point.
+#   build          copies the sources in and builds them; the compile that `ci`
+#                  and `run` share, not meant to be selected by hand.
 #
-#   run    the runtime base with the engine on top, so this is what to run
-#          placements from:
+#   runtime        the base `run` and `web` are both made of: the five libraries
+#                  the binary links, plus the vendored adaptec1. No toolchain, no
+#                  engine -- selecting it by hand has no point.
 #
-#          docker build --target run -t ktplace-run .
-#          docker run --rm -v "$PWD/output:/ktplace/output" ktplace-run \
-#              benchmark/ISPD_2005/adaptec1 -w output/adaptec1
+#   run            the runtime base with the engine on top, so this is what to
+#                  run placements from:
 #
-#   web    the runtime base with the console on top -- python3 and webui, and
-#          deliberately no engine: compose mounts the dev container's build
-#          volume at /ktplace/build, and the console runs the binary that tree
-#          compiled. One compile, shared by the shell and the browser. See
-#          compose.yaml and the README.
+#                  docker build --target run -t ktplace-run .
+#                  docker run --rm -v "$PWD/output:/ktplace/output" ktplace-run \
+#                      benchmark/ISPD_2005/adaptec1 -w output/adaptec1
 #
-#   dev    a long-lived development container you SSH into, with the repository
-#          mounted live rather than copied. Start it with scripts/devenv.sh,
-#          which drives compose.yaml; see the README.
+#   web            the runtime base with the console on top -- python3 and
+#                  webui, and deliberately no engine: compose mounts the dev
+#                  container's build volume at /ktplace/build, and the console
+#                  runs the binary that tree compiled. See compose.yaml.
+#
+#   gui-ci         CI's GUI job: ktplace-gui built and its tests run headless.
+#
+#                  docker build --target gui-ci .
+#
+#   ci             (the default, so last) the build plus the unit tests, so
+#                  `docker build` alone is CI's main job:
+#
+#                  docker build -t ktplace .
+#                  docker run -v "$PWD/output:/ktplace/output" ktplace \
+#                      ktplace benchmark/ISPD_2005/adaptec1 -w output/adaptec1-linux
 
 # ----------------------------------------------------------------- toolchain
 FROM ubuntu:24.04 AS toolchain
@@ -52,17 +62,33 @@ RUN apt-get update \
         zlib1g-dev \
         libfmt-dev \
         tcl-dev \
-        qt6-base-dev \
-        pkg-config \
-        fonts-dejavu-core \
         clang-format \
     && rm -rf /var/lib/apt/lists/*
 
+# ------------------------------------------------------------- gui-toolchain
+# Qt 6 Widgets for `make gui`, found through pkg-config, and one font: Qt draws
+# no text at all without one, and the base image has none.
+FROM toolchain AS gui-toolchain
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        qt6-base-dev \
+        pkg-config \
+        fonts-dejavu-core \
+    && rm -rf /var/lib/apt/lists/*
+
 # ----------------------------------------------------------------------- dev
-FROM toolchain AS dev
+FROM gui-toolchain AS dev
 
 # What a day of work in the container needs on top of the build: the SSH server
 # it is reached through, a debugger, and enough of a shell to be comfortable.
+#
+# The last four show ktplace-gui on the host, two ways. A virtual X display
+# with a VNC server for it, which the entrypoint starts as :1
+# (docker/dev-entrypoint.sh) so `ktplace --gui` works from any shell; or the
+# host's own X server (XQuartz on macOS) through `ssh -Y`, which needs xauth.
+# Both use Qt's X11 platform, which loads the xcb cursor library. They are only
+# in this image; CI tests the GUI on Qt's offscreen platform.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         openssh-server \
@@ -75,6 +101,7 @@ RUN apt-get update \
         xvfb \
         x11vnc \
         libxcb-cursor0 \
+        xauth \
     && rm -rf /var/lib/apt/lists/*
 
 # A non-root user, so files the container writes into the mounted repository are
@@ -96,6 +123,7 @@ RUN mkdir -p /run/sshd \
         'KbdInteractiveAuthentication no' \
         'PermitRootLogin no' \
         'AllowUsers dev' \
+        'X11Forwarding yes' \
         'HostKey /var/lib/ktplace-ssh/ssh_host_ed25519_key' \
         > /etc/ssh/sshd_config.d/ktplace.conf
 
@@ -104,20 +132,24 @@ RUN mkdir -p /run/sshd \
 #
 # ktplace goes on PATH three ways, one per way in: ENV for `docker exec`,
 # /etc/environment for SSH sessions (sshd reads it through pam_env), and the
-# .bashrc lines below for both.
+# .bashrc lines below for both. DISPLAY is :1, the virtual display, through ENV
+# for `docker exec` and through .bashrc for SSH -- there only when unset, so
+# `ssh -Y` keeps the forwarded display sshd chose.
 #
 # Every top-level shell starts in /workspace, so `ssh ktplace-dev 'make test'`
 # runs against the repository rather than the home directory. The snippet goes
 # at the *top* of .bashrc (docker/bashrc-workspace.sh says why), and is a copied
 # file rather than inline text: Docker's own handling of backslashes and `#`
 # lines inside a RUN silently reshapes a multi-line string.
-ENV PATH=/workspace/build/bin:$PATH
+ENV PATH=/workspace/build/bin:$PATH \
+    DISPLAY=:1
 COPY docker/bashrc-workspace.sh /tmp/bashrc-workspace.sh
 RUN git config --system --add safe.directory /workspace \
     && echo 'PATH="/workspace/build/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"' \
         > /etc/environment \
     && cat /tmp/bashrc-workspace.sh /home/dev/.bashrc > /tmp/bashrc \
     && install -m 644 -o dev -g dev /tmp/bashrc /home/dev/.bashrc \
+    && install -m 600 -o dev -g dev /dev/null /home/dev/.Xauthority \
     && rm /tmp/bashrc /tmp/bashrc-workspace.sh
 
 # chmod rather than trusting the mode: a build context sent from Windows does
@@ -125,7 +157,8 @@ RUN git config --system --add safe.directory /workspace \
 COPY docker/dev-entrypoint.sh /usr/local/bin/dev-entrypoint.sh
 RUN chmod 755 /usr/local/bin/dev-entrypoint.sh
 WORKDIR /workspace
-EXPOSE 22
+# SSH, and the VNC server of the GUI's display.
+EXPOSE 22 5900
 ENTRYPOINT ["/usr/local/bin/dev-entrypoint.sh"]
 
 # ---------------------------------------------------------------------- build
@@ -223,6 +256,16 @@ ENV PYTHONUNBUFFERED=1 \
 EXPOSE 8080
 ENTRYPOINT ["python3", "/ktplace/webui/server.py"]
 CMD []
+
+# -------------------------------------------------------------------- gui-ci
+# CI's GUI job (.github/workflows/ci.yml): the GUI built against the copied
+# tree and its tests run on Qt's offscreen platform, which needs no display.
+FROM gui-toolchain AS gui-ci
+
+WORKDIR /ktplace
+COPY . .
+
+RUN make -j"$(nproc)" gui && make gui-test
 
 # ------------------------------------------------------------------------ ci
 # Last, so it is what a plain `docker build .` produces. The build itself

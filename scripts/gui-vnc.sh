@@ -1,54 +1,45 @@
 #!/usr/bin/env bash
-# Serve ktplace-gui over VNC from a container: a virtual X display (Xvfb), the
-# window on it, and x11vnc publishing that display on port 5900.
+# Open ktplace-gui on the dev container's VNC display, replacing a window that
+# is already there.
 #
-#   scripts/gui-vnc.sh [ktplace-gui args]
+#   scripts/gui-vnc.sh [ktplace --gui args]
 #
-# Run inside the dev container; scripts/devenv.sh gui does it for you. A window
-# already running is replaced, and the display and the VNC server are reused.
+# Run inside the dev container; scripts/devenv.sh gui does it from the host and
+# then opens the viewer. The window is `ktplace --gui "$@"` on display :1, which
+# the container starts when it boots (docker/dev-entrypoint.sh) and serves over
+# VNC on 127.0.0.1:5901 on the host.
 #
-# Not Qt's own VNC platform (-platform vnc): it crashed with bad_alloc when the
-# macOS TigerVNC viewer connected. x11vnc is a full VNC server and takes any
-# viewer.
+# A container created from an image older than that has no display yet; this
+# starts one the same way, so the script works there too.
 #
-# Environment:
-#   KTPLACE_GUI_SIZE    window size in points (default 1440x900)
-#   KTPLACE_GUI_SCALE   pixels per point (default 2). A Retina Mac's viewer
-#                       shows one remote pixel per physical pixel, so at 1 the
-#                       window comes out at half size; 2 matches it.
-#   KTPLACE_VNC_PASSWORD  require this password (default: none). macOS Screen
-#                       Sharing will not connect without one; TigerVNC will.
+# Environment (used only when the display has to be started here; otherwise
+# they were fixed when the container started -- see compose.yaml):
+#   KTPLACE_GUI_SIZE      window size in points (default 1440x900)
+#   KTPLACE_VNC_PASSWORD  VNC password (default "ktplace"; "" for none). macOS
+#                         Screen Sharing will not connect without one.
 set -euo pipefail
 
-size="${KTPLACE_GUI_SIZE:-1440x900}"
-scale="${KTPLACE_GUI_SCALE:-2}"
-width="${size%x*}"
-height="${size#*x}"
-display=:1
-
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
+export DISPLAY=:1
 
 if ! pgrep -x Xvfb >/dev/null; then
-    Xvfb "$display" -screen 0 "$((width * scale))x$((height * scale))x24" -nolisten tcp \
+    Xvfb :1 -screen 0 "${KTPLACE_GUI_SIZE:-1440x900}x24" -nolisten tcp -ac \
         >/tmp/ktplace-xvfb.log 2>&1 &
     sleep 1
 fi
-
 if ! pgrep -x x11vnc >/dev/null; then
     auth=(-nopw)
-    if [ -n "${KTPLACE_VNC_PASSWORD:-}" ]; then
-        x11vnc -storepasswd "$KTPLACE_VNC_PASSWORD" /tmp/ktplace-vnc.pass >/dev/null 2>&1
+    password="${KTPLACE_VNC_PASSWORD-ktplace}"
+    if [ -n "$password" ]; then
+        x11vnc -storepasswd "$password" /tmp/ktplace-vnc.pass >/dev/null 2>&1
         auth=(-rfbauth /tmp/ktplace-vnc.pass)
     fi
-    x11vnc -display "$display" -forever -shared -quiet -rfbport 5900 "${auth[@]}" \
+    x11vnc -display :1 -forever -shared -quiet -rfbport 5900 "${auth[@]}" \
         -bg -o /tmp/ktplace-x11vnc.log >/dev/null 2>&1
 fi
 
 pkill -x ktplace-gui 2>/dev/null || true
 sleep 0.5
-
-export DISPLAY="$display"
-export QT_SCALE_FACTOR="$scale"
-nohup build/bin/ktplace-gui -platform xcb -qwindowgeometry "${size}+0+0" "$@" \
+nohup build/bin/ktplace --gui -qwindowgeometry "${KTPLACE_GUI_SIZE:-1440x900}+0+0" "$@" \
     >/tmp/ktplace-gui.log 2>&1 &
 echo "ktplace-gui started (pid $!); its stderr is in /tmp/ktplace-gui.log"
