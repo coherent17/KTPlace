@@ -49,7 +49,8 @@ The desktop GUI (Qt 6): `ktplace --gui [design]` inside the dev container.
 From the host, `scripts/devenv.sh gui [design]` shows it over VNC
 (`vnc://127.0.0.1:5901`), or `scripts/devenv.sh x11 [design]` as a native window
 on your X server (XQuartz on macOS); see
-[docs/docker.md](docs/docker.md#5-the-desktop-gui).
+[docs/docker.md](docs/docker.md#5-the-desktop-gui). How the window drives the
+same stages as the CLI, and on which threads, is in [docs/gui.md](docs/gui.md).
 
 `docker build -t ktplace .` builds and unit-tests a copy of the tree the way CI
 does. [docs/docker.md](docs/docker.md) covers the rest: running commands, the

@@ -158,7 +158,7 @@ Remove that line to switch it off.
 
 ### 5. The desktop GUI
 
-`ktplace-gui` is the native Qt window: the layout view on top, a Properties
+`ktplace-gui` is the native Qt window ([how it embeds the engine](gui.md)): the layout view on top, a Properties
 panel on the right, and a tabbed dock underneath with the live log and a Tcl
 console (the commands of `ktplace -t`; type `help`). Every menu action runs as a
 Tcl command in that console, so a session reads back as a script, and the
