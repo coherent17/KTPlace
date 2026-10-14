@@ -3,11 +3,12 @@ An open-source know thyself placement engine.
 
 ## Dependencies
 
-g++ 13+ (C++23), oneTBB, Boost (Iostreams, Test), zlib, fmt, clang-format.
+g++ 13+ (C++23), oneTBB, Boost (Iostreams, Test), zlib, fmt, Tcl 8.6, clang-format.
 
 ```sh
 sudo apt-get install -y --no-install-recommends \
-    g++ libtbb-dev libboost-iostreams-dev libboost-test-dev zlib1g-dev libfmt-dev clang-format
+    g++ libtbb-dev libboost-iostreams-dev libboost-test-dev zlib1g-dev libfmt-dev tcl-dev \
+    clang-format
 ```
 
 System packages, not submodules: every distribution ships these, and vendoring
@@ -60,6 +61,7 @@ else is loaded as Bookshelf.
 | option | meaning |
 | --- | --- |
 | `-a, --algorithm <name>` | `simpl` (default) or `ntuplace1` |
+| `-t, --tcl <script>` | run a Tcl script instead of the fixed flow (see below) |
 | `-w, --work-dir <dir>` | where everything is written (default: cwd) |
 | `--no-plots` | draw nothing |
 | `-v, --verbose` | also echo the trace log to the console |
@@ -72,6 +74,42 @@ and stderr, so redirecting stdout stays clean.
 | `ktplace.log` | `ktplace_trace.log` | stderr |
 |:---:|:---:|:---:|
 | echo, fatal | trace | echo, fatal |
+
+### Tcl scripts
+
+`ktplace -t <script.tcl> [input_dir] [options]` runs a script instead of the
+fixed load / place / legalize / detail-place / write sequence. Each stage is a
+command, so a script can reorder stages, run one alone, or change parameters
+between them:
+
+```tcl
+set_param KTPLACE_SIMPL_DENSITY 0.9     ;# overrides the environment
+read_design $ktplace(input_dir)
+global_place -algo simpl
+legalize
+if {[llength [check_placement]] == 0} { report_hpwl }
+detail_place
+write_design $ktplace(output)
+```
+
+[scripts/flow.tcl](scripts/flow.tcl) is the fixed flow as a script; it writes the
+same `placed.pl` and plots as running without `-t`, and CI checks that it does.
+The script sees `ktplace(input_dir)`, `ktplace(work_dir)`, `ktplace(output)`,
+`ktplace(plot_dir)` and `ktplace(algorithm)` from the command line.
+
+| command | does |
+| --- | --- |
+| `read_design <dir>` / `report_design` / `write_design <path>` | load, describe, write the `.pl` |
+| `global_place ?-algo name?` / `legalize` / `detail_place` | the stages |
+| `report_hpwl` / `check_placement ?label?` / `report_timing` | queries; HPWL and the defect list are returned |
+| `set_plot_dir <dir>` / `write_final_image` / `write_animation` | pictures (`""` draws nothing) |
+| `set_param` / `get_param` / `reset_param` / `report_params ?group?` | the `KTPLACE_*` parameters |
+| `help ?command?` | the list above, from the shell |
+
+A failing command is a Tcl error: `catch` it, or let it end the run with exit 1
+and the file and line. Each top-level command is echoed to the log as
+`tcl> ...`, so `ktplace.log` reads back as the script, and `puts` to stdout goes
+to the log like everything else.
 
 ## Output
 

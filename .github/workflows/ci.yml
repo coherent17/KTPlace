@@ -196,6 +196,30 @@ jobs:
           test "$(grep -c 'verdict *| *PASS' smoke-multirow.log)" -eq 2
           test "$(grep -c 'verdict *| *FAIL' smoke-multirow.log || true)" -eq 0
 
+      - name: Tcl smoke placement
+        # The same ibm01 run, driven by scripts/flow.tcl through `ktplace -t`
+        # instead of the fixed flow. The script is written to be the fixed flow,
+        # so the placement it writes must match the step above byte for byte;
+        # a difference means the command layer and FlowMgr have drifted apart.
+        # A broken script must fail the run with the file and line.
+        run: |
+          set -euo pipefail
+
+          source ktplace.sh
+
+          KTPLACE_ANIM=0 ktplace -t scripts/flow.tcl ./benchmark/ICCAD04/ibm01 \
+            -w output/ibm01-tcl 2>&1 | tee smoke-tcl.log
+
+          grep -q "tcl> read_design" smoke-tcl.log
+          test "$(grep -c 'Tcl script completed successfully' smoke-tcl.log)" -eq 1
+          cmp output/ibm01/placed.pl output/ibm01-tcl/placed.pl
+
+          printf 'set x 1\nread_design /no/such/design\n' > broken.tcl
+          if ktplace -t broken.tcl -w output/tcl-broken 2> broken.log; then
+            echo "::error::a failing Tcl script exited 0"; exit 1
+          fi
+          grep -q 'file "broken.tcl" line 2' broken.log
+
       - name: Smoke placement draws every cell
         # The frames are the run's own report of the placement, and a frame that
         # silently drops cells is the one rendering fault that cannot be spotted by

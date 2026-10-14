@@ -26,15 +26,11 @@ bool kt_option::parse(int argc, char *argv[]) {
         }
     }
 
-    if (argc < 2) {
-        ktlog.echo("");
-        printUsage();
-        ktlog.fatal("Insufficient command-line arguments");
-    }
+    // Cleared, so a second parse describes only the second command line.
+    inputPath.clear();
+    tclScript.clear();
 
-    inputPath = argv[1];
-
-    for (int i = 2; i < argc; ++i) {
+    for (int i = 1; i < argc; ++i) {
         const std::string arg = argv[i];
 
         const auto value = [&]() -> std::string {
@@ -48,15 +44,25 @@ bool kt_option::parse(int argc, char *argv[]) {
             algorithm = value();
         } else if (arg == "-w" || arg == "--work-dir") {
             workDir = value();
+        } else if (arg == "-t" || arg == "--tcl") {
+            tclScript = value();
         } else if (arg == "-v" || arg == "--verbose") {
             verbose = true;
         } else if (arg == "--no-plots") {
             plot = false;
+        } else if (!arg.empty() && arg.front() != '-' && inputPath.empty()) {
+            inputPath = arg;
         } else {
             ktlog.echo("");
             printUsage();
             ktlog.fatal("Unknown command-line option: {}", arg);
         }
+    }
+
+    if (inputPath.empty() && tclScript.empty()) {
+        ktlog.echo("");
+        printUsage();
+        ktlog.fatal("Insufficient command-line arguments");
     }
 
     std::error_code ec;
@@ -70,7 +76,11 @@ bool kt_option::parse(int argc, char *argv[]) {
 
 void kt_option::report() const {
     ktReportTable config("Configuration");
-    config.add("input directory", inputPath);
+    config.add("input directory",
+               inputPath.empty() ? std::string("(read by the script)") : inputPath);
+    if (!tclScript.empty()) {
+        config.add("tcl script", tclScript);
+    }
     config.add("work directory", workDir);
     config.add("output path", getOutputPath());
     config.add("plot directory", getPlotDir());
@@ -85,13 +95,19 @@ void kt_option::report() const {
 void kt_option::printUsage() {
     constexpr const char *kUsage = R"(KTPlace - Know Thyself Placement Engine v{}
 Usage: ktplace <input_dir> [options]
+       ktplace -t <script.tcl> [input_dir] [options]
 
 Arguments:
   input_dir        Directory holding the design's input files, which are named
-                   after the design
+                   after the design. Optional with -t, where the script reads
+                   its own design (`read_design $ktplace(input_dir)`)
 
 Options:
   -a, --algorithm <name>    Placement algorithm (default: simpl)
+  -t, --tcl <script>        Run a Tcl script instead of the fixed flow. The
+                            script sees ktplace(input_dir), ktplace(work_dir),
+                            ktplace(output), ktplace(plot_dir) and
+                            ktplace(algorithm); `help` lists the commands
   -w, --work-dir <dir>      Where to write everything; created if missing
                             (default: the current directory)
   --no-plots                Draw nothing; skip every frame and picture
@@ -113,6 +129,7 @@ Examples:
   ktplace benchmark/ISPD_2005/adaptec1
   ktplace benchmark/ISPD_2005/adaptec1 -w output
   ktplace benchmark/ISPD_2005/adaptec1 -w output -a simpl
+  ktplace -t scripts/flow.tcl benchmark/ISPD_2005/adaptec1 -w output
 )";
     ktlog.echo(fmt::format(kUsage, VERSION));
 }

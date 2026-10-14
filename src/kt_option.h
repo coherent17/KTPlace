@@ -11,6 +11,9 @@ inline constexpr std::string_view VERSION = "0.1.0";
 class kt_option {
 public:
     std::string inputPath;
+    /// A Tcl script to run instead of the fixed flow; see tcl/kt_tclShell.h.
+    /// With one, the input directory is optional: the script reads its design.
+    std::string tclScript;
     std::string algorithm = "simpl";
     bool verbose = false;
     std::string workDir = std::filesystem::current_path().string();

@@ -287,3 +287,42 @@ BOOST_AUTO_TEST_CASE(parsing_twice_uses_the_second_command_line) {
     BOOST_TEST(opt.verbose);
     BOOST_TEST(opt.algorithm == "ntuplace1");
 }
+
+BOOST_AUTO_TEST_CASE(a_tcl_script_makes_the_input_directory_optional) {
+    for (const char *flag : {"-t", "--tcl"}) {
+        BOOST_TEST_CONTEXT(flag) {
+            const ParseOutcome run = parseCapturing({"ktplace", flag, "flow.tcl"});
+            BOOST_TEST(!run.fatal);
+            BOOST_TEST(run.ready);
+        }
+    }
+    const kt_option opt = parse({"ktplace", "-t", "flow.tcl", kDesign, "-v"});
+    BOOST_TEST(opt.tclScript == "flow.tcl");
+    BOOST_TEST(opt.inputPath == kDesign);
+    BOOST_TEST(opt.verbose);
+}
+
+BOOST_AUTO_TEST_CASE(the_input_directory_may_follow_the_flags) {
+    const kt_option opt = parse({"ktplace", "-a", "ntuplace1", kDesign});
+    BOOST_TEST(opt.inputPath == kDesign);
+    BOOST_TEST(opt.algorithm == "ntuplace1");
+}
+
+BOOST_AUTO_TEST_CASE(a_second_positional_is_rejected) {
+    const ParseOutcome run = parseCapturing({"ktplace", kDesign, "extra"});
+    BOOST_TEST(run.fatal);
+    BOOST_TEST(run.fatalMessage == "Unknown command-line option: extra");
+}
+
+BOOST_AUTO_TEST_CASE(a_second_parse_forgets_the_first_script) {
+    kt_option opt;
+    std::vector<std::string> first{"ktplace", "-t", "flow.tcl"};
+    std::vector<char *> fargv = argvOf(first);
+    BOOST_TEST(opt.parse(static_cast<int>(fargv.size()), fargv.data()));
+
+    std::vector<std::string> second{"ktplace", kDesign};
+    std::vector<char *> sargv = argvOf(second);
+    BOOST_TEST(opt.parse(static_cast<int>(sargv.size()), sargv.data()));
+    BOOST_TEST(opt.tclScript.empty());
+    BOOST_TEST(opt.inputPath == kDesign);
+}
