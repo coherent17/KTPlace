@@ -184,15 +184,24 @@ TEST_viz := visualization/test/test_viz.cc
 TEST_detail := detailPlacer/test/test_detail.cc
 TEST_ntuplace1 := placer/ntuplace1/test/test_ntuplace1.cc
 TEST_session := session/test/test_session.cc
+TEST_abacus := legalizer/abacus/test/test_abacus.cc
+# Two Tcl suites: test_tcl covers the configuration interpreter (kt_tcl,
+# kt_tclMgr), test_tclShell the libtcl command layer over ktSession.
 TEST_tcl := tcl/test/test_tcl.cc
+TEST_tclShell := tcl/test/test_tclShell.cc
 # Shared by the suites that run whole stages on a synthetic design. Listed as a
 # prerequisite, because the test rules do not generate dependency files.
 TEST_DESIGN_HELPERS := test/kt_testDesign.h
 
 TEST_BINS := $(BIN_DIR)/test_datamodel $(BIN_DIR)/test_adaptor $(BIN_DIR)/test_flow \
              $(BIN_DIR)/test_util $(BIN_DIR)/test_constraint $(BIN_DIR)/test_option $(BIN_DIR)/test_viz \
-             $(BIN_DIR)/test_detail $(BIN_DIR)/test_ntuplace1 $(BIN_DIR)/test_session \
-             $(BIN_DIR)/test_tcl
+             $(BIN_DIR)/test_detail $(BIN_DIR)/test_ntuplace1 $(BIN_DIR)/test_abacus \
+             $(BIN_DIR)/test_session $(BIN_DIR)/test_tcl $(BIN_DIR)/test_tclShell
+
+# SimPL's suite, appended rather than listed above so the line other suites add
+# themselves to stays untouched.
+TEST_simpl := placer/simpl/test/test_simpl.cc
+TEST_BINS += $(BIN_DIR)/test_simpl
 
 # Builds the test binaries without running them. `make coverage` needs this:
 # the coverage driver wants to run the binaries itself, once, under the
@@ -211,6 +220,10 @@ test check: $(TEST_BINS)
 	echo "All unit tests passed."
 
 # Each test binary: its own source plus the engine objects (no main()).
+$(BIN_DIR)/test_simpl: $(TEST_simpl) $(LIB_OBJS) | dirs
+	@echo "  Building test_simpl..."
+	@$(CXX) $(CXXFLAGS) $(INCLUDES) -o $@ $(TEST_simpl) $(LIB_OBJS) $(LIBS) $(COVERAGE_LDFLAGS) $(TEST_LIBS)
+
 $(BIN_DIR)/test_datamodel: $(TEST_datamodel) $(LIB_OBJS) | dirs
 	@echo "  Building test_datamodel..."
 	@$(CXX) $(CXXFLAGS) $(INCLUDES) -o $@ $(TEST_datamodel) $(LIB_OBJS) $(LIBS) $(COVERAGE_LDFLAGS) $(TEST_LIBS)
@@ -251,9 +264,21 @@ $(BIN_DIR)/test_session: $(TEST_session) $(TEST_DESIGN_HELPERS) $(LIB_OBJS) | di
 	@echo "  Building test_session..."
 	@$(CXX) $(CXXFLAGS) $(INCLUDES) -o $@ $(TEST_session) $(LIB_OBJS) $(LIBS) $(COVERAGE_LDFLAGS) $(TEST_LIBS)
 
-$(BIN_DIR)/test_tcl: $(TEST_tcl) $(TEST_DESIGN_HELPERS) $(LIB_OBJS) | dirs
+$(BIN_DIR)/test_abacus: $(TEST_abacus) $(LIB_OBJS) | dirs
+	@echo "  Building test_abacus..."
+	@$(CXX) $(CXXFLAGS) $(INCLUDES) -o $@ $(TEST_abacus) $(LIB_OBJS) $(LIBS) $(COVERAGE_LDFLAGS) $(TEST_LIBS)
+
+# The Tcl tests read the example scripts next to them, so the source tree's
+# location is compiled in rather than guessed from the working directory the
+# binary happens to be run from.
+$(BIN_DIR)/test_tcl: $(TEST_tcl) $(LIB_OBJS) | dirs
 	@echo "  Building test_tcl..."
-	@$(CXX) $(CXXFLAGS) $(INCLUDES) -o $@ $(TEST_tcl) $(LIB_OBJS) $(LIBS) $(COVERAGE_LDFLAGS) $(TEST_LIBS)
+	@$(CXX) $(CXXFLAGS) $(INCLUDES) -DKTPLACE_SOURCE_ROOT='"$(abspath $(CURDIR))"' -o $@ $(TEST_tcl) \
+		$(LIB_OBJS) $(LIBS) $(COVERAGE_LDFLAGS) $(TEST_LIBS)
+
+$(BIN_DIR)/test_tclShell: $(TEST_tclShell) $(TEST_DESIGN_HELPERS) $(LIB_OBJS) | dirs
+	@echo "  Building test_tclShell..."
+	@$(CXX) $(CXXFLAGS) $(INCLUDES) -o $@ $(TEST_tclShell) $(LIB_OBJS) $(LIBS) $(COVERAGE_LDFLAGS) $(TEST_LIBS)
 
 # ============================================================================
 # GUI (opt-in)
@@ -325,6 +350,9 @@ coverage-clean:
 # Clean
 clean:
 	@echo "Cleaning..."
+	# The env wrappers point at $(BIN_DIR)/ktplace, so leaving them behind would
+	# leave a ktplace.sh that reports a missing binary until the next build.
+	@rm -f $(ENV_SCRIPTS)
 	@rm -rf $(BUILD_DIR)
 	@$(foreach dir,$(SUBDIRS),$(MAKE) -C $(dir) -f Master.make clean;)
 

@@ -19,7 +19,8 @@ OBJ_DIR ?= ../build/obj/placer
 
 # Source files in this directory
 SRCS := simpl/simpl_placer.cc simpl/simpl_fence.cc simpl/simpl_dm.cc \
-        simpl/simpl_flowMgr.cc ntuplace1/kt_ntuplace1.cc
+        simpl/simpl_flowMgr.cc simpl/simpl_options.cc \
+        ntuplace1/kt_ntuplace1.cc ntuplace1/ntuplace1_options.cc
 
 # Only include files that exist
 EXISTING_SRCS := $(foreach src,$(SRCS),$(if $(wildcard $(src)),$(src),))

@@ -342,7 +342,7 @@ void TclShell::Impl::registerCommands() {
         "draw into <dir> (\"\" draws nothing); the KTPLACE_ANIM_* parameters are read now",
         [this](const Command &c, const Words &w) -> Tcl_Obj * {
             expectWords(c, w, 1, 1);
-            PlotOptions plot = w[0].empty() ? PlotOptions{} : PlotOptions::fromEnvironment();
+            PlotOptions plot = w[0].empty() ? PlotOptions{} : PlotOptions::fromOptions();
             plot.dir = w[0];
             session.setPlotOptions(plot);
             return nullptr;

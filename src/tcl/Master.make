@@ -1,4 +1,6 @@
-# Master.make for the tcl subdirectory (the Tcl command layer over ktSession).
+# Master.make for the tcl subdirectory: the libtcl command layer over ktSession
+# (kt_tclShell), and the small configuration interpreter that fills the option
+# store (kt_tcl, kt_tclMgr).
 
 # ============================================================================
 # Configuration
@@ -14,7 +16,7 @@ OBJ_DIR ?= ../build/obj/tcl
 TCL_CFLAGS ?= -I/usr/include/tcl8.6
 
 # Source files in this directory
-SRCS := kt_tclShell.cc
+SRCS := kt_tclShell.cc kt_tcl.cc kt_tclMgr.cc
 
 # Only include files that exist
 EXISTING_SRCS := $(foreach src,$(SRCS),$(if $(wildcard $(src)),$(src),))

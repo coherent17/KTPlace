@@ -20,7 +20,7 @@ namespace {
 // names the command, the procedure and the line.
 int runScript(const kt_option &options) {
     ktSession session;
-    PlotOptions plot = options.plot ? PlotOptions::fromEnvironment() : PlotOptions{};
+    PlotOptions plot = options.plot ? PlotOptions::fromOptions() : PlotOptions{};
     plot.dir = options.getPlotDir();
     session.setPlotOptions(plot);
 

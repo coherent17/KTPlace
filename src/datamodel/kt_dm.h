@@ -8,7 +8,6 @@
 #include "datamodel/kt_graph.h"
 #include "datamodel/kt_solutionMgr.h"
 
-#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <string>

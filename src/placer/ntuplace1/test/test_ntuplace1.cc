@@ -11,6 +11,7 @@
 
 #define BOOST_TEST_MODULE ktplace_ntuplace1
 
+#include "constraint/kt_constraintMgr.h"
 #include "placer/ntuplace1/kt_ntuplace1.h"
 #include "util/kt_log.h"
 
@@ -187,6 +188,52 @@ BOOST_AUTO_TEST_CASE(tiny_designs_do_not_fail) {
     const RatioPlaceResult res = placer.place(p);
     BOOST_TEST(res.numMovable == 3u);
     expectInRows(db, ids);
+}
+
+// Fences (ISPD 2015) are exclusive: members inside their region, every other
+// cell outside. Members here are wired to pads far from the fence and other
+// cells to a pad inside it, so wirelength alone would put both on the wrong
+// side.
+BOOST_AUTO_TEST_CASE(fenced_cells_are_placed_in_their_region_and_others_kept_out) {
+    ktDM db;
+    addRows(db);
+    // Fence over x 10..40, rows 2..7 (y 20..80).
+    constexpr double fx0 = 10.0, fy0 = 20.0, fx1 = 40.0, fy1 = 80.0;
+    addFixed(db, "padR", kWidth + 20.0, 50.0, 1.0, 1.0);
+    addFixed(db, "padIn", 25.0, 50.0, 1.0, 1.0);
+    std::vector<std::size_t> members, others;
+    for (int i = 0; i < 24; ++i) {
+        members.push_back(db.addCell("m" + std::to_string(i), 1.0, kRowHeight));
+        others.push_back(db.addCell("o" + std::to_string(i), 1.0, kRowHeight));
+    }
+    for (int i = 0; i < 24; ++i) {
+        addNet(db, "nm" + std::to_string(i), {"m" + std::to_string(i), "padR"});
+        addNet(db, "no" + std::to_string(i), {"o" + std::to_string(i), "padIn"});
+    }
+    {
+        constraintMgr mgr;
+        const int id = mgr.addRegion("f0", {Point{fx0, fy0}, Point{fx1, fy1}});
+        (void)mgr.assignByPrefix(id, "m", db.getGraph());
+        db.setConstraints(std::move(mgr));
+    }
+
+    RatioPlacer placer(db);
+    const RatioPlaceResult res = placer.place(smallLeaves());
+
+    BOOST_TEST(res.fenceRegions == 1u);
+    BOOST_TEST(res.fenceViolations == 0u);
+    // The engine's own containment test is on the lower-left corner, and that is
+    // what global placement promises; whole cells are the legalizer's job.
+    const auto inside = [&](std::size_t id) {
+        const auto [x, y] = db.getCellPosition(id);
+        return x >= fx0 && x <= fx1 && y >= fy0 && y <= fy1;
+    };
+    for (const std::size_t id : members) {
+        BOOST_TEST(inside(id), "member " << id << " outside its fence");
+    }
+    for (const std::size_t id : others) {
+        BOOST_TEST(!inside(id), "non-member " << id << " inside the fence");
+    }
 }
 
 BOOST_AUTO_TEST_SUITE_END()

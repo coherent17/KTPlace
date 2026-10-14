@@ -156,47 +156,29 @@ void ktSession::globalPlace(const std::string &algorithm) {
 
     if (algorithm == "simpl") {
         ktlog.echo("Running SimPL global placement (B2B net model + look-ahead legalization)...");
+        // Build SimPL's own database from ours, run it there, commit the answer.
+        // SimPL has no way to reach ktDM, so this is the one write, and SimPL
+        // assembles its own parameters from the options it was given and the
+        // plot cadence.
+        simpl::simplDM simplDB = simpl::buildSimplDM(d, plot);
         // Fences come from the LEF/DEF reader; Bookshelf carries none, so an empty
         // set is a correctly unconstrained design. Ignoring fences scatters fenced
-        // cells across the die and draws no regions.
-        //
-        // KTPLACE_SIMPL_FENCES=0 shows the placement without them, which is the only
-        // way to see what the constraint costs.
-        const bool fencesOn = param<bool>("KTPLACE_SIMPL_FENCES");
-        if (!fencesOn) {
-            ktlog.echo("SimPL: fence enforcement DISABLED by KTPLACE_SIMPL_FENCES=0");
+        // cells across the die and draws no regions. `add_option simpl fences 0`
+        // shows the placement without them, which is the only way to see what
+        // the constraint costs.
+        if (!simplDB.useFences()) {
+            ktlog.echo("SimPL: fence enforcement disabled by 'add_option simpl fences 0'");
         }
-
-        // Cadence and diagnostics come from the one place visualisation settings
-        // are declared, so there is no second list to keep in step.
-        simpl::SimplParams params;
-        params.traceEvery = plot.traceEvery;
-        params.cgEvery = plot.cgFrameEvery;
-        params.densityMaps = plot.densityMaps;
-        // Build SimPL's own database from ours, run it there, commit the answer.
-        // SimPL has no way to reach ktDM, so this is the one write.
-        simpl::simplDM simplDB = simpl::buildSimplDM(d, plot.dir);
+        const simpl::SimplParams params = simplDB.params();
         simpl::flowMgr flow(simplDB);
-        d.setGPSolution(flow.runGlobalPlacer(params, fencesOn));
+        d.setGPSolution(flow.runGlobalPlacer(params, simplDB.useFences()));
         record("global_place", algorithm, started, Progress::instance().stopRequested());
         return;
 
     } else if (algorithm == "ntuplace1") {
         ktlog.echo("Running NTUPlace1 global placement (ratio partitioning)...");
         RatioPlacer placer(d);
-        RatioPlaceParams params;
-        if (const auto v = paramOverride<std::size_t>("KTPLACE_NTU_LEAF_CELLS")) {
-            params.targetLeafCells = *v;
-        }
-        if (const auto v = paramOverride<std::size_t>("KTPLACE_NTU_MAX_LEVELS")) {
-            params.maxLevels = *v;
-        }
-        if (const auto v = paramOverride<std::size_t>("KTPLACE_NTU_RETRIES")) {
-            params.maxRatioRetries = *v;
-        }
-        if (const auto v = paramOverride<bool>("KTPLACE_NTU_VERBOSE")) {
-            params.verbose = *v;
-        }
+        const RatioPlaceParams params = placer.params();
         const RatioPlaceResult res = placer.place(params);
         reportNtuPlace1(res);
         record("global_place", algorithm, started);
@@ -235,13 +217,11 @@ void ktSession::legalize() {
     }
 
     ktlog.echo("Running Abacus legalization...");
-    LegalizeParams lparams;
-    if (const auto v = paramOverride<std::size_t>("KTPLACE_ABACUS_MAX_ROW_DIST")) {
-        lparams.maxRowDistance = *v;
-    }
-    lparams.frameEvery = plot.legalFrameEvery;
-    // Build Abacus's own database, run it there, commit the answer.
+    // Build Abacus's own database, run it there, commit the answer. The
+    // parameters come from Abacus's options; the frame cadence is the plot's.
     abacus::abacusDM abacusDB = abacus::buildAbacusDM(d);
+    LegalizeParams lparams = abacusDB.params();
+    lparams.frameEvery = plot.legalFrameEvery;
     abacus::flowMgr flow(abacusDB);
     d.setLegalizationSolution(flow.runLegalizer(lparams));
     record("legalize", "abacus", started);
@@ -282,12 +262,10 @@ void ktSession::detailPlace() {
     // Abacus minimises displacement, not wirelength, so legalization usually
     // costs a little HPWL; detailed placement wins it back.
     ktlog.echo("Running FastDP detailed placement...");
-    // KTPLACE_DP_WINDOW is applied, range-checked, by FastDP itself. Reading it
-    // here as well set the window unchecked, so 20 or garbage (read as 0) got
-    // through the flow while FastDP's own 2..14 check only bit on direct calls.
-    DetailPlaceParams dparams;
-    // Build FastDP's own database, run it there, commit the answer.
+    // Build FastDP's own database, run it there, commit the answer. The
+    // parameters come from FastDP's options.
     fastdp::fastdpDM dpDB = fastdp::buildFastdpDM(d);
+    const DetailPlaceParams dparams = dpDB.params();
     fastdp::flowMgr flow(dpDB);
     d.setDetailedPlaceSolution(flow.runDetailedPlacer(dparams));
     record("detail_place", "fastdp", started);

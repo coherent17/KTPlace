@@ -22,6 +22,7 @@ void copyCells(const ktplace::Graph &graph, std::vector<Cell> &out) {
         c.height = cell.height;
         c.isFixed = cell.isFixed;
         c.isTerminal = cell.isTerminal;
+        c.region = cell.regionId;
     }
 }
 
@@ -65,6 +66,14 @@ fastdpDM buildFastdpDM(const ktDM &db) {
     copyNets(db.getGraph(), design.pins, design.nets);
     copyRows(db.getRows(), design.rows);
     design.die = placementDieBox(db.die(), db.getGraph());
+    const constraintMgr &mgr = db.constraints();
+    for (int id = 0; id < static_cast<int>(mgr.numRegions()); ++id) {
+        if (const Region *r = mgr.region(id)) {
+            for (const Rect &rc : r->rects) {
+                design.fences.push_back(FenceRect{rc.lo.x, rc.lo.y, rc.hi.x, rc.hi.y, id});
+            }
+        }
+    }
 
     // The stage decides when a snapshot matters; the visualizer decides where it
     // lands and what it is called, because it is the one that holds the shared
@@ -85,7 +94,9 @@ fastdpDM buildFastdpDM(const ktDM &db) {
                          VisualFrame{info.series, info.step, info.numSteps, info.note, info.hpwl,
                                      info.hpwlInitial, info.overflow, info.mandatory});
     };
-    return fastdpDM(std::move(design));
+    fastdpDM result(std::move(design));
+    result.par.localReorderWindow = static_cast<std::size_t>(result.options().window);
+    return result;
 }
 
 namespace {
@@ -115,7 +126,12 @@ void reportRun(const DetailPlaceResult &res) {
 
 fastdpDM::fastdpDM(Design design) : d(std::move(design)) {}
 
+FastdpOptions fastdpDM::options() const {
+    return FastdpOptions::load();
+}
+
 fastdpSolution fastdpDM::run(const DetailPlaceParams &params) {
+    options().report();
     ScopedTimer timer("detailplace");
 
     FastDetailedPlacer placer(d);

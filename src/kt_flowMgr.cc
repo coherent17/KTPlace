@@ -33,7 +33,7 @@ void FlowMgr::run(const kt_option &options) {
 
 
 void FlowMgr::Impl::run(const kt_option &options) {
-    PlotOptions plot = options.plot ? PlotOptions::fromEnvironment() : PlotOptions{};
+    PlotOptions plot = options.plot ? PlotOptions::fromOptions() : PlotOptions{};
     plot.dir = options.getPlotDir();
     session.setPlotOptions(plot);
 
