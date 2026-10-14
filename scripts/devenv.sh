@@ -14,9 +14,10 @@
 #   scripts/devenv.sh exec [cmd]       the same through `docker exec`, no SSH
 #                                      involved
 #   scripts/devenv.sh gui [args]       build and start ktplace-gui in the dev
-#                                      container on Qt's VNC platform, then
-#                                      open it (args as for ktplace-gui; the
-#                                      work dir defaults to output/gui)
+#                                      container, served over VNC, then open
+#                                      it (args as for ktplace-gui; the work
+#                                      dir defaults to output/gui; see
+#                                      scripts/gui-vnc.sh for size and scale)
 #   scripts/devenv.sh status           what is running, and on which ports
 #   scripts/devenv.sh ssh-config       print an ~/.ssh/config entry for it
 #   scripts/devenv.sh stop             stop them; containers and volumes kept
@@ -197,12 +198,11 @@ case "${1:-}" in
             *" -w "* | *" --work-dir "*) ;;
             *) args+=(-w output/gui) ;;
         esac
-        # One window at a time: a second one could not bind the VNC port.
-        docker exec ktplace-dev pkill -x ktplace-gui 2>/dev/null || true
-        # Qt's VNC platform serves the window itself on port 5900 in the
-        # container; compose publishes it on the host's loopback only.
-        docker exec -d -u dev -w /workspace ktplace-dev \
-            build/bin/ktplace-gui -platform vnc:size=1440x900 ${args[@]+"${args[@]}"}
+        # Xvfb + x11vnc + the window, inside the container (scripts/gui-vnc.sh);
+        # compose publishes the VNC port on the host's loopback only.
+        docker exec -u dev -w /workspace \
+            -e KTPLACE_GUI_SIZE -e KTPLACE_GUI_SCALE -e KTPLACE_VNC_PASSWORD \
+            ktplace-dev scripts/gui-vnc.sh ${args[@]+"${args[@]}"}
         url="vnc://127.0.0.1:${KTPLACE_VNC_PORT:-5901}"
         echo "devenv: ktplace-gui is serving on $url"
         if [ "$(uname -s)" = Darwin ]; then

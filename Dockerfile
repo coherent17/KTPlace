@@ -72,6 +72,9 @@ RUN apt-get update \
         vim-tiny \
         ca-certificates \
         bash-completion \
+        xvfb \
+        x11vnc \
+        libxcb-cursor0 \
     && rm -rf /var/lib/apt/lists/*
 
 # A non-root user, so files the container writes into the mounted repository are

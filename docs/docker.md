@@ -162,11 +162,20 @@ scripts/devenv.sh gui benchmark/ICCAD04/ibm01          # read a design on start
 scripts/devenv.sh gui benchmark/ICCAD04/ibm01 -t scripts/flow.tcl
 ```
 
-It builds `make gui` in the dev container and starts the window on Qt's VNC
-platform, served on `vnc://127.0.0.1:5901` (loopback only); on macOS it opens
-that address in Screen Sharing. Any VNC viewer works if yours declines a server
-without a password, which Qt's VNC display is. Its log and pictures go to
-`output/gui` unless you pass `-w`. Running `gui` again replaces the window.
+It builds `make gui` in the dev container, starts the window on a virtual X
+display there, and serves that display over VNC with `x11vnc` on
+`vnc://127.0.0.1:5901` (loopback only; `scripts/gui-vnc.sh` does the work). On
+macOS it then opens that address. Its log and pictures go to `output/gui` unless
+you pass `-w`. Running `gui` again replaces the window.
+
+- **Viewer**: TigerVNC connects as is. macOS Screen Sharing refuses a server
+  without a password; start with `KTPLACE_VNC_PASSWORD=<pw> scripts/devenv.sh gui`
+  (the password applies when the VNC server first starts in the container).
+- **Size**: the window is drawn at 2x (`KTPLACE_GUI_SCALE`, default 2) on a
+  1440x900-point display (`KTPLACE_GUI_SIZE`), which is the right size on a
+  Retina Mac; use `KTPLACE_GUI_SCALE=1` on a standard-density screen.
+- **Shortcuts**: the viewer or macOS may keep F-keys and Cmd shortcuts for
+  themselves; the menus do the same things.
 
 The port is published by `compose.yaml`, so a dev container created before it
 needs `scripts/devenv.sh up` once to pick it up.
