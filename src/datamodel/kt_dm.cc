@@ -8,6 +8,7 @@
 #include "datamodel/kt_solutionMgr.h"
 #include "util/kt_log.h"
 #include "util/kt_reportTable.h"
+#include "util/kt_scopedTimer.h"
 
 #include <algorithm>
 #include <cmath>
@@ -446,6 +447,13 @@ void ktDM::setGPSolution(const simplSolution &solution) {
     }
 }
 
+void ktDM::setGPSolution(const ntuplace1Solution &solution) {
+    const std::size_t n = std::min({solution.xs.size(), solution.ys.size(), graph.getNumCells()});
+    for (std::size_t v = 0; v < n; ++v) {
+        setCellPosition(v, solution.xs[v], solution.ys[v]);
+    }
+}
+
 namespace {
 /// Every stage's solution is the same shape: positions indexed by cell id. One
 /// writer, so a stage cannot commit a placement the others would have written
@@ -463,6 +471,7 @@ void commitCells(Graph &graph, const Solution &solution) {
 
 void ktDM::setLegalizationSolution(const abacusSolution &solution) {
     commitCells(graph, solution);
+    isLegalizePlacement();
 }
 
 void ktDM::setMultiRowSolution(const multiRowSolution &solution) {
@@ -471,6 +480,7 @@ void ktDM::setMultiRowSolution(const multiRowSolution &solution) {
 
 void ktDM::setDetailedPlaceSolution(const fastdpSolution &solution) {
     commitCells(graph, solution);
+    isLegalizePlacement();
 }
 
 solutionMgr ktDM::getPlacementSolution() const {
@@ -483,6 +493,54 @@ double ktDM::hpwl() const {
     // now the same call they all make, over the positions as committed.
     const solutionMgr sol = getPlacementSolution();
     return netlistHPWL(graph, sol.xs(), sol.ys());
+}
+
+std::size_t ktDM::multiRowCells() const {
+    // The shortest row sets the bar: a cell taller than every row has no single
+    // row to go in, and that is the case the row slicer exists for.
+    double minHeight = std::numeric_limits<double>::max();
+    for (const RowInfo &ri : getRows()) {
+        if (ri.height > 0.0 && !ri.subrows.empty()) {
+            minHeight = std::min(minHeight, ri.height);
+        }
+    }
+    if (minHeight == std::numeric_limits<double>::max()) {
+        return 0;
+    }
+    const double tall = minHeight * 1.5;
+    const Graph &g = getGraph();
+    std::size_t n = 0;
+    for (std::size_t v = 0; v < g.getNumCells(); ++v) {
+        const Vertex &vert = g.getCell(v);
+        if (!vert.isFixed && !vert.isTerminal && vert.height > tall) {
+            ++n;
+        }
+    }
+    return n;
+}
+
+void ktDM::isLegalizePlacement() const {
+    // Timed on its own: it reads the whole placement, changes nothing, and is
+    // the phase that goes quadratic if the spatial index degrades.
+    const ScopedTimer checkTimer("place-check");
+    const std::vector<Defect> defects = verify();
+    ktReportTable check("Placement check (independent)");
+    check.setHeaders({"check", "result"});
+    if (defects.empty()) {
+        check.addRow({"overlapping cell pairs", "0"});
+        check.addRow({"cells outside the die", "0"});
+        check.addRow({"cells outside their fence", hasFences() ? "0" : "n/a"});
+        check.addRow({"verdict", "PASS"});
+    } else {
+        for (const Defect &d : defects) {
+            check.addRow({d.what, fmt::format("{}", d.count)});
+        }
+        check.addRow({"verdict", "FAIL"});
+    }
+    check.emit();
+    if (!defects.empty()) {
+        ktlog.warning("the placement that will be written is not legal; see the check above");
+    }
 }
 
 }  // namespace ktplace
