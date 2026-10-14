@@ -5,6 +5,7 @@
 
 #define BOOST_TEST_MODULE ktplace_tcl_shell
 #define BOOST_TEST_DYN_LINK
+#include "datamodel/kt_optionDb.h"
 #include "session/kt_session.h"
 #include "tcl/kt_tclShell.h"
 #include "test/kt_testDesign.h"
@@ -19,6 +20,7 @@
 #include <iostream>
 #include <sstream>
 #include <string>
+#include <variant>
 #include <vector>
 
 using namespace ktplace;
@@ -69,10 +71,11 @@ BOOST_AUTO_TEST_CASE(the_shell_registers_the_session_commands) {
     Fixture f;
     const std::vector<std::string> names = f.shell.commandNames();
     for (const char *expected :
-         {"read_design", "report_design", "write_design", "global_place", "legalize",
-          "detail_place", "report_hpwl", "check_placement", "report_timing", "set_plot_dir",
-          "write_final_image", "write_animation", "set_param", "get_param", "reset_param",
-          "report_params", "help"}) {
+         {"read_design",   "report_design", "write_design",      "global_place",
+          "legalize",      "detail_place",  "report_hpwl",       "check_placement",
+          "report_timing", "set_plot_dir",  "write_final_image", "write_animation",
+          "set_param",     "get_param",     "reset_param",       "report_params",
+          "add_option",    "get_option",    "report_options",    "help"}) {
         BOOST_TEST_CONTEXT(expected) {
             BOOST_TEST((std::ranges::find(names, expected) != names.end()));
         }
@@ -345,4 +348,49 @@ BOOST_AUTO_TEST_CASE(a_stop_request_fails_the_commands_after_it) {
 
     Progress::instance().clearStop();
     ok(f.shell, "legalize");
+}
+
+BOOST_AUTO_TEST_CASE(options_come_from_a_script_then_set_param_then_the_environment) {
+    Fixture f;
+    OptionDb::instance().clear();
+    ParamRegistry::instance().resetAll();
+    ::unsetenv("KTPLACE_SIMPL_GRID");
+
+    // Nothing sets it: the stage's own default applies.
+    BOOST_TEST(ok(f.shell, "get_option simpl grid").empty());
+
+    ::setenv("KTPLACE_SIMPL_GRID", "48", 1);
+    BOOST_TEST(ok(f.shell, "get_option simpl grid") == "48");
+    BOOST_TEST((OptionDb::instance().originOf("simpl", "grid") == OptionOrigin::Env));
+    BOOST_TEST(OptionDb::instance().optionsFor("simpl").has_value());
+
+    ok(f.shell, "set_param KTPLACE_SIMPL_GRID 96");
+    BOOST_TEST(ok(f.shell, "get_option simpl grid") == "96");
+    BOOST_TEST((OptionDb::instance().originOf("simpl", "grid") == OptionOrigin::Script));
+
+    ok(f.shell, "add_option simpl grid 128");
+    BOOST_TEST(ok(f.shell, "get_option simpl grid") == "128");
+
+    // The pseudonet law is spelt "const" by the registry, "constant" here.
+    ok(f.shell, "set_param KTPLACE_SIMPL_PSEUDONET const");
+    BOOST_TEST(ok(f.shell, "get_option simpl pseudonet") == "constant");
+
+    // Typed by spelling, as the configuration interpreter types them.
+    ok(f.shell,
+       "add_option simpl cg_tol 1e-6; add_option simpl fences false; "
+       "add_option simpl start input");
+    BOOST_TEST((std::holds_alternative<double>(*OptionDb::instance().find("simpl", "cg_tol"))));
+    BOOST_TEST((std::holds_alternative<bool>(*OptionDb::instance().find("simpl", "fences"))));
+    BOOST_TEST(ok(f.shell, "get_option simpl start") == "input");
+    BOOST_TEST(!f.shell.eval("add_option simpl grid").ok);
+    BOOST_TEST(!f.shell.eval("add_option {} grid 1").ok);
+    {
+        Capture err(std::cerr);
+        ok(f.shell, "report_options");
+        BOOST_TEST(err.str().find("Configured options") != std::string::npos);
+    }
+
+    ::unsetenv("KTPLACE_SIMPL_GRID");
+    ParamRegistry::instance().resetAll();
+    OptionDb::instance().clear();
 }

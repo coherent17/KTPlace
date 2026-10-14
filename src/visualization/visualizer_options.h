@@ -16,7 +16,8 @@ namespace ktplace {
 //     add_option visualizer anim 0
 //     add_option visualizer anim_zoom 2
 //
-// Each was a KTPLACE_ANIM_* environment variable, still honoured as a fallback.
+// Each was a KTPLACE_ANIM_* (or KTPLACE_FINAL_*) environment variable, still
+// honoured as a fallback through the parameter registry (see kt_optionDb.h).
 struct VisualizerOptions {
     // Record frames and assemble the GIF. Off means nothing is drawn.
     bool anim = true;
@@ -32,6 +33,19 @@ struct VisualizerOptions {
 
     // Also write the lossless raster, which is 113 MB at 8x.
     bool finalPpm = false;
+
+    // The GIF's size cap, 96 MB: what a browser still opens.
+    std::size_t animMaxBytes = std::size_t{96} << 20;
+    // Centiseconds per frame, and in-between frames per recorded placement.
+    int animDelayCs = 12;
+    int animBlend = 3;
+    // Extra frames the finished placement is held for at the end.
+    std::size_t animFinalHold = 8;
+    // The stages' own cadence: SimPL frames every N outer iterations and every N
+    // conjugate-gradient steps (0 = none), and whether it draws density maps.
+    std::size_t animTraceEvery = 1;
+    std::size_t animCgEvery = 0;
+    bool animDensityMaps = true;
 
     [[nodiscard]] static VisualizerOptions load();
     void report() const;

@@ -5,7 +5,9 @@
 
 #include "tcl/kt_tclShell.h"
 
+#include "datamodel/kt_optionDb.h"
 #include "session/kt_session.h"
+#include "tcl/kt_tcl.h"
 #include "util/kt_log.h"
 #include "util/kt_param.h"
 #include "util/kt_progress.h"
@@ -20,7 +22,9 @@
 #include <stdexcept>
 #include <string>
 #include <tcl.h>
+#include <type_traits>
 #include <utility>
+#include <variant>
 #include <vector>
 
 namespace ktplace {
@@ -358,6 +362,62 @@ void TclShell::Impl::registerCommands() {
         [this](const Command &c, const Words &w) -> Tcl_Obj * {
             expectWords(c, w, 0, 0);
             return Tcl_NewBooleanObj(session.finishAnimation() ? 1 : 0);
+        });
+
+    // --- options -------------------------------------------------------------
+    //
+    // The option store the stages read (datamodel/kt_optionDb.h). add_option is
+    // the configuration interpreter's command (tcl/kt_tclMgr.h) with the same
+    // typing, so one configuration script runs in either: 64 is an int, 1e-6 a
+    // double, true/false a bool, anything else a string.
+    add("add_option", "add_option <component> <key> <value>",
+        "set an option for a stage (simpl, ntuplace1, abacus, fastdp, visualizer)",
+        [](const Command &c, const Words &w) -> Tcl_Obj * {
+            expectWords(c, w, 3, 3);
+            if (w[0].empty() || w[1].empty()) {
+                throw UsageError("add_option: the component and the key must not be empty");
+            }
+            const tcl::Value v = tcl::parseLiteral(w[2]);
+            OptionValue value = v.asString();
+            if (v.isInt()) {
+                value = static_cast<int>(v.asInt());
+            } else if (v.isDouble()) {
+                value = v.asDouble();
+            } else if (v.isBool()) {
+                value = v.asBool();
+            }
+            OptionDb::instance().set(w[0], w[1], std::move(value), OptionOrigin::Script);
+            return nullptr;
+        });
+    add("get_option", "get_option <component> <key>",
+        "return an option's value as a stage will read it, or \"\" when nothing sets it",
+        [](const Command &c, const Words &w) -> Tcl_Obj * {
+            expectWords(c, w, 2, 2);
+            const auto value = OptionDb::instance().find(w[0], w[1]);
+            if (!value) {
+                return newString("");
+            }
+            return std::visit(
+                [](const auto &v) -> Tcl_Obj * {
+                    using T = std::decay_t<decltype(v)>;
+                    if constexpr (std::is_same_v<T, int>) {
+                        return Tcl_NewIntObj(v);
+                    } else if constexpr (std::is_same_v<T, bool>) {
+                        return Tcl_NewBooleanObj(v ? 1 : 0);
+                    } else if constexpr (std::is_same_v<T, double>) {
+                        return Tcl_NewDoubleObj(v);
+                    } else {
+                        return newString(v);
+                    }
+                },
+                *value);
+        });
+    add("report_options", "report_options",
+        "log the options scripts have set (each stage reports its full table when it runs)",
+        [](const Command &c, const Words &w) -> Tcl_Obj * {
+            expectWords(c, w, 0, 0);
+            OptionDb::instance().report();
+            return nullptr;
         });
 
     // --- parameters ----------------------------------------------------------

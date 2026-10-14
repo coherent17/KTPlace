@@ -20,6 +20,13 @@ PlotOptions PlotOptions::fromOptions() {
     out.frameZoom = opts.animZoom;
     out.finalZoom = opts.finalZoom;
     out.writePpm = opts.finalPpm;
+    out.gifByteCap = opts.animMaxBytes;
+    out.frameDelayCs = opts.animDelayCs;
+    out.blendFrames = opts.animBlend;
+    out.finalHold = opts.animFinalHold;
+    out.traceEvery = opts.animTraceEvery;
+    out.cgFrameEvery = opts.animCgEvery;
+    out.densityMaps = opts.animDensityMaps;
     opts.report();
     return out;
 }

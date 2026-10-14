@@ -32,6 +32,12 @@ enum class OptionOrigin {
 
 // Every option a run has been given.
 //
+// What a script set (add_option) comes first. An option no script set falls
+// back to the KTPLACE_* parameter behind it (util/kt_param.h): a set_param
+// value, then the environment variable, parsed the way it always has been. Only
+// then does the option's own default apply. The fallback is read live, so a
+// set_param or a setenv takes effect at the next read.
+//
 // A process-wide instance because a run configures one thing and every component
 // asks the same question; passing it around would be plumbing with no gain.
 class OptionDb {
