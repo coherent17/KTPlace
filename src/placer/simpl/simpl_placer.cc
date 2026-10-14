@@ -2243,15 +2243,37 @@ void simplPlacer::Impl::enforceFences(std::vector<double> &px, std::vector<doubl
     if (fences_ == nullptr || fences_->numRegions() == 0) {
         return;
     }
-    // A hard fence, applied after the solve rather than as a term in it.
+    // A hard fence, applied to the upper bound after look-ahead legalization --
+    // never to the lower bound, and never as a term in the solve.
     //
-    // The alternative is a penalty in the quadratic, which is how a soft fence is
-    // normally done, and it is the wrong tool here: the solve is a linear system
-    // with no room for a one-sided inequality, and a cell pushed back by a penalty
-    // is only pushed back in proportion to how badly it wants to leave. A fence is
-    // a promise about where a cell may be, so it is enforced as one: the cell is
-    // put where it is allowed to be. The wirelength consequence is real and is the
-    // cost of the constraint, not a bug in it.
+    // The paper has no region constraints, but it says where constraints go. The
+    // only ones it handles, fixed obstacles, are an input to rough legalization
+    // (Algorithm 1: "Floorplan with obstacles"), and the upper-bound placement
+    // carries them to the solve through the anchors: "upper-bound placements
+    // perform an area look-ahead that is instrumental in the handling of layout
+    // obstacles" (Section VII). The linear solve stays the relaxed side of the
+    // pair: legalization is "imposing a no-overlap constraint while relaxing the
+    // linear constraints" (Section VII). A penalty term is rejected for the same
+    // reason the paper rejects them for obstacles: "they also add imprecisions to
+    // modeling".
+    //
+    // Projecting the lower bound as well was tried, and it is what this code did
+    // before: after every solve the members outside a fence collapsed onto its
+    // boundary and everyone else was pushed onto a fence edge, so look-ahead
+    // legalization spread a distorted placement and the anchors pulled the next
+    // solve towards it. On the seven fenced ISPD 2015 designs (strict Abacus and
+    // FastDP downstream) the final HPWL cost of the fences was +18.7% geomean
+    // that way, +13.7% projecting both bounds, and +8.1% projecting only the
+    // upper bound; des_perf_b went from +71% to -0.1%.
+    //
+    // Departure: the paper's place for a constraint is inside rough
+    // legalization, which here would mean each fence as its own floorplan in
+    // Algorithm 1 -- members spread within it, everyone else spread around it as
+    // an obstacle. This projection runs after look-ahead legalization instead,
+    // so a projected upper bound can pile cells on a fence edge and is no longer
+    // density-legal there. It is the interim step until lookAheadLegalize knows
+    // about fences; it then stays only as a safety net for the returned
+    // placement.
     //
     // Assigned cells are clamped into their own region, and only their own --
     // clampToRegion is a no-op for a cell already inside. Unassigned cells are held
@@ -2776,7 +2798,8 @@ SimplResult simplPlacer::Impl::run(const SimplParams &P, bool useFences) {
             solve("init" + frameStep(it), /*allowFrames=*/animEnabled_, par_.cgEveryInit);
             lower = solX_;
             lowerY = solY_;
-            enforceFences(lower, lowerY);
+            // No fence here: the lower bound is the unconstrained solve, and the
+            // fences reach it through the anchors (see enforceFences).
             res_.initIters = it + 1;
             const double h = hpwl(lower, lowerY);
             // Convergence on the wirelength, not on a round count. The improvement
@@ -3017,6 +3040,11 @@ SimplResult simplPlacer::Impl::run(const SimplParams &P, bool useFences) {
             lookAheadLegalize();
             upper = pinX_;
             upperY = pinY_;
+            // Look-ahead legalization spreads by density and knows nothing of
+            // fences, so the fence is applied to what it produces. The upper bound
+            // is both the next iteration's anchors -- which is how the solve learns
+            // of the fences -- and, at the end, the placement handed on.
+            enforceFences(upper, upperY);
             pinX_ = keepX;
             pinY_ = keepY;
             binCells(upper, upperY);
@@ -3225,7 +3253,7 @@ SimplResult simplPlacer::Impl::run(const SimplParams &P, bool useFences) {
         solve("g" + frameStep(it), /*allowFrames=*/true);
         lower = solX_;
         lowerY = solY_;
-        enforceFences(lower, lowerY);
+        // Unconstrained, as above: the anchors carry the fences into the solve.
         solveAcc += sTimer.elapsedSeconds();
         sTimer.lap();
     }
@@ -3263,6 +3291,10 @@ SimplResult simplPlacer::Impl::run(const SimplParams &P, bool useFences) {
         lowerY = bestLowerY;
         res_.bestIter = bestIter;
     }
+    // The placement handed on honours the fences on every path. After a normal
+    // run this changes nothing -- each upper bound was fenced when it was made --
+    // but the fallback above and KTPLACE_SIMPL_NO_LAL return a lower bound.
+    enforceFences(upper, upperY);
     res_.hpwlFinal = hpwl(upper, upperY);
     res_.hpwlLower = hpwl(lower, lowerY);
     res_.gap = res_.hpwlFinal - res_.hpwlLower;
