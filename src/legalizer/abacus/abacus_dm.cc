@@ -86,7 +86,9 @@ abacusDM buildAbacusDM(const ktDM &db) {
     // No frame hook: what a run draws is the flow's to decide, so it installs
     // one on the result.
     abacusDM result(std::move(design));
-    result.par.maxRowDistance = result.options().maxRowDistance;
+    const AbacusOptions options = result.options();
+    result.par.maxRowDistance = options.maxRowDistance;
+    result.par.frameEvery = options.frameEvery;
     return result;
 }
 

@@ -10,6 +10,7 @@ namespace {
 const Option<std::size_t> kMaxRowDist{"abacus", "max_row_dist", 16};
 const Option<std::size_t> kMinSubrowSites{"abacus", "min_subrow_sites", 1};
 const Option<std::size_t> kClusterGap{"abacus", "cluster_gap", 0};
+const Option<std::size_t> kFrameEvery{"abacus", "frame_every", 0};
 
 }  // namespace
 
@@ -18,7 +19,9 @@ AbacusOptions AbacusOptions::load() {
     out.maxRowDistance = kMaxRowDist.value();
     out.minSubrowSites = kMinSubrowSites.value();
     out.clusterGap = kClusterGap.value();
-    out.rows = {resolve(kMaxRowDist), resolve(kMinSubrowSites), resolve(kClusterGap)};
+    out.frameEvery = kFrameEvery.value();
+    out.rows = {resolve(kMaxRowDist), resolve(kMinSubrowSites), resolve(kClusterGap),
+                resolve(kFrameEvery)};
     return out;
 }
 

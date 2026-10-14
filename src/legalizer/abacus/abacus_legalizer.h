@@ -19,14 +19,10 @@ struct LegalizeParams {
     /// never considered. 0 means unlimited (the paper's own bound is the cost
     /// lower bound, not a fixed distance).
     std::size_t maxRowDistance = 0;
-    /// If non-empty, write SVG frames here: the input placement, one frame every
     /// Snapshot this many cells apart while the pass runs, plus one before
     /// and one after. This is the pass's own cadence: it knows how many cells it
     /// has to place, and a sink is not in a position to judge one.
     std::size_t frameEvery = 0;
-    /// Fence regions, for the frames only. The legalizer is not constrained by
-    /// them -- it only draws them, so a frame of the legalizer's work shows the
-    /// regions the result has to end up inside.
 };
 
 struct LegalizeResult {

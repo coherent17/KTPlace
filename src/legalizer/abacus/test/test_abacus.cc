@@ -15,6 +15,7 @@
 #include "datamodel/kt_dm.h"
 #include "legalizer/abacus/abacus_dm.h"
 #include "legalizer/abacus/abacus_legalizer.h"
+#include "legalizer/multirow/multirow_dm.h"
 #include "util/kt_log.h"
 
 #include <boost/test/included/unit_test.hpp>
@@ -135,6 +136,37 @@ BOOST_AUTO_TEST_CASE(an_unfenced_design_is_legalized_as_before) {
     BOOST_TEST(res.unplaced == 0u);
     BOOST_TEST(res.overlappingPairs == 0u);
     (void)cells;
+}
+
+BOOST_AUTO_TEST_CASE(frame_cadence_is_abacus_own_option) {
+    const auto framesOffered = [] {
+        ktDM db;
+        addRows(db);
+        (void)addCells(db, "c", 30, 30.0, 30.0);
+        abacus::abacusDM dm = abacus::buildAbacusDM(db);
+        std::size_t frames = 0;
+        dm.setFrameHook([&frames](const std::vector<float> &, const std::vector<float> &,
+                                  const abacus::FrameInfo &) {
+            ++frames;
+        });
+        (void)dm.run(dm.params());
+        return frames;
+    };
+    // By default only the input and the legal placement.
+    BOOST_TEST(framesOffered() == 2u);
+    OptionDb::instance().set("abacus", "frame_every", OptionValue{10});
+    // Plus one every ten of the thirty cells placed.
+    BOOST_TEST(framesOffered() == 5u);
+    OptionDb::instance().clear();
+}
+
+BOOST_AUTO_TEST_CASE(the_multirow_pass_takes_its_cadence_from_its_own_option) {
+    ktDM db;
+    addRows(db);
+    BOOST_TEST(multirow::buildMultiRowDM(db).params().frameEvery == 20000u);
+    OptionDb::instance().set("multirow", "frame_every", OptionValue{500});
+    BOOST_TEST(multirow::buildMultiRowDM(db).params().frameEvery == 500u);
+    OptionDb::instance().clear();
 }
 
 BOOST_AUTO_TEST_SUITE_END()

@@ -191,13 +191,12 @@ void FlowMgr::Impl::runPlacement(const std::string &algorithm) {
             ktlog.echo("SimPL: fence enforcement disabled by 'add_option simpl fences 0'");
         }
 
-        // How often SimPL takes a snapshot is a question about the pictures, so
-        // the answer comes from the plot settings, not from SimPL's options.
+        // How often SimPL offers a snapshot is SimPL's own option. One default is
+        // the flow's: the warm-up CG iterates are only worth their cost as frames
+        // of the GIF, so they are off unless the run animates. Setting
+        // `simpl cg_every_init` overrides this, because SimPL applies its options
+        // over the parameters it is given.
         simpl::SimplParams params = simplDB.params();
-        params.traceEvery = plot.traceEvery;
-        params.cgEvery = plot.cgFrameEvery;
-        params.densityMaps = plot.densityMaps;
-        // The warm-up CG iterates are only worth their cost as frames of the GIF.
         if (!Visualizer::instance().animating()) {
             params.cgEveryInit = 0;
         }
@@ -239,11 +238,10 @@ void FlowMgr::Impl::legalizeDesign() {
     if (multiRowCells() > 0) {
         ktlog.echo("Running multi-row legalization ({} cell(s) taller than a row)...",
                    multiRowCells());
-        // The pass's own cadence; the sink handles the rest.
-        MultiRowLegalizeParams params;
-        params.frameEvery = plot.legalFrameEvery;
-        // Build this pass's own database, run it there, commit the answer.
+        // Build this pass's own database, run it there, commit the answer. The
+        // pass assembles its own parameters, cadence included, from its options.
         multirow::multirowDM multiDB = multirow::buildMultiRowDM(*db);
+        const MultiRowLegalizeParams params = multiDB.params();
         if (Visualizer::instance().enabled()) {
             Visualizer::instance().beginStage({"legalize_multi", "", 0});
             multiDB.setFrameHook(drawFrames<multirow::FrameInfo>(*db, multiDB.design().die));

@@ -142,6 +142,35 @@ bool inFence(double x, double y) {
     return x >= kFx0 && x <= kFx1 && y >= kFy0 && y <= kFy1;
 }
 
+/// What SimPL offered its host over one run, with every hook installed.
+struct Offered {
+    std::size_t lss = 0;
+    std::size_t density = 0;
+    std::size_t bounds = 0;
+};
+
+Offered offered() {
+    ktDM db;
+    (void)buildDesign(db, /*withFence=*/false);
+    simpl::simplDM dm = simpl::buildSimplDM(db);
+    Offered n;
+    dm.setFrameHook(
+        [&n](const std::vector<float> &, const std::vector<float> &, const simpl::FrameInfo &info) {
+            n.lss += info.series == "LSS" ? 1u : 0u;
+        });
+    dm.setDensityHook([&n](const simpl::DensityInfo &) {
+        ++n.density;
+    });
+    dm.setBoundsHook([&n](const std::vector<simpl::BoundsPoint> &curve) {
+        n.bounds = curve.size();
+    });
+    simplPlacer placer(dm.design());
+    SimplParams params;
+    params.maxIters = 30;
+    (void)placer.place(params, /*useFences=*/false);
+    return n;
+}
+
 }  // namespace
 
 BOOST_AUTO_TEST_SUITE(ktplace_simpl)
@@ -231,6 +260,26 @@ BOOST_AUTO_TEST_CASE(fences_can_still_be_turned_off_to_measure_their_cost) {
         outside += inFence(x, y) ? 0u : 1u;
     }
     BOOST_TEST(outside > 0u);
+}
+
+BOOST_AUTO_TEST_CASE(snapshot_cadence_is_simpls_own_option) {
+    const Offered byDefault = offered();
+    BOOST_TEST(byDefault.lss > 0u);
+    BOOST_TEST(byDefault.density > 0u);
+    BOOST_TEST(byDefault.bounds > 0u);
+    {
+        const ScopedOption off("simpl", "trace_every", OptionValue{0});
+        const Offered n = offered();
+        BOOST_TEST(n.lss == 0u);
+        // The bounds are a record of the solve, not a snapshot cadence.
+        BOOST_TEST(n.bounds == byDefault.bounds);
+    }
+    {
+        const ScopedOption off("simpl", "density_maps", OptionValue{0});
+        const Offered n = offered();
+        BOOST_TEST(n.density == 0u);
+        BOOST_TEST(n.lss == byDefault.lss);
+    }
 }
 
 BOOST_AUTO_TEST_SUITE_END()

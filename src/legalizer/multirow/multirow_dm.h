@@ -10,6 +10,7 @@
 #include "datamodel/kt_solutionMgr.h"
 #include "legalizer/multirow/multirow_design.h"
 #include "legalizer/multirow/multirow_legalizer.h"
+#include "legalizer/multirow/multirow_options.h"
 
 #include <string>
 
@@ -23,6 +24,13 @@ class multirowDM {
 public:
     /// Takes ownership of the design the adaptor built.
     explicit multirowDM(Design design);
+
+    // The pass's options, read from the run's option store, and the parameters
+    // they configure, assembled here so the flow has nothing to collect.
+    [[nodiscard]] MultirowOptions options() const;
+    [[nodiscard]] MultiRowLegalizeParams params() const noexcept {
+        return par;
+    }
 
     [[nodiscard]] const Design &design() const noexcept {
         return d;
@@ -41,8 +49,11 @@ public:
     /// outside this pass can act on them.
     multiRowSolution run(const MultiRowLegalizeParams &params);
 
+    friend multirowDM buildMultiRowDM(const ktDM &db);
+
 private:
     Design d;
+    MultiRowLegalizeParams par;
 };
 
 /// ktDM -> multirow::multirowDM.

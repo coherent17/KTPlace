@@ -2540,6 +2540,19 @@ SimplResult simplPlacer::Impl::run(const SimplParams &P, bool useFences) {
     if (const auto off = options.setBool("no_lal"); off) {
         par_.lookAhead = !*off;
     }
+    // Snapshot cadence. Zero is a real value here: it turns that kind of frame off.
+    if (const auto every = options.setInt("trace_every"); every && *every >= 0) {
+        par_.traceEvery = static_cast<std::size_t>(*every);
+    }
+    if (const auto every = options.setInt("cg_every"); every && *every >= 0) {
+        par_.cgEvery = static_cast<std::size_t>(*every);
+    }
+    if (const auto every = options.setInt("cg_every_init"); every && *every >= 0) {
+        par_.cgEveryInit = static_cast<std::size_t>(*every);
+    }
+    if (const auto on = options.setBool("density_maps"); on) {
+        par_.densityMaps = *on;
+    }
     g_ = std::clamp(par_.densityLimit, 0.05, 1.0);
 
     // Drawing is on exactly when the host installed a sink. With no sink the run

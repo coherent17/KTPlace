@@ -85,7 +85,9 @@ multirowDM buildMultiRowDM(const ktDM &db) {
 
     // No frame hook: what a run draws is the flow's to decide, so it installs
     // one on the result.
-    return multirowDM(std::move(design));
+    multirowDM result(std::move(design));
+    result.par.frameEvery = result.options().frameEvery;
+    return result;
 }
 
 namespace {
@@ -115,7 +117,12 @@ void reportRun(const MultiRowLegalizeResult &res) {
 
 multirowDM::multirowDM(Design design) : d(std::move(design)) {}
 
+MultirowOptions multirowDM::options() const {
+    return MultirowOptions::load();
+}
+
 multiRowSolution multirowDM::run(const MultiRowLegalizeParams &params) {
+    options().report();
     ScopedTimer timer("legalize");
 
     MultiRowLegalizer legalizer(d);

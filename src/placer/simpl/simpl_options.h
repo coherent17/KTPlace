@@ -68,6 +68,19 @@ struct SimplOptions {
     // "tight", "room" or empty for the standard divisor. See the paper's Figure 5.
     std::string stripeScale = "";
 
+    // How often the solver offers a snapshot, which is SimPL's to say because it
+    // knows how long its loops are. Drawing them is the host's business, and with
+    // no plots nothing is built whatever these say.
+    //   trace_every    bounds every N global iterations (0 = none)
+    //   cg_every       every N CG iterations inside a global solve (0 = none)
+    //   cg_every_init  the same inside the warm-up solves; when not set, the flow
+    //                  turns these off unless the run is animating
+    //   density_maps   a bin-density map beside every placement frame
+    std::size_t traceEvery = 1;
+    std::size_t cgEvery = 0;
+    std::size_t cgEveryInit = 1;
+    bool densityMaps = true;
+
     // Reads every option, and records each one's value, default and origin for
     // the report. Call once, before the solver runs.
     [[nodiscard]] static SimplOptions load();

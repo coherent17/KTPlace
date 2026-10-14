@@ -28,6 +28,10 @@ const Option<double> kAlphaBase{"simpl", "alpha_base", 0.01};
 const Option<double> kAlphaDecay{"simpl", "alpha_decay", 0.0};
 const Option<double> kAlphaDecayBelow{"simpl", "alpha_decay_below", 0.0};
 const Option<std::string> kStripeScale{"simpl", "stripe_scale", ""};
+const Option<std::size_t> kTraceEvery{"simpl", "trace_every", 1};
+const Option<std::size_t> kCgEvery{"simpl", "cg_every", 0};
+const Option<std::size_t> kCgEveryInit{"simpl", "cg_every_init", 1};
+const Option<bool> kDensityMaps{"simpl", "density_maps", true};
 
 }  // namespace
 
@@ -51,6 +55,10 @@ SimplOptions SimplOptions::load() {
     out.alphaDecay = kAlphaDecay.value();
     out.alphaDecayBelow = kAlphaDecayBelow.value();
     out.stripeScale = kStripeScale.value();
+    out.traceEvery = kTraceEvery.value();
+    out.cgEvery = kCgEvery.value();
+    out.cgEveryInit = kCgEveryInit.value();
+    out.densityMaps = kDensityMaps.value();
 
     // What the script actually set, which is what the placer applies.
     if (const auto configured = OptionDb::instance().optionsFor("simpl")) {
@@ -76,7 +84,11 @@ SimplOptions SimplOptions::load() {
                 resolve(kAlphaBase),
                 resolve(kAlphaDecay),
                 resolve(kAlphaDecayBelow),
-                resolve(kStripeScale)};
+                resolve(kStripeScale),
+                resolve(kTraceEvery),
+                resolve(kCgEvery),
+                resolve(kCgEveryInit),
+                resolve(kDensityMaps)};
     return out;
 }
 

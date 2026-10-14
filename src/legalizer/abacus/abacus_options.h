@@ -28,6 +28,10 @@ struct AbacusOptions {
     // cluster is smaller than this.
     std::size_t clusterGap = 0;
 
+    // Snapshot every N cells placed, between the input and the legal placement,
+    // which are always offered. Zero offers only those two.
+    std::size_t frameEvery = 0;
+
     [[nodiscard]] static AbacusOptions load();
     void report() const;
 
