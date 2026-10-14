@@ -145,11 +145,12 @@ bool inFence(double x, double y) {
 /// What SimPL offered its host over one run, with every hook installed.
 struct Offered {
     std::size_t lss = 0;
+    std::size_t cgInit = 0;
     std::size_t density = 0;
     std::size_t bounds = 0;
 };
 
-Offered offered() {
+Offered offered(std::size_t cgEveryInit = 1) {
     ktDM db;
     (void)buildDesign(db, /*withFence=*/false);
     simpl::simplDM dm = simpl::buildSimplDM(db);
@@ -157,6 +158,7 @@ Offered offered() {
     dm.setFrameHook(
         [&n](const std::vector<float> &, const std::vector<float> &, const simpl::FrameInfo &info) {
             n.lss += info.series == "LSS" ? 1u : 0u;
+            n.cgInit += info.series.starts_with("cg_init") ? 1u : 0u;
         });
     dm.setDensityHook([&n](const simpl::DensityInfo &) {
         ++n.density;
@@ -167,6 +169,7 @@ Offered offered() {
     simplPlacer placer(dm.design());
     SimplParams params;
     params.maxIters = 30;
+    params.cgEveryInit = cgEveryInit;
     (void)placer.place(params, /*useFences=*/false);
     return n;
 }
@@ -280,6 +283,15 @@ BOOST_AUTO_TEST_CASE(snapshot_cadence_is_simpls_own_option) {
         BOOST_TEST(n.density == 0u);
         BOOST_TEST(n.lss == byDefault.lss);
     }
+}
+
+BOOST_AUTO_TEST_CASE(a_set_warm_up_cadence_overrides_the_one_simpl_was_given) {
+    // The flow hands SimPL cg_every_init = 0 when the run is not animating; a
+    // script that asks for the frames anyway gets them.
+    BOOST_TEST(offered(/*cgEveryInit=*/0).cgInit == 0u);
+    BOOST_TEST(offered(/*cgEveryInit=*/1).cgInit > 0u);
+    const ScopedOption on("simpl", "cg_every_init", OptionValue{1});
+    BOOST_TEST(offered(/*cgEveryInit=*/0).cgInit > 0u);
 }
 
 BOOST_AUTO_TEST_SUITE_END()

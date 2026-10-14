@@ -75,6 +75,19 @@ bool overlapsBox(const ktDM &db, std::size_t id, double x0, double y0, double x1
     return x < x1 - 1e-9 && x + 1.0 > x0 + 1e-9 && y < y1 - 1e-9 && y + kRowHeight > y0 + 1e-9;
 }
 
+/// Sets an option for one scope, so a failed check cannot leak it into the
+/// cases that follow.
+struct ScopedOption {
+    ScopedOption(const std::string &component, const std::string &key, OptionValue value) {
+        OptionDb::instance().set(component, key, std::move(value));
+    }
+    ~ScopedOption() {
+        OptionDb::instance().clear();
+    }
+    ScopedOption(const ScopedOption &) = delete;
+    ScopedOption &operator=(const ScopedOption &) = delete;
+};
+
 }  // namespace
 
 BOOST_AUTO_TEST_SUITE(ktplace_abacus)
@@ -154,19 +167,17 @@ BOOST_AUTO_TEST_CASE(frame_cadence_is_abacus_own_option) {
     };
     // By default only the input and the legal placement.
     BOOST_TEST(framesOffered() == 2u);
-    OptionDb::instance().set("abacus", "frame_every", OptionValue{10});
+    const ScopedOption every("abacus", "frame_every", OptionValue{10});
     // Plus one every ten of the thirty cells placed.
     BOOST_TEST(framesOffered() == 5u);
-    OptionDb::instance().clear();
 }
 
 BOOST_AUTO_TEST_CASE(the_multirow_pass_takes_its_cadence_from_its_own_option) {
     ktDM db;
     addRows(db);
     BOOST_TEST(multirow::buildMultiRowDM(db).params().frameEvery == 20000u);
-    OptionDb::instance().set("multirow", "frame_every", OptionValue{500});
+    const ScopedOption every("multirow", "frame_every", OptionValue{500});
     BOOST_TEST(multirow::buildMultiRowDM(db).params().frameEvery == 500u);
-    OptionDb::instance().clear();
 }
 
 BOOST_AUTO_TEST_SUITE_END()
