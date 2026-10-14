@@ -9,6 +9,7 @@
 #include "tcl/kt_tclShell.h"
 #include "test/kt_testDesign.h"
 #include "util/kt_param.h"
+#include "util/kt_progress.h"
 
 #include <algorithm>
 #include <boost/test/unit_test.hpp>
@@ -325,4 +326,23 @@ BOOST_AUTO_TEST_CASE(a_sourced_script_is_echoed_but_procedure_bodies_are_not) {
     const TclShell::Result r = f.shell.eval("source {" + dir.file("bad.tcl").string() + "}");
     BOOST_TEST(!r.ok);
     BOOST_TEST(r.trace.find("line 2") != std::string::npos);
+}
+
+BOOST_AUTO_TEST_CASE(a_stop_request_fails_the_commands_after_it) {
+    const ScratchDir dir("tcl_stop");
+    writeBookshelfDesign(dir);
+    Fixture f;
+    f.shell.setGlobal("input_dir", designDir(dir).string());
+    Capture err(std::cerr);
+    ok(f.shell, "read_design $ktplace(input_dir)");
+
+    Progress::instance().requestStop();
+    const TclShell::Result r = f.shell.eval("legalize; detail_place");
+    BOOST_TEST(!r.ok);
+    BOOST_TEST(r.text == "legalize: stopped on request");
+    // Tcl itself is not stopped, only the KTPlace commands.
+    BOOST_TEST(ok(f.shell, "expr {2 + 2}") == "4");
+
+    Progress::instance().clearStop();
+    ok(f.shell, "legalize");
 }

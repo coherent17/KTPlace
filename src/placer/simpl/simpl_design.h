@@ -68,6 +68,24 @@ using FrameHook = std::function<void(const std::vector<float> &xs, const std::ve
 using SvgHook = std::function<void(const std::string &series, const std::string &step,
                                    const std::string &body)>;
 
+/// Where an outer iteration has got to, for a host watching the run live.
+struct ProgressInfo {
+    /// "init" for the warm-up solves, "global" for the LSS/LAL iterations.
+    std::string phase;
+    std::size_t iter = 0;
+    std::size_t total = 0;
+    /// The placement reported (the upper bound in the global phase) and the
+    /// lower bound; in the warm-up there is only the one.
+    double hpwl = 0.0;
+    double hpwlLower = 0.0;
+    double overflow = 0.0;
+};
+
+/// Host hook: called once per outer iteration. `xs`/`ys` hold every cell's
+/// position when Design::progressPositions is set, and are empty otherwise.
+using ProgressHook = std::function<void(const std::vector<float> &xs, const std::vector<float> &ys,
+                                        const ProgressInfo &info)>;
+
 /// A whole design as SimPL sees it.
 struct Design {
     Graph graph;
@@ -79,6 +97,12 @@ struct Design {
     /// Installed by the host. SimPL itself never draws.
     FrameHook onFrame;
     SvgHook onSvg;
+    /// Installed by a host that watches the run; null for the command line.
+    ProgressHook onProgress;
+    bool progressPositions = false;
+    /// Asked between outer iterations; true ends the run early with the best
+    /// placement found so far. Null never stops.
+    std::function<bool()> stopRequested;
     /// Where the solver's own artifacts go: the bounds curve it plots against,
     /// which is a record of the solve rather than a picture of a placement. Set
     /// by the host alongside the sink. Empty means the run records nothing.

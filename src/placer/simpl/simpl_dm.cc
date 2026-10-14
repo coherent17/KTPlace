@@ -2,11 +2,13 @@
 
 #include "datamodel/kt_die.h"
 #include "datamodel/kt_dm.h"
+#include "util/kt_progress.h"
 #include "util/kt_reportTable.h"
 #include "util/kt_scopedTimer.h"
 #include "visualization/kt_visualizer.h"
 
 #include <algorithm>
+#include <utility>
 
 namespace ktplace::simpl {
 namespace {
@@ -103,6 +105,34 @@ simplDM buildSimplDM(const ktDM &db, const std::string &plotDir) {
         visualizer.writeSvg(series, step, body);
     };
     design.artifactDir = plotDir;
+
+    // A host watching the run (the GUI) gets one sample per outer iteration,
+    // and can end the run early; the command line installs no observer, so
+    // SimPL never builds the samples there.
+    Progress &progress = Progress::instance();
+    if (progress.active()) {
+        const std::size_t run = progress.beginRun();
+        design.progressPositions = progress.wantsPositions();
+        design.onProgress = [&progress, run](const std::vector<float> &xs,
+                                             const std::vector<float> &ys,
+                                             const simpl::ProgressInfo &info) {
+            ProgressSample sample;
+            sample.run = run;
+            sample.stage = "simpl";
+            sample.phase = info.phase;
+            sample.iter = info.iter;
+            sample.total = info.total;
+            sample.hpwl = info.hpwl;
+            sample.hpwlLower = info.hpwlLower;
+            sample.overflow = info.overflow;
+            sample.x = xs;
+            sample.y = ys;
+            progress.report(std::move(sample));
+        };
+    }
+    design.stopRequested = [&progress] {
+        return progress.stopRequested();
+    };
     return simplDM(std::move(design));
 }
 
@@ -128,6 +158,9 @@ void reportRun(const SimplResult &res) {
     table.addRow({"nets", "", fmt::format("{}", res.nets)});
     table.addRow({"init iterations", "", fmt::format("{}", res.initIters)});
     table.addRow({"global iterations", "", fmt::format("{}", res.globalIters)});
+    if (res.stopped) {
+        table.addRow({"stopped on request", "", "yes"});
+    }
     table.addRow({"fence regions", "", fmt::format("{}", res.fenceRegions)});
     table.addRow({"fence clamps", "", fmt::format("{}", res.fenceClamps)});
     table.addRow({"fence pushes", "", fmt::format("{}", res.fencePushes)});

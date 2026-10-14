@@ -231,6 +231,14 @@ private:
     void writeFrame(const std::string &series, const std::vector<double> &px,
                     const std::vector<double> &py, double hp, double ovf, const std::string &note,
                     std::size_t step, std::size_t total);
+    /// One outer iteration, to the host's progress hook, if it installed one.
+    void reportProgress(const std::string &phase, const std::vector<double> &px,
+                        const std::vector<double> &py, std::size_t iter, std::size_t total,
+                        double hp, double hpLower, double ovf) const;
+    /// Whether the host has asked the run to end now.
+    [[nodiscard]] bool stopRequested() const {
+        return design.stopRequested && design.stopRequested();
+    }
     /// One frame from inside the CG loop: the current iterate of one axis
     /// against the other axis' last value. `tag` identifies the outer context
     /// (e.g. "init3" or "g07"), `dim` is 'x' or 'y'.
@@ -2314,6 +2322,30 @@ void simplPlacer::Impl::writeFrame(const std::string &series, const std::vector<
     ++res_.framesWritten;
 }
 
+void simplPlacer::Impl::reportProgress(const std::string &phase, const std::vector<double> &px,
+                                       const std::vector<double> &py, std::size_t iter,
+                                       std::size_t total, double hp, double hpLower,
+                                       double ovf) const {
+    if (!design.onProgress) {
+        return;
+    }
+    std::vector<float> fx;
+    std::vector<float> fy;
+    if (design.progressPositions) {
+        fx.resize(nv_);
+        fy.resize(nv_);
+        for (std::size_t v = 0; v < nv_; ++v) {
+            fx[v] = static_cast<float>(vx_[v]);
+            fy[v] = static_cast<float>(vy_[v]);
+        }
+        for (std::size_t i = 0; i < numMovable_; ++i) {
+            fx[movVertex_[i]] = static_cast<float>(px[i]);
+            fy[movVertex_[i]] = static_cast<float>(py[i]);
+        }
+    }
+    design.onProgress(fx, fy, ProgressInfo{phase, iter, total, hp, hpLower, ovf});
+}
+
 void simplPlacer::Impl::writeCgFrame(const std::string &tag, std::size_t cgIter, double residX,
                                      double residY) {
     // Both axes are shown at once, after both have moved. Plotting the axis under
@@ -2815,6 +2847,17 @@ SimplResult simplPlacer::Impl::run(const SimplParams &P, bool useFences) {
                         h, bestInitHpwl,
                         bestInitHpwl > 0.0 ? 100.0 * (h - bestInitHpwl) / bestInitHpwl : 0.0,
                         initStale, par_.initPatience);
+            if (design.onProgress) {
+                std::vector<double> occ;
+                reportProgress("init", lower, lowerY, it, par_.initMaxIters, h, h,
+                               binLocal(lower, lowerY, occ));
+            }
+            if (stopRequested()) {
+                // The best warm-up round is the fallback lower bound below, and
+                // the global loop is skipped, so the run ends with that.
+                res_.stopped = true;
+                break;
+            }
             // Only the star model stops early: it is placement-independent, so a
             // round after convergence re-solves the same system. B2B is rebuilt
             // from the moved placement every round, and its later rounds do pay
@@ -2980,7 +3023,8 @@ SimplResult simplPlacer::Impl::run(const SimplParams &P, bool useFences) {
     std::vector<double> bestLower, bestLowerY;
     std::size_t bestIter = 0;
 
-    for (std::size_t it = 0; it < par_.maxIters && !converged; ++it) {
+    // A stop during the warm-up skips the global phase altogether.
+    for (std::size_t it = 0; it < par_.maxIters && !converged && !res_.stopped; ++it) {
         res_.globalIters = it + 1;
 
         // (1) Look-ahead legalization: lower bound -> upper bound.
@@ -3184,6 +3228,15 @@ SimplResult simplPlacer::Impl::run(const SimplParams &P, bool useFences) {
                 writeDensityMap("density_LAL", it, upper, upperY,
                                 "LAL iteration " + std::to_string(it));
             }
+        }
+
+        // After the best-placement bookkeeping above, so a run stopped here
+        // still ships this iteration's upper bound if it is the best one.
+        reportProgress("global", upper, upperY, it, par_.maxIters, upperHpwl, lowerHpwl, upperOvf);
+        if (!converged && stopRequested()) {
+            ktlog.echo("SimPL: stopped on request after global iteration {}", it);
+            res_.stopped = true;
+            break;
         }
 
         if (converged) {

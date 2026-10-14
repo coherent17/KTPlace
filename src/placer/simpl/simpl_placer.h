@@ -389,6 +389,8 @@ struct SimplResult {
     double hpwlFinal = 0.0;
     /// Iteration the returned upper bound came from, 0-based.
     std::size_t bestIter = 0;
+    /// Whether the host asked the run to stop before it converged.
+    bool stopped = false;
     /// Whether look-ahead legalization ran. When false, hpwlFinal IS hpwlLower
     /// and the placement is overlapping.
     bool usedLookAhead = false;

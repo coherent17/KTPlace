@@ -20,11 +20,13 @@
 #include "placer/simpl/simpl_placer.h"
 #include "util/kt_log.h"
 #include "util/kt_param.h"
+#include "util/kt_progress.h"
 #include "util/kt_reportTable.h"
 #include "util/kt_scopedTimer.h"
 #include "visualization/kt_visualizer.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -35,6 +37,15 @@
 #include <vector>
 
 namespace ktplace {
+
+namespace {
+
+double now() {
+    return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch())
+        .count();
+}
+
+}  // namespace
 
 ktSession::ktSession() = default;
 ktSession::~ktSession() = default;
@@ -74,6 +85,7 @@ ktDM &ktSession::requireDesign(const char *stage) const {
 
 void ktSession::readDesign(const std::string &dirPath) {
     ScopedTimer timer("load");
+    const double started = now();
 
     // A missing directory and an unrecognised one are different mistakes, and say
     // different things to whoever has to fix it.
@@ -94,10 +106,31 @@ void ktSession::readDesign(const std::string &dirPath) {
     }
     // A new design is a new run, and gets an animation of its own.
     vizConfigured = false;
+    path_ = dirPath;
+    ++serial_;
+    log_.clear();
+    record("read_design", std::string(reader->formatName()), started);
 }
 
 bool ktSession::hasDesign() const noexcept {
     return db != nullptr;
+}
+
+const std::string &ktSession::designPath() const noexcept {
+    return path_;
+}
+
+std::size_t ktSession::designSerial() const noexcept {
+    return serial_;
+}
+
+const std::vector<ktSession::StageRecord> &ktSession::stageLog() const noexcept {
+    return log_;
+}
+
+void ktSession::record(std::string stage, std::string detail, double started, bool stopped) const {
+    log_.push_back(
+        {std::move(stage), std::move(detail), db ? db->hpwl() : 0.0, now() - started, stopped});
 }
 
 void ktSession::reportDesign() const {
@@ -111,6 +144,7 @@ void ktSession::reportDesign() const {
 void ktSession::globalPlace(const std::string &algorithm) {
     ktDM &d = requireDesign("global_place");
     ScopedTimer timer("place");
+    const double started = now();
 
     ensureVisualizer();
 
@@ -144,6 +178,7 @@ void ktSession::globalPlace(const std::string &algorithm) {
         simpl::simplDM simplDB = simpl::buildSimplDM(d, plot.dir);
         simpl::flowMgr flow(simplDB);
         d.setGPSolution(flow.runGlobalPlacer(params, fencesOn));
+        record("global_place", algorithm, started, Progress::instance().stopRequested());
         return;
 
     } else if (algorithm == "ntuplace1") {
@@ -164,6 +199,7 @@ void ktSession::globalPlace(const std::string &algorithm) {
         }
         const RatioPlaceResult res = placer.place(params);
         reportNtuPlace1(res);
+        record("global_place", algorithm, started);
         return;
 
     } else {
@@ -174,6 +210,7 @@ void ktSession::globalPlace(const std::string &algorithm) {
 void ktSession::legalize() {
     ktDM &d = requireDesign("legalize");
     ensureVisualizer();
+    const double started = now();
 
     // Whatever the placer reserved is released, so the later stages get the whole
     // remaining budget.
@@ -193,6 +230,7 @@ void ktSession::legalize() {
         multirow::multirowDM multiDB = multirow::buildMultiRowDM(d);
         multirow::flowMgr flow(multiDB);
         d.setMultiRowSolution(flow.runLegalizer(params));
+        record("legalize", "multi-row", started);
         return;
     }
 
@@ -206,6 +244,7 @@ void ktSession::legalize() {
     abacus::abacusDM abacusDB = abacus::buildAbacusDM(d);
     abacus::flowMgr flow(abacusDB);
     d.setLegalizationSolution(flow.runLegalizer(lparams));
+    record("legalize", "abacus", started);
 }
 
 std::size_t ktSession::multiRowCells() const {
@@ -238,6 +277,7 @@ std::size_t ktSession::multiRowCells() const {
 void ktSession::detailPlace() {
     ktDM &d = requireDesign("detail_place");
     ensureVisualizer();
+    const double started = now();
 
     // Abacus minimises displacement, not wirelength, so legalization usually
     // costs a little HPWL; detailed placement wins it back.
@@ -250,6 +290,7 @@ void ktSession::detailPlace() {
     fastdp::fastdpDM dpDB = fastdp::buildFastdpDM(d);
     fastdp::flowMgr flow(dpDB);
     d.setDetailedPlaceSolution(flow.runDetailedPlacer(dparams));
+    record("detail_place", "fastdp", started);
 }
 
 void ktSession::renderFinalImage() {
@@ -328,7 +369,14 @@ std::vector<ktDM::Defect> ktSession::reportPlacementCheck(const std::string &sta
     // Timed on its own: it reads the whole placement, changes nothing, and is
     // the phase that goes quadratic if the spatial index degrades.
     const ScopedTimer checkTimer("place-check");
+    const double started = now();
     std::vector<ktDM::Defect> defects = d.verify();
+    std::size_t problems = 0;
+    for (const ktDM::Defect &defect : defects) {
+        problems += defect.count;
+    }
+    record("check_placement",
+           defects.empty() ? std::string("legal") : fmt::format("{} defects", problems), started);
     ktReportTable check(fmt::format("Placement check (independent, {})", stage));
     check.setHeaders({"check", "result"});
     if (defects.empty()) {

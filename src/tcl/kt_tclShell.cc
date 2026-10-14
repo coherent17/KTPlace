@@ -8,6 +8,7 @@
 #include "session/kt_session.h"
 #include "util/kt_log.h"
 #include "util/kt_param.h"
+#include "util/kt_progress.h"
 #include "util/kt_reportTable.h"
 #include "util/kt_scopedTimer.h"
 #include "visualization/kt_plotOptions.h"
@@ -154,6 +155,13 @@ int TclShell::Impl::dispatch(ClientData data, Tcl_Interp *interp, int objc, Tcl_
     // where it was raised; its message is all the caller needs.
     std::string error;
     try {
+        // A stop ends the stage that is running (it returns what it has) and
+        // then the script: every KTPlace command after it fails, so a flow
+        // does not go on to legalize a placement the user asked to abandon.
+        // The host clears the request before its next script.
+        if (Progress::instance().stopRequested()) {
+            throw UsageError(cmd.name + ": stopped on request");
+        }
         if (Tcl_Obj *result = cmd.run(cmd, words)) {
             Tcl_SetObjResult(interp, result);
         } else {

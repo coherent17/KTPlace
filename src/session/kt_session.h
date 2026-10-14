@@ -22,6 +22,21 @@ namespace ktplace {
 
 class ktSession {
 public:
+    /// One stage run on the current design, for a run history.
+    struct StageRecord {
+        /// "read_design", "global_place", "legalize", "detail_place" or
+        /// "check_placement" -- the command's name.
+        std::string stage;
+        /// What ran: the reader's format, the algorithm, the legalizer, or the
+        /// check's verdict ("legal", "3 defects").
+        std::string detail;
+        /// The wirelength once the stage was done.
+        double hpwl = 0.0;
+        double seconds = 0.0;
+        /// The stage was asked to stop and returned early.
+        bool stopped = false;
+    };
+
     ktSession();
     ~ktSession();
 
@@ -45,6 +60,14 @@ public:
     /// reader recognises it, or the reader fails.
     void readDesign(const std::string &dir);
     [[nodiscard]] bool hasDesign() const noexcept;
+    /// The directory the design was read from; empty before the first read.
+    [[nodiscard]] const std::string &designPath() const noexcept;
+    /// Counts the designs read so far, so a caller can tell a re-read of the
+    /// same directory from the design it already knew.
+    [[nodiscard]] std::size_t designSerial() const noexcept;
+    /// The stages run on the current design, oldest first, its read included.
+    /// A new readDesign() starts the log over.
+    [[nodiscard]] const std::vector<StageRecord> &stageLog() const noexcept;
 
     /// Log the design summary and its utilisation.
     void reportDesign() const;
@@ -111,9 +134,17 @@ private:
     /// detailed placer add to the same GIF as the placer.
     void ensureVisualizer();
 
+    /// Append to the stage log; `started` is when the stage began.
+    void record(std::string stage, std::string detail, double started, bool stopped = false) const;
+
     std::unique_ptr<ktDM> db;
     PlotOptions plot;
     bool vizConfigured = false;
+    std::string path_;
+    std::size_t serial_ = 0;
+    // Mutable because a check is a stage of the run worth recording, and the
+    // check itself does not change the design.
+    mutable std::vector<StageRecord> log_;
 };
 
 }  // namespace ktplace

@@ -6,6 +6,7 @@
 #define BOOST_TEST_DYN_LINK
 #include "session/kt_session.h"
 #include "test/kt_testDesign.h"
+#include "util/kt_progress.h"
 
 #include <boost/test/unit_test.hpp>
 #include <cmath>
@@ -17,6 +18,7 @@
 #include <sstream>
 #include <string>
 #include <utility>
+#include <vector>
 
 using namespace ktplace;
 using ktplace::testing::countNonEmptyLines;
@@ -278,4 +280,145 @@ BOOST_AUTO_TEST_CASE(session_fails_when_the_output_cannot_be_opened) {
             session.writeDesign(dir.str() + "/no_such_dir/placed.pl");
         },
         "Cannot open output file");
+}
+
+BOOST_AUTO_TEST_CASE(session_logs_each_stage_and_starts_over_on_a_new_read) {
+    const ScratchDir dir("session_stagelog");
+    ktSession session;
+    BOOST_TEST(session.designPath().empty());
+    BOOST_TEST(session.designSerial() == 0U);
+    loadTiny(session, dir);
+    BOOST_TEST(session.designPath() == designDir(dir).string());
+    BOOST_TEST(session.designSerial() == 1U);
+
+    session.globalPlace("simpl");
+    session.legalize();
+    session.reportPlacementCheck("after legalization");
+    session.detailPlace();
+
+    const auto &log = session.stageLog();
+    BOOST_REQUIRE(log.size() == 5U);
+    BOOST_TEST(log[0].stage == "read_design");
+    BOOST_TEST(log[0].detail == "bookshelf");
+    BOOST_TEST(log[1].stage == "global_place");
+    BOOST_TEST(log[1].detail == "simpl");
+    BOOST_TEST(!log[1].stopped);
+    BOOST_TEST(log[2].stage == "legalize");
+    BOOST_TEST(log[2].detail == "abacus");
+    BOOST_TEST(log[3].stage == "check_placement");
+    BOOST_TEST(log[3].detail == "legal");
+    BOOST_TEST(log[4].stage == "detail_place");
+    BOOST_TEST(log[4].hpwl == session.hpwl());
+    for (const ktSession::StageRecord &r : log) {
+        BOOST_TEST(r.seconds >= 0.0);
+    }
+
+    session.readDesign(designDir(dir).string());
+    BOOST_TEST(session.designSerial() == 2U);
+    BOOST_TEST(session.stageLog().size() == 1U);
+}
+
+namespace {
+
+/// Installs a Progress observer for the scope, and removes it again.
+struct ObserveProgress {
+    std::vector<ProgressSample> samples;
+    std::function<void(const ProgressSample &)> also;
+
+    explicit ObserveProgress(bool positions) {
+        Progress::instance().clearStop();
+        Progress::instance().setObserver(
+            [this](ProgressSample &&s) {
+                if (also) {
+                    also(s);
+                }
+                samples.push_back(std::move(s));
+            },
+            positions);
+    }
+    ~ObserveProgress() {
+        Progress::instance().clearObserver();
+        Progress::instance().clearStop();
+    }
+    ObserveProgress(const ObserveProgress &) = delete;
+    ObserveProgress &operator=(const ObserveProgress &) = delete;
+};
+
+}  // namespace
+
+BOOST_AUTO_TEST_CASE(simpl_reports_each_iteration_to_an_observer) {
+    const ScratchDir dir("session_progress");
+    ktSession session;
+    loadTiny(session, dir);
+    ObserveProgress watch(/*positions=*/true);
+    session.globalPlace("simpl");
+
+    BOOST_REQUIRE(!watch.samples.empty());
+    bool sawGlobal = false;
+    for (const ProgressSample &s : watch.samples) {
+        BOOST_TEST(s.stage == "simpl");
+        BOOST_TEST((s.phase == "init" || s.phase == "global"));
+        BOOST_TEST(s.run == watch.samples.front().run);
+        BOOST_TEST(s.iter < s.total);
+        BOOST_TEST(std::isfinite(s.hpwl));
+        BOOST_TEST(s.x.size() == session.cells().size());
+        BOOST_TEST(s.y.size() == session.cells().size());
+        sawGlobal = sawGlobal || s.phase == "global";
+    }
+    BOOST_TEST(sawGlobal);
+
+    // A second run is numbered apart from the first.
+    const std::size_t firstRun = watch.samples.front().run;
+    watch.samples.clear();
+    session.globalPlace("simpl");
+    BOOST_REQUIRE(!watch.samples.empty());
+    BOOST_TEST(watch.samples.front().run > firstRun);
+}
+
+BOOST_AUTO_TEST_CASE(simpl_leaves_positions_out_unless_asked) {
+    const ScratchDir dir("session_progress_lean");
+    ktSession session;
+    loadTiny(session, dir);
+    ObserveProgress watch(/*positions=*/false);
+    session.globalPlace("simpl");
+    BOOST_REQUIRE(!watch.samples.empty());
+    BOOST_TEST(watch.samples.front().x.empty());
+}
+
+BOOST_AUTO_TEST_CASE(simpl_stops_on_request_and_keeps_a_placement) {
+    const ScratchDir dir("session_stop");
+    ktSession session;
+    loadTiny(session, dir);
+    ObserveProgress watch(/*positions=*/false);
+    // Ask for the stop from inside the first global iteration's report, as a
+    // Stop button would between two iterations. The run then ships that
+    // iteration's look-ahead-legalized placement, which lies inside the die.
+    watch.also = [](const ProgressSample &s) {
+        if (s.phase == "global") {
+            Progress::instance().requestStop();
+        }
+    };
+    session.globalPlace("simpl");
+
+    BOOST_REQUIRE(!watch.samples.empty());
+    BOOST_TEST(watch.samples.back().phase == "global");
+    BOOST_TEST(watch.samples.back().iter == 0U);
+    BOOST_TEST(session.stageLog().back().stopped);
+    BOOST_TEST(std::isfinite(session.hpwl()));
+    BOOST_TEST(insideDie(session));
+}
+
+BOOST_AUTO_TEST_CASE(simpl_stopped_in_the_warm_up_skips_the_global_phase) {
+    const ScratchDir dir("session_stop_init");
+    ktSession session;
+    loadTiny(session, dir);
+    ObserveProgress watch(/*positions=*/false);
+    watch.also = [](const ProgressSample &) {
+        Progress::instance().requestStop();
+    };
+    session.globalPlace("simpl");
+    BOOST_REQUIRE(watch.samples.size() == 1U);
+    BOOST_TEST(watch.samples.front().phase == "init");
+    BOOST_TEST(session.stageLog().back().stopped);
+    BOOST_TEST(std::isfinite(session.hpwl()));
 }
