@@ -1,12 +1,16 @@
 // @file kt_gui.cc
 // ktplace-gui: the KTPlace main window.
 //
-//   ktplace-gui [input_dir] [-w work_dir] [-t script.tcl] [-v] [Qt options]
+//   ktplace-gui [input_dir] [-w work_dir] [-t script.tcl] [-b bench_root] [-v]
+//               [Qt options]
 //
 // The same arguments as ktplace, all optional: a design given here is read on
-// start-up, a script is sourced after it, and -w is where the log and the
-// pictures go. Qt's own options (-platform vnc, -style, ...) are taken first.
-// Unlike ktplace, nothing runs unless asked for; the window waits for commands.
+// start-up, a script is sourced after it, and -w is where the log, the
+// pictures and the run history (runs.json) go. -b is the directory the
+// Benchmarks panel lists designs from; without it, $KTPLACE_BENCH_ROOT, or
+// ./benchmark when there is one. Qt's own options (-platform xcb, -style, ...)
+// are taken first. Unlike ktplace, nothing runs unless asked for; the window
+// waits for commands.
 
 #include "kt_option.h"
 
@@ -22,6 +26,7 @@
 #include <filesystem>
 #include <string>
 #include <string_view>
+#include <system_error>
 
 using namespace ktplace;
 
@@ -31,6 +36,7 @@ struct GuiOptions {
     std::string inputPath;
     std::string script;
     std::string workDir = std::filesystem::current_path().string();
+    std::string benchRoot;
     bool verbose = false;
 };
 
@@ -49,6 +55,8 @@ GuiOptions parseArguments(int argc, char *argv[]) {
             options.workDir = value();
         } else if (arg == "-t" || arg == "--tcl") {
             options.script = value();
+        } else if (arg == "-b" || arg == "--bench-root") {
+            options.benchRoot = value();
         } else if (arg == "-v" || arg == "--verbose") {
             options.verbose = true;
         } else if (!arg.empty() && arg.front() != '-' && options.inputPath.empty()) {
@@ -58,6 +66,13 @@ GuiOptions parseArguments(int argc, char *argv[]) {
         }
     }
     std::filesystem::create_directories(options.workDir);
+    if (options.benchRoot.empty()) {
+        if (const char *env = std::getenv("KTPLACE_BENCH_ROOT"); env != nullptr && *env != '\0') {
+            options.benchRoot = env;
+        } else if (std::error_code ec; std::filesystem::is_directory("benchmark", ec)) {
+            options.benchRoot = std::filesystem::absolute("benchmark").string();
+        }
+    }
     return options;
 }
 
@@ -74,7 +89,8 @@ int main(int argc, char *argv[]) {
     try {
         options = parseArguments(argc, argv);
     } catch (const std::exception &e) {
-        ktlog.echo("usage: ktplace-gui [input_dir] [-w work_dir] [-t script.tcl] [-v]");
+        ktlog.echo(
+            "usage: ktplace-gui [input_dir] [-w work_dir] [-t script.tcl] [-b bench_root] [-v]");
         ktlog.warning("{}", e.what());
         ktlog.shutdown();
         return EXIT_FAILURE;
@@ -94,6 +110,8 @@ int main(int argc, char *argv[]) {
         engine.setGlobal("algorithm", QStringLiteral("simpl"));
 
         MainWindow window(engine);
+        window.setHistoryFile(QString::fromStdString((work / "runs.json").string()));
+        window.setBenchmarkRoot(QString::fromStdString(options.benchRoot));
         // A VNC or frame-buffer display has no window manager to size the
         // window, so it takes the whole screen there.
         const QString platform = QGuiApplication::platformName();

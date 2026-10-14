@@ -16,8 +16,16 @@
 // placement replaces the picture (without moving the view), the Metrics panel
 // plots its wirelength and overflow, and Stop (the toolbar, or Ctrl+.) ends the
 // stage with the best placement it has and abandons the rest of the script.
+//
+// Every design read is a run in the history (the Runs tab), with the stages run
+// on it; after each script the window asks the engine for the session's stage
+// log and updates it. The Benchmarks panel on the left lists the designs under
+// the benchmark root with the best result each algorithm has reached, and opens
+// or runs any of them.
 
 #pragma once
+
+#include "gui/kt_runHistory.h"
 
 #include <QKeySequence>
 #include <QList>
@@ -36,11 +44,13 @@ namespace ktplace {
 
 struct LayoutSnapshot;
 struct ProgressSample;
+class BenchmarkPanel;
 class Engine;
 class LayoutView;
 class LogView;
 class MetricsView;
 class PropertyPanel;
+class RunsPanel;
 class TclConsole;
 
 class MainWindow : public QMainWindow {
@@ -62,6 +72,30 @@ public:
     [[nodiscard]] MetricsView *metrics() const {
         return metrics_;
     }
+    [[nodiscard]] RunsPanel *runs() const {
+        return runs_;
+    }
+    [[nodiscard]] BenchmarkPanel *benchmarks() const {
+        return benchmarks_;
+    }
+    [[nodiscard]] const RunHistory &history() const {
+        return history_;
+    }
+
+    /// Keep the run history in @p file (loaded now, saved after each change);
+    /// until this is called it is kept in memory only.
+    void setHistoryFile(const QString &file);
+    /// List the designs under @p root in the Benchmarks panel.
+    void setBenchmarkRoot(const QString &root);
+
+    /// The whole flow after a read, as one script: what Run Full Flow runs.
+    [[nodiscard]] static QString flowScript(const QString &algorithm);
+    /// Read @p design and run the flow on it with @p algorithm, in the console.
+    void runFlowOn(const QString &design, const QString &algorithm);
+    /// Bring the run history up to date with the session's stage log. Runs
+    /// after every script; public so tests can wait on it.
+    void recordRun();
+
     /// Ends the running stage; enabled only while the engine is busy.
     [[nodiscard]] QAction *stopAction() const {
         return stop_;
@@ -101,6 +135,11 @@ private:
     QDockWidget *consoleDock_ = nullptr;
     MetricsView *metrics_ = nullptr;
     QDockWidget *metricsDock_ = nullptr;
+    RunHistory history_;
+    RunsPanel *runs_ = nullptr;
+    QDockWidget *runsDock_ = nullptr;
+    BenchmarkPanel *benchmarks_ = nullptr;
+    QDockWidget *benchmarksDock_ = nullptr;
     QLabel *status_ = nullptr;
     QList<QAction *> engineActions_;
     QAction *stop_ = nullptr;

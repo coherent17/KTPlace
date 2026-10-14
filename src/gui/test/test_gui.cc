@@ -4,6 +4,7 @@
 
 #define BOOST_TEST_MODULE ktplace_gui
 #define BOOST_TEST_DYN_LINK
+#include "gui/kt_benchmarkPanel.h"
 #include "gui/kt_engine.h"
 #include "gui/kt_layoutSnapshot.h"
 #include "gui/kt_layoutView.h"
@@ -11,6 +12,8 @@
 #include "gui/kt_mainWindow.h"
 #include "gui/kt_metricsView.h"
 #include "gui/kt_propertyPanel.h"
+#include "gui/kt_runHistory.h"
+#include "gui/kt_runsPanel.h"
 #include "gui/kt_tclConsole.h"
 #include "session/kt_session.h"
 #include "test/kt_testDesign.h"
@@ -25,6 +28,8 @@
 #include <QTreeWidget>
 #include <boost/test/unit_test.hpp>
 #include <cstdlib>
+#include <filesystem>
+#include <fstream>
 #include <functional>
 #include <iostream>
 #include <optional>
@@ -635,4 +640,198 @@ BOOST_AUTO_TEST_CASE(the_window_follows_a_run_and_offers_stop_while_busy) {
     BOOST_TEST(!window.stopAction()->isEnabled());
     BOOST_TEST(!window.metrics()->points().empty());
     BOOST_TEST(window.metrics()->title().startsWith("simpl run"));
+}
+
+// ------------------------------------------------------------ run history
+
+namespace {
+
+std::vector<RunStage> flowStages(const QString &algorithm, double finalHpwl, bool legal = true) {
+    return {{"read_design", "bookshelf", 900.0, 0.5, false},
+            {"global_place", algorithm, 300.0, 2.0, false},
+            {"legalize", "abacus", 320.0, 0.25, false},
+            {"check_placement", legal ? "legal" : "2 defects", 320.0, 0.0, false},
+            {"detail_place", "fastdp", finalHpwl, 0.25, false}};
+}
+
+}  // namespace
+
+BOOST_AUTO_TEST_CASE(a_run_record_summarises_its_stages) {
+    RunRecord r;
+    r.stages = {{"read_design", "bookshelf", 900.0, 0.5, false}};
+    BOOST_TEST(r.algorithm().isEmpty());
+    BOOST_TEST(!r.globalHpwl().has_value());
+    BOOST_TEST(!r.finalHpwl().has_value());  // nothing beyond the read
+    BOOST_TEST(r.verdict().isEmpty());
+    BOOST_TEST(!r.complete());
+
+    r.stages = flowStages("ntuplace1", 310.0);
+    r.stages[1].stopped = true;
+    BOOST_TEST(r.algorithm().toStdString() == "ntuplace1");
+    BOOST_TEST(*r.globalHpwl() == 300.0);
+    BOOST_TEST(*r.finalHpwl() == 310.0);
+    BOOST_TEST(r.verdict().toStdString() == "legal");
+    BOOST_TEST(r.complete());
+    BOOST_TEST(r.stopped());
+    BOOST_TEST(r.seconds() == 3.0);
+}
+
+BOOST_AUTO_TEST_CASE(the_history_updates_ranks_and_survives_a_restart) {
+    const ScratchDir dir("gui_history");
+    const QString file = QString::fromStdString(dir.file("runs.json").string());
+    const QString designA = QString::fromStdString(dir.file("a").string());
+    const QString designB = QString::fromStdString(dir.file("b").string());
+    {
+        RunHistory h(file);
+        BOOST_TEST(h.load());  // no file yet: an empty history
+        BOOST_TEST(h.runs().empty());
+        BOOST_TEST(h.update(1, designA, flowStages("simpl", 310.0)));
+        BOOST_TEST(!h.update(1, designA, flowStages("simpl", 310.0)));  // unchanged
+        BOOST_TEST(h.update(1, designA, flowStages("simpl", 305.0)));   // the same run, moved on
+        BOOST_TEST(h.runs().size() == 1U);
+        BOOST_TEST(h.update(2, designA, flowStages("simpl", 290.0, false)));
+        BOOST_TEST(h.update(3, designA, flowStages("ntuplace1", 400.0)));
+        // Incomplete runs do not rank.
+        BOOST_TEST(h.update(4, designA, {{"read_design", "bookshelf", 1.0, 0.0, false}}));
+        BOOST_TEST(h.update(5, designB, flowStages("simpl", 50.0)));
+        BOOST_TEST(h.runs().size() == 5U);
+
+        const auto best = h.best(designA, "simpl");
+        BOOST_REQUIRE(best.has_value());
+        BOOST_TEST(best->hpwl == 290.0);
+        BOOST_TEST(best->verdict.toStdString() == "2 defects");
+        // The same directory spelt differently is the same design.
+        BOOST_TEST(h.best(designA + "/../a", "ntuplace1")->hpwl == 400.0);
+        BOOST_TEST(!h.best(designB, "ntuplace1").has_value());
+
+        BOOST_TEST(h.rename(h.runs()[0].id, "first"));
+        BOOST_TEST(h.remove(h.runs()[3].id));
+        BOOST_TEST(!h.remove("no-such-run"));
+        BOOST_TEST(h.save());
+
+        const QStringList tsv = h.toTsv().split('\n', Qt::SkipEmptyParts);
+        BOOST_TEST(tsv.size() == 5);  // the header and four runs
+        BOOST_TEST(tsv[1].contains("\tfirst\tsimpl\t300\t305\tlegal\t"));
+    }
+    RunHistory again(file);
+    BOOST_REQUIRE(again.load());
+    BOOST_REQUIRE(again.runs().size() == 4U);
+    BOOST_TEST(again.runs()[0].label.toStdString() == "first");
+    BOOST_TEST(again.runs()[0].stages.size() == 5U);
+    BOOST_TEST(again.runs()[0].started.isValid());
+    // A new session's reads are new runs, not updates of the old ones.
+    BOOST_TEST(again.update(1, designA, flowStages("simpl", 1.0)));
+    BOOST_TEST(again.runs().size() == 5U);
+    BOOST_TEST(again.best(designA, "simpl")->hpwl == 1.0);
+
+    // A file that is not a history is reported, not trusted.
+    std::ofstream(dir.file("bad.json")) << "not json";
+    RunHistory bad(QString::fromStdString(dir.file("bad.json").string()));
+    BOOST_TEST(!bad.load());
+}
+
+BOOST_AUTO_TEST_CASE(the_runs_panel_lists_newest_first_and_edits_the_history) {
+    RunHistory h;
+    h.update(1, "/designs/one", flowStages("simpl", 310.0));
+    h.update(2, "/designs/two", flowStages("ntuplace1", 410.0, false));
+    RunsPanel panel(h);
+    BOOST_REQUIRE(panel.tree()->topLevelItemCount() == 2);
+    const QTreeWidgetItem *newest = panel.tree()->topLevelItem(0);
+    BOOST_TEST(newest->text(1).toStdString() == "two");
+    BOOST_TEST(newest->text(2).toStdString() == "ntuplace1");
+    BOOST_TEST(newest->text(5).toStdString() == "2 defects");
+    BOOST_TEST(newest->childCount() == 5);
+
+    bool changed = false;
+    panel.onChanged = [&] {
+        changed = true;
+    };
+    BOOST_TEST(panel.renameRun(h.runs()[0].id, "baseline"));
+    BOOST_TEST(changed);
+    BOOST_TEST(panel.tree()->topLevelItem(1)->text(7).toStdString() == "baseline");
+    BOOST_TEST(panel.deleteRun(h.runs()[1].id));
+    BOOST_TEST(panel.tree()->topLevelItemCount() == 1);
+}
+
+BOOST_AUTO_TEST_CASE(the_benchmark_panel_finds_designs_and_shows_their_best_results) {
+    const ScratchDir root("gui_bench");
+    // Two designs, one nested a level deeper, and a directory that is not one.
+    const ScratchDir *dirs[] = {&root};
+    static_cast<void>(dirs);
+    std::filesystem::create_directories(root.file("suiteA/tiny"));
+    std::filesystem::create_directories(root.file("suiteB/deeper/tiny2"));
+    std::filesystem::create_directories(root.file("empty"));
+    std::ofstream(root.file("suiteA/tiny/tiny.nodes")) << "UCLA nodes 1.0\n";
+    std::ofstream(root.file("suiteB/deeper/tiny2/tiny2.def")) << "VERSION 5.8 ;\n";
+    std::ofstream(root.file("baseline.tsv")) << "# a comment\n"
+                                             << "design\talgorithm\tstatus\thpwl\tverdict\n"
+                                             << "suiteA/tiny\tsimpl\tdone\t123.5\tPASS\n"
+                                             << "suiteA/tiny\tntuplace1\tfailed\t1\tFAIL\n";
+
+    const QString rootPath = QString::fromStdString(root.str());
+    BOOST_TEST(BenchmarkPanel::scan(rootPath).join(",").toStdString() ==
+               "suiteA/tiny,suiteB/deeper/tiny2");
+    BOOST_TEST(BenchmarkPanel::scan(rootPath + "/no_such_dir").isEmpty());
+
+    RunHistory h;
+    const QString tiny = QString::fromStdString(root.file("suiteA/tiny").string());
+    h.update(1, tiny, flowStages("simpl", 310.0));
+    h.update(2, tiny, flowStages("ntuplace1", 290.0));
+    BenchmarkPanel panel(h);
+    BOOST_TEST(panel.designs().isEmpty());
+    panel.setRoot(rootPath);
+    BOOST_REQUIRE(panel.tree()->topLevelItemCount() == 2);
+    const QTreeWidgetItem *row = panel.tree()->findItems("suiteA/tiny", Qt::MatchExactly)[0];
+    BOOST_TEST(row->text(1).toStdString() == QString::number(310.0, 'e', 4).toStdString());
+    BOOST_TEST(row->text(2).toStdString() == QString::number(123.5, 'e', 4).toStdString());
+    BOOST_TEST(row->text(3).toStdString() == QString::number(290.0, 'e', 4).toStdString());
+    BOOST_TEST(row->text(4).isEmpty());  // a failed baseline row is no baseline
+    BOOST_TEST(row->font(3).bold());     // the better of the two
+    BOOST_TEST(!row->font(1).bold());
+
+    QString opened;
+    panel.onOpen = [&](const QString &path) {
+        opened = path;
+    };
+    Q_EMIT panel.tree()->itemDoubleClicked(const_cast<QTreeWidgetItem *>(row), 0);
+    BOOST_TEST(opened == tiny);
+}
+
+BOOST_AUTO_TEST_CASE(the_window_records_each_run_in_the_history) {
+    const ScratchDir dir("gui_window_history");
+    writeBookshelfDesign(dir);
+    const QString file = QString::fromStdString(dir.file("runs.json").string());
+    const QString design = QString::fromStdString(designDir(dir).string());
+    QuietStderr quiet;
+    {
+        Engine engine;
+        MainWindow window(engine);
+        window.setHistoryFile(file);
+        window.setBenchmarkRoot(QString::fromStdString(dir.str()));
+        BOOST_TEST(window.benchmarks()->designs().join(",").toStdString() == "tiny");
+
+        window.runFlowOn(design, "simpl");
+        BOOST_REQUIRE(waitFor([&] {
+            return !window.history().runs().empty() && window.history().runs().back().complete();
+        }));
+        const RunRecord &r = window.history().runs().back();
+        BOOST_TEST(r.design == design);
+        BOOST_TEST(r.algorithm().toStdString() == "simpl");
+        BOOST_TEST(r.verdict().toStdString() == "legal");
+        BOOST_TEST(window.runs()->tree()->topLevelItemCount() == 1);
+        BOOST_TEST(!window.benchmarks()->tree()->topLevelItem(0)->text(1).isEmpty());
+
+        // A command on the same design moves the same run on.
+        window.console()->run("global_place -algo ntuplace1");
+        BOOST_REQUIRE(waitFor([&] {
+            return window.history().runs().back().algorithm() == "ntuplace1";
+        }));
+        BOOST_TEST(window.history().runs().size() == 1U);
+    }
+    // Saved as it went, so a new window starts with it.
+    Engine engine;
+    MainWindow window(engine);
+    window.setHistoryFile(file);
+    BOOST_TEST(window.history().runs().size() == 1U);
+    BOOST_TEST(window.runs()->tree()->topLevelItemCount() == 1);
 }

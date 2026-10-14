@@ -5,12 +5,14 @@
 
 #include "kt_option.h"
 
+#include "gui/kt_benchmarkPanel.h"
 #include "gui/kt_engine.h"
 #include "gui/kt_layoutSnapshot.h"
 #include "gui/kt_layoutView.h"
 #include "gui/kt_logView.h"
 #include "gui/kt_metricsView.h"
 #include "gui/kt_propertyPanel.h"
+#include "gui/kt_runsPanel.h"
 #include "gui/kt_tclConsole.h"
 #include "session/kt_session.h"
 #include "util/kt_log.h"
@@ -70,9 +72,33 @@ MainWindow::MainWindow(Engine &engine, QWidget *parent) : QMainWindow(parent), e
     metricsDock_->setWidget(metrics_);
     addDockWidget(Qt::BottomDockWidgetArea, logDock_);
     addDockWidget(Qt::BottomDockWidgetArea, consoleDock_);
+    runs_ = new RunsPanel(history_, this);
+    runs_->onOpen = [this](const QString &design) {
+        console_->run("read_design " + tclQuote(design));
+    };
+    runs_->onRerun = [this](const QString &design, const QString &algorithm) {
+        runFlowOn(design, algorithm);
+    };
+    runsDock_ = new QDockWidget(QStringLiteral("Runs"), this);
+    runsDock_->setObjectName(QStringLiteral("runsDock"));
+    runsDock_->setWidget(runs_);
     addDockWidget(Qt::BottomDockWidgetArea, metricsDock_);
+    addDockWidget(Qt::BottomDockWidgetArea, runsDock_);
     tabifyDockWidget(logDock_, consoleDock_);
     tabifyDockWidget(consoleDock_, metricsDock_);
+    tabifyDockWidget(metricsDock_, runsDock_);
+
+    benchmarks_ = new BenchmarkPanel(history_, this);
+    benchmarks_->onOpen = runs_->onOpen;
+    benchmarks_->onRun = runs_->onRerun;
+    runs_->onChanged = [this] {
+        benchmarks_->refreshResults();
+    };
+    benchmarksDock_ = new QDockWidget(QStringLiteral("Benchmarks"), this);
+    benchmarksDock_->setObjectName(QStringLiteral("benchmarksDock"));
+    benchmarksDock_->setWidget(benchmarks_);
+    addDockWidget(Qt::LeftDockWidgetArea, benchmarksDock_);
+    resizeDocks({benchmarksDock_}, {300}, Qt::Horizontal);
     consoleDock_->raise();
     resizeDocks({consoleDock_}, {300}, Qt::Vertical);
 
@@ -168,13 +194,8 @@ void MainWindow::buildMenus() {
     detailPlace_ = engineAction(place, QStringLiteral("&Detail Place"),
                                 QStringLiteral("detail_place"), QKeySequence(Qt::Key_F7));
     place->addSeparator();
-    // The fixed flow's stages, in one script: scripts/flow.tcl without the I/O.
-    runFlow_ =
-        engineAction(place, QStringLiteral("Run &Full Flow"),
-                     QStringLiteral("global_place; legalize; check_placement {after legalization}; "
-                                    "detail_place; check_placement {after detail placement}; "
-                                    "report_hpwl"),
-                     QKeySequence(Qt::Key_F9));
+    runFlow_ = engineAction(place, QStringLiteral("Run &Full Flow"),
+                            flowScript(QStringLiteral("simpl")), QKeySequence(Qt::Key_F9));
     place->addSeparator();
     // Not an engine action: it is the one thing to do while the engine is busy.
     stop_ = place->addAction(QStringLiteral("&Stop"));
@@ -211,6 +232,8 @@ void MainWindow::buildMenus() {
     view->addAction(logDock_->toggleViewAction());
     view->addAction(consoleDock_->toggleViewAction());
     view->addAction(metricsDock_->toggleViewAction());
+    view->addAction(runsDock_->toggleViewAction());
+    view->addAction(benchmarksDock_->toggleViewAction());
     QAction *trace = view->addAction(QStringLiteral("Show &Trace in Log"));
     trace->setCheckable(true);
     connect(trace, &QAction::toggled, this, [this](bool on) {
@@ -226,6 +249,65 @@ void MainWindow::buildMenus() {
             QStringLiteral("KTPlace v%1\nKnow Thyself Placement Engine")
                 .arg(QString::fromUtf8(VERSION.data(), static_cast<qsizetype>(VERSION.size()))));
     });
+}
+
+QString MainWindow::flowScript(const QString &algorithm) {
+    // The fixed flow's stages, in one script: scripts/flow.tcl without the I/O.
+    const QString global = algorithm == QStringLiteral("simpl")
+                               ? QStringLiteral("global_place")
+                               : QStringLiteral("global_place -algo ") + algorithm;
+    return global + QStringLiteral(
+                        "; legalize; check_placement {after legalization}; "
+                        "detail_place; check_placement {after detail placement}; "
+                        "report_hpwl");
+}
+
+void MainWindow::runFlowOn(const QString &design, const QString &algorithm) {
+    console_->run("read_design " + tclQuote(design) + "; " + flowScript(algorithm));
+}
+
+void MainWindow::setHistoryFile(const QString &file) {
+    history_ = RunHistory(file);
+    if (!history_.load()) {
+        ktlog.warning("cannot read the run history {}; starting a new one", file.toStdString());
+    }
+    runs_->refresh();
+    benchmarks_->refreshResults();
+}
+
+void MainWindow::setBenchmarkRoot(const QString &root) {
+    benchmarks_->setRoot(root);
+}
+
+void MainWindow::recordRun() {
+    struct Log {
+        std::size_t serial = 0;
+        QString design;
+        std::vector<RunStage> stages;
+    };
+    auto result = std::make_shared<Log>();
+    engine_.query(
+        [result](const ktSession &session) {
+            result->serial = session.designSerial();
+            result->design = QString::fromStdString(session.designPath());
+            for (const ktSession::StageRecord &r : session.stageLog()) {
+                result->stages.push_back({QString::fromStdString(r.stage),
+                                          QString::fromStdString(r.detail), r.hpwl, r.seconds,
+                                          r.stopped});
+            }
+        },
+        this,
+        [this, result] {
+            if (result->serial == 0 ||
+                !history_.update(result->serial, result->design, std::move(result->stages))) {
+                return;
+            }
+            if (!history_.save()) {
+                ktlog.warning("cannot write the run history {}", history_.file().toStdString());
+            }
+            runs_->refresh();
+            benchmarks_->refreshResults();
+        });
 }
 
 void MainWindow::buildToolBar() {
@@ -341,6 +423,7 @@ void MainWindow::setBusy(bool busy) {
         status_->setText(QStringLiteral("Ready"));
         QApplication::restoreOverrideCursor();
         refreshLayout();
+        recordRun();
     }
 }
 
