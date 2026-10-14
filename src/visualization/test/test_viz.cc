@@ -5,6 +5,7 @@
 #define BOOST_TEST_MODULE ktplace_viz
 
 #include "visualization/kt_gif.h"
+#include "visualization/kt_trace.h"
 #include "visualization/kt_visualizer.h"
 
 #include <algorithm>
@@ -1210,5 +1211,101 @@ BOOST_AUTO_TEST_CASE(bounds_curve_with_drawing_off_writes_nothing) {
     // An empty directory would otherwise resolve "/b.csv" against the root.
     BOOST_CHECK_NO_THROW(Visualizer::instance().boundsCurve("b", "t", {{1.0, 0.5}}));
     BOOST_TEST(!std::filesystem::exists("/b.csv"));
+    freshAnimator();
+}
+
+// Traces: what a recorded run hands ktplace-viz. The full round trip -- a run
+// recorded, then drawn, against the same run drawn directly -- is in test_flow;
+// these cover the trace's own edges.
+
+namespace {
+
+/// Record a short run into `path`: one stage, two frames, a final still.
+/// `closeIt` false leaves the trace as a run that stopped early leaves it.
+void recordSample(const std::string &path, bool closeIt) {
+    const Graph g = sampleGraph();
+    PlotOptions opts = animOptions(10, 5, 1);
+    TraceWriter trace(path, opts);
+    trace.beginStage({"simpl", "", 0});
+    trace.frame(g, sampleX(g), sampleY(g), fixedCellBBox(g), nullptr,
+                VisualFrame{"LSS", 0, 2, "first", 1.0, 1.0, 0.0, true});
+    trace.frame(g, sampleX(g), sampleY(g), fixedCellBBox(g), nullptr,
+                VisualFrame{"LSS", 1, 2, "second", 1.0, 1.0, 0.0, true});
+    trace.finalImage(g, nullptr, 1.0);
+    (void)trace.finish(g, sampleX(g), sampleY(g), fixedCellBBox(g), nullptr, 1.0);
+    BOOST_TEST(trace.frameCount() == 2u);
+    if (closeIt) {
+        trace.close();
+    }
+}
+
+}  // namespace
+
+BOOST_AUTO_TEST_CASE(a_closed_trace_replays_completely) {
+    const ScratchDir dir("traceok");
+    const std::string path = dir.file("t.ktrace").string();
+    recordSample(path, /*closeIt=*/true);
+
+    freshAnimator();
+    const ScratchDir out("traceokout");
+    const TraceReplay r = replayTrace(path, out.str(), Visualizer::instance());
+    BOOST_TEST(r.complete);
+    BOOST_TEST(r.frames == 2u);
+    BOOST_TEST(r.animationWritten);
+    BOOST_TEST(std::filesystem::exists(out.file("simpl_LSS_000001.svg")));
+    BOOST_TEST(std::filesystem::exists(out.file("anim/placement.gif")));
+    BOOST_TEST(std::filesystem::exists(out.file("final/final.png")));
+    freshAnimator();
+}
+
+BOOST_AUTO_TEST_CASE(a_trace_never_closed_is_drawn_and_reported_incomplete) {
+    const ScratchDir dir("traceopen");
+    const std::string path = dir.file("t.ktrace").string();
+    recordSample(path, /*closeIt=*/false);
+
+    freshAnimator();
+    const ScratchDir out("traceopenout");
+    const TraceReplay r = replayTrace(path, out.str(), Visualizer::instance());
+    BOOST_TEST(!r.complete);
+    BOOST_TEST(r.frames == 2u);
+    freshAnimator();
+}
+
+BOOST_AUTO_TEST_CASE(a_trace_cut_off_mid_record_draws_what_came_before) {
+    const ScratchDir dir("tracecut");
+    const std::string path = dir.file("t.ktrace").string();
+    recordSample(path, /*closeIt=*/true);
+    // Keep the first half of the compressed bytes: gzip then runs out part-way
+    // through a record, which is what a run that exits mid-write leaves.
+    const std::string whole = readAll(path);
+    const std::string cutPath = dir.file("cut.ktrace").string();
+    {
+        std::ofstream cut(cutPath, std::ios::binary);
+        cut << whole.substr(0, whole.size() / 2);
+    }
+
+    freshAnimator();
+    const ScratchDir out("tracecutout");
+    TraceReplay r;
+    BOOST_CHECK_NO_THROW(r = replayTrace(cutPath, out.str(), Visualizer::instance()));
+    BOOST_TEST(!r.complete);
+    freshAnimator();
+}
+
+BOOST_AUTO_TEST_CASE(a_replay_can_change_the_recorded_picture_settings) {
+    const ScratchDir dir("traceadjust");
+    const std::string path = dir.file("t.ktrace").string();
+    recordSample(path, /*closeIt=*/true);
+
+    freshAnimator();
+    const ScratchDir out("traceadjustout");
+    const TraceReplay r = replayTrace(path, out.str(), Visualizer::instance(), [](PlotOptions &p) {
+        p.animate = false;
+    });
+    BOOST_TEST(!r.options.animate);
+    BOOST_TEST(!r.animationWritten);
+    BOOST_TEST(!std::filesystem::exists(out.file("anim/placement.gif")));
+    // The stills do not depend on the animation.
+    BOOST_TEST(std::filesystem::exists(out.file("simpl_LSS_000001.svg")));
     freshAnimator();
 }

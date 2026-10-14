@@ -22,6 +22,7 @@
 #include "util/kt_log.h"
 #include "util/kt_reportTable.h"
 #include "util/kt_scopedTimer.h"
+#include "visualization/kt_trace.h"
 #include "visualization/kt_visualizer.h"
 
 #include <algorithm>
@@ -37,16 +38,15 @@
 namespace ktplace {
 namespace {
 
-/// A stage's frame hook, drawing into the run's visualizer.
+/// A stage's frame hook, handing its snapshots to the run's sink.
 ///
-/// The flow is the one place a stage's snapshots meet the visualizer: a stage
-/// says when a snapshot matters and hands over the positions, and never learns
-/// where they go. Every stage's FrameInfo carries the same fields, so one
+/// The flow is the one place a stage's snapshots meet the sink: a stage says
+/// when a snapshot matters and hands over the positions, and never learns where
+/// they go -- drawn now, or recorded to be drawn later. Every stage's FrameInfo carries the same fields, so one
 /// adapter serves them all. The netlist and fences belong to the flow's
 /// database, which outlives every stage.
 template <class Info>
-auto drawFrames(const ktDM &db, const std::array<double, 4> &die) {
-    Visualizer &viz = Visualizer::instance();
+auto drawFrames(FrameSink &viz, const ktDM &db, const std::array<double, 4> &die) {
     const Graph *netlist = &db.getGraph();
     const constraintMgr *fences = &db.constraints();
     return [&viz, netlist, fences, die](const std::vector<float> &xs, const std::vector<float> &ys,
@@ -59,8 +59,7 @@ auto drawFrames(const ktDM &db, const std::array<double, 4> &die) {
 
 /// SimPL's own snapshots: the bin-density field and the bounds curve, which it
 /// hands over as numbers.
-void drawSimplDiagnostics(simpl::simplDM &dm) {
-    Visualizer &viz = Visualizer::instance();
+void drawSimplDiagnostics(FrameSink &viz, simpl::simplDM &dm) {
     dm.setDensityHook([&viz](const simpl::DensityInfo &d) {
         viz.densityMap(DensityField{d.series, d.step, d.note, d.overflow, d.die, d.x0, d.y0, d.dx,
                                     d.dy, d.nbx, d.nby, d.occ, d.avail, d.blockages});
@@ -77,6 +76,10 @@ void drawSimplDiagnostics(simpl::simplDM &dm) {
 
 }  // namespace
 
+std::string traceFile(const std::string &plotDir) {
+    return (std::filesystem::path(plotDir) / "trace.ktrace").string();
+}
+
 class FlowMgr::Impl {
 public:
     void run(const kt_option &options);
@@ -84,6 +87,9 @@ public:
 private:
     std::unique_ptr<ktDM> db;
     PlotOptions plot;
+    /// Where snapshots go: the visualizer, or `trace` when the run records them.
+    FrameSink *sink = &Visualizer::instance();
+    std::unique_ptr<TraceWriter> trace;
 
     void loadDesign(const std::string &dirPath);
     void reportDesign();
@@ -114,6 +120,14 @@ void FlowMgr::run(const kt_option &options) {
 void FlowMgr::Impl::run(const kt_option &options) {
     plot = options.plot ? PlotOptions::fromOptions() : PlotOptions{};
     plot.dir = options.getPlotDir();
+    // Recording replaces drawing: the run writes one trace and no pictures, and
+    // ktplace-viz draws them from it afterwards.
+    if (options.record && plot.enabled()) {
+        std::error_code ec;
+        std::filesystem::create_directories(plot.dir, ec);
+        trace = std::make_unique<TraceWriter>(traceFile(plot.dir), plot);
+        sink = trace.get();
+    }
 
     loadDesign(options.inputPath);
     reportDesign();
@@ -166,14 +180,17 @@ void FlowMgr::Impl::runPlacement(const std::string &algorithm) {
     }
 
     // Configured here rather than inside a stage, so the legalizer and the
-    // detailed placer add to the same GIF.
-    Visualizer::instance().configure(plot.dir, plot);
+    // detailed placer add to the same GIF. A recorded run leaves the visualizer
+    // alone: it is configured when the trace is drawn.
+    if (!trace) {
+        Visualizer::instance().configure(plot.dir, plot);
+    }
 
     // Global placement is by far the most frame-hungry stage, so it does not get
     // to spend the whole budget: two fifths are held back for legalization and
     // detailed placement, the stages that turn a legal-looking placement into a
     // real one.
-    Visualizer::instance().holdBack(Visualizer::instance().options().frameBudget * 2 / 5);
+    sink->holdBack(plot.frameBudget * 2 / 5);
 
     if (algorithm == "simpl") {
         ktlog.echo("Running SimPL global placement (B2B net model + look-ahead legalization)...");
@@ -197,13 +214,13 @@ void FlowMgr::Impl::runPlacement(const std::string &algorithm) {
         // `simpl cg_every_init` overrides this, because SimPL applies its options
         // over the parameters it is given.
         simpl::SimplParams params = simplDB.params();
-        if (!Visualizer::instance().animating()) {
+        if (!sink->animating()) {
             params.cgEveryInit = 0;
         }
-        if (Visualizer::instance().enabled()) {
-            Visualizer::instance().beginStage({"simpl", "simpl", 0});
-            simplDB.setFrameHook(drawFrames<simpl::FrameInfo>(*db, simplDB.design().die));
-            drawSimplDiagnostics(simplDB);
+        if (sink->enabled()) {
+            sink->beginStage({"simpl", "simpl", 0});
+            simplDB.setFrameHook(drawFrames<simpl::FrameInfo>(*sink, *db, simplDB.design().die));
+            drawSimplDiagnostics(*sink, simplDB);
         }
         simpl::flowMgr flow(simplDB);
         db->setGPSolution(flow.runGlobalPlacer(params, simplDB.useFences()));
@@ -229,7 +246,7 @@ void FlowMgr::Impl::runPlacement(const std::string &algorithm) {
 void FlowMgr::Impl::legalizeDesign() {
     // Whatever the placer reserved is released, so the later stages get the whole
     // remaining budget.
-    Visualizer::instance().holdBack(0);
+    sink->holdBack(0);
 
     // Abacus places into a single row, so a cell taller than one has nowhere to
     // go and is left overlapping. When the design has such cells, the row-slicing
@@ -242,9 +259,9 @@ void FlowMgr::Impl::legalizeDesign() {
         // pass assembles its own parameters, cadence included, from its options.
         multirow::multirowDM multiDB = multirow::buildMultiRowDM(*db);
         const MultiRowLegalizeParams params = multiDB.params();
-        if (Visualizer::instance().enabled()) {
-            Visualizer::instance().beginStage({"legalize_multi", "", 0});
-            multiDB.setFrameHook(drawFrames<multirow::FrameInfo>(*db, multiDB.design().die));
+        if (sink->enabled()) {
+            sink->beginStage({"legalize_multi", "", 0});
+            multiDB.setFrameHook(drawFrames<multirow::FrameInfo>(*sink, *db, multiDB.design().die));
         }
         multirow::flowMgr flow(multiDB);
         db->setMultiRowSolution(flow.runLegalizer(params));
@@ -254,9 +271,9 @@ void FlowMgr::Impl::legalizeDesign() {
     ktlog.echo("Running Abacus legalization...");
     // Build Abacus's own database, run it there, commit the answer.
     abacus::abacusDM abacusDB = abacus::buildAbacusDM(*db);
-    if (Visualizer::instance().enabled()) {
-        Visualizer::instance().beginStage({"legalize", "", 0});
-        abacusDB.setFrameHook(drawFrames<abacus::FrameInfo>(*db, abacusDB.design().die));
+    if (sink->enabled()) {
+        sink->beginStage({"legalize", "", 0});
+        abacusDB.setFrameHook(drawFrames<abacus::FrameInfo>(*sink, *db, abacusDB.design().die));
     }
     const LegalizeParams lparams = abacusDB.params();
 
@@ -297,9 +314,9 @@ void FlowMgr::Impl::detailPlaceDesign() {
     ktlog.echo("Running FastDP detailed placement...");
     // Build FastDP's own database, run it there, commit the answer.
     fastdp::fastdpDM dpDB = fastdp::buildFastdpDM(*db);
-    if (Visualizer::instance().enabled()) {
-        Visualizer::instance().beginStage({"detailplace", "", 0});
-        dpDB.setFrameHook(drawFrames<fastdp::FrameInfo>(*db, dpDB.design().die));
+    if (sink->enabled()) {
+        sink->beginStage({"detailplace", "", 0});
+        dpDB.setFrameHook(drawFrames<fastdp::FrameInfo>(*sink, *db, dpDB.design().die));
     }
     const DetailPlaceParams dparams = dpDB.params();
     fastdp::flowMgr flow(dpDB);
@@ -348,10 +365,18 @@ std::pair<std::vector<float>, std::vector<float>> FlowMgr::Impl::positions() con
 }
 
 void FlowMgr::Impl::renderFinalImage() {
-    Visualizer::instance().finalImage(db->getGraph(), &db->constraints(), db->hpwl());
+    sink->finalImage(db->getGraph(), &db->constraints(), db->hpwl());
 }
 
 void FlowMgr::Impl::finishAnimation() {
+    if (trace) {
+        (void)trace->finish(db->getGraph(), positions().first, positions().second,
+                            db->placementDieBox(), &db->constraints(), db->hpwl());
+        trace->close();
+        ktlog.echo("recorded {} snapshot(s) to {}; draw them with: ktplace-viz {}",
+                   trace->frameCount(), trace->path(), trace->path());
+        return;
+    }
     Visualizer &viz = Visualizer::instance();
     const bool written = viz.finish(db->getGraph(), positions().first, positions().second,
                                     db->placementDieBox(), &db->constraints(), db->hpwl());

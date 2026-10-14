@@ -195,6 +195,29 @@ jobs:
           test "$(grep -c 'verdict *| *PASS' smoke-multirow.log)" -eq 2
           test "$(grep -c 'verdict *| *FAIL' smoke-multirow.log || true)" -eq 0
 
+      - name: A recorded run draws the same pictures
+        # `--record` writes one trace instead of drawing, and ktplace-viz draws it
+        # afterwards. The replay makes the visualizer the same calls with the same
+        # values, so its output has to match the run above byte for byte; any
+        # difference is a field the trace dropped or rounded. ibm01 because it is
+        # small and draws every kind of picture: frames, density maps, the bounds
+        # curve, the GIF and the final still.
+        run: |
+          set -euo pipefail
+
+          source ktplace.sh
+
+          ktplace ./benchmark/ICCAD04/ibm01 --record -w output/ibm01-rec 2>&1 | tee smoke-record.log
+          test -s output/ibm01-rec/plots/trace.ktrace
+          # Recording draws nothing.
+          test "$(find output/ibm01-rec/plots -type f ! -name trace.ktrace | wc -l)" -eq 0
+          # The placement does not depend on where the pictures go.
+          cmp output/ibm01/placed.pl output/ibm01-rec/placed.pl
+
+          ktplace-viz output/ibm01-rec/plots/trace.ktrace 2>&1 | tee smoke-viz.log
+          diff -r --exclude='*.log' --exclude=trace.ktrace \
+            output/ibm01/plots output/ibm01-rec/plots
+
       - name: Smoke placement draws every cell
         # The frames are the run's own report of the placement, and a frame that
         # silently drops cells is the one rendering fault that cannot be spotted by

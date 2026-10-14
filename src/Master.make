@@ -46,7 +46,7 @@ LIB_DIR := $(BUILD_DIR)/lib
 SUBDIRS := datamodel adaptor constraint placer legalizer detailPlacer visualization util tcl
 
 # Source files in current directory
-LOCAL_SRCS := kt_flowMgr.cc kt_place.cc kt_option.cc
+LOCAL_SRCS := kt_flowMgr.cc kt_place.cc kt_option.cc kt_viz.cc
 
 # ============================================================================
 # Derived variables
@@ -71,11 +71,19 @@ DEPS := $(ALL_OBJS:.o=.d)
 
 # Final targets
 TARGET := $(BIN_DIR)/ktplace
+VIZ_TARGET := $(BIN_DIR)/ktplace-viz
 STATIC_LIB := $(LIB_DIR)/libktplace.a
 
-# Engine objects without the entry point, so the library and the unit tests
-# can link against them (kt_place.cc owns main()).
-LIB_OBJS := $(filter-out $(OBJ_DIR)/kt_place.o,$(ALL_OBJS))
+# Engine objects without the entry points, so the library and the unit tests
+# can link against them (kt_place.cc and kt_viz.cc each own a main()).
+LIB_OBJS := $(filter-out $(OBJ_DIR)/kt_place.o $(OBJ_DIR)/kt_viz.o,$(ALL_OBJS))
+
+# ktplace-viz draws a recorded trace, so it links only the visualizer and what
+# the visualizer draws -- no placer, legalizer or reader. Listing it this way is
+# also a check: a visualization object that starts depending on an algorithm
+# stops this binary linking. `kt_option.o` is not needed: VERSION is inline.
+VIZ_DIRS := visualization datamodel constraint util
+VIZ_OBJS := $(OBJ_DIR)/kt_viz.o $(filter $(foreach d,$(VIZ_DIRS),$(OBJ_DIR)/$(d)/%),$(SUBDIR_OBJS))
 
 # ============================================================================
 # Phony targets
@@ -92,7 +100,7 @@ LIB_OBJS := $(filter-out $(OBJ_DIR)/kt_place.o,$(ALL_OBJS))
 print-subdirs:
 	@for d in $(SUBDIRS); do echo $$d; done
 
-all: dirs $(SUBDIRS) $(TARGET) env
+all: dirs $(SUBDIRS) $(TARGET) $(VIZ_TARGET) env
 
 # Static library
 lib: dirs $(SUBDIRS) $(STATIC_LIB)
@@ -108,9 +116,15 @@ $(SUBDIRS):
 	@$(MAKE) -C $@ -f Master.make OBJ_DIR=$(OBJ_DIR)/$@ INCLUDES="$(INCLUDES)" CXX="$(CXX)" CXXFLAGS="$(CXXFLAGS)"
 
 # Main executable
-$(TARGET): $(ALL_OBJS) | dirs
+$(TARGET): $(LIB_OBJS) $(OBJ_DIR)/kt_place.o | dirs
 	@echo "Linking $@..."
-	@$(CXX) $(CXXFLAGS) -o $@ $(ALL_OBJS) $(LIBS) $(COVERAGE_LDFLAGS)
+	@$(CXX) $(CXXFLAGS) -o $@ $(LIB_OBJS) $(OBJ_DIR)/kt_place.o $(LIBS) $(COVERAGE_LDFLAGS)
+	@echo "Build complete: $@"
+
+# Trace renderer
+$(VIZ_TARGET): $(VIZ_OBJS) | dirs
+	@echo "Linking $@..."
+	@$(CXX) $(CXXFLAGS) -o $@ $(VIZ_OBJS) $(LIBS) $(COVERAGE_LDFLAGS)
 	@echo "Build complete: $@"
 
 # Environment helper scripts.

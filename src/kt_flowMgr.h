@@ -1,10 +1,14 @@
 #pragma once
 
 #include <memory>
+#include <string>
 
 namespace ktplace {
 
 class kt_option;
+
+/// The trace a run started with --record writes under its plot directory.
+[[nodiscard]] std::string traceFile(const std::string &plotDir);
 
 class FlowMgr {
 public:

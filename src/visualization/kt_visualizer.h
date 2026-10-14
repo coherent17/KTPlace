@@ -18,6 +18,7 @@
 
 #include "constraint/kt_constraintMgr.h"
 #include "datamodel/kt_graph.h"
+#include "visualization/kt_frameSink.h"
 #include "visualization/kt_plotOptions.h"
 
 #include <array>
@@ -101,64 +102,7 @@ void writeFinalFrameSvg(const std::string &path, const Graph &g,
 [[nodiscard]] bool writeAnimatedGif(const std::string &dir, const std::string &gifName,
                                     int delayCs = 60);
 
-/// One snapshot a stage wants drawn.
-///
-/// A stage fills this in and hands it over; it does not say where the file goes
-/// or what it is called.
-struct VisualFrame {
-    /// Which series of snapshots this belongs to, for the file name: a stage that
-    /// produces more than one kind of frame says which is which ("LSS", "LAL").
-    std::string series;
-    /// Which step of the stage's own loop this is, and how many there are.
-    std::size_t step = 0;
-    std::size_t numSteps = 0;
-    /// What the placement looked like, for the frame's caption.
-    std::string note;
-    double hpwl = 0.0;
-    double hpwlInitial = 0.0;
-    double overflow = 0.0;
-    /// A milestone worth keeping even when the run is sampling frames.
-    bool mandatory = false;
-};
-
-/// A bin-density field, for the heat map drawn beside a placement frame. Plain
-/// numbers: the stage that measured them does not say how they are drawn.
-struct DensityField {
-    std::string series;
-    std::size_t step = 0;
-    std::string note;
-    double overflow = 0.0;
-    std::array<double, 4> die{};
-    /// Grid origin and bin size; bin (ix, iy) starts at (x0 + ix dx, y0 + iy dy).
-    double x0 = 0.0, y0 = 0.0, dx = 1.0, dy = 1.0;
-    std::size_t nbx = 0, nby = 0;
-    /// Cell area and available area per bin, row-major (iy * nbx + ix).
-    std::vector<double> occ;
-    std::vector<double> avail;
-    /// Fixed blockages, as x, y, width, height.
-    std::vector<std::array<double, 4>> blockages;
-};
-
-/// HPWL of the upper and the lower bound after one iteration of a placer that
-/// keeps both.
-struct BoundsSample {
-    double upper = 0.0;
-    double lower = 0.0;
-};
-
-/// What a whole stage draws with: its name, and where under the output directory
-/// its frames land. Set once when the stage starts.
-struct StageVisual {
-    std::string stage;
-    /// Sub-directory, when a stage keeps its frames apart from the others.
-    std::string subdir;
-    /// This stage's own cadence: one frame in every N of its steps. The stage
-    /// knows how much work it is doing and a visualizer is not in a position to
-    /// judge that, so it is the stage's to set.
-    std::size_t cadence = 0;
-};
-
-class Visualizer {
+class Visualizer final : public FrameSink {
 public:
     static Visualizer &instance() noexcept;
 
@@ -171,9 +115,9 @@ public:
 
     /// Say which stage is drawing from now. Frames before this go nowhere, and a
     /// stage with no cadence set draws nothing at all.
-    void beginStage(StageVisual stage);
+    void beginStage(StageVisual stage) override;
 
-    [[nodiscard]] bool enabled() const noexcept;
+    [[nodiscard]] bool enabled() const noexcept override;
     [[nodiscard]] const PlotOptions &options() const noexcept {
         return opts;
     }
@@ -192,21 +136,21 @@ public:
     /// `x` and `y` hold one entry per cell.
     void frame(const Graph &graph, const std::vector<float> &x, const std::vector<float> &y,
                const std::array<double, 4> &die, const constraintMgr *fences,
-               const VisualFrame &what);
+               const VisualFrame &what) override;
 
     /// Draw a bin-density field as a heat map, under the same naming scheme as
     /// the current stage's frames.
-    void densityMap(const DensityField &field);
+    void densityMap(const DensityField &field) override;
 
     /// Record the two bounds of every iteration as `<name>.csv`, and plot them as
     /// `<name>.svg` under `title`, at the top of the output directory. The bounds
     /// meeting is the whole convergence story of a placer that keeps both.
     void boundsCurve(const std::string &name, const std::string &title,
-                     const std::vector<BoundsSample> &curve);
+                     const std::vector<BoundsSample> &curve) override;
 
     /// The finished placement, at the run's final resolution: a PNG, the vector
     /// form, and on request the raw raster.
-    void finalImage(const Graph &graph, const constraintMgr *fences, double hpwl);
+    void finalImage(const Graph &graph, const constraintMgr *fences, double hpwl) override;
 
     /// Rasterise the placement as the next frame of the run. A no-op when the
     /// run is not animating, when the cap is reached, or when the positions are
@@ -222,11 +166,11 @@ public:
     /// the end of global placement stops exactly where it gets interesting.
     bool finish(const Graph &graph, const std::vector<float> &x, const std::vector<float> &y,
                 const std::array<double, 4> &die, const constraintMgr *fences = nullptr,
-                double hpwl = 0.0);
+                double hpwl = 0.0) override;
 
     /// Reserve frames for the stages that come later. The stages that follow get
     /// first call on the budget, so the animation always reaches past the placer.
-    void holdBack(std::size_t frames);
+    void holdBack(std::size_t frames) override;
 
     /// Frames recorded so far this run.
     [[nodiscard]] std::size_t frameCount() const noexcept {
@@ -244,7 +188,7 @@ public:
     void reset();
 
     /// True once configure() has armed this run for an animation.
-    [[nodiscard]] bool animating() const noexcept {
+    [[nodiscard]] bool animating() const noexcept override {
         return animOn;
     }
 
