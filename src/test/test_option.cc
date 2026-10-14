@@ -326,3 +326,41 @@ BOOST_AUTO_TEST_CASE(a_second_parse_forgets_the_first_script) {
     BOOST_TEST(opt.tclScript.empty());
     BOOST_TEST(opt.inputPath == kDesign);
 }
+
+BOOST_AUTO_TEST_CASE(gui_hands_every_other_argument_to_the_window) {
+    std::vector<std::string> args{"ktplace", kDesign, "--gui", "-w", "out", "-t", "flow.tcl"};
+    std::vector<char *> argv = argvOf(args);
+    const auto gui = kt_option::guiArguments(static_cast<int>(argv.size()), argv.data());
+    BOOST_REQUIRE(gui.has_value());
+    const std::vector<std::string> expected{kDesign, "-w", "out", "-t", "flow.tcl"};
+    BOOST_TEST(*gui == expected, boost::test_tools::per_element());
+
+    // Alone, it opens an empty window.
+    std::vector<std::string> bare{"ktplace", "--gui"};
+    std::vector<char *> bargv = argvOf(bare);
+    const auto empty = kt_option::guiArguments(static_cast<int>(bargv.size()), bargv.data());
+    BOOST_REQUIRE(empty.has_value());
+    BOOST_TEST(empty->empty());
+}
+
+BOOST_AUTO_TEST_CASE(without_gui_or_with_help_the_cli_answers_itself) {
+    for (const std::vector<std::string> &line :
+         {std::vector<std::string>{"ktplace", kDesign, "-v"},
+          std::vector<std::string>{"ktplace", "--gui", "--help"},
+          std::vector<std::string>{"ktplace", "-V", "--gui"}}) {
+        std::vector<std::string> copy = line;
+        std::vector<char *> argv = argvOf(copy);
+        BOOST_TEST(!kt_option::guiArguments(static_cast<int>(argv.size()), argv.data()));
+    }
+}
+
+BOOST_AUTO_TEST_CASE(the_gui_binary_is_looked_for_beside_the_running_one) {
+    const std::filesystem::path gui = kt_option::guiExecutable("ignored-on-linux");
+    BOOST_TEST(gui.filename() == "ktplace-gui");
+    // On Linux the directory comes from /proc/self/exe: this test binary's own.
+    std::error_code ec;
+    const std::filesystem::path self = std::filesystem::read_symlink("/proc/self/exe", ec);
+    if (!ec) {
+        BOOST_TEST(gui.parent_path() == self.parent_path());
+    }
+}

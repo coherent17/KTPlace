@@ -5,9 +5,12 @@
 
 #include <filesystem>
 #include <fmt/format.h>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <system_error>
+#include <vector>
 
 namespace ktplace {
 
@@ -111,6 +114,11 @@ Options:
   -w, --work-dir <dir>      Where to write everything; created if missing
                             (default: the current directory)
   --no-plots                Draw nothing; skip every frame and picture
+  --gui                     Open the design in ktplace-gui, the Qt window,
+                            instead of running the flow. The other arguments
+                            go to it (input_dir, -w, -t, -a, -v); `make gui`
+                            builds it. Needs a display: in the dev container
+                            that is the VNC one (see docs/docker.md)
   -v, --verbose             Also send trace diagnostics to the console.
                             <log>_trace.log is always written either way
 
@@ -130,8 +138,40 @@ Examples:
   ktplace benchmark/ISPD_2005/adaptec1 -w output
   ktplace benchmark/ISPD_2005/adaptec1 -w output -a simpl
   ktplace -t scripts/flow.tcl benchmark/ISPD_2005/adaptec1 -w output
+  ktplace --gui benchmark/ISPD_2005/adaptec1 -w output
 )";
     ktlog.echo(fmt::format(kUsage, VERSION));
+}
+
+std::optional<std::vector<std::string>> kt_option::guiArguments(int argc, char *argv[]) {
+    bool gui = false;
+    std::vector<std::string> rest;
+    for (int i = 1; i < argc; ++i) {
+        const std::string_view arg = argv[i];
+        if (arg == "-h" || arg == "--help" || arg == "-V" || arg == "--version") {
+            return std::nullopt;
+        }
+        if (arg == "--gui") {
+            gui = true;
+        } else {
+            rest.emplace_back(arg);
+        }
+    }
+    if (!gui) {
+        return std::nullopt;
+    }
+    return rest;
+}
+
+std::filesystem::path kt_option::guiExecutable(const char *argv0) {
+    std::error_code ec;
+    std::filesystem::path self = std::filesystem::read_symlink("/proc/self/exe", ec);
+    if (ec || self.empty()) {
+        // Not Linux, or no /proc: argv[0], which a shell gives as it was typed
+        // or as PATH resolved it.
+        self = std::filesystem::absolute(argv0 != nullptr ? argv0 : "ktplace", ec);
+    }
+    return self.parent_path() / "ktplace-gui";
 }
 
 void kt_option::printVersion() {

@@ -6,8 +6,15 @@
 #include "util/kt_log.h"
 #include "visualization/kt_plotOptions.h"
 
+#include <algorithm>
+#include <cerrno>
 #include <cstdlib>
+#include <cstring>
 #include <exception>
+#include <filesystem>
+#include <string>
+#include <unistd.h>
+#include <vector>
 
 using namespace ktplace;
 
@@ -38,6 +45,44 @@ int runScript(const kt_option &options) {
     }
     ktlog.echo("Tcl script completed successfully!");
     return EXIT_SUCCESS;
+}
+
+// `ktplace --gui ...`: become ktplace-gui, with the other arguments.
+//
+// The CLI links no Qt, so the window is its own binary; this only finds it and
+// execs it, and from then on the process is the GUI. Only a failure to get
+// there comes back, reported on stderr (the log is not open yet).
+int launchGui(const char *argv0, const std::vector<std::string> &args) {
+    const std::filesystem::path gui = kt_option::guiExecutable(argv0);
+    if (std::error_code ec; !std::filesystem::exists(gui, ec)) {
+        ktlog.warning("ktplace-gui is not built ({} does not exist); build it with `make gui`",
+                      gui.string());
+        return EXIT_FAILURE;
+    }
+    // Qt would fail with a longer message and an abort; say what to do instead.
+    const auto set = [](const char *name) {
+        const char *v = std::getenv(name);
+        return v != nullptr && *v != '\0';
+    };
+    const bool platformArg = std::ranges::find(args, "-platform") != args.end();
+    if (!set("DISPLAY") && !set("WAYLAND_DISPLAY") && !set("QT_QPA_PLATFORM") && !platformArg) {
+        ktlog.warning(
+            "--gui: no display to open the window on (DISPLAY is not set). The dev "
+            "container has one at :1, served over VNC; from the host, use "
+            "scripts/devenv.sh gui");
+        return EXIT_FAILURE;
+    }
+    std::vector<std::string> words;
+    words.push_back(gui.string());
+    words.insert(words.end(), args.begin(), args.end());
+    std::vector<char *> argv;
+    for (std::string &w : words) {
+        argv.push_back(w.data());
+    }
+    argv.push_back(nullptr);
+    ::execv(gui.c_str(), argv.data());
+    ktlog.warning("cannot start {}: {}", gui.string(), std::strerror(errno));
+    return EXIT_FAILURE;
 }
 
 // The whole CLI run. Anything other than a FatalError that escapes is turned
@@ -78,6 +123,11 @@ int run(int argc, char *argv[]) {
 }  // namespace
 
 int main(int argc, char *argv[]) {
+    if (const auto gui = kt_option::guiArguments(argc, argv)) {
+        const int failed = launchGui(argc > 0 ? argv[0] : nullptr, *gui);
+        ktlog.shutdown();
+        return failed;
+    }
     int status = EXIT_FAILURE;
     try {
         status = run(argc, argv);

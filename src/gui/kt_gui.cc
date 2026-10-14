@@ -37,6 +37,7 @@ struct GuiOptions {
     std::string script;
     std::string workDir = std::filesystem::current_path().string();
     std::string benchRoot;
+    std::string algorithm = "simpl";
     bool verbose = false;
 };
 
@@ -57,8 +58,13 @@ GuiOptions parseArguments(int argc, char *argv[]) {
             options.script = value();
         } else if (arg == "-b" || arg == "--bench-root") {
             options.benchRoot = value();
+        } else if (arg == "-a" || arg == "--algorithm") {
+            options.algorithm = value();
         } else if (arg == "-v" || arg == "--verbose") {
             options.verbose = true;
+        } else if (arg == "--no-plots") {
+            // Accepted for `ktplace --gui`, which passes its own options on: the
+            // window draws nothing to disk unless a script calls set_plot_dir.
         } else if (!arg.empty() && arg.front() != '-' && options.inputPath.empty()) {
             options.inputPath = arg;
         } else {
@@ -90,7 +96,8 @@ int main(int argc, char *argv[]) {
         options = parseArguments(argc, argv);
     } catch (const std::exception &e) {
         ktlog.echo(
-            "usage: ktplace-gui [input_dir] [-w work_dir] [-t script.tcl] [-b bench_root] [-v]");
+            "usage: ktplace-gui [input_dir] [-w work_dir] [-t script.tcl] [-a algorithm] [-b "
+            "bench_root] [-v]");
         ktlog.warning("{}", e.what());
         ktlog.shutdown();
         return EXIT_FAILURE;
@@ -107,7 +114,7 @@ int main(int argc, char *argv[]) {
         engine.setGlobal("input_dir", QString::fromStdString(options.inputPath));
         engine.setGlobal("output", QString::fromStdString((work / "placed.pl").string()));
         engine.setGlobal("plot_dir", QString::fromStdString((work / "plots").string()));
-        engine.setGlobal("algorithm", QStringLiteral("simpl"));
+        engine.setGlobal("algorithm", QString::fromStdString(options.algorithm));
 
         MainWindow window(engine);
         window.setHistoryFile(QString::fromStdString((work / "runs.json").string()));

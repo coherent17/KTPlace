@@ -1,8 +1,10 @@
 #pragma once
 
 #include <filesystem>
+#include <optional>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace ktplace {
 
@@ -39,6 +41,15 @@ public:
     void report() const;
 
     static void printUsage();
+
+    /// With `--gui` anywhere on the command line: the other arguments, in
+    /// order, for ktplace-gui. nullopt without it, and also when -h/--help or
+    /// -V/--version is there, so those keep answering for ktplace itself.
+    [[nodiscard]] static std::optional<std::vector<std::string>> guiArguments(int argc,
+                                                                              char *argv[]);
+    /// ktplace-gui, which is built beside ktplace: the running executable's
+    /// directory (from /proc/self/exe, else from @p argv0), plus the name.
+    [[nodiscard]] static std::filesystem::path guiExecutable(const char *argv0);
     static void printVersion();
 };
 
