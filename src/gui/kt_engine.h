@@ -47,6 +47,16 @@ public:
     /// @p receiver's thread, unless @p receiver has been destroyed by then.
     void submit(const QString &script, QObject *receiver, Done done);
 
+    /// Run @p work on the engine thread with read access to the session, then
+    /// @p done on @p receiver's thread (dropped if the receiver is gone).
+    ///
+    /// For what the view needs and a user did not type -- a snapshot to draw,
+    /// the details of a clicked cell -- so it stays out of the console and the
+    /// log. It queues behind any running script, so it sees the design as that
+    /// script left it. @p work hands its result to @p done through captures.
+    void query(std::function<void(const ktSession &)> work, QObject *receiver,
+               std::function<void()> done);
+
     /// Set element @p key of the shell's `ktplace` array (see TclShell).
     void setGlobal(const QString &key, const QString &value);
 

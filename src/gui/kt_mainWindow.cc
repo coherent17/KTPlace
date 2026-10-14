@@ -6,8 +6,12 @@
 #include "kt_option.h"
 
 #include "gui/kt_engine.h"
+#include "gui/kt_layoutSnapshot.h"
+#include "gui/kt_layoutView.h"
 #include "gui/kt_logView.h"
+#include "gui/kt_propertyPanel.h"
 #include "gui/kt_tclConsole.h"
+#include "session/kt_session.h"
 
 #include <QAction>
 #include <QApplication>
@@ -17,6 +21,9 @@
 #include <QMenuBar>
 #include <QMessageBox>
 #include <QStatusBar>
+#include <memory>
+#include <utility>
+#include <vector>
 
 namespace ktplace {
 
@@ -24,17 +31,23 @@ MainWindow::MainWindow(Engine &engine, QWidget *parent) : QMainWindow(parent), e
     setWindowTitle(QStringLiteral("KTPlace"));
     resize(1280, 860);
 
-    // Placeholder for the layout canvas.
-    auto *canvas = new QLabel(QStringLiteral("Layout view\n\n(the design canvas arrives in "
-                                             "phase 3; use the console below meanwhile)"),
-                              this);
-    canvas->setAlignment(Qt::AlignCenter);
-    canvas->setAutoFillBackground(true);
-    QPalette dark = canvas->palette();
-    dark.setColor(QPalette::Window, QColor(0x1e, 0x1e, 0x1e));
-    dark.setColor(QPalette::WindowText, QColor(0x9a, 0x9a, 0x9a));
-    canvas->setPalette(dark);
-    setCentralWidget(canvas);
+    layout_ = new LayoutView(this);
+    layout_->onSelect = [this](std::optional<std::size_t> cell) {
+        inspect(cell);
+    };
+    layout_->onCursor = [this](std::optional<QPointF> at) {
+        cursor_->setText(
+            at ? QStringLiteral("x %1  y %2").arg(at->x(), 0, 'f', 1).arg(at->y(), 0, 'f', 1)
+               : QString());
+    };
+    setCentralWidget(layout_);
+
+    properties_ = new PropertyPanel(this);
+    propertiesDock_ = new QDockWidget(QStringLiteral("Properties"), this);
+    propertiesDock_->setObjectName(QStringLiteral("propertiesDock"));
+    propertiesDock_->setWidget(properties_);
+    addDockWidget(Qt::RightDockWidgetArea, propertiesDock_);
+    resizeDocks({propertiesDock_}, {280}, Qt::Horizontal);
 
     log_ = new LogView(this);
     console_ = new TclConsole(engine_, this);
@@ -56,6 +69,9 @@ MainWindow::MainWindow(Engine &engine, QWidget *parent) : QMainWindow(parent), e
 
     status_ = new QLabel(QStringLiteral("Ready"), this);
     statusBar()->addWidget(status_, 1);
+    cursor_ = new QLabel(this);
+    cursor_->setMinimumWidth(200);
+    statusBar()->addPermanentWidget(cursor_);
 
     buildMenus();
     console_->setFocus();
@@ -150,6 +166,15 @@ void MainWindow::buildMenus() {
     engineAction(report, QStringLiteral("&Parameters"), QStringLiteral("report_params"));
 
     QMenu *view = menuBar()->addMenu(QStringLiteral("&View"));
+    QAction *fit = view->addAction(QStringLiteral("Zoom &Fit"));
+    fit->setShortcut(QKeySequence(Qt::Key_F));
+    fit->setShortcutContext(Qt::WidgetWithChildrenShortcut);
+    layout_->addAction(fit);
+    connect(fit, &QAction::triggered, this, [this] {
+        layout_->zoomFit();
+    });
+    view->addSeparator();
+    view->addAction(propertiesDock_->toggleViewAction());
     view->addAction(logDock_->toggleViewAction());
     view->addAction(consoleDock_->toggleViewAction());
     QAction *trace = view->addAction(QStringLiteral("Show &Trace in Log"));
@@ -169,15 +194,72 @@ void MainWindow::buildMenus() {
     });
 }
 
+void MainWindow::refreshLayout() {
+    // The shared_ptr is filled on the engine thread and read on this one once
+    // the query's completion arrives, which is ordered after the write.
+    auto result = std::make_shared<std::shared_ptr<const LayoutSnapshot>>();
+    engine_.query(
+        [result](const ktSession &session) {
+            if (session.hasDesign()) {
+                *result = LayoutSnapshot::capture(session);
+            }
+        },
+        this,
+        [this, result] {
+            layout_->setSnapshot(*result);
+            if (*result) {
+                status_->setText(QStringLiteral("%1 cells   HPWL %2")
+                                     .arg((*result)->cells.size())
+                                     .arg((*result)->hpwl, 0, 'e', 6));
+            }
+            // The selected cell may have moved: look it up again.
+            inspect(layout_->selection());
+        });
+}
+
+void MainWindow::inspect(std::optional<std::size_t> cell) {
+    if (!cell) {
+        properties_->clear();
+        layout_->setNetOverlay({});
+        return;
+    }
+    auto result = std::make_shared<std::optional<CellDetails>>();
+    const std::size_t id = *cell;
+    engine_.query(
+        [result, id](const ktSession &session) {
+            *result = CellDetails::lookup(session, id);
+        },
+        this,
+        [this, result, id] {
+            // A later click may have replaced this one while it was looked up.
+            if (!*result || layout_->selection() != id) {
+                return;
+            }
+            const CellDetails &d = **result;
+            properties_->showCell(d);
+            std::vector<LayoutView::NetOverlay> nets;
+            const QPointF centre(d.x + d.width / 2.0, d.y + d.height / 2.0);
+            for (const CellDetails::NetRef &n : d.nets) {
+                if (!n.others.empty()) {
+                    nets.push_back({centre, n.others});
+                }
+            }
+            layout_->setNetOverlay(std::move(nets));
+            propertiesDock_->raise();
+        });
+}
+
 void MainWindow::setBusy(bool busy) {
     for (QAction *action : engineActions_) {
         action->setEnabled(!busy);
     }
-    status_->setText(busy ? QStringLiteral("Running...") : QStringLiteral("Ready"));
     if (busy) {
+        status_->setText(QStringLiteral("Running..."));
         QApplication::setOverrideCursor(Qt::BusyCursor);
     } else {
+        status_->setText(QStringLiteral("Ready"));
         QApplication::restoreOverrideCursor();
+        refreshLayout();
     }
 }
 

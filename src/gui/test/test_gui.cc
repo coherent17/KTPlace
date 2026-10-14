@@ -5,9 +5,13 @@
 #define BOOST_TEST_MODULE ktplace_gui
 #define BOOST_TEST_DYN_LINK
 #include "gui/kt_engine.h"
+#include "gui/kt_layoutSnapshot.h"
+#include "gui/kt_layoutView.h"
 #include "gui/kt_logView.h"
 #include "gui/kt_mainWindow.h"
+#include "gui/kt_propertyPanel.h"
 #include "gui/kt_tclConsole.h"
+#include "session/kt_session.h"
 #include "test/kt_testDesign.h"
 #include "util/kt_log.h"
 
@@ -16,6 +20,7 @@
 #include <QElapsedTimer>
 #include <QKeyEvent>
 #include <QThread>
+#include <QTreeWidget>
 #include <boost/test/unit_test.hpp>
 #include <cstdlib>
 #include <functional>
@@ -289,4 +294,203 @@ BOOST_AUTO_TEST_CASE(paths_are_quoted_as_one_tcl_word) {
         return text.has_value();
     }));
     BOOST_TEST(*text == "1");
+}
+
+namespace {
+
+/// The tiny design, read into a session of its own.
+struct TinySession {
+    ScratchDir dir{"gui_snapshot"};
+    ktSession session;
+    TinySession() {
+        writeBookshelfDesign(dir);
+        QuietStderr quiet;
+        session.readDesign(designDir(dir).string());
+    }
+};
+
+/// A snapshot of one 10x10 die with two cells, indexed by hand.
+std::shared_ptr<const LayoutSnapshot> twoCells() {
+    auto snap = std::make_shared<LayoutSnapshot>();
+    snap->die = {0.0, 0.0, 10.0, 10.0};
+    snap->cells.push_back({1.0F, 1.0F, 2.0F, 2.0F, LayoutSnapshot::Kind::Movable});
+    snap->cells.push_back({6.0F, 6.0F, 3.0F, 3.0F, LayoutSnapshot::Kind::Fixed});
+    snap->buildIndex();
+    return snap;
+}
+
+}  // namespace
+
+BOOST_AUTO_TEST_CASE(a_snapshot_copies_the_placement_and_picks_cells) {
+    TinySession tiny;
+    const auto snap = LayoutSnapshot::capture(tiny.session);
+    BOOST_REQUIRE_EQUAL(snap->cells.size(), tiny.session.cells().size());
+    BOOST_TEST(snap->die == tiny.session.placementDieBox());
+    BOOST_TEST(snap->hpwl == tiny.session.hpwl());
+    BOOST_TEST(snap->rows.size() == 1u);
+
+    std::size_t pads = 0;
+    for (std::size_t i = 0; i < snap->cells.size(); ++i) {
+        const Vertex &v = tiny.session.cells()[i];
+        const LayoutSnapshot::Cell &c = snap->cells[i];
+        BOOST_TEST(c.x == static_cast<float>(v.x));
+        BOOST_TEST(c.w == static_cast<float>(v.width));
+        pads += c.kind == LayoutSnapshot::Kind::Terminal ? 1 : 0;
+    }
+    BOOST_TEST(pads == 2u);
+    BOOST_TEST(snap->typicalWidth == 1.0F);
+    BOOST_TEST(snap->typicalHeight == 2.0F);
+
+    // Every cell is found at its own centre.
+    for (std::size_t i = 0; i < snap->cells.size(); ++i) {
+        const LayoutSnapshot::Cell &c = snap->cells[i];
+        const auto hit = snap->cellAt(c.x + c.w / 2.0, c.y + c.h / 2.0);
+        BOOST_REQUIRE(hit.has_value());
+        const LayoutSnapshot::Cell &h = snap->cells[*hit];
+        BOOST_TEST((h.x == c.x && h.y == c.y));
+    }
+}
+
+BOOST_AUTO_TEST_CASE(picking_prefers_the_smallest_cell_and_finds_nothing_in_empty_space) {
+    auto snap = std::make_shared<LayoutSnapshot>();
+    snap->die = {0.0, 0.0, 100.0, 100.0};
+    snap->cells.push_back({0.0F, 0.0F, 50.0F, 50.0F, LayoutSnapshot::Kind::Fixed});
+    snap->cells.push_back({10.0F, 10.0F, 1.0F, 2.0F, LayoutSnapshot::Kind::Movable});
+    snap->buildIndex();
+    BOOST_TEST(snap->cellAt(10.5, 11.0).value() == 1u);  // over the macro, the small one wins
+    BOOST_TEST(snap->cellAt(30.0, 30.0).value() == 0u);
+    BOOST_TEST(!snap->cellAt(80.0, 80.0).has_value());
+}
+
+BOOST_AUTO_TEST_CASE(a_terminal_the_size_of_a_macro_is_drawn_as_one) {
+    // The tiny design's pads are cell-sized: they stay pads.
+    TinySession tiny;
+    for (const LayoutSnapshot::Cell &c : LayoutSnapshot::capture(tiny.session)->cells) {
+        BOOST_TEST((c.kind != LayoutSnapshot::Kind::Fixed));
+    }
+}
+
+BOOST_AUTO_TEST_CASE(the_view_maps_zooms_and_selects) {
+    LayoutView view;
+    view.resize(400, 400);
+    view.setSnapshot(twoCells());
+
+    // Fitted: the die's centre is the window's, and the mapping round-trips.
+    const QPointF middle = view.worldToScreen({5.0, 5.0});
+    BOOST_TEST(std::abs(middle.x() - 200.0) < 1e-9);
+    BOOST_TEST(std::abs(middle.y() - 200.0) < 1e-9);
+    const QPointF back = view.screenToWorld(view.worldToScreen({3.25, 7.5}));
+    BOOST_TEST(std::abs(back.x() - 3.25) < 1e-9);
+    BOOST_TEST(std::abs(back.y() - 7.5) < 1e-9);
+    // y grows upward in the design and downward on screen.
+    BOOST_TEST(view.worldToScreen({5.0, 9.0}).y() < middle.y());
+
+    // Zooming keeps the point under the cursor where it is.
+    const QPointF anchor(100.0, 300.0);
+    const QPointF under = view.screenToWorld(anchor);
+    const double before = view.scale();
+    view.zoomBy(2.0, anchor);
+    BOOST_TEST(std::abs(view.scale() - 2.0 * before) < 1e-9);
+    const QPointF still = view.worldToScreen(under);
+    BOOST_TEST(std::abs(still.x() - anchor.x()) < 1e-6);
+    BOOST_TEST(std::abs(still.y() - anchor.y()) < 1e-6);
+    view.zoomFit();
+
+    // A click on the first cell selects it; one on empty die clears it.
+    std::optional<std::optional<std::size_t>> picked;
+    view.onSelect = [&](std::optional<std::size_t> c) {
+        picked = c;
+    };
+    const auto click = [&](QPointF at) {
+        QMouseEvent press(QEvent::MouseButtonPress, at, view.mapToGlobal(at), Qt::LeftButton,
+                          Qt::LeftButton, Qt::NoModifier);
+        QMouseEvent release(QEvent::MouseButtonRelease, at, view.mapToGlobal(at), Qt::LeftButton,
+                            Qt::NoButton, Qt::NoModifier);
+        QApplication::sendEvent(&view, &press);
+        QApplication::sendEvent(&view, &release);
+    };
+    click(view.worldToScreen({2.0, 2.0}));
+    BOOST_REQUIRE(picked.has_value());
+    BOOST_TEST(picked->value() == 0u);
+    BOOST_TEST(view.selection().value() == 0u);
+    click(view.worldToScreen({4.5, 4.5}));
+    BOOST_TEST(!picked->has_value());
+    BOOST_TEST(!view.selection().has_value());
+}
+
+BOOST_AUTO_TEST_CASE(the_view_draws_cells_and_a_density_map_when_zoomed_out) {
+    LayoutView view;
+    view.resize(300, 300);
+    view.setSnapshot(twoCells());
+    const QImage near = view.grab().toImage();
+    // The cell's centre is painted in the cell colour, not the die's.
+    const QPoint at = view.worldToScreen({2.0, 2.0}).toPoint();
+    BOOST_TEST((near.pixelColor(at) != near.pixelColor(view.worldToScreen({4.5, 4.5}).toPoint())));
+
+    // Far out, the 2x2 cell is under a pixel: it lands in the density map and
+    // is still drawn, not dropped.
+    view.zoomBy(1.0 / 400.0, QPointF(150.0, 150.0));
+    BOOST_TEST(2.0 * view.scale() < 1.5);
+    const QImage far = view.grab().toImage();
+    const QPoint dot = view.worldToScreen({2.0, 2.0}).toPoint();
+    const QColor background = far.pixelColor(5, 5);
+    bool drawn = false;
+    for (int dy = -1; dy <= 1; ++dy) {
+        for (int dx = -1; dx <= 1; ++dx) {
+            drawn = drawn || far.pixelColor(dot + QPoint(dx, dy)) != background;
+        }
+    }
+    BOOST_TEST(drawn);
+}
+
+BOOST_AUTO_TEST_CASE(cell_details_list_the_cell_and_its_nets) {
+    TinySession tiny;
+    const Graph &g = tiny.session.graph();
+    const std::size_t c0 = g.getCellId("c0");
+    const auto d = CellDetails::lookup(tiny.session, c0);
+    BOOST_REQUIRE(d.has_value());
+    BOOST_TEST(d->name.toStdString() == "c0");
+    BOOST_TEST(d->kind.toStdString() == "movable");
+    BOOST_TEST(d->width == 1.0);
+    BOOST_TEST(d->nets.size() == 2u);  // c0 is on n0 and n1
+    for (const CellDetails::NetRef &n : d->nets) {
+        BOOST_TEST(n.degree == 4u);
+        BOOST_TEST(n.others.size() == 3u);
+    }
+    BOOST_TEST(CellDetails::lookup(tiny.session, g.getCellId("padA"))->kind.toStdString() ==
+               "terminal");
+    BOOST_TEST(!CellDetails::lookup(tiny.session, 1000).has_value());
+    BOOST_TEST(!CellDetails::lookup(ktSession(), 0).has_value());
+}
+
+BOOST_AUTO_TEST_CASE(the_window_shows_each_commands_placement_and_inspects_a_pick) {
+    const ScratchDir dir("gui_layout");
+    writeBookshelfDesign(dir);
+    Engine engine;
+    MainWindow window(engine);
+    QuietStderr quiet;
+    BOOST_TEST(!window.layout()->snapshot());
+
+    window.console()->run("read_design " +
+                          MainWindow::tclQuote(QString::fromStdString(designDir(dir).string())));
+    BOOST_REQUIRE(waitFor([&] {
+        return window.layout()->snapshot() != nullptr;
+    }));
+    const auto first = window.layout()->snapshot();
+    BOOST_TEST(first->cells.size() == 6u);
+
+    // After another command, a new snapshot with the moved cells.
+    window.console()->run("legalize");
+    BOOST_REQUIRE(waitFor([&] {
+        return window.layout()->snapshot() != first;
+    }));
+
+    window.layout()->setSelection(0);
+    window.inspect(0);
+    BOOST_REQUIRE(waitFor([&] {
+        return window.properties()->tree()->topLevelItemCount() > 3;
+    }));
+    BOOST_TEST(window.properties()->tree()->topLevelItem(0)->text(1).toStdString() == "c0");
+    window.inspect(std::nullopt);
+    BOOST_TEST(window.properties()->tree()->topLevelItemCount() == 1);
 }

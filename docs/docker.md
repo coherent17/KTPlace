@@ -151,10 +151,18 @@ Remove that line to switch it off.
 
 ### 5. The desktop GUI
 
-`ktplace-gui` is the native Qt window: the design view on top, and a tabbed dock
-underneath with the live log and a Tcl console (the commands of `ktplace -t`;
-type `help`). Every menu action runs as a Tcl command in that console, so a
-session reads back as a script.
+`ktplace-gui` is the native Qt window: the layout view on top, a Properties
+panel on the right, and a tabbed dock underneath with the live log and a Tcl
+console (the commands of `ktplace -t`; type `help`). Every menu action runs as a
+Tcl command in that console, so a session reads back as a script, and the
+layout view shows the placement as each command leaves it.
+
+In the layout view: wheel to zoom about the pointer, drag to pan, `F` to fit,
+`+`/`-` to zoom, click a cell to select it (Esc clears). The selected cell's nets
+are drawn from it to the cells they reach, and its name, position, size and nets
+are in Properties. Pads are orange, macros gray, standard cells blue; cells too
+small to see one by one are drawn as a density map, so nothing is left out at
+any zoom.
 
 ```sh
 scripts/devenv.sh gui                                  # empty window

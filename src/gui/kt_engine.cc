@@ -69,6 +69,20 @@ void Engine::submit(const QString &script, QObject *receiver, Done done) {
         Qt::QueuedConnection);
 }
 
+void Engine::query(std::function<void(const ktSession &)> work, QObject *receiver,
+                   std::function<void()> done) {
+    QPointer<QObject> target(receiver);
+    QMetaObject::invokeMethod(
+        context_,
+        [this, target, work = std::move(work), done = std::move(done)] {
+            work(*session_);
+            if (!target.isNull()) {
+                QMetaObject::invokeMethod(target.data(), done, Qt::QueuedConnection);
+            }
+        },
+        Qt::QueuedConnection);
+}
+
 void Engine::setGlobal(const QString &key, const QString &value) {
     QMetaObject::invokeMethod(
         context_,
