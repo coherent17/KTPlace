@@ -124,9 +124,10 @@ offers a snapshot is that stage's option:
 FastDP offers one frame per pass and has no cadence to set. The defaults are the values the
 flow used to pass in, so a run draws what it drew before the refactor.
 
-> These are set with `add_option` in the Tcl script a run is given with `ktplace -t` (the
-> flag arrives with PR #15). A build without that flag has no way to load a script, so there
-> these options keep their defaults.
+> These are set with `add_option` lines in the configuration script a run is given with
+> `ktplace -c <script>` (the flag arrives with PR #15; `-t` is different, it replaces the
+> fixed flow with a script). A build without `-c` has no way to load one, so there these
+> options keep their defaults.
 
 ## Recording a run, drawing it later
 
