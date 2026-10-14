@@ -11,7 +11,6 @@ inline constexpr std::string_view VERSION = "0.1.0";
 class kt_option {
 public:
     std::string inputPath;
-    std::string algorithm = "simpl";
     bool verbose = false;
     std::string workDir = std::filesystem::current_path().string();
 
@@ -27,9 +26,8 @@ public:
         return (std::filesystem::path(workDir) / "ktplace.log").string();
     }
 
-    // Whether to draw at all. The picture settings themselves are defaults that
-    // the environment can override; see PlotOptions.
     bool plot = true;
+    std::string tclFile;
 
     // Record the snapshots to <plots>/trace.ktrace instead of drawing them, for
     // ktplace-viz to draw afterwards. Nothing to record when `plot` is off.
