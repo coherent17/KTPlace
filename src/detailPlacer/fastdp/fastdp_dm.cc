@@ -94,7 +94,9 @@ fastdpDM buildFastdpDM(const ktDM &db) {
                          VisualFrame{info.series, info.step, info.numSteps, info.note, info.hpwl,
                                      info.hpwlInitial, info.overflow, info.mandatory});
     };
-    return fastdpDM(std::move(design));
+    fastdpDM result(std::move(design));
+    result.par.localReorderWindow = static_cast<std::size_t>(result.options().window);
+    return result;
 }
 
 namespace {
@@ -124,7 +126,12 @@ void reportRun(const DetailPlaceResult &res) {
 
 fastdpDM::fastdpDM(Design design) : d(std::move(design)) {}
 
+FastdpOptions fastdpDM::options() const {
+    return FastdpOptions::load();
+}
+
 fastdpSolution fastdpDM::run(const DetailPlaceParams &params) {
+    options().report();
     ScopedTimer timer("detailplace");
 
     FastDetailedPlacer placer(d);

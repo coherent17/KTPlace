@@ -43,7 +43,7 @@ BIN_DIR := $(BUILD_DIR)/bin
 LIB_DIR := $(BUILD_DIR)/lib
 
 # Subdirectories
-SUBDIRS := datamodel adaptor constraint placer legalizer detailPlacer visualization util
+SUBDIRS := datamodel adaptor constraint placer legalizer detailPlacer visualization util tcl
 
 # Source files in current directory
 LOCAL_SRCS := kt_flowMgr.cc kt_place.cc kt_option.cc
@@ -179,10 +179,12 @@ TEST_viz := visualization/test/test_viz.cc
 TEST_detail := detailPlacer/test/test_detail.cc
 TEST_ntuplace1 := placer/ntuplace1/test/test_ntuplace1.cc
 TEST_abacus := legalizer/abacus/test/test_abacus.cc
+TEST_tcl := tcl/test/test_tcl.cc
 
 TEST_BINS := $(BIN_DIR)/test_datamodel $(BIN_DIR)/test_adaptor $(BIN_DIR)/test_flow \
              $(BIN_DIR)/test_util $(BIN_DIR)/test_constraint $(BIN_DIR)/test_option $(BIN_DIR)/test_viz \
-             $(BIN_DIR)/test_detail $(BIN_DIR)/test_ntuplace1 $(BIN_DIR)/test_abacus
+             $(BIN_DIR)/test_detail $(BIN_DIR)/test_ntuplace1 $(BIN_DIR)/test_abacus \
+             $(BIN_DIR)/test_tcl
 
 # Builds the test binaries without running them. `make coverage` needs this:
 # the coverage driver wants to run the binaries itself, once, under the
@@ -240,6 +242,14 @@ $(BIN_DIR)/test_ntuplace1: $(TEST_ntuplace1) $(LIB_OBJS) | dirs
 $(BIN_DIR)/test_abacus: $(TEST_abacus) $(LIB_OBJS) | dirs
 	@echo "  Building test_abacus..."
 	@$(CXX) $(CXXFLAGS) $(INCLUDES) -o $@ $(TEST_abacus) $(LIB_OBJS) $(LIBS) $(COVERAGE_LDFLAGS) $(TEST_LIBS)
+
+# The Tcl tests read the example scripts next to them, so the source tree's
+# location is compiled in rather than guessed from the working directory the
+# binary happens to be run from.
+$(BIN_DIR)/test_tcl: $(TEST_tcl) $(LIB_OBJS) | dirs
+	@echo "  Building test_tcl..."
+	@$(CXX) $(CXXFLAGS) $(INCLUDES) -DKTPLACE_SOURCE_ROOT='"$(abspath $(CURDIR))"' -o $@ $(TEST_tcl) \
+		$(LIB_OBJS) $(LIBS) $(COVERAGE_LDFLAGS) $(TEST_LIBS)
 
 # ============================================================================
 # Line coverage

@@ -10,6 +10,7 @@
 #include "datamodel/kt_solutionMgr.h"
 #include "legalizer/abacus/abacus_design.h"
 #include "legalizer/abacus/abacus_legalizer.h"
+#include "legalizer/abacus/abacus_options.h"
 
 #include <string>
 
@@ -24,6 +25,15 @@ class abacusDM {
 public:
     /// Takes ownership of the design the adaptor built.
     explicit abacusDM(Design design);
+
+    // Abacus options, read from the run's option store where the component's
+    // own configuration is assembled.
+    [[nodiscard]] AbacusOptions options() const;
+
+    // The parameters those options configure, assembled here.
+    [[nodiscard]] LegalizeParams params() const noexcept {
+        return par;
+    }
 
     [[nodiscard]] const Design &design() const noexcept {
         return d;
@@ -41,6 +51,8 @@ public:
     /// are reported from inside the run; they are not returned, because nothing
     /// outside Abacus can act on them.
     abacusSolution run(const LegalizeParams &params);
+
+    LegalizeParams par;
 
 private:
     Design d;

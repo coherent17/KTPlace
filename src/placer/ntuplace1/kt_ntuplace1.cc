@@ -601,6 +601,13 @@ void RatioPlacer::Impl::divide(RatioRegion r) {
     divide(std::move(r1));
 }
 
+Ntuplace1Options RatioPlacer::options() const {
+    const Ntuplace1Options out = Ntuplace1Options::load();
+    out.report();
+    return out;
+}
+
+
 RatioPlaceResult RatioPlacer::Impl::place(const RatioPlaceParams &params) {
     params_ = params;
     fences_ = &db_.constraints();

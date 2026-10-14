@@ -9,6 +9,7 @@
 
 #include "datamodel/kt_solutionMgr.h"
 #include "detailPlacer/fastdp/fastdp_design.h"
+#include "detailPlacer/fastdp/fastdp_options.h"
 #include "detailPlacer/fastdp/fastdp_placer.h"
 
 #include <string>
@@ -23,6 +24,15 @@ class fastdpDM {
 public:
     /// Takes ownership of the design the adaptor built.
     explicit fastdpDM(Design design);
+
+    // Fastdp options, read from the run's option store where the component's
+    // own configuration is assembled.
+    [[nodiscard]] FastdpOptions options() const;
+
+    // The parameters those options configure, assembled here.
+    [[nodiscard]] DetailPlaceParams params() const noexcept {
+        return par;
+    }
 
     [[nodiscard]] const Design &design() const noexcept {
         return d;
@@ -40,6 +50,8 @@ public:
     /// statistics are reported from inside the run; they are not returned, because
     /// nothing outside FastDP can act on them.
     fastdpSolution run(const DetailPlaceParams &params);
+
+    DetailPlaceParams par;
 
 private:
     Design d;
