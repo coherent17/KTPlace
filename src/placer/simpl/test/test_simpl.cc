@@ -14,13 +14,16 @@
 
 #include "constraint/kt_constraintMgr.h"
 #include "datamodel/kt_dm.h"
+#include "datamodel/kt_optionDb.h"
 #include "placer/simpl/simpl_dm.h"
 #include "placer/simpl/simpl_placer.h"
 #include "util/kt_log.h"
+#include "visualization/kt_plotOptions.h"
 
 #include <boost/test/included/unit_test.hpp>
-#include <cstdlib>
+#include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 using namespace ktplace;
@@ -103,7 +106,8 @@ Built buildDesign(ktDM &db, bool withFence, bool pullOthersIn = false) {
 
 /// Run SimPL and commit its answer.
 SimplResult place(ktDM &db, bool useFences) {
-    simpl::simplDM dm = simpl::buildSimplDM(db, "");
+    // No plots: this checks the solver, not what it draws.
+    simpl::simplDM dm = simpl::buildSimplDM(db, PlotOptions{});
     simplPlacer placer(dm.design());
     SimplParams params;
     params.maxIters = 30;
@@ -112,18 +116,24 @@ SimplResult place(ktDM &db, bool useFences) {
     return res;
 }
 
-/// Sets an environment variable for one scope, so a failed check cannot leak
-/// it into the cases that follow.
-struct ScopedEnv {
-    const char *name;
-    ScopedEnv(const char *n, const char *value) : name(n) {
-        ::setenv(n, value, 1);
+/// Sets an option for one scope, so a failed check cannot leak it into the
+/// cases that follow.
+struct ScopedOption {
+    ScopedOption(std::string component, std::string key, OptionValue value)
+        : previous(OptionDb::instance().find(component, key)) {
+        OptionDb::instance().set(std::move(component), std::move(key), std::move(value));
     }
-    ~ScopedEnv() {
-        ::unsetenv(name);
+
+    ~ScopedOption() {
+        OptionDb::instance().clear();
+        (void)previous;
     }
-    ScopedEnv(const ScopedEnv &) = delete;
-    ScopedEnv &operator=(const ScopedEnv &) = delete;
+
+    ScopedOption(const ScopedOption &) = delete;
+    ScopedOption &operator=(const ScopedOption &) = delete;
+
+private:
+    std::optional<OptionValue> previous;
 };
 
 /// Lower-left corner inside the fence: the engine's own containment test, and
@@ -167,9 +177,9 @@ BOOST_AUTO_TEST_CASE(the_returned_placement_keeps_other_cells_out_of_the_fence) 
 }
 
 BOOST_AUTO_TEST_CASE(the_lower_bound_handed_on_without_look_ahead_is_fenced_too) {
-    // KTPLACE_SIMPL_NO_LAL returns the overlapping lower bound, which is never
-    // fenced during the run; the fence is applied to it on the way out.
-    const ScopedEnv noLal("KTPLACE_SIMPL_NO_LAL", "1");
+    // `add_option simpl no_lal 1` returns the overlapping lower bound, which is
+    // never fenced during the run; the fence is applied to it on the way out.
+    const ScopedOption noLal("simpl", "no_lal", OptionValue{1});
     ktDM db;
     const Built b = buildDesign(db, /*withFence=*/true, /*pullOthersIn=*/true);
     const SimplResult res = place(db, /*useFences=*/true);
