@@ -9,8 +9,10 @@
 
 #include <boost/test/unit_test.hpp>
 #include <cmath>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <iostream>
 #include <map>
 #include <sstream>
 #include <string>
@@ -128,6 +130,32 @@ BOOST_AUTO_TEST_CASE(session_legalizes_without_a_global_placement_first) {
     // And a stage may run again on its own output.
     session.detailPlace();
     session.legalize();
+    BOOST_TEST(session.checkPlacement().empty());
+}
+
+BOOST_AUTO_TEST_CASE(session_rejects_an_out_of_range_detail_window) {
+    // KTPLACE_DP_WINDOW used to be read twice: unchecked by the flow, then 2..14
+    // by FastDP, and the flow's copy won. Now only FastDP reads it, so 20 is
+    // refused with a warning and the stage runs with its own window.
+    const ScratchDir dir("session_dpwindow");
+    ktSession session;
+    loadTiny(session, dir);
+    session.legalize();
+
+    ::setenv("KTPLACE_DP_WINDOW", "20", 1);
+    std::ostringstream captured;
+    std::streambuf *original = std::cerr.rdbuf(captured.rdbuf());
+    try {
+        session.detailPlace();
+    } catch (...) {
+        std::cerr.rdbuf(original);
+        ::unsetenv("KTPLACE_DP_WINDOW");
+        throw;
+    }
+    std::cerr.rdbuf(original);
+    ::unsetenv("KTPLACE_DP_WINDOW");
+
+    BOOST_TEST(captured.str().find("KTPLACE_DP_WINDOW=20 is outside 2..14") != std::string::npos);
     BOOST_TEST(session.checkPlacement().empty());
 }
 

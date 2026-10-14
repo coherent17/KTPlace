@@ -1347,6 +1347,9 @@ DetailPlaceResult FastDetailedPlacer::Impl::place(const DetailPlaceParams &param
     if (const auto v = paramOverride<std::size_t>("KTPLACE_DP_WINDOW")) {
         if (*v >= 2 && *v <= 14) {
             localWindow_ = *v;
+        } else {
+            ktlog.warning("KTPLACE_DP_WINDOW={} is outside 2..14; keeping window {}", *v,
+                          localWindow_);
         }
     }
 

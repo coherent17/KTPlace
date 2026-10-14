@@ -242,10 +242,10 @@ void ktSession::detailPlace() {
     // Abacus minimises displacement, not wirelength, so legalization usually
     // costs a little HPWL; detailed placement wins it back.
     ktlog.echo("Running FastDP detailed placement...");
+    // KTPLACE_DP_WINDOW is applied, range-checked, by FastDP itself. Reading it
+    // here as well set the window unchecked, so 20 or garbage (read as 0) got
+    // through the flow while FastDP's own 2..14 check only bit on direct calls.
     DetailPlaceParams dparams;
-    if (const auto v = paramOverride<std::size_t>("KTPLACE_DP_WINDOW")) {
-        dparams.localReorderWindow = *v;
-    }
     // Build FastDP's own database, run it there, commit the answer.
     fastdp::fastdpDM dpDB = fastdp::buildFastdpDM(d);
     fastdp::flowMgr flow(dpDB);
