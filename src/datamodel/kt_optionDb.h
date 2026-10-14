@@ -21,11 +21,40 @@ using OptionValue = std::variant<int, bool, double, std::string>;
 // One component's configured options.
 using OptionMap = std::unordered_map<std::string, OptionValue>;
 
+// The components that may own options. Centralized here so `add_option` can
+// reject a component that no run knows about, and so a caller can never ask the
+// store for options of a phantom component.
+namespace components {
+enum class Id : std::uint8_t { Simpl, NtuPlace1, Abacus, FastDp, Visualizer, Flow };
+
+[[nodiscard]] constexpr std::string_view toString(Id id) noexcept {
+    switch (id) {
+        case Id::Simpl:
+            return "simpl";
+        case Id::NtuPlace1:
+            return "ntuplace1";
+        case Id::Abacus:
+            return "abacus";
+        case Id::FastDp:
+            return "fastdp";
+        case Id::Visualizer:
+            return "visualizer";
+        case Id::Flow:
+            return "flow";
+    }
+    return "unknown";
+}
+
+// Returns an empty view when the string names no component.
+[[nodiscard]] bool known(std::string_view name) noexcept;
+}  // namespace components
+
+
 // Where a value came from, so a report can say why an option is what it is.
 enum class OptionOrigin {
     Default,  // never set: the option's own default stands
     Script,   // an add_option in the Tcl file
-    Env,      // a KTPLACE_<COMPONENT>_<KEY> variable, as a fallback
+    Env,      // an environment variable; nothing reads the environment today
 };
 
 [[nodiscard]] const char *toString(OptionOrigin origin);
@@ -50,6 +79,11 @@ public:
                                                   const std::string &key) const;
     [[nodiscard]] std::optional<OptionOrigin> originOf(const std::string &component,
                                                        const std::string &key) const;
+
+    // Type-erased access for code that knows the key at run time. Returns
+    // std::nullopt when the option is unset or the value has another type.
+    template <typename T>
+    [[nodiscard]] std::optional<T> get(std::string_view component, std::string_view key) const;
 
     [[nodiscard]] std::vector<std::string> components() const;
     [[nodiscard]] std::size_t size() const noexcept {
@@ -135,6 +169,13 @@ struct ResolvedOption {
 // The per-component table: every option, its value, where that came from, and the
 // default it falls back to.
 void reportOptions(const std::string &component, const std::vector<ResolvedOption> &options);
+
+// A typed read by component and key. std::nullopt when unset or wrongly typed, so a
+// component never has to fall back silently.
+template <components::Id Component, typename T>
+[[nodiscard]] std::optional<T> getComponentOption(std::string_view key) {
+    return OptionDb::instance().get<T>(components::toString(Component), key);
+}
 
 // How T is spelled in the variant, and how to read a variant as T. Specialised
 // per supported type; anything else is a compile error rather than a silent
@@ -236,6 +277,16 @@ std::optional<T> Option<T>::tryGet() const {
     if (!found) {
         return std::nullopt;
     }
+    return OptionTraits<T>::fromValue(*found);
+}
+
+// Implementation of OptionDb::get, defined after OptionTraits so the type
+// conversions specialisations are visible.
+template <typename T>
+std::optional<T> OptionDb::get(std::string_view component, std::string_view key) const {
+    const auto found = find(std::string(component), std::string(key));
+    if (!found)
+        return std::nullopt;
     return OptionTraits<T>::fromValue(*found);
 }
 

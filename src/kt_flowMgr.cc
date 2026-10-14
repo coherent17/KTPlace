@@ -7,6 +7,7 @@
 
 #include "adaptor/kt_inputReader.h"
 #include "datamodel/kt_dm.h"
+#include "datamodel/kt_optionDb.h"
 #include "detailPlacer/fastdp/fastdp_dm.h"
 #include "detailPlacer/fastdp/fastdp_flowMgr.h"
 #include "detailPlacer/fastdp/fastdp_placer.h"
@@ -17,14 +18,15 @@
 #include "legalizer/multirow/multirow_flowMgr.h"
 #include "legalizer/multirow/multirow_legalizer.h"
 #include "placer/ntuplace1/kt_ntuplace1.h"
+#include "placer/ntuplace1/ntuplace1_dm.h"
+#include "placer/ntuplace1/ntuplace1_flowMgr.h"
 #include "placer/simpl/simpl_dm.h"
 #include "placer/simpl/simpl_flowMgr.h"
+#include "tcl/kt_tclMgr.h"
 #include "util/kt_log.h"
-#include "util/kt_reportTable.h"
 #include "util/kt_scopedTimer.h"
 #include "visualization/kt_visualizer.h"
 
-#include <algorithm>
 #include <array>
 #include <cstdlib>
 #include <filesystem>
@@ -85,15 +87,13 @@ private:
     std::unique_ptr<ktDM> db;
     PlotOptions plot;
 
+    void parseTcl(const kt_option &options);
     void loadDesign(const std::string &dirPath);
     void reportDesign();
-    void placeDesign(const kt_option &options);
+    void placeDesign();
     void writeDesign(const std::string &outputPath);
-    void runPlacement(const std::string &algorithm);
     void legalizeDesign();
-    [[nodiscard]] std::size_t multiRowCells() const;
     void detailPlaceDesign();
-    void checkDesign(const char *stage);
     void renderFinalImage();
     /// The committed placement as float arrays, the shape every draw call takes.
     [[nodiscard]] std::pair<std::vector<float>, std::vector<float>> positions() const;
@@ -112,27 +112,35 @@ void FlowMgr::run(const kt_option &options) {
 
 
 void FlowMgr::Impl::run(const kt_option &options) {
+    parseTcl(options);
     plot = options.plot ? PlotOptions::fromOptions() : PlotOptions{};
     plot.dir = options.getPlotDir();
 
     loadDesign(options.inputPath);
     reportDesign();
-    placeDesign(options);
+    placeDesign();
     legalizeDesign();
-    checkDesign("after legalization");
     detailPlaceDesign();
-    checkDesign("after detail placement");
     renderFinalImage();
     finishAnimation();
     writeDesign(options.getOutputPath());
     TimerRegistry::instance().report();
 }
 
+void FlowMgr::Impl::parseTcl(const kt_option &options) {
+    if (options.tclFile.empty()) {
+        return;
+    }
+    try {
+        tcl::TclMgr::instance().loadScript(options.tclFile);
+    } catch (const tcl::Error &error) {
+        ktlog.fatal("{}: {}", options.tclFile, error.what());
+    }
+}
+
 void FlowMgr::Impl::loadDesign(const std::string &dirPath) {
     ScopedTimer timer("load");
 
-    // A missing directory and an unrecognised one are different mistakes, and say
-    // different things to whoever has to fix it.
     std::error_code ec;
     if (!std::filesystem::is_directory(dirPath, ec)) {
         ktlog.fatal("cannot read input directory: {}", dirPath);
@@ -155,12 +163,17 @@ void FlowMgr::Impl::reportDesign() {
     db->reportUtilisation();
 }
 
-void FlowMgr::Impl::placeDesign(const kt_option &options) {
+void FlowMgr::Impl::placeDesign() {
     ScopedTimer timer("place");
-    runPlacement(options.algorithm);
-}
 
-void FlowMgr::Impl::runPlacement(const std::string &algorithm) {
+    // Which placer runs is the flow's business: it is the one that knows what
+    // placers exist. The script chooses with `add_option flow algorithm ...`, and
+    // SimPL runs when nothing says otherwise.
+    const std::string algorithm =
+        getComponentOption<components::Id::Flow, std::string>("algorithm").value_or("simpl");
+    if (algorithm != "simpl" && algorithm != "ntuplace1") {
+        ktlog.fatal("unknown placer '{}'; expected simpl or ntuplace1", algorithm);
+    }
     if (!db) {
         ktlog.fatal("No placement database loaded");
     }
@@ -210,15 +223,15 @@ void FlowMgr::Impl::runPlacement(const std::string &algorithm) {
         return;
 
     } else if (algorithm == "ntuplace1") {
-        ktlog.echo("Running NTUPlace1 global placement (ratio partitioning)...");
-        RatioPlacer placer(*db);
-        // No frame hook. The partitioner offers a snapshot per cut, but no stage
-        // was ever begun for it, so the visualizer dropped every one of them;
-        // installing a hook here would start drawing ~one frame per cut, which
-        // is a change to what a run draws and belongs in its own commit.
-        const RatioPlaceParams params = placer.params();
-        const RatioPlaceResult res = placer.place(params);
-        reportNtuPlace1(res);
+        // Build this placer's own database, run it there, commit the answer: the
+        // same shape as every other stage. No frame hook: the partitioner offers
+        // a snapshot per cut, but no stage was ever begun for it, so the
+        // visualizer dropped every one of them; drawing them would add about one
+        // frame per cut, a change to what a run draws for its own commit.
+        ntuplace1::ntuplace1DM placeDB = ntuplace1::buildNtuplace1DM(*db);
+        const RatioPlaceParams params = placeDB.params();
+        ntuplace1::flowMgr flow(placeDB);
+        db->setGPSolution(flow.runGlobalPlacer(params));
         return;
 
     } else {
@@ -235,9 +248,9 @@ void FlowMgr::Impl::legalizeDesign() {
     // go and is left overlapping. When the design has such cells, the row-slicing
     // legalizer runs instead: it cuts cells out of every row they span, so a tall
     // cell occupies a real well and the cells around it place normally.
-    if (multiRowCells() > 0) {
+    if (db->multiRowCells() > 0) {
         ktlog.echo("Running multi-row legalization ({} cell(s) taller than a row)...",
-                   multiRowCells());
+                   db->multiRowCells());
         // Build this pass's own database, run it there, commit the answer. The
         // pass assembles its own parameters, cadence included, from its options.
         multirow::multirowDM multiDB = multirow::buildMultiRowDM(*db);
@@ -252,50 +265,19 @@ void FlowMgr::Impl::legalizeDesign() {
     }
 
     ktlog.echo("Running Abacus legalization...");
-    // Build Abacus's own database, run it there, commit the answer.
     abacus::abacusDM abacusDB = abacus::buildAbacusDM(*db);
     if (Visualizer::instance().enabled()) {
         Visualizer::instance().beginStage({"legalize", "", 0});
         abacusDB.setFrameHook(drawFrames<abacus::FrameInfo>(*db, abacusDB.design().die));
     }
     const LegalizeParams lparams = abacusDB.params();
-
     abacus::flowMgr flow(abacusDB);
     db->setLegalizationSolution(flow.runLegalizer(lparams));
 }
 
-std::size_t FlowMgr::Impl::multiRowCells() const {
-    if (!db) {
-        return 0;
-    }
-    // The shortest row sets the bar: a cell taller than every row has no single
-    // row to go in, and that is the case the row slicer exists for.
-    double minHeight = std::numeric_limits<double>::max();
-    for (const RowInfo &ri : db->getRows()) {
-        if (ri.height > 0.0 && !ri.subrows.empty()) {
-            minHeight = std::min(minHeight, ri.height);
-        }
-    }
-    if (minHeight == std::numeric_limits<double>::max()) {
-        return 0;
-    }
-    const double tall = minHeight * 1.5;
-    const Graph &g = db->getGraph();
-    std::size_t n = 0;
-    for (std::size_t v = 0; v < g.getNumCells(); ++v) {
-        const Vertex &vert = g.getCell(v);
-        if (!vert.isFixed && !vert.isTerminal && vert.height > tall) {
-            ++n;
-        }
-    }
-    return n;
-}
 
 void FlowMgr::Impl::detailPlaceDesign() {
-    // Abacus minimises displacement, not wirelength, so legalization usually
-    // costs a little HPWL; detailed placement wins it back.
     ktlog.echo("Running FastDP detailed placement...");
-    // Build FastDP's own database, run it there, commit the answer.
     fastdp::fastdpDM dpDB = fastdp::buildFastdpDM(*db);
     if (Visualizer::instance().enabled()) {
         Visualizer::instance().beginStage({"detailplace", "", 0});
@@ -306,35 +288,6 @@ void FlowMgr::Impl::detailPlaceDesign() {
     db->setDetailedPlaceSolution(flow.runDetailedPlacer(dparams));
 }
 
-void FlowMgr::Impl::checkDesign(const char *stage) {
-    // Separate from each stage's self-check, so a disagreement between what a
-    // stage claims and what the file actually contains stays visible.
-    {
-        // Timed on its own: it reads the whole placement, changes nothing, and is
-        // the phase that goes quadratic if the spatial index degrades.
-        const ScopedTimer checkTimer("place-check");
-        const std::vector<ktDM::Defect> defects = db->verify();
-        ktReportTable check(fmt::format("Placement check (independent, {})", stage));
-        check.setHeaders({"check", "result"});
-        if (defects.empty()) {
-            check.addRow({"overlapping cell pairs", "0"});
-            check.addRow({"cells outside the die", "0"});
-            check.addRow({"cells outside their fence", db->hasFences() ? "0" : "n/a"});
-            check.addRow({"verdict", "PASS"});
-        } else {
-            for (const ktDM::Defect &d : defects) {
-                check.addRow({d.what, fmt::format("{}", d.count)});
-            }
-            check.addRow({"verdict", "FAIL"});
-        }
-        check.emit();
-        if (!defects.empty()) {
-            ktlog.warning(
-                "the placement that will be written is not legal; see the placement check "
-                "above");
-        }
-    }
-}
 
 std::pair<std::vector<float>, std::vector<float>> FlowMgr::Impl::positions() const {
     const Graph &g = db->getGraph();

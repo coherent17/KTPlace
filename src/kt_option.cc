@@ -44,14 +44,14 @@ bool kt_option::parse(int argc, char *argv[]) {
             return argv[++i];
         };
 
-        if (arg == "-a" || arg == "--algorithm") {
-            algorithm = value();
-        } else if (arg == "-w" || arg == "--work-dir") {
+        if (arg == "-w" || arg == "--work-dir") {
             workDir = value();
         } else if (arg == "-v" || arg == "--verbose") {
             verbose = true;
         } else if (arg == "--no-plots") {
             plot = false;
+        } else if (arg == "-tcl" || arg == "--tcl") {
+            tclFile = value();
         } else {
             ktlog.echo("");
             printUsage();
@@ -75,7 +75,6 @@ void kt_option::report() const {
     config.add("output path", getOutputPath());
     config.add("plot directory", getPlotDir());
     config.add("log file", getLogFile());
-    config.add("algorithm", algorithm);
     if (verbose) {
         config.add("trace file", Logger::tracePathFor(getLogFile()));
     }
@@ -91,10 +90,11 @@ Arguments:
                    after the design
 
 Options:
-  -a, --algorithm <name>    Placement algorithm (default: simpl)
   -w, --work-dir <dir>      Where to write everything; created if missing
                             (default: the current directory)
   --no-plots                Draw nothing; skip every frame and picture
+  -tcl, --tcl <file>        Tcl script configuring the run, through
+                            add_option <component> <key> <value>
   -v, --verbose             Also send trace diagnostics to the console.
                             <log>_trace.log is always written either way
 
@@ -105,14 +105,16 @@ Options:
 Everything a run writes goes under the work directory: placed.pl, plots/, and
 ktplace.log. Logging goes to that file and stderr; stdout is never written to.
 
-The picture settings -- animation on or off, frame budget, zoom levels -- are
-defaults that the environment can override (KTPLACE_ANIM, KTPLACE_ANIM_MAX_FRAMES,
-KTPLACE_FINAL_ZOOM, ...), so tuning them does not need a flag each.
+Everything a run is made of is chosen in that script, including the placer:
+`add_option flow algorithm ntuplace1`, where simpl is the default. The picture
+settings -- animation on or off, frame budget, zoom levels -- are options too, so
+tuning a run does not need a flag each; `add_option visualizer anim 0` is the
+-tcl spelling of --no-plots.
 
 Examples:
   ktplace benchmark/ISPD_2005/adaptec1
   ktplace benchmark/ISPD_2005/adaptec1 -w output
-  ktplace benchmark/ISPD_2005/adaptec1 -w output -a simpl
+  ktplace benchmark/ISPD_2005/adaptec1 -w output -tcl run.tcl
 )";
     ktlog.echo(fmt::format(kUsage, VERSION));
 }

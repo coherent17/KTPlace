@@ -131,6 +131,7 @@ private:
     std::array<double, 4> die_{};
     const multirow::Fences *fences_ = nullptr;
     std::size_t frames_ = 0;
+    double hpwlInitial_ = 0.0;
 
 public:
     /// Position of every cell, indexed by cell id. Seeded from the design and
@@ -343,7 +344,17 @@ std::vector<MultiRowLegalizer::Impl::Candidate> MultiRowLegalizer::Impl::candida
 MultiRowLegalizeResult MultiRowLegalizer::Impl::run(const MultiRowLegalizeParams &params) {
     MultiRowLegalizeResult res;
     ScopedTimer timer("legalize");
+
+    // Where every cell starts. Updated in place as cells are placed, so hpwl(),
+    // the self-check and a frame all read the placement this pass has reached.
+    solX_.resize(design.cells.size());
+    solY_.resize(design.cells.size());
+    for (std::size_t v = 0; v < design.cells.size(); ++v) {
+        solX_[v] = design.cells[v].x;
+        solY_[v] = design.cells[v].y;
+    }
     res.hpwlBefore = hpwl();
+    hpwlInitial_ = res.hpwlBefore;
 
     die_ = design.die;
     dieX0_ = die_[0];
@@ -356,14 +367,6 @@ MultiRowLegalizeResult MultiRowLegalizer::Impl::run(const MultiRowLegalizeParams
     collect();
     res.movable = items_.size();
 
-    // Where every cell starts. Updated in place as cells are placed, so hpwl()
-    // and a frame both read the placement this pass has reached.
-    solX_.resize(design.cells.size());
-    solY_.resize(design.cells.size());
-    for (std::size_t v = 0; v < design.cells.size(); ++v) {
-        solX_[v] = design.cells[v].x;
-        solY_[v] = design.cells[v].y;
-    }
     if (tracks_.empty() || items_.empty()) {
         res.seconds = timer.elapsedSeconds();
         return res;
@@ -488,28 +491,30 @@ void MultiRowLegalizer::Impl::selfCheck(MultiRowLegalizeResult &res) const {
         if (vert.isFixed || vert.isTerminal) {
             continue;
         }
+        const double x = solX_[v];
+        const double y = solY_[v];
         // A cell belongs to a row when its base sits on that row's base line.
         // Testing the base rather than "inside one band" is what makes this work
         // for a cell taller than a row: such a cell is deliberately not inside any
         // single band, and counting that as an off-row cell reported every legal
         // placement of a tall cell as illegal.
-        const std::size_t t = trackNear(vert.y);
-        const bool onRow = !tracks_.empty() && std::fabs(vert.y - tracks_[t].y) <= 1e-6;
+        const std::size_t t = trackNear(y);
+        const bool onRow = !tracks_.empty() && std::fabs(y - tracks_[t].y) <= 1e-6;
         if (!onRow) {
             ++offRow;
         } else {
             // The grid origin belongs to the segment the cell actually sits in,
             // not to the first segment of the row: slicing moved that edge, and
             // measuring against it reports every carved row as off-site.
-            const Segment *seg = tracks_[t].covering(vert.x, vert.x + vert.width);
+            const Segment *seg = tracks_[t].covering(x, x + vert.width);
             const double origin = seg != nullptr ? seg->originX : tracks_[t].segments.front().xlo;
-            const double off = std::fmod(vert.x - origin, tracks_[t].pitch);
+            const double off = std::fmod(x - origin, tracks_[t].pitch);
             if (off > 1e-3 && off < tracks_[t].pitch - 1e-3) {
                 ++offSite;
             }
         }
         if (vert.regionId != multirow::Fences::kNoRegion) {
-            std::vector<double> flat{vert.x, vert.y};
+            std::vector<double> flat{x, y};
             std::vector<int> ids{vert.regionId};
             overFixed += fences_->countViolations(flat, ids);
         }
@@ -544,10 +549,12 @@ void MultiRowLegalizer::Impl::selfCheck(MultiRowLegalizeResult &res) const {
         if (c == nullptr) {
             continue;
         }
+        const double cx = solX_[v];
+        const double cy = solY_[v];
         const auto bx = static_cast<std::size_t>(
-            std::clamp((c->x - dieX0_) / dx, 0.0, static_cast<double>(nbx) - 1.0));
+            std::clamp((cx - dieX0_) / dx, 0.0, static_cast<double>(nbx) - 1.0));
         const auto by = static_cast<std::size_t>(
-            std::clamp((c->y - dieY0_) / dy, 0.0, static_cast<double>(nby) - 1.0));
+            std::clamp((cy - dieY0_) / dy, 0.0, static_cast<double>(nby) - 1.0));
         // A cell wider than a bin reaches its neighbour, so a 3x3 neighbourhood
         // is what a bucket count has to consider.
         const std::size_t bx0 = (bx > 0) ? bx - 1 : 0;
@@ -558,8 +565,10 @@ void MultiRowLegalizer::Impl::selfCheck(MultiRowLegalizeResult &res) const {
             for (std::size_t xx = bx0; xx < bx1; ++xx) {
                 for (const std::size_t u : buckets[xx * nby + yy]) {
                     const multirow::Cell &d = *cellAt(u);
-                    if (c->x < d.x + d.width - 1e-9 && d.x < c->x + c->width - 1e-9 &&
-                        c->y < d.y + d.height - 1e-9 && d.y < c->y + c->height - 1e-9) {
+                    const double ux = solX_[u];
+                    const double uy = solY_[u];
+                    if (cx < ux + d.width - 1e-9 && ux < cx + c->width - 1e-9 &&
+                        cy < uy + d.height - 1e-9 && uy < cy + c->height - 1e-9) {
                         ++overlaps;
                     }
                 }
@@ -577,34 +586,27 @@ void MultiRowLegalizer::Impl::writeFrame(const std::string &note, std::size_t st
     std::vector<float> xs(nv, 0.0f);
     std::vector<float> ys(nv, 0.0f);
     for (std::size_t v = 0; v < nv; ++v) {
-        xs[v] = static_cast<float>(design.cells[v].x);
-        ys[v] = static_cast<float>(design.cells[v].y);
+        xs[v] = static_cast<float>(solX_[v]);
+        ys[v] = static_cast<float>(solY_[v]);
     }
-    // The host draws; this pass only says when. `hpwl()` reads the incoming
-    // design, so a frame shows the placement this pass has reached so far.
+    // The host draws; this pass only says when. Positions and `hpwl()` both read
+    // the solution, so a frame shows the placement this pass has reached so far.
     if (design.onFrame) {
         multirow::FrameInfo info;
         info.note = note;
         info.step = step;
         info.numSteps = total;
         info.hpwl = hpwl();
-        info.hpwlInitial = hpwl();
+        info.hpwlInitial = hpwlInitial_;
         info.mandatory = true;
         design.onFrame(xs, ys, info);
     }
 }
 
 double MultiRowLegalizer::Impl::hpwl() const {
-    // Over the design as handed in. This pass does not write to it, so this is
-    // the placement it was given, and after the flow commits the answer this is
-    // the same number again.
-    std::vector<double> xs(design.cells.size());
-    std::vector<double> ys(design.cells.size());
-    for (std::size_t v = 0; v < design.cells.size(); ++v) {
-        xs[v] = design.cells[v].x;
-        ys[v] = design.cells[v].y;
-    }
-    return multirow::netlistHPWL(design.cells, design.nets, design.pins, xs, ys);
+    // Over the solution, not the design: this pass never writes to the design, so
+    // measuring it reported the placement it was given as the one it produced.
+    return multirow::netlistHPWL(design.cells, design.nets, design.pins, solX_, solY_);
 }
 
 // ---------------------------------------------------------------------------

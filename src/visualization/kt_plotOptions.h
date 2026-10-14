@@ -33,7 +33,7 @@ struct PlotOptions {
     // trace_every`, `add_option abacus frame_every`, ...). These settings only
     // decide what an offered snapshot becomes.
 
-    // The defaults, with the environment applied over them.
+    // The defaults, with the run's visualizer options applied over them.
     [[nodiscard]] static PlotOptions fromOptions();
 
     [[nodiscard]] bool enabled() const {

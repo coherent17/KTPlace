@@ -111,15 +111,13 @@ jobs:
           # it is written into the repository root by the build.
           source ktplace.sh
 
-          # The SimPL cadence knobs are read by the visualizer now, so they carry
-          # the KTPLACE_ANIM_ prefix like every other visualisation setting rather
-          # than the old per-component KTPLACE_SIMPL_ one. Setting the old names
-          # is not an error -- they are simply ignored, which would leave this
-          # step measuring a run configured by nothing.
-          KTPLACE_ANIM=1 KTPLACE_ANIM_MAX_FRAMES=40 KTPLACE_ANIM_BLEND=1 \
-          KTPLACE_ANIM_TRACE_EVERY=1 KTPLACE_ANIM_CG_EVERY=8 \
-            ktplace ./benchmark/ISPD_2005/adaptec1 \
-              -w output/adaptec1 2>&1 | tee smoke.log
+          cat > smoke.tcl <<'TCL'
+          add_option visualizer anim 1
+          add_option visualizer anim_max_frames 40
+          TCL
+
+          ktplace ./benchmark/ISPD_2005/adaptec1 \
+            -w output/adaptec1 -tcl smoke.tcl 2>&1 | tee smoke.log
 
           # Everything a run writes goes under the work directory, so the .pl is
           # output/adaptec1/placed.pl and the plots are output/adaptec1/plots.
@@ -170,7 +168,12 @@ jobs:
 
           source ktplace.sh
 
-          KTPLACE_ANIM=0             ktplace ./benchmark/ICCAD04/ibm01               -w output/ibm01 2>&1 | tee smoke-multirow.log
+          cat > smoke-multirow.tcl <<'TCL'
+          add_option visualizer anim 0
+          TCL
+
+          ktplace ./benchmark/ICCAD04/ibm01 \
+            -w output/ibm01 -tcl smoke-multirow.tcl 2>&1 | tee smoke-multirow.log
 
           PL=output/ibm01/placed.pl
 
