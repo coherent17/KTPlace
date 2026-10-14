@@ -112,15 +112,18 @@ jobs:
           # it is written into the repository root by the build.
           source ktplace.sh
 
-          # The SimPL cadence knobs are read by the visualizer now, so they carry
-          # the KTPLACE_ANIM_ prefix like every other visualisation setting rather
-          # than the old per-component KTPLACE_SIMPL_ one. Setting the old names
-          # is not an error -- they are simply ignored, which would leave this
-          # step measuring a run configured by nothing.
-          KTPLACE_ANIM=1 KTPLACE_ANIM_MAX_FRAMES=40 KTPLACE_ANIM_BLEND=1 \
-          KTPLACE_ANIM_TRACE_EVERY=1 KTPLACE_ANIM_CG_EVERY=8 \
-            ktplace ./benchmark/ISPD_2005/adaptec1 \
-              -w output/adaptec1 2>&1 | tee smoke.log
+          # Small pictures, configured the way any run is: a script of
+          # add_option lines given with -c. The visualizer logs the table it
+          # ran with, so the log shows the settings took effect.
+          cat > smoke-config.tcl <<'TCL'
+          add_option visualizer anim 1
+          add_option visualizer anim_max_frames 40
+          add_option visualizer anim_blend 1
+          add_option visualizer anim_trace_every 1
+          add_option visualizer anim_cg_every 8
+          TCL
+          ktplace ./benchmark/ISPD_2005/adaptec1 -c smoke-config.tcl \
+            -w output/adaptec1 2>&1 | tee smoke.log
 
           # Everything a run writes goes under the work directory, so the .pl is
           # output/adaptec1/placed.pl and the plots are output/adaptec1/plots.
@@ -171,7 +174,9 @@ jobs:
 
           source ktplace.sh
 
-          KTPLACE_ANIM=0             ktplace ./benchmark/ICCAD04/ibm01               -w output/ibm01 2>&1 | tee smoke-multirow.log
+          echo 'add_option visualizer anim 0' > no-animation.tcl
+          ktplace ./benchmark/ICCAD04/ibm01 -c no-animation.tcl \
+            -w output/ibm01 2>&1 | tee smoke-multirow.log
 
           PL=output/ibm01/placed.pl
 
@@ -207,7 +212,7 @@ jobs:
 
           source ktplace.sh
 
-          KTPLACE_ANIM=0 ktplace -t scripts/flow.tcl ./benchmark/ICCAD04/ibm01 \
+          ktplace -c no-animation.tcl -t scripts/flow.tcl ./benchmark/ICCAD04/ibm01 \
             -w output/ibm01-tcl 2>&1 | tee smoke-tcl.log
 
           grep -q "tcl> read_design" smoke-tcl.log

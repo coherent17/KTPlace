@@ -69,6 +69,7 @@ else is loaded as Bookshelf.
 | option | meaning |
 | --- | --- |
 | `-a, --algorithm <name>` | `simpl` (default) or `ntuplace1` |
+| `-c, --config <script>` | configure the run: a script of `add_option` lines, run first (repeatable) |
 | `-t, --tcl <script>` | run a Tcl script instead of the fixed flow (see below) |
 | `--gui` | open the design in the Qt window instead; the other options go to it |
 | `-w, --work-dir <dir>` | where everything is written (default: cwd) |
@@ -88,11 +89,11 @@ and stderr, so redirecting stdout stays clean.
 
 `ktplace -t <script.tcl> [input_dir] [options]` runs a script instead of the
 fixed load / place / legalize / detail-place / write sequence. Each stage is a
-command, so a script can reorder stages, run one alone, or change parameters
+command, so a script can reorder stages, run one alone, or change options
 between them:
 
 ```tcl
-set_param KTPLACE_SIMPL_DENSITY 0.9     ;# overrides the environment
+add_option simpl density 0.9
 read_design $ktplace(input_dir)
 global_place -algo simpl
 legalize
@@ -112,7 +113,7 @@ The script sees `ktplace(input_dir)`, `ktplace(work_dir)`, `ktplace(output)`,
 | `global_place ?-algo name?` / `legalize` / `detail_place` | the stages |
 | `report_hpwl` / `check_placement ?label?` / `report_timing` | queries; HPWL and the defect list are returned |
 | `set_plot_dir <dir>` / `write_final_image` / `write_animation` | pictures (`""` draws nothing) |
-| `set_param` / `get_param` / `reset_param` / `report_params ?group?` | the `KTPLACE_*` parameters |
+| `add_option <component> <option> <value>` / `get_option` / `report_options` | the stages' options (see below) |
 | `help ?command?` | the list above, from the shell |
 
 A failing command is a Tcl error: `catch` it, or let it end the run with exit 1
@@ -125,36 +126,50 @@ to the log like everything else.
 Under `<work-dir>/plots/`: SVG frames for the placement stages (`simpl/`, and
 `legalize/` for the Abacus path), the detail placer (`detailplace/`), the density
 bound trace (`simpl_bounds.csv`/`.svg`), the animation (`anim/placement.gif`,
-unless `KTPLACE_ANIM=0`), and a high-resolution still of the finished
+unless `visualizer anim` is 0), and a high-resolution still of the finished
 placement (`final/final.png`, 6144x6144 by default). All generated in C++ — no
 image library beyond the vendored CImg, no external tools.
 
-The drawing settings below are `KTPLACE_*` environment variables. Every
-`KTPLACE_*` variable the engine reads -- these, and the SimPL, NTUPlace1, Abacus
-and FastDP tuning knobs -- is declared once, with its type, default and range,
-in `src/util/kt_param.cc`; that list is the source of truth, and `test_util`
-checks it against the variables the engine reads. This table is kept in step
-with it by hand. Numbers are read as `std::stod` reads them, and text that is not a number
-leaves the default.
+### Options
 
-| variable | effect |
+Every stage setting is an option of its component, set with
+`add_option <component> <option> <value>` in a configuration script given with
+`-c` (or in a `-t` script, or the GUI's console). Nothing is read from the
+environment, so what configured a run is in its script and in its log: each
+stage prints its full option table when it runs, with what set each value.
+
+```sh
+cat > tuning.tcl <<'EOF'
+add_option simpl iters 50
+add_option simpl seed 7
+add_option visualizer anim 0
+EOF
+ktplace benchmark/ISPD_2005/adaptec1 -c tuning.tcl -w output/adaptec1-50it
+```
+
+The components and their options are declared, with defaults, in
+`src/placer/simpl/simpl_options.cc`, `src/placer/ntuplace1/ntuplace1_options.cc`,
+`src/legalizer/abacus/abacus_options.cc`, `src/detailPlacer/fastdp/fastdp_options.cc`
+and `src/visualization/visualizer_options.cc`. The drawing ones:
+
+| `visualizer` option | effect |
 | --- | --- |
-| `KTPLACE_ANIM` | record frames and assemble the GIF (default 1; `0` turns it off) |
-| `KTPLACE_ANIM_MAX_FRAMES` | frame budget for the run (default 1200) |
-| `KTPLACE_ANIM_MAX_BYTES` | size cap of the GIF, in bytes (default 96 MB) |
-| `KTPLACE_ANIM_ZOOM` | frame scale, vs 768x768 (default 2) |
-| `KTPLACE_ANIM_BLEND` | in-between frames per placement (default 3) |
-| `KTPLACE_ANIM_DELAY_CS` | GIF frame delay, in hundredths of a second (default 12) |
-| `KTPLACE_ANIM_FINAL_HOLD` | extra frames the finished placement is held (default 8) |
-| `KTPLACE_ANIM_DENSITY_MAPS` | bin-density heat map beside each placement frame (default 1) |
-| `KTPLACE_ANIM_TRACE_EVERY` | global-placement frame every N iterations (default 1; `0` keeps only the final one) |
-| `KTPLACE_ANIM_CG_EVERY` | frame every N conjugate-gradient iterates (default 0, off) |
-| `KTPLACE_FINAL_ZOOM` | final still scale, vs 768x768 (default 8) |
-| `KTPLACE_FINAL_PPM` | also write the lossless PPM beside the PNG (default 0, off) |
+| `anim` | record frames and assemble the GIF (default 1; `0` turns it off) |
+| `anim_max_frames` | frame budget for the run (default 1200) |
+| `anim_max_bytes` | size cap of the GIF, in bytes (default 96 MB) |
+| `anim_zoom` | frame scale, vs 768x768 (default 2) |
+| `anim_blend` | in-between frames per placement (default 3) |
+| `anim_delay_cs` | GIF frame delay, in hundredths of a second (default 12) |
+| `anim_final_hold` | extra frames the finished placement is held (default 8) |
+| `anim_density_maps` | bin-density heat map beside each placement frame (default 1) |
+| `anim_trace_every` | global-placement frame every N iterations (default 1; `0` keeps only the final one) |
+| `anim_cg_every` | frame every N conjugate-gradient iterates (default 0, off) |
+| `final_zoom` | final still scale, vs 768x768 (default 8) |
+| `final_ppm` | also write the lossless PPM beside the PNG (default 0, off) |
 
 On a large design the frames are most of global placement's time. When only the
-placement matters, set `KTPLACE_ANIM=0` and `KTPLACE_ANIM_TRACE_EVERY=0` (the
-HPWL is the same), or pass `--no-plots` to skip every picture.
+placement matters, set `visualizer anim 0` and `visualizer anim_trace_every 0`
+(the HPWL is the same), or pass `--no-plots` to skip every picture.
 
 Timing is measured with `ScopedTimer` (`src/util/kt_scopedTimer.h`), which
 records wall and processor time per named phase and reports the table once at

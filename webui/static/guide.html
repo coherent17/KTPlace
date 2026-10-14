@@ -119,7 +119,7 @@ pre { background: #0d1216; border: 1px solid var(--line); border-radius: 6px; pa
       <div class="node io"><div class="t"><span class="n">2</span>Choose the algorithm and settings</div>
         <div class="d"><b>simpl</b> (quadratic + look-ahead legalization) or <b>ntuplace1</b>
           (ratio partitioning). Tick <i>verbose</i> for the per-iteration trace, and add
-          <code>KTPLACE_*=value</code> lines to override tuning.</div></div>
+          <code>component option value</code> lines (<i>Options</i>) to tune a stage.</div></div>
       <div class="arrow"></div>
       <div class="node"><div class="t"><span class="n">3</span>Start the run</div>
         <div class="d">The engine runs in the console container, in its own directory
@@ -256,8 +256,9 @@ pre { background: #0d1216; border: 1px solid var(--line); border-radius: 6px; pa
         <tr><td><code>ktplace_trace.log</code></td><td>Per-iteration diagnostics (always written; <code>-v</code> also prints them).</td></tr>
         <tr><td><code>plots/index.html</code></td><td>Gallery of every SVG frame per stage, and the HPWL curve.</td></tr>
         <tr><td><code>plots/final/final.png</code></td><td>High-resolution still of the finished placement.</td></tr>
-        <tr><td><code>plots/anim/placement.gif</code></td><td>The animated run (unless <code>KTPLACE_ANIM=0</code>).</td></tr>
-        <tr><td><code>request.json</code></td><td>Console runs only: design, algorithm, overrides and the exact command.</td></tr>
+        <tr><td><code>plots/anim/placement.gif</code></td><td>The animated run (unless <code>visualizer anim 0</code>).</td></tr>
+        <tr><td><code>request.json</code></td><td>Console runs only: design, algorithm, options and the exact command.</td></tr>
+        <tr><td><code>config.tcl</code></td><td>Console runs with options: the <code>add_option</code> lines the run was given with <code>-c</code>.</td></tr>
       </tbody>
     </table></div>
     <p>Pass <code>--no-plots</code> to skip every frame and picture; a full ISPD 2005 run
@@ -267,27 +268,29 @@ pre { background: #0d1216; border: 1px solid var(--line); border-radius: 6px; pa
   <!-- 5 ------------------------------------------------------------------>
   <section id="tuning">
     <h2>5 · Tuning knobs</h2>
-    <p class="lede">The engine reads its tuning from <code>KTPLACE_*</code> environment variables,
-      not flags. In the console, put them in <i>Environment overrides</i>; on the command line,
-      prefix the command.</p>
+    <p class="lede">Every stage setting is an option, set with
+      <code>add_option &lt;component&gt; &lt;option&gt; &lt;value&gt;</code>. In the console, put
+      the three words per line in <i>Options</i>; on the command line, write the lines into a
+      script and pass it with <code>-c</code>.</p>
     <div class="tablewrap"><table>
-      <thead><tr><th scope="col">Variable</th><th scope="col">Stage</th><th scope="col">Effect</th></tr></thead>
+      <thead><tr><th scope="col">Option</th><th scope="col">Stage</th><th scope="col">Effect</th></tr></thead>
       <tbody>
-        <tr><td><code>KTPLACE_SIMPL_ITERS</code></td><td>SimPL</td><td>Iteration budget for global placement.</td></tr>
-        <tr><td><code>KTPLACE_SIMPL_SEED</code></td><td>SimPL</td><td>Seed for the initial placement; vary it to see run-to-run spread.</td></tr>
-        <tr><td><code>KTPLACE_SIMPL_GRID</code></td><td>SimPL</td><td>Density bin grid used by look-ahead legalization.</td></tr>
-        <tr><td><code>KTPLACE_SIMPL_DENSITY</code></td><td>SimPL</td><td>Target bin density.</td></tr>
-        <tr><td><code>KTPLACE_SIMPL_FENCES</code></td><td>SimPL</td><td><code>0</code> ignores fences, to see what the constraint costs.</td></tr>
-        <tr><td><code>KTPLACE_NTU_LEAF_CELLS</code></td><td>NTUPlace1</td><td>Stop partitioning once a region holds this many cells.</td></tr>
-        <tr><td><code>KTPLACE_ABACUS_MAX_ROW_DIST</code></td><td>Abacus</td><td>How many rows away a cell may be moved.</td></tr>
-        <tr><td><code>KTPLACE_DP_WINDOW</code></td><td>FastDP</td><td>Window size for detailed-placement moves.</td></tr>
-        <tr><td><code>KTPLACE_ANIM</code></td><td>Output</td><td><code>0</code> skips the GIF (frames and the final still are kept).</td></tr>
-        <tr><td><code>KTPLACE_FINAL_ZOOM</code></td><td>Output</td><td>Resolution of <code>final.png</code>.</td></tr>
+        <tr><td><code>simpl iters</code></td><td>SimPL</td><td>Iteration budget for global placement (default 100).</td></tr>
+        <tr><td><code>simpl seed</code></td><td>SimPL</td><td>Seed for the initial placement; vary it to see run-to-run spread.</td></tr>
+        <tr><td><code>simpl grid</code></td><td>SimPL</td><td>Density bin grid used by look-ahead legalization (0: automatic).</td></tr>
+        <tr><td><code>simpl density</code></td><td>SimPL</td><td>Target bin density (default 1.0).</td></tr>
+        <tr><td><code>simpl fences</code></td><td>SimPL</td><td><code>0</code> ignores fences, to see what the constraint costs.</td></tr>
+        <tr><td><code>ntuplace1 leaf_cells</code></td><td>NTUPlace1</td><td>Stop partitioning once a region holds this many cells.</td></tr>
+        <tr><td><code>abacus max_row_dist</code></td><td>Abacus</td><td>How many rows away a cell may be moved.</td></tr>
+        <tr><td><code>fastdp window</code></td><td>FastDP</td><td>Window size for detailed-placement re-ordering (2..14).</td></tr>
+        <tr><td><code>visualizer anim</code></td><td>Output</td><td><code>0</code> skips the GIF (frames and the final still are kept).</td></tr>
+        <tr><td><code>visualizer final_zoom</code></td><td>Output</td><td>Resolution of <code>final.png</code>.</td></tr>
       </tbody>
     </table></div>
-    <pre>KTPLACE_SIMPL_ITERS=25 KTPLACE_SIMPL_SEED=1 \
-    ktplace benchmark/ISPD_2005/adaptec1 -w output/adaptec1-25it</pre>
-    <p>The full list: <code>grep -rhoE 'KTPLACE_[A-Z0-9_]+' src | sort -u</code>.</p>
+    <pre>printf 'add_option simpl iters 25\nadd_option simpl seed 1\n' &gt; tuning.tcl
+ktplace benchmark/ISPD_2005/adaptec1 -c tuning.tcl -w output/adaptec1-25it</pre>
+    <p>Each stage logs the full table of its options when it runs, with what set each
+      value; <code>report_options</code> in a Tcl session shows what has been set so far.</p>
   </section>
 </div>
 </body>

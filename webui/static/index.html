@@ -201,10 +201,11 @@ code { font-family: var(--mono); }
         <label><input type="checkbox" id="verbose" value="1"> verbose (also stream
         the engine's trace log)</label>
         <details id="adv">
-          <summary>Environment overrides</summary>
-          <label for="env">KTPLACE_* variables, <code>KEY=VALUE</code> per line</label>
-          <textarea id="env" rows="4" spellcheck="false"
-            placeholder="KTPLACE_SIMPL_ITERS=25&#10;KTPLACE_SIMPL_SEED=1"></textarea>
+          <summary>Options</summary>
+          <label for="opts"><code>component option value</code> per line, as
+            <code>add_option</code> takes them</label>
+          <textarea id="opts" rows="4" spellcheck="false"
+            placeholder="simpl iters 25&#10;simpl seed 1"></textarea>
           <div class="hint">
             The engine tunes from the environment, not flags.
             <button type="button" id="presetfast">quick test</button>
@@ -300,7 +301,7 @@ code { font-family: var(--mono); }
       <thead>
         <tr><th scope="col">Run</th><th scope="col">Design</th><th scope="col">Algo</th>
             <th scope="col">Status</th><th scope="col">Elapsed</th><th scope="col">HPWL</th>
-            <th scope="col">Verdict</th><th scope="col">Env</th><th scope="col"></th></tr>
+            <th scope="col">Verdict</th><th scope="col">Options</th><th scope="col"></th></tr>
       </thead>
       <tbody id="history"></tbody>
     </table>
@@ -378,7 +379,7 @@ function setAnimation(src, status) {
   }
   tab.disabled = !src;
   $("animnote").textContent = src ? "" : (status === "running" ? "(after the run)" : "(none)");
-  tab.dataset.why = src ? "" : "No animation for this run (KTPLACE_ANIM=0, --no-plots, or still running)";
+  tab.dataset.why = src ? "" : "No animation for this run (visualizer anim 0, --no-plots, or still running)";
   applyTabs();
 }
 
@@ -495,19 +496,20 @@ async function loadBenchmarks() {
   } catch (e) { $("benchnote").textContent = "Could not list benchmarks: " + e.message; }
 }
 
-// The engine takes its tuning from KTPLACE_* environment variables, not flags,
-// so the free-text box is KEY=VALUE lines; the server re-validates each one.
-function envOverrides() {
-  const out = {};
-  for (const raw of $("env").value.split("\n")) {
+// The engine is configured with add_option lines, so the box takes them in the
+// same shape: component, option, value. The server re-validates each word and
+// writes them into the run's -c script.
+function runOptions() {
+  const out = [];
+  for (const raw of $("opts").value.split("\n")) {
     const line = raw.trim();
     if (!line || line.startsWith("#")) continue;
-    const i = line.indexOf("=");
-    if (i < 1) continue;
-    out[line.slice(0, i).trim()] = line.slice(i + 1).trim();
+    const words = line.replace(/^add_option\s+/, "").split(/\s+/);
+    if (words.length === 3) out.push(words);
   }
   return out;
 }
+const optionsTip = (opts) => (opts || []).map((o) => o.join(" ")).join("\n");
 
 async function submitRun() {
   const btn = $("runbtn");
@@ -517,7 +519,7 @@ async function submitRun() {
       benchmark: $("bench").value,
       algorithm: $("alg").value,
       verbose: $("verbose").checked,
-      env: envOverrides(),
+      options: runOptions(),
     };
     if (!body.benchmark) throw new Error("choose a benchmark");
     const run = await api("/api/runs", {
@@ -586,8 +588,8 @@ function renderHistory(runs) {
   }
   for (const r of runs) {
     const s = r.summary || {};
-    const envKeys = Object.keys(r.env || {});
-    const envTip = envKeys.map((k) => k + "=" + r.env[k]).join("\n");
+    const nOpts = (r.options || []).length;
+    const optTip = optionsTip(r.options);
     const elapsed = r.status === "running"
       ? fmtElapsed(r.elapsed) + "…" : fmtElapsed(r.elapsed);
     const tr = document.createElement("tr");
@@ -599,7 +601,7 @@ function renderHistory(runs) {
       `<td class="num">${esc(elapsed)}</td>` +
       `<td class="num">${esc(s.hpwl || "—")}</td>` +
       `<td>${esc(s.verdict || "—")}</td>` +
-      `<td class="num" title="${esc(envTip)}">${envKeys.length ? envKeys.length + " set" : "—"}</td>` +
+      `<td class="num" title="${esc(optTip)}">${nOpts ? nOpts + " set" : "—"}</td>` +
       `<td><button class="rmv" title="Delete this run" aria-label="Delete run ${esc(r.id)}">✕</button></td>`;
     tr.querySelector("td.open").onclick = () => selectRun(r.id);
     tr.querySelector(".rmv").onclick = () => deleteRun(r.id, r.status);
@@ -795,13 +797,13 @@ function renderDetail(run) {
   const pill = $("statepill");
   pill.className = "pill " + run.status;
   pill.textContent = run.status + (run.exitCode == null ? "" : ` (exit ${run.exitCode})`);
-  const envKeys = Object.keys(run.env || {});
-  const envTip = envKeys.map((k) => k + "=" + run.env[k]).join("\n");
+  const nOpts = (run.options || []).length;
+  const optTip = optionsTip(run.options);
   $("runmeta").innerHTML =
     esc(`${fmtTime(run.started)} · ${run.benchmark} · ${run.algorithm}` +
         (run.verbose ? " · verbose" : "") + ` · ${fmtElapsed(run.elapsed)}` +
-        (envKeys.length ? ` · ${envKeys.length} env override${envKeys.length > 1 ? "s" : ""}` : "")) +
-    (envKeys.length ? ` <span title="${esc(envTip)}" style="cursor:help">ⓘ</span>` : "") +
+        (nOpts ? ` · ${nOpts} option${nOpts > 1 ? "s" : ""}` : "")) +
+    (nOpts ? ` <span title="${esc(optTip)}" style="cursor:help">ⓘ</span>` : "") +
     ` · <a href="#" id="renamelink">rename</a>`;
   $("renamelink").onclick = (ev) => { ev.preventDefault(); renameRun(run); };
   $("tracewrap").style.display = run.verbose ? "block" : "none";
@@ -934,9 +936,9 @@ traceEl.addEventListener("scroll", () => {
 $("runbtn").onclick = submitRun;
 $("benchfilter").addEventListener("input", renderBenchOptions);
 $("presetfast").onclick = () => {
-  $("env").value = "KTPLACE_SIMPL_ITERS=25\nKTPLACE_ANIM_TRACE_EVERY=0\nKTPLACE_ANIM_CG_EVERY=0\n";
+  $("opts").value = "simpl iters 25\nvisualizer anim_trace_every 0\nvisualizer anim_cg_every 0\n";
 };
-$("presetclear").onclick = () => { $("env").value = ""; };
+$("presetclear").onclick = () => { $("opts").value = ""; };
 $("execrun").onclick = runCommand;
 $("execstop").onclick = stopCommand;
 $("execcmd").addEventListener("keydown", (e) => {

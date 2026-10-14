@@ -96,26 +96,26 @@ ktplace -t <script.tcl> [input_dir] [options]
   -h, --help / -V, --version
 ```
 
-Tuning is through `KTPLACE_*` environment variables, not flags. Set them on
-the command:
+Tuning is through options, not flags or environment variables: a script of
+`add_option <component> <option> <value>` lines, given with `-c`:
 
 ```sh
-KTPLACE_SIMPL_ITERS=25 KTPLACE_SIMPL_SEED=1 \
-    ktplace benchmark/ISPD_2005/adaptec1 -w output/adaptec1-25it
+printf 'add_option simpl iters 25\nadd_option simpl seed 1\n' > output/tuning.tcl
+ktplace benchmark/ISPD_2005/adaptec1 -c output/tuning.tcl -w output/adaptec1-25it
 ```
 
-Common ones: `KTPLACE_SIMPL_ITERS`, `KTPLACE_SIMPL_SEED`, `KTPLACE_SIMPL_GRID`,
-`KTPLACE_SIMPL_DENSITY`, `KTPLACE_DP_WINDOW`, `KTPLACE_ANIM` (animated GIF),
-`KTPLACE_FINAL_ZOOM`. All of them are declared, with type, default, range and a
-one-line description, in `src/util/kt_param.cc`.
+Common ones: `simpl iters`, `simpl seed`, `simpl grid`, `simpl density`,
+`fastdp window`, `visualizer anim` (animated GIF), `visualizer final_zoom`. The
+README's [Options](../README.md#options) section lists where each component
+declares its options; every stage logs its full table when it runs.
 
 ### 4. From the browser: the web console
 
 Open http://127.0.0.1:8080.
 
 - **Start a run**: pick a design (every suite under `benchmark/` is mounted),
-  an algorithm, optionally *verbose*, and `KEY=VALUE` lines in
-  *Environment overrides* (only `KTPLACE_*` keys with plain values are kept).
+  an algorithm, optionally *verbose*, and `component option value` lines in
+  *Options* (written into the run's `config.tcl` and given to `ktplace -c`).
   The transcript streams live with a phase bar and a heartbeat (frames, CPU,
   memory), so a long solve is visibly alive.
 - **Review**: the *Run* tab has the stats, links and logs; the *Animated
@@ -137,7 +137,7 @@ streams its output. Use it for quick checks next to your runs:
 ls runs/                                            # every run directory
 tail -n 30 runs/<id>/ktplace.log
 build/bin/ktplace benchmark/ISPD_2005/adaptec1 -w runs/manual-1 -a simpl
-KTPLACE_SIMPL_SEED=7 build/bin/ktplace benchmark/ISPD_2005/adaptec1 -w runs/seed7
+build/bin/ktplace benchmark/ISPD_2005/adaptec1 -c runs/<id>/config.tcl -w runs/again
 ```
 
 Know its limits:
@@ -231,7 +231,7 @@ The page is a thin client over a JSON API, so scripts can drive it too:
 H='Content-Type: application/json'
 curl -s http://127.0.0.1:8080/api/benchmarks
 curl -s -X POST -H "$H" http://127.0.0.1:8080/api/runs \
-     -d '{"benchmark":"ISPD_2005/adaptec1","algorithm":"simpl","env":{"KTPLACE_SIMPL_SEED":"1"}}'
+     -d '{"benchmark":"ISPD_2005/adaptec1","algorithm":"simpl","options":[["simpl","seed","1"]]}'
 curl -s "http://127.0.0.1:8080/api/runs/<id>/log?offset=0"
 curl -s -o run.zip "http://127.0.0.1:8080/api/runs/<id>/download?what=all"
 curl -s -X POST -H "$H" http://127.0.0.1:8080/api/exec -d '{"cmd":"ls runs"}'

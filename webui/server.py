@@ -20,7 +20,9 @@ Endpoints
   GET    /api/benchmarks         designs the console can run
   GET    /api/system             machine CPU and memory, for the resource panel
   GET    /api/runs               run history with headline metrics
-  POST   /api/runs               start a run: {"benchmark","algorithm","verbose","env"}
+  POST   /api/runs               start a run: {"benchmark","algorithm","verbose","options"}
+                                  options: [[component, option, value], ...], run as
+                                  add_option lines through `ktplace -c`
   GET    /api/runs/<id>          status, progress, result summary, artifact links
   POST   /api/runs/<id>/label    rename a run: {"label"}
   DELETE /api/runs/<id>          stop a run (if live) and delete its directory
@@ -91,13 +93,13 @@ ALLOWED_HOSTS = {"localhost", "127.0.0.1", "::1", "ktplace-web"} | {
     h.strip().lower() for h in os.environ.get("KTPLACE_WEB_ALLOWED_HOSTS", "").split(",")
     if h.strip()}
 
-# The engine reads its tuning from the environment (kt_option/flowMgr take no
-# flags for it), so an override is a KEY=VALUE pair rather than an argument. The
-# allow-list is deliberately: KTPLACE_-namespaced keys with a value of shell- and
-# environment-safe characters, so what launch() hands to Popen cannot smuggle a
-# second command or a new variable into the child.
-ENV_KEY_RE = re.compile(r"^KTPLACE_[A-Z0-9_]{1,48}$")
-ENV_VALUE_RE = re.compile(r"^[A-Za-z0-9_.,:/+%-]{0,64}$")
+# A run is configured the way the engine is configured anywhere: add_option
+# lines in a Tcl script, here written into the run directory and given to
+# `ktplace -c`. Each word is checked against these before it is written, so a
+# value cannot carry Tcl syntax -- no blanks, quotes, braces, brackets, `$` or
+# `;` -- and the script is exactly one add_option per entry.
+OPTION_NAME_RE = re.compile(r"^[a-z][a-z0-9_]{0,31}$")
+OPTION_VALUE_RE = re.compile(r"^[A-Za-z0-9_.,:/+%-]{1,64}$")
 
 WEBUI_DIR = pathlib.Path(__file__).resolve().parent
 STATIC_DIR = WEBUI_DIR / "static"
@@ -388,14 +390,14 @@ class Run:
 
     def __init__(self, rid: str, meta: dict, work: pathlib.Path):
         self.id = rid
-        self.meta = meta  # benchmark, algorithm, verbose, env, started, label
+        self.meta = meta  # benchmark, algorithm, verbose, options, started, label
         self.work = work
         self.proc: subprocess.Popen | None = None
         self.status = "unknown"  # reset by launch / index_existing_runs
         self.exit_code: int | None = None
         self.started = meta.get("started", time.time())
         self.ended: float | None = None
-        self.env: dict = meta.get("env") or {}
+        self.options: list = meta.get("options") or []
         self.label: str = meta.get("label") or ""
         self._summary: dict | None = None  # cache of the parsed headline numbers
         # Live progress: the stage bar is scanned out of the transcript, while
@@ -426,24 +428,34 @@ class EngineNotBuilt(RuntimeError):
     such (503, retried by the user) rather than as a fault in the server."""
 
 
-def clean_env(raw) -> dict:
-    """Keep the KTPLACE_ overrides that pass the allow-lists, drop the rest.
+def clean_options(raw) -> list:
+    """Keep the [component, option, value] entries that pass the allow-lists.
 
-    A rejected pair is dropped rather than fatal: a typo in one line should not
+    A rejected entry is dropped rather than fatal: a typo in one line should not
     refuse a run that the remaining lines describe.
     """
-    if not isinstance(raw, dict):
-        return {}
-    out = {}
-    for key, value in raw.items():
-        key, value = str(key).strip(), str(value).strip()
-        if ENV_KEY_RE.match(key) and ENV_VALUE_RE.match(value):
-            out[key] = value
+    if not isinstance(raw, list):
+        return []
+    out = []
+    for entry in raw:
+        if not isinstance(entry, (list, tuple)) or len(entry) != 3:
+            continue
+        component, key, value = (str(w).strip() for w in entry)
+        if (OPTION_NAME_RE.match(component) and OPTION_NAME_RE.match(key)
+                and OPTION_VALUE_RE.match(value)):
+            out.append([component, key, value])
     return out
 
 
+def config_script(options: list) -> str:
+    """The -c script for a run: one add_option per entry, words already checked."""
+    lines = ["# Written by the web console for this run; given to ktplace -c."]
+    lines += [f"add_option {c} {k} {v}" for c, k, v in options]
+    return "\n".join(lines) + "\n"
+
+
 def launch(benchmark: str, target: str, algorithm: str, verbose: bool,
-           env: dict | None = None) -> Run:
+           options: list | None = None) -> Run:
     # Resolved first, so a console that is up but whose engine is not built
     # yet reports that instead of leaving an empty run directory behind.
     binary = resolve_bin()
@@ -451,31 +463,33 @@ def launch(benchmark: str, target: str, algorithm: str, verbose: bool,
         raise EngineNotBuilt(
             "ktplace is not built yet -- run scripts/devenv.sh up, or `make` "
             "in the dev container, then start the run again")
-    env = clean_env(env)
+    options = clean_options(options)
     rid = new_id()
     work = RUN_ROOT / rid
     work.mkdir(parents=True, exist_ok=True)
+    config = work / "config.tcl"
+    extra = []
+    if options:
+        config.write_text(config_script(options))
+        extra = ["-c", str(config)]
     # cmd lives in meta, not only in the file, so a later rewrite of
     # request.json (a rename) carries it along.
     meta = {"benchmark": benchmark, "algorithm": algorithm, "verbose": verbose,
-            "env": env, "started": time.time(), "cmd": " ".join(
-                [binary, benchmark, "-a", algorithm, "-w", str(work)]
+            "options": options, "started": time.time(), "cmd": " ".join(
+                [binary, benchmark, "-a", algorithm, "-w", str(work)] + extra
                 + (["-v"] if verbose else []))}
     try:
         (work / "request.json").write_text(json_dumps({**meta, "id": rid}))
     except OSError:
         pass
-    args = [binary, target, "-a", algorithm, "-w", str(work)]
+    args = [binary, target, "-a", algorithm, "-w", str(work)] + extra
     if verbose:
         args.append("-v")
     # The engine logs to ktplace.log, which it flushes after every record; that
     # file is the stream the page follows, so the child's own stdio is thrown
     # away rather than drained through a pipe (the engine buffered it anyway).
-    # The overrides are merged over the server's own environment, not replacing
-    # it: the engine still needs PATH and HOME like any other process.
-    proc_env = {**os.environ, **env} if env else None
     proc = subprocess.Popen(args, cwd=str(HOME), stdout=subprocess.DEVNULL,
-                            stderr=subprocess.DEVNULL, env=proc_env)
+                            stderr=subprocess.DEVNULL)
     run = Run(rid, meta, work)
     run.proc = proc
     run.status = "running"
@@ -716,7 +730,7 @@ def export_zip(run: Run, buf) -> None:
         z.writestr("summary.json", json_dumps({
             "id": run.id, "benchmark": run.meta.get("benchmark"),
             "algorithm": run.meta.get("algorithm"), "status": run.status,
-            "elapsed": round(run.elapsed(), 2), "env": run.env,
+            "elapsed": round(run.elapsed(), 2), "options": run.options,
             "summary": summary(run),
         }))
 
@@ -1049,7 +1063,7 @@ class Handler(BaseHTTPRequestHandler):
                 run.meta["label"] = run.label
                 try:
                     (run.work / "request.json").write_text(
-                        json_dumps({**run.meta, "id": run.id, "env": run.env}))
+                        json_dumps({**run.meta, "id": run.id, "options": run.options}))
                 except OSError:
                     pass
                 return self._json(200, self._run_view(run, detail=True))
@@ -1062,7 +1076,7 @@ class Handler(BaseHTTPRequestHandler):
         benchmark = str(body.get("benchmark", "")).strip()
         algorithm = str(body.get("algorithm", "simpl")).strip()
         verbose = bool(body.get("verbose", False))
-        env = body.get("env")  # launch() filters it through clean_env
+        options = body.get("options")  # launch() filters it through clean_options
         if algorithm not in ALGORITHMS:
             return self._json(400, {"error": f"algorithm must be one of {ALGORITHMS}"})
         target = (BENCH_ROOT / benchmark).resolve()
@@ -1075,7 +1089,7 @@ class Handler(BaseHTTPRequestHandler):
         if running_count() >= MAX_RUNS:
             return self._json(409, {"error": "a run is already in progress"})
         try:
-            run = launch(benchmark, str(target), algorithm, verbose, env)
+            run = launch(benchmark, str(target), algorithm, verbose, options)
         except EngineNotBuilt as e:
             return self._json(503, {"error": str(e)})
         except OSError as e:
@@ -1138,7 +1152,7 @@ class Handler(BaseHTTPRequestHandler):
             "algorithm": run.meta.get("algorithm") or "simpl",
             "label": run.label,
             "verbose": bool(run.meta.get("verbose")),
-            "env": run.env,
+            "options": run.options,
             "status": run.status, "started": run.started,
             "elapsed": round(run.elapsed(), 2), "exitCode": run.exit_code,
             # The headline numbers ride on every view: the history table compares
