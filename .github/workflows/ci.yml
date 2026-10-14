@@ -203,14 +203,16 @@ jobs:
         # afterwards. The replay makes the visualizer the same calls with the same
         # values, so its output has to match the run above byte for byte; any
         # difference is a field the trace dropped or rounded. ibm01 because it is
-        # small and draws every kind of picture: frames, density maps, the bounds
-        # curve, the GIF and the final still.
+        # small and draws frames, density maps, the bounds curve and the final
+        # still. Recorded with the same script as the drawn run above, since the
+        # two are compared file for file.
         run: |
           set -euo pipefail
 
           source ktplace.sh
 
-          ktplace ./benchmark/ICCAD04/ibm01 --record -w output/ibm01-rec 2>&1 | tee smoke-record.log
+          ktplace ./benchmark/ICCAD04/ibm01 --record \
+            -w output/ibm01-rec -tcl smoke-multirow.tcl 2>&1 | tee smoke-record.log
           test -s output/ibm01-rec/plots/trace.ktrace
           # Recording draws nothing.
           test "$(find output/ibm01-rec/plots -type f ! -name trace.ktrace | wc -l)" -eq 0
