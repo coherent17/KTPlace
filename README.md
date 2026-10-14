@@ -21,6 +21,8 @@ CeCILL; see the header in `src/visualization/` for its terms.
 ```sh
 make            # builds build/bin/ktplace
 make test       # build and run every unit suite
+make gui        # build/bin/ktplace-gui, the Qt window (needs qt6-base-dev)
+make gui-test   # its tests, headless
 make format     # clang-format the sources
 ```
 
@@ -42,6 +44,9 @@ scripts/devenv.sh up        # start the dev container and compile ktplace
 scripts/devenv.sh ssh       # shell in /workspace (or: ssh -p 2222 dev@127.0.0.1)
 docker compose up -d        # the same without bash, e.g. from PowerShell
 ```
+
+`scripts/devenv.sh gui [design]` starts the desktop GUI (`make gui`, Qt 6) and
+opens it over VNC; see [docs/docker.md](docs/docker.md#5-the-desktop-gui).
 
 `docker build -t ktplace .` builds and unit-tests a copy of the tree the way CI
 does. [docs/docker.md](docs/docker.md) covers the rest: running commands, the

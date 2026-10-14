@@ -256,6 +256,54 @@ $(BIN_DIR)/test_tcl: $(TEST_tcl) $(TEST_DESIGN_HELPERS) $(LIB_OBJS) | dirs
 	@$(CXX) $(CXXFLAGS) $(INCLUDES) -o $@ $(TEST_tcl) $(LIB_OBJS) $(LIBS) $(COVERAGE_LDFLAGS) $(TEST_LIBS)
 
 # ============================================================================
+# GUI (opt-in)
+#
+# `make gui` builds build/bin/ktplace-gui; `make gui-test` builds test_gui and
+# runs it on Qt's offscreen platform. Neither is part of `all` or `test`, so the
+# CLI, its tests and the coverage gate never need Qt. Qt is found through
+# pkg-config, and only when one of these targets is built (the flags are
+# recursively expanded). Qt 6 is built with reduced relocations, so code that
+# includes its headers must be position independent: -fPIC for the GUI only.
+# No moc step: the GUI declares no Q_OBJECT classes (see gui/kt_engine.h).
+# ============================================================================
+
+QT_MODULES := Qt6Widgets
+# QT_NO_KEYWORDS: Qt's `emit`, `signals` and `slots` macros would rewrite the
+# engine's own Logger::emit and ktReportTable::emit; the GUI uses none of them.
+QT_CFLAGS = $(shell pkg-config --cflags $(QT_MODULES)) -DQT_NO_KEYWORDS
+QT_LIBS = $(shell pkg-config --libs $(QT_MODULES))
+
+GUI_SRCS := gui/kt_engine.cc gui/kt_logView.cc gui/kt_tclConsole.cc gui/kt_mainWindow.cc
+GUI_OBJS := $(GUI_SRCS:%.cc=$(OBJ_DIR)/%.o)
+GUI_MAIN_OBJ := $(OBJ_DIR)/gui/kt_gui.o
+GUI_TARGET := $(BIN_DIR)/ktplace-gui
+TEST_gui := gui/test/test_gui.cc
+
+.PHONY: gui gui-test
+gui: all $(GUI_TARGET)
+
+# More specific than the object rule above, so it wins for gui/.
+$(OBJ_DIR)/gui/%.o: gui/%.cc
+	@mkdir -p $(dir $@)
+	@echo "Compiling $<..."
+	@$(CXX) $(CXXFLAGS) -fPIC $(INCLUDES) $(QT_CFLAGS) -MMD -MP -c $< -o $@
+
+-include $(GUI_OBJS:.o=.d) $(GUI_MAIN_OBJ:.o=.d)
+
+$(GUI_TARGET): $(GUI_OBJS) $(GUI_MAIN_OBJ) $(LIB_OBJS) | dirs
+	@echo "Linking $@..."
+	@$(CXX) $(CXXFLAGS) -o $@ $(GUI_OBJS) $(GUI_MAIN_OBJ) $(LIB_OBJS) $(LIBS) $(QT_LIBS) $(COVERAGE_LDFLAGS)
+	@echo "Build complete: $@"
+
+$(BIN_DIR)/test_gui: $(TEST_gui) $(TEST_DESIGN_HELPERS) $(GUI_OBJS) $(LIB_OBJS) | dirs
+	@echo "  Building test_gui..."
+	@$(CXX) $(CXXFLAGS) -fPIC $(INCLUDES) $(QT_CFLAGS) -o $@ $(TEST_gui) $(GUI_OBJS) $(LIB_OBJS) $(LIBS) $(QT_LIBS) $(COVERAGE_LDFLAGS) $(TEST_LIBS)
+
+gui-test: all $(BIN_DIR)/test_gui
+	@echo "--- test_gui ---"
+	@QT_QPA_PLATFORM=offscreen $(BIN_DIR)/test_gui --log_level=test_suite
+
+# ============================================================================
 # Line coverage
 # ============================================================================
 #
@@ -289,6 +337,8 @@ help:
 	@echo "  all      - Build executable (default)"
 	@echo "  lib      - Build static library"
 	@echo "  test     - Build and run the unit tests (alias: check)"
+	@echo "  gui      - Build build/bin/ktplace-gui (needs Qt 6)"
+	@echo "  gui-test - Build and run the GUI tests, headless"
 	@echo "  lib      - Build static library"
 	@echo "  clean    - Remove build artifacts"
 	@echo "  rebuild  - Clean and rebuild"

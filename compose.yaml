@@ -23,6 +23,9 @@ services:
     ports:
       # Loopback only: the container is reachable from this machine, not the LAN.
       - "127.0.0.1:${KTPLACE_SSH_PORT:-2222}:22"
+      # ktplace-gui's VNC display (scripts/devenv.sh gui). 5901 on the host,
+      # because macOS's own screen sharing may already hold 5900.
+      - "127.0.0.1:${KTPLACE_VNC_PORT:-5901}:5900"
     volumes:
       # Edits on the host are seen in the container immediately, and the other
       # way round.

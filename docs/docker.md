@@ -149,6 +149,28 @@ Know its limits:
 The panel is enabled by `KTPLACE_WEB_ALLOW_EXEC=1`, which `compose.yaml` sets.
 Remove that line to switch it off.
 
+### 5. The desktop GUI
+
+`ktplace-gui` is the native Qt window: the design view on top, and a tabbed dock
+underneath with the live log and a Tcl console (the commands of `ktplace -t`;
+type `help`). Every menu action runs as a Tcl command in that console, so a
+session reads back as a script.
+
+```sh
+scripts/devenv.sh gui                                  # empty window
+scripts/devenv.sh gui benchmark/ICCAD04/ibm01          # read a design on start
+scripts/devenv.sh gui benchmark/ICCAD04/ibm01 -t scripts/flow.tcl
+```
+
+It builds `make gui` in the dev container and starts the window on Qt's VNC
+platform, served on `vnc://127.0.0.1:5901` (loopback only); on macOS it opens
+that address in Screen Sharing. Any VNC viewer works if yours declines a server
+without a password, which Qt's VNC display is. Its log and pictures go to
+`output/gui` unless you pass `-w`. Running `gui` again replaces the window.
+
+The port is published by `compose.yaml`, so a dev container created before it
+needs `scripts/devenv.sh up` once to pick it up.
+
 ## Calling the console's API
 
 The page is a thin client over a JSON API, so scripts can drive it too:
@@ -203,6 +225,7 @@ docker run --rm -p 127.0.0.1:8080:8080 -e KTPLACE_WEB_ALLOW_EXEC=1 \
 | `KTPLACE_SSH_PORT`           | `2222`    | Host port for the dev container's SSH          |
 | `KTPLACE_SSH_PUBKEY`         | `~/.ssh/id_ed25519.pub` | Key installed for `dev`          |
 | `KTPLACE_WEB_PORT`           | `8080`    | Host port for the console                      |
+| `KTPLACE_VNC_PORT`           | `5901`    | Host port for `ktplace-gui`'s VNC display      |
 | `KTPLACE_WEB_ALLOW_EXEC`     | off (`1` in compose) | Enables the Terminal panel          |
 | `KTPLACE_WEB_ALLOWED_HOSTS`  | --        | Extra host names the console answers to        |
 | `KTPLACE_WEB_MAX_RUNS`       | `1`       | Placements allowed at once                     |

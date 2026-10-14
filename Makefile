@@ -1,7 +1,7 @@
 # KTPlace Top-level Makefile
 # This is the entry point for building the entire project
 
-.PHONY: all clean rebuild test check help format format-check clang-format hooks compile-commands
+.PHONY: all clean rebuild test check gui gui-test help format format-check clang-format hooks compile-commands
 
 # Default target - build from src directory
 all:
@@ -18,6 +18,12 @@ rebuild:
 # Build and run the unit tests
 test:
 	@$(MAKE) -C src -f Master.make test
+
+gui:
+	@$(MAKE) -C src -f Master.make gui
+
+gui-test:
+	@$(MAKE) -C src -f Master.make gui-test
 
 check: test
 
@@ -67,6 +73,8 @@ help:
 	@echo "  clean         - Remove build artifacts"
 	@echo "  rebuild       - Clean and rebuild"
 	@echo "  test          - Build and run the unit tests (alias: check)"
+	@echo "  gui           - Build build/bin/ktplace-gui (needs Qt 6)"
+	@echo "  gui-test      - Build and run the GUI tests, headless"
 	@echo "  format        - Rewrite the sources with clang-format"
 	@echo "  format-check  - Report formatting problems, changing nothing"
 	@echo "  clang-format  - Show which clang-format would be used"

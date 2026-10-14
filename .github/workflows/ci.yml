@@ -286,3 +286,33 @@ jobs:
             output/adaptec1/plots/final/final.svg
             output/adaptec1/plots/anim/placement.gif
           if-no-files-found: ignore
+
+  gui:
+    # A job of its own, so the main job's build, tests and coverage gate never
+    # need Qt. Runs headless on Qt's offscreen platform.
+    name: GUI build and tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            g++ \
+            libtbb-dev \
+            libboost-iostreams-dev \
+            libboost-test-dev \
+            zlib1g-dev \
+            libfmt-dev \
+            tcl-dev \
+            qt6-base-dev \
+            pkg-config \
+            fonts-dejavu-core
+
+      - name: Build ktplace-gui
+        run: make -j"$(nproc)" gui
+
+      - name: GUI tests
+        run: make gui-test

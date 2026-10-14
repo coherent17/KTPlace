@@ -52,6 +52,9 @@ RUN apt-get update \
         zlib1g-dev \
         libfmt-dev \
         tcl-dev \
+        qt6-base-dev \
+        pkg-config \
+        fonts-dejavu-core \
         clang-format \
     && rm -rf /var/lib/apt/lists/*
 

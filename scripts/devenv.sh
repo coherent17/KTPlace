@@ -13,6 +13,10 @@
 #                                      'make && make test')
 #   scripts/devenv.sh exec [cmd]       the same through `docker exec`, no SSH
 #                                      involved
+#   scripts/devenv.sh gui [args]       build and start ktplace-gui in the dev
+#                                      container on Qt's VNC platform, then
+#                                      open it (args as for ktplace-gui; the
+#                                      work dir defaults to output/gui)
 #   scripts/devenv.sh status           what is running, and on which ports
 #   scripts/devenv.sh ssh-config       print an ~/.ssh/config entry for it
 #   scripts/devenv.sh stop             stop them; containers and volumes kept
@@ -24,6 +28,8 @@
 #   KTPLACE_SSH_PORT    host port for SSH, bound to 127.0.0.1 (default 2222)
 #   KTPLACE_WEB_PORT    host port for the web console, bound to 127.0.0.1
 #                       (default 8080)
+#   KTPLACE_VNC_PORT    host port for the GUI's VNC display, bound to 127.0.0.1
+#                       (default 5901; 5900 is often macOS's own screen sharing)
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -179,6 +185,31 @@ case "${1:-}" in
         fi
         build_tree "$@"
         ;;
+    gui)
+        shift
+        if [ -z "$(compose ps -q dev 2>/dev/null)" ]; then
+            echo "devenv: the dev container is not running; run scripts/devenv.sh up." >&2
+            exit 1
+        fi
+        build_tree gui
+        args=("$@")
+        case " $* " in
+            *" -w "* | *" --work-dir "*) ;;
+            *) args+=(-w output/gui) ;;
+        esac
+        # One window at a time: a second one could not bind the VNC port.
+        docker exec ktplace-dev pkill -x ktplace-gui 2>/dev/null || true
+        # Qt's VNC platform serves the window itself on port 5900 in the
+        # container; compose publishes it on the host's loopback only.
+        docker exec -d -u dev -w /workspace ktplace-dev \
+            build/bin/ktplace-gui -platform vnc:size=1440x900 ${args[@]+"${args[@]}"}
+        url="vnc://127.0.0.1:${KTPLACE_VNC_PORT:-5901}"
+        echo "devenv: ktplace-gui is serving on $url"
+        if [ "$(uname -s)" = Darwin ]; then
+            sleep 2
+            open "$url"
+        fi
+        ;;
     status)
         compose ps
         ;;
@@ -201,7 +232,7 @@ EOF
         compose down
         ;;
     *)
-        sed -n '2,26p' "$0" | sed 's/^# \{0,1\}//'
+        sed -n '2,33p' "$0" | sed 's/^# \{0,1\}//'
         exit 2
         ;;
 esac
