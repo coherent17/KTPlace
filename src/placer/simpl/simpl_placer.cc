@@ -586,7 +586,7 @@ void simplPlacer::Impl::buildGrid(const SimplParams &P) {
         double t =
             std::clamp(std::sqrt(static_cast<double>(std::max<std::size_t>(numMovable_, 1)) / 51.0),
                        16.0, 256.0);
-        if (const long v = SimplOptions().setInt("grid").value_or(0); v >= 8 && v <= 1024) {
+        if (const long v = SimplOptions::load().setInt("grid").value_or(0); v >= 8 && v <= 1024) {
             t = static_cast<double>(v);
         }
         nbx = static_cast<std::size_t>(t);
@@ -1168,15 +1168,14 @@ void simplPlacer::Impl::solve(const std::string &tag, bool allowFrames, std::siz
     setup(ax, Ax_, rhsX_, solX_);
     setup(ay, Ay_, rhsY_, solY_);
 
-    for (std::size_t it = 0; it < par_.cgMaxIter; ++it) {
-        // Overridable, because on this system the residual has a floor: every
-        // solve runs the full cgMaxIter and finishes between 1e-3 and 5e-3, so
-        // cgTol = 1e-3 is below what Jacobi preconditioning reaches and the cap is
-        // the only thing stopping it. That makes cgMaxIter, not the tolerance, the
-        // real stopping rule, and it is why a 100-iteration run costs 20 minutes.
-        if (const double v = SimplOptions().setDouble("cg_tol").value_or(0.0); v > 0.0) {
-            par_.cgTol = v;
-        }
+    // Overridable, because on this system the residual has a floor: every
+    // solve runs the full cgMaxIter and finishes between 1e-3 and 5e-3, so
+    // cgTol = 1e-3 is below what Jacobi preconditioning reaches and the cap is
+    // the only thing stopping it. That makes cgMaxIter, not the tolerance, the
+    // real stopping rule, and it is why a 100-iteration run costs 20 minutes.
+    // Read once per solve, not once per CG iteration.
+    if (const double v = SimplOptions::load().setDouble("cg_tol").value_or(0.0); v > 0.0) {
+        par_.cgTol = v;
     }
     for (std::size_t it = 0; it < par_.cgMaxIter; ++it) {
         const bool liveX = ax.active && ax.resid > par_.cgTol;
@@ -2880,7 +2879,7 @@ SimplResult simplPlacer::Impl::run(const SimplParams &P, bool useFences) {
     // the same symptom -- "the legalizer cannot spread" versus "the loop never
     // accumulates" -- by holding the input fixed and asking whether repeated
     // projection alone converges.
-    if (const auto configured = SimplOptions().setInt("lal_only_rounds");
+    if (const auto configured = SimplOptions::load().setInt("lal_only_rounds");
         configured && *configured > 0) {
         const int rounds = *configured;
         std::vector<double> lx = lower;

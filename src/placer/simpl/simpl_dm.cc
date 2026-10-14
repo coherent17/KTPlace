@@ -140,7 +140,7 @@ simplDM buildSimplDM(const ktDM &db, const PlotOptions &plot) {
     out.par.traceEvery = plot.traceEvery;
     out.par.cgEvery = plot.cgFrameEvery;
     out.par.densityMaps = plot.densityMaps;
-    out.useFences_ = SimplOptions().fences;
+    out.useFences_ = SimplOptions::load().fences;
     return out;
 }
 

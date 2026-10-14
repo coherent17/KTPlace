@@ -1362,9 +1362,14 @@ DetailPlaceResult FastDetailedPlacer::Impl::place(const DetailPlaceParams &param
     // The subset DP costs 2^k per window, so the window is the one knob that sets
     // the price of re-ordering. Measured on adaptec1: k=8 costs about 36 of 52
     // seconds for a few tenths of a percent. Overridable so the curve can be
-    // walked without a rebuild.
-    if (const long v = static_cast<long>(FastdpOptions().window); v >= 2 && v <= 14) {
-        localWindow_ = static_cast<std::size_t>(v);
+    // walked without a rebuild. Applied only when something sets it (a script,
+    // set_param or KTPLACE_DP_WINDOW), and refused out of range.
+    if (const auto v = Option<std::size_t>{"fastdp", "window", 0}.tryGet()) {
+        if (*v >= 2 && *v <= 14) {
+            localWindow_ = *v;
+        } else {
+            ktlog.warning("fastdp window {} is outside 2..14; keeping window {}", *v, localWindow_);
+        }
     }
 
 
@@ -1507,7 +1512,7 @@ DetailPlaceResult FastDetailedPlacer::Impl::place(const DetailPlaceParams &param
 
     sweep("global", params.globalSwapPasses, res.globalSwaps, &Impl::globalSwap);
     sweep("vertical", params.verticalSwapPasses, res.verticalSwaps, &Impl::verticalSwap);
-    if (!FastdpOptions().noMedian) {
+    if (!FastdpOptions::load().noMedian) {
         sweep("median", params.localReorderPasses, res.medianMoves, &Impl::medianReorder);
     }
     sweep("reorder", params.localReorderPasses, res.reorderMoves, &Impl::localReorder);

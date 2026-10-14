@@ -104,7 +104,11 @@ abacusDM buildAbacusDM(const ktDM &db) {
                                      info.hpwlInitial, info.overflow, info.mandatory});
     };
     abacusDM result(std::move(design));
-    result.par.maxRowDistance = result.options().maxRowDistance;
+    // Only when something sets it: the legalizer's own default, 0, searches
+    // every row, and the option's 16 would cap that on every run.
+    if (const auto v = Option<std::size_t>{"abacus", "max_row_dist", 16}.tryGet()) {
+        result.par.maxRowDistance = *v;
+    }
     return result;
 }
 

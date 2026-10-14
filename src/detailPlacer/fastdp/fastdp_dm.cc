@@ -94,9 +94,10 @@ fastdpDM buildFastdpDM(const ktDM &db) {
                          VisualFrame{info.series, info.step, info.numSteps, info.note, info.hpwl,
                                      info.hpwlInitial, info.overflow, info.mandatory});
     };
-    fastdpDM result(std::move(design));
-    result.par.localReorderWindow = static_cast<std::size_t>(result.options().window);
-    return result;
+    // The window is FastDP's to apply (see FastDetailedPlacer::place): it is
+    // range-checked there, and an unset option must leave the placer's own
+    // default of 6 alone rather than turn reordering off with the option's 0.
+    return fastdpDM(std::move(design));
 }
 
 namespace {

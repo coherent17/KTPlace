@@ -765,7 +765,23 @@ RatioPlaceResult RatioPlacer::Impl::place(const RatioPlaceParams &params) {
     return res_;
 }
 
-RatioPlacer::RatioPlacer(ktDM &db) : pImpl(new Impl(db)) {}
+RatioPlacer::RatioPlacer(ktDM &db) : pImpl(new Impl(db)) {
+    // The options a run set, over the placer's own defaults. Only those that
+    // are set: the options declare defaults of their own (100, 32, 4) that are
+    // not the placer's (32, 40, 24), and an unset option must not change a run.
+    if (const auto v = Option<std::size_t>{"ntuplace1", "leaf_cells", 100}.tryGet()) {
+        par.targetLeafCells = *v;
+    }
+    if (const auto v = Option<std::size_t>{"ntuplace1", "max_levels", 32}.tryGet()) {
+        par.maxLevels = *v;
+    }
+    if (const auto v = Option<std::size_t>{"ntuplace1", "retries", 4}.tryGet()) {
+        par.maxRatioRetries = *v;
+    }
+    if (const auto v = Option<bool>{"ntuplace1", "verbose", false}.tryGet()) {
+        par.verbose = *v;
+    }
+}
 RatioPlacer::~RatioPlacer() = default;
 RatioPlacer::RatioPlacer(RatioPlacer &&) noexcept = default;
 RatioPlacer &RatioPlacer::operator=(RatioPlacer &&) noexcept = default;

@@ -4,6 +4,11 @@
 
 #define BOOST_TEST_MODULE ktplace_session
 #define BOOST_TEST_DYN_LINK
+#include "datamodel/kt_optionDb.h"
+#include "detailPlacer/fastdp/fastdp_dm.h"
+#include "legalizer/abacus/abacus_dm.h"
+#include "placer/ntuplace1/kt_ntuplace1.h"
+#include "placer/simpl/simpl_dm.h"
 #include "session/kt_session.h"
 #include "test/kt_testDesign.h"
 #include "util/kt_progress.h"
@@ -157,7 +162,7 @@ BOOST_AUTO_TEST_CASE(session_rejects_an_out_of_range_detail_window) {
     std::cerr.rdbuf(original);
     ::unsetenv("KTPLACE_DP_WINDOW");
 
-    BOOST_TEST(captured.str().find("KTPLACE_DP_WINDOW=20 is outside 2..14") != std::string::npos);
+    BOOST_TEST(captured.str().find("fastdp window 20 is outside 2..14") != std::string::npos);
     BOOST_TEST(session.checkPlacement().empty());
 }
 
@@ -421,4 +426,41 @@ BOOST_AUTO_TEST_CASE(simpl_stopped_in_the_warm_up_skips_the_global_phase) {
     BOOST_TEST(watch.samples.front().phase == "init");
     BOOST_TEST(session.stageLog().back().stopped);
     BOOST_TEST(std::isfinite(session.hpwl()));
+}
+
+BOOST_AUTO_TEST_CASE(stage_options_apply_when_set_and_leave_the_defaults_otherwise) {
+    const ScratchDir dir("session_options");
+    ktSession session;
+    loadTiny(session, dir);
+    const ktDM &db = session.design();
+    // RatioPlacer writes its result into the database, so it takes it mutably;
+    // only its parameters are read here.
+    ktDM &mutableDb = const_cast<ktDM &>(db);
+    OptionDb::instance().clear();
+
+    // Unset: each stage keeps its own defaults, not the options' declared ones.
+    BOOST_TEST(simpl::buildSimplDM(db, PlotOptions{}).useFences());
+    BOOST_TEST(fastdp::buildFastdpDM(db).params().localReorderWindow == 6U);
+    BOOST_TEST(abacus::buildAbacusDM(db).params().maxRowDistance == 0U);
+    BOOST_TEST(RatioPlacer(mutableDb).params().targetLeafCells == 32U);
+    BOOST_TEST(RatioPlacer(mutableDb).params().maxRatioRetries == 24U);
+
+    // Set: they apply.
+    OptionDb &opts = OptionDb::instance();
+    opts.set("simpl", "fences", false);
+    opts.set("abacus", "max_row_dist", 3);
+    opts.set("ntuplace1", "leaf_cells", 12);
+    opts.set("ntuplace1", "verbose", true);
+    BOOST_TEST(!simpl::buildSimplDM(db, PlotOptions{}).useFences());
+    BOOST_TEST(abacus::buildAbacusDM(db).params().maxRowDistance == 3U);
+    BOOST_TEST(RatioPlacer(mutableDb).params().targetLeafCells == 12U);
+    BOOST_TEST(RatioPlacer(mutableDb).params().verbose);
+    BOOST_TEST(RatioPlacer(mutableDb).params().maxLevels == 40U);  // still the placer's
+
+    // A legal FastDP window is used; the placement stays legal either way.
+    session.legalize();
+    opts.set("fastdp", "window", 3);
+    session.detailPlace();
+    BOOST_TEST(session.checkPlacement().empty());
+    OptionDb::instance().clear();
 }
