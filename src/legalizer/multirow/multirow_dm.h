@@ -49,7 +49,8 @@ private:
 ///
 /// Only what this stage reads: the cells and their sizes, the rows, the regions, and just enough
 /// netlist to report the wirelength the pass cost. The stage itself never
-/// draws: it hands the positions to the visualizer, which decides where they go.
+/// draws, and no hook is installed here: the flow decides what a run draws and
+/// installs one on the result.
 [[nodiscard]] multirowDM buildMultiRowDM(const ktDM &db);
 
 }  // namespace multirow

@@ -61,7 +61,8 @@ private:
 ///
 /// Only what this stage reads: the cells, the rows, and the netlist it reports the wirelength cost of
 /// displacement over. The stage itself never
-/// draws: it hands the positions to the visualizer, which decides where they go.
+/// draws, and no hook is installed here: the flow decides what a run draws and
+/// installs one on the result.
 [[nodiscard]] fastdpDM buildFastdpDM(const ktDM &db);
 
 }  // namespace fastdp

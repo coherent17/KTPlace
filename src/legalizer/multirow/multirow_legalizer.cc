@@ -7,7 +7,6 @@
 #include "util/kt_log.h"
 #include "util/kt_reportTable.h"
 #include "util/kt_scopedTimer.h"
-#include "visualization/kt_visualizer.h"
 
 #include <algorithm>
 #include <cmath>

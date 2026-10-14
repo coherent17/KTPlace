@@ -36,6 +36,7 @@
 
 #include <array>
 #include <cstddef>
+#include <functional>
 #include <memory>
 #include <string>
 #include <vector>
@@ -80,6 +81,19 @@ struct RatioPlaceResult {
     std::size_t fenceViolations = 0;
 };
 
+// One snapshot the partitioner wants drawn: the cut that produced it, at which
+// depth of the recursion. The partitioner says when; the host says how.
+struct RatioFrameInfo {
+    std::string note;
+    std::size_t step = 0;      // depth of the cut
+    std::size_t numSteps = 0;  // the depth backstop
+};
+
+// Host hook: called with the lower-left corner of every cell. Null disables
+// drawing, and then no snapshot is built at all.
+using RatioFrameHook = std::function<void(
+    const std::vector<float> &xs, const std::vector<float> &ys, const RatioFrameInfo &info)>;
+
 // The partitioner's own summary, emitted from the component that produced it.
 void reportNtuPlace1(const RatioPlaceResult &res);
 
@@ -104,6 +118,9 @@ public:
     // handed back is deliberately overfull: the paper's global placement is, and
     // the legalizer is a separate step in both this paper and in this flow.
     RatioPlaceResult place(const RatioPlaceParams &params = {});
+
+    // Install the host's frame hook. The partitioner never draws on its own.
+    void setFrameHook(RatioFrameHook hook);
 
     friend RatioPlaceParams params(const RatioPlacer &);
 

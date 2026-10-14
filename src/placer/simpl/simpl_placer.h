@@ -322,7 +322,9 @@ struct SimplParams {
     std::size_t cgEvery = 0;
     /// Cadence inside the warm-up solves, which run a handful of times and are
     /// otherwise invisible in the animation: with the global phase's cadence the
-    /// opening of the run contributes no frames at all.
+    /// opening of the run contributes no frames at all. 0 turns them off, which
+    /// the host does when the run is not animating: they are only worth their
+    /// cost as frames of the GIF.
     std::size_t cgEveryInit = 1;
     /// Write a bin-density heat map next to every placement frame. This is the
     /// view that shows whether the lower bound is actually spreading.

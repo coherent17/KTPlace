@@ -11,7 +11,6 @@
 #include "placer/simpl/simpl_design.h"
 #include "placer/simpl/simpl_options.h"
 #include "placer/simpl/simpl_placer.h"
-#include "visualization/kt_plotOptions.h"
 
 namespace ktplace {
 
@@ -45,9 +44,16 @@ public:
         return d;
     }
 
-    /// Install the host's frame hook. SimPL never draws on its own.
+    /// Install the host's hooks. SimPL never draws on its own, and with none
+    /// installed it builds no snapshots at all.
     void setFrameHook(FrameHook hook) {
         d.onFrame = std::move(hook);
+    }
+    void setDensityHook(DensityHook hook) {
+        d.onDensity = std::move(hook);
+    }
+    void setBoundsHook(BoundsHook hook) {
+        d.onBounds = std::move(hook);
     }
 
     /// Run global placement and return where every cell ended up. The solver's
@@ -56,7 +62,7 @@ public:
     /// object.
     simplSolution run(const SimplParams &params, bool useFences);
 
-    friend simplDM buildSimplDM(const ktDM &db, const PlotOptions &plot);
+    friend simplDM buildSimplDM(const ktDM &db);
 
 private:
     Design d;
@@ -70,9 +76,9 @@ private:
 /// returns a plain value: SimPL keeps no reference back to ktDM, so a stale
 /// design cannot be mistaken for a current one.
 ///
-/// `plotDir` is where the host should write snapshots when SimPL asks for one.
-/// SimPL itself never draws; it hands the positions to the sink installed here.
-[[nodiscard]] simplDM buildSimplDM(const ktDM &db, const PlotOptions &plot);
+/// No hooks are installed: what a run draws is the host's to decide, so the
+/// flow installs them on the result.
+[[nodiscard]] simplDM buildSimplDM(const ktDM &db);
 
 }  // namespace simpl
 }  // namespace ktplace

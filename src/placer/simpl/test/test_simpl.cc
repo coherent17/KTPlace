@@ -18,7 +18,6 @@
 #include "placer/simpl/simpl_dm.h"
 #include "placer/simpl/simpl_placer.h"
 #include "util/kt_log.h"
-#include "visualization/kt_plotOptions.h"
 
 #include <boost/test/included/unit_test.hpp>
 #include <optional>
@@ -107,7 +106,7 @@ Built buildDesign(ktDM &db, bool withFence, bool pullOthersIn = false) {
 /// Run SimPL and commit its answer.
 SimplResult place(ktDM &db, bool useFences) {
     // No plots: this checks the solver, not what it draws.
-    simpl::simplDM dm = simpl::buildSimplDM(db, PlotOptions{});
+    simpl::simplDM dm = simpl::buildSimplDM(db);
     simplPlacer placer(dm.design());
     SimplParams params;
     params.maxIters = 30;

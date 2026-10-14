@@ -5,7 +5,6 @@
 
 #include "util/kt_log.h"
 #include "util/kt_reportTable.h"
-#include "visualization/kt_visualizer.h"
 
 #include <algorithm>
 #include <array>
@@ -59,6 +58,9 @@ constexpr double kBalanceSlack = 0.02;
 class RatioPlacer::Impl {
 public:
     explicit Impl(ktDM &db) : db_(db), graph_(db.getGraph()) {}
+
+    // Installed by the host; see RatioPlacer::setFrameHook.
+    RatioFrameHook onFrame_;
 
     RatioPlaceResult place(const RatioPlaceParams &params);
 
@@ -514,10 +516,8 @@ void RatioPlacer::Impl::placeLeaf(const RatioRegion &r) {
 }
 
 void RatioPlacer::Impl::writeFrame(std::size_t depth, const char *note) const {
-    // Frames go through the run's visualizer, the same budgeted sink every other
-    // stage uses; past its cap recording is a no-op, so do not build the arrays.
-    Visualizer &viz = Visualizer::instance();
-    if (!viz.enabled() || viz.capped()) {
+    // The host draws; with no hook there is nothing to build the arrays for.
+    if (!onFrame_) {
         return;
     }
     std::vector<float> xs(graph_.getNumCells(), 0.0f);
@@ -531,9 +531,7 @@ void RatioPlacer::Impl::writeFrame(std::size_t depth, const char *note) const {
         xs[mov_[i]] = static_cast<float>(posX_[i] - 0.5 * v.width);
         ys[mov_[i]] = static_cast<float>(posY_[i] - 0.5 * v.height);
     }
-    const std::array<double, 4> box = db_.placementDieBox();
-    viz.frame(graph_, xs, ys, box, fences_,
-              VisualFrame{"", depth, params_.maxLevels, note, 0.0, 0.0, 0.0, /*mandatory=*/false});
+    onFrame_(xs, ys, RatioFrameInfo{note, depth, params_.maxLevels});
 }
 
 int RatioPlacer::Impl::forcedSide(int region, const RatioRegion &r0, const RatioRegion &r1) const {
@@ -772,6 +770,10 @@ RatioPlacer &RatioPlacer::operator=(RatioPlacer &&) noexcept = default;
 
 RatioPlaceResult RatioPlacer::place(const RatioPlaceParams &params) {
     return pImpl->place(params);
+}
+
+void RatioPlacer::setFrameHook(RatioFrameHook hook) {
+    pImpl->onFrame_ = std::move(hook);
 }
 
 void reportNtuPlace1(const RatioPlaceResult &r) {

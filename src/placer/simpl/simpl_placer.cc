@@ -7,7 +7,6 @@
 #include "placer/simpl/simpl_options.h"
 #include "util/kt_log.h"
 #include "util/kt_scopedTimer.h"
-#include "visualization/kt_visualizer.h"
 
 #include <algorithm>
 #include <atomic>
@@ -16,14 +15,11 @@
 #include <cstdint>
 #include <cstdlib>
 #include <deque>
-#include <filesystem>
-#include <fstream>
 #include <limits>
 #include <numeric>
 #include <oneapi/tbb/blocked_range.h>
 #include <oneapi/tbb/parallel_for.h>
 #include <oneapi/tbb/parallel_reduce.h>
-#include <sstream>
 #include <vector>
 
 
@@ -359,7 +355,6 @@ private:
     /// Whether this stage contributes raster frames at all. The frames themselves
     /// belong to the run's PlacementAnimator, so that the legalizer and the
     /// detailed placer land in the same GIF rather than each keeping its own.
-    bool animEnabled_ = false;
 
     /// Placement fences, or null for an unconstrained design. Assigned to by run()
     /// and consulted after every solve and by the frame renderers.
@@ -2278,7 +2273,7 @@ void simplPlacer::Impl::enforceFences(std::vector<double> &px, std::vector<doubl
         double &x = px[i];
         double &y = py[i];
         const int id = movRegion_[i];
-        if (id != constraintMgr::kNoRegion) {
+        if (id != Fences::kNoRegion) {
             double cx = x;
             double cy = y;
             fences_->clampToRegion(id, cx, cy);
@@ -2389,98 +2384,29 @@ double simplPlacer::Impl::binLocal(const std::vector<double> &px, const std::vec
 void simplPlacer::Impl::writeDensityMap(const std::string &series, std::size_t step,
                                         const std::vector<double> &px,
                                         const std::vector<double> &py, const std::string &note) {
-    // Built as text and handed to the sink, so the solver still learns no path.
-    if (!design.onSvg) {
+    // The numbers, not a picture: the host decides how a density field is drawn.
+    if (!design.onDensity) {
         return;
     }
-    std::ostringstream svg;
-    std::vector<double> occ;
-    const double ovf = binLocal(px, py, occ);
-
-    // One rectangle per bin, coloured by occ/avail. This is the view that answers
-    // "is the lower bound actually spreading": a cell scatter plot of 210k cells
-    // still looks like a blob at this scale, whereas the density field is
-    // readable bin by bin.
-    constexpr int W = 900, H = 620, PAD = 52;
-    svg << "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"" << W << "\" height=\"" << H
-        << "\">\n<rect width=\"100%\" height=\"100%\" fill=\"#101418\"/>\n";
-    svg << "<title>" << note << "</title>\n";
-    const double sx = (W - 2 * PAD) / dieW_;
-    const double sy = (H - 2 * PAD) / dieH_;
-    const auto toX = [&](double x) {
-        return PAD + (x - die_[0]) * sx;
-    };
-    const auto toY = [&](double y) {
-        return H - PAD - (y - die_[1]) * sy;
-    };
-    const double bw = std::max(1.0, grid_.dx * sx);
-    const double bh = std::max(1.0, grid_.dy * sy);
-
-    for (std::size_t iy = 0; iy < grid_.nby; ++iy) {
-        for (std::size_t ix = 0; ix < grid_.nbx; ++ix) {
-            const std::size_t k = grid_.at(ix, iy);
-            if (!(grid_.avail[k] > 0.0)) {
-                continue;  // no sites at all: not part of the density problem
-            }
-            const double u = occ[k] / grid_.avail[k];
-            // Blue (empty) -> green (at capacity) -> red (overfull). Piecewise
-            // linear in u, so the eye reads a fill level directly.
-            int r, g, b;
-            if (u > 1.0) {
-                const double t = std::min((u - 1.0) / 2.0, 1.0);
-                r = 255;
-                g = static_cast<int>(90.0 * (1.0 - t));
-                b = static_cast<int>(90.0 * (1.0 - t));
-            } else {
-                r = static_cast<int>(40.0 + 90.0 * u);
-                g = static_cast<int>(90.0 + 150.0 * u);
-                b = static_cast<int>(190.0 * (1.0 - u));
-            }
-            svg << "<rect x=\"" << toX(grid_.binLoX(ix)) << "\" y=\""
-                << toY(grid_.binLoY(iy) + grid_.dy) << "\" width=\"" << bw << "\" height=\"" << bh
-                << "\" fill=\"rgb(" << r << ',' << g << ',' << b << ")\"/>\n";
-        }
-    }
-    // Fixed macros, outlined, so blockage is distinguishable from legal space.
+    DensityInfo info;
+    info.series = series;
+    info.step = step;
+    info.note = note;
+    info.overflow = binLocal(px, py, info.occ);
+    info.die = die_;
+    info.x0 = grid_.x0;
+    info.y0 = grid_.y0;
+    info.dx = grid_.dx;
+    info.dy = grid_.dy;
+    info.nbx = grid_.nbx;
+    info.nby = grid_.nby;
+    info.avail = grid_.avail;
+    info.blockages.reserve(fixVertex_.size());
     for (const std::uint32_t fv : fixVertex_) {
         const simpl::Cell &vert = graph.getCell(fv);
-        if (!(vert.width > 0.0) || !(vert.height > 0.0)) {
-            continue;
-        }
-        svg << "<rect x=\"" << toX(vx_[fv]) << "\" y=\"" << toY(vy_[fv] + vert.height)
-            << "\" width=\"" << (vert.width * sx) << "\" height=\"" << (vert.height * sy)
-            << "\" fill=\"#bdbdbd\" fill-opacity=\"0.45\" stroke=\"#bdbdbd\" "
-               "stroke-width=\"0.5\"/>\n";
+        info.blockages.push_back({vx_[fv], vy_[fv], vert.width, vert.height});
     }
-    svg << "<text x=\"" << PAD
-        << "\" y=\"24\" fill=\"#e0e0e0\" font-family=\"monospace\" "
-           "font-size=\"14\">bin density "
-        << note << "  ovf " << fmt::format("{:.4f}", ovf) << "</text>\n";
-    // Legend.
-    constexpr int kLegend = 12, kLegendW = 46;
-    const int lx0 = PAD, ly0 = H - PAD + 10;
-    for (int i = 0; i < kLegend; ++i) {
-        const double u = 2.0 * static_cast<double>(i) / (kLegend - 1);  // 0 .. 2
-        int r, g, b;
-        if (u > 1.0) {
-            const double t = std::min((u - 1.0) / 2.0, 1.0);
-            r = 255;
-            g = static_cast<int>(90.0 * (1.0 - t));
-            b = static_cast<int>(90.0 * (1.0 - t));
-        } else {
-            r = static_cast<int>(40.0 + 90.0 * u);
-            g = static_cast<int>(90.0 + 150.0 * u);
-            b = static_cast<int>(190.0 * (1.0 - u));
-        }
-        svg << "<rect x=\"" << (lx0 + i * kLegendW) << "\" y=\"" << ly0 << "\" width=\"" << kLegendW
-            << "\" height=\"9\" fill=\"rgb(" << r << ',' << g << ',' << b << ")\"/>\n";
-    }
-    svg << "<text x=\"" << lx0 << "\" y=\"" << (ly0 + 22)
-        << "\" fill=\"#9e9e9e\" "
-           "font-family=\"monospace\" font-size=\"10\">utilisation 0 -> 1 -> 2 (red = "
-           "overfull)</text>\n";
-    svg << "</svg>\n";
-    design.onSvg(series, std::to_string(step), svg.str());
+    design.onDensity(info);
     ++res_.framesWritten;
 }
 
@@ -2623,13 +2549,7 @@ SimplResult simplPlacer::Impl::run(const SimplParams &P, bool useFences) {
     g_ = std::clamp(par_.densityLimit, 0.05, 1.0);
 
     // Drawing is on exactly when the host installed a sink. With no sink the run
-    // draws nothing, rather than falling back to the output's own directory.
-    // The directories themselves are the visualizer's: it made them when the run
-    // was configured.
-    // The GIF is assembled by the flow once the legalizer and the detailed
-    // placer have added their frames, so that one animation covers the whole run
-    // instead of stopping at the end of global placement.
-    animEnabled_ = Visualizer::instance().animating();
+    // draws nothing; what it draws, where, and in which format is the host's.
 
     // Scoped to collect() alone. Declared at function scope it stayed alive until
     // place() returned, so "simpl-setup" reported the whole run -- 32s of which
@@ -2646,7 +2566,7 @@ SimplResult simplPlacer::Impl::run(const SimplParams &P, bool useFences) {
         // Cell::regionId is the source of truth, but the check runs over every cell
         // after every solve, so it wants this per movable index rather than a graph
         // lookup each time.
-        movRegion_.assign(numMovable_, constraintMgr::kNoRegion);
+        movRegion_.assign(numMovable_, Fences::kNoRegion);
         if (fences_ != nullptr) {
             for (std::size_t i = 0; i < numMovable_; ++i) {
                 movRegion_[i] = graph.getCell(movVertex_[i]).regionId;
@@ -2770,7 +2690,7 @@ SimplResult simplPlacer::Impl::run(const SimplParams &P, bool useFences) {
             solY_ = lowerY;
             // The warm-up solves are part of the run, so their iterates belong in
             // the animation alongside everything after them.
-            solve("init" + frameStep(it), /*allowFrames=*/animEnabled_, par_.cgEveryInit);
+            solve("init" + frameStep(it), /*allowFrames=*/true, par_.cgEveryInit);
             lower = solX_;
             lowerY = solY_;
             // No fence here: the lower bound is the unconstrained solve, and the
@@ -2964,7 +2884,7 @@ SimplResult simplPlacer::Impl::run(const SimplParams &P, bool useFences) {
     double buildAcc = 0.0;
     double solveAcc = 0.0;
     double spreadAcc = 0.0;
-    std::vector<std::pair<double, double>> curve;  // (upper HPWL, lower HPWL)
+    std::vector<BoundsPoint> curve;
     // The best legal placement seen, kept because "last" and "best" are not the
     // same thing. The upper bound is not monotone: legalizing a lower bound that
     // improved can still lengthen wires, so a later iteration can be worse than
@@ -3059,7 +2979,7 @@ SimplResult simplPlacer::Impl::run(const SimplParams &P, bool useFences) {
                 sawInvalidGap = true;
             }
         }
-        curve.emplace_back(upperHpwl, lowerHpwl);
+        curve.push_back({upperHpwl, lowerHpwl});
         res_.gap = gap;
 
         // Which upper bound to ship. The paper ships the last one, and the last
@@ -3325,51 +3245,8 @@ SimplResult simplPlacer::Impl::run(const SimplParams &P, bool useFences) {
         outY[movVertex_[i]] = upperY[i];
     }
 
-    if (!design.artifactDir.empty()) {
-        std::ofstream csv(design.artifactDir + "/simpl_bounds.csv");
-        csv << "iter,hpwl_upper,hpwl_lower,gap\n";
-        for (std::size_t i = 0; i < curve.size(); ++i) {
-            csv << i << ',' << curve[i].first << ',' << curve[i].second << ','
-                << (curve[i].first - curve[i].second) << '\n';
-        }
-        // Lower and upper HPWL against iteration: the two bounds meeting is the
-        // whole convergence story, so it is worth a picture.
-        double mx = 0.0;
-        for (const auto &p : curve) {
-            mx = std::max({mx, p.first, p.second});
-        }
-        const int W = 780, H = 340, PAD = 60;
-        std::ofstream svg(design.artifactDir + "/simpl_bounds.svg");
-        svg << "<svg xmlns='http://www.w3.org/2000/svg' width='" << W << "' height='" << H
-            << "'>\n<rect width='100%' height='100%' fill='white'/>\n"
-            << "<text x='" << PAD
-            << "' y='24' font-family='monospace' font-size='14'>"
-               "SimPL: HPWL of the lower and upper bounds</text>\n";
-        const auto px = [&](std::size_t i) {
-            return PAD + (W - 2 * PAD) *
-                             (curve.size() < 2
-                                  ? 0.0
-                                  : static_cast<double>(i) / static_cast<double>(curve.size() - 1));
-        };
-        const auto py = [&](double v) {
-            return H - PAD - (H - 2 * PAD) * std::clamp(v / std::max(mx, 1e-12), 0.0, 1.0);
-        };
-        svg << "<line x1='" << PAD << "' y1='" << (H - PAD) << "' x2='" << (W - PAD) << "' y2='"
-            << (H - PAD) << "' stroke='#333'/>\n<line x1='" << PAD << "' y1='" << PAD << "' x2='"
-            << PAD << "' y2='" << (H - PAD) << "' stroke='#333'/>\n";
-        svg << "<polyline fill='none' stroke='#2471a3' stroke-width='2' points='";
-        for (std::size_t i = 0; i < curve.size(); ++i) {
-            svg << px(i) << ',' << py(curve[i].second) << ' ';
-        }
-        svg << "'/><polyline fill='none' stroke='#c0392b' stroke-width='2' points='";
-        for (std::size_t i = 0; i < curve.size(); ++i) {
-            svg << px(i) << ',' << py(curve[i].first) << ' ';
-        }
-        svg << "'/>\n<text x='" << (W - PAD - 130) << "' y='" << (PAD + 12)
-            << "' font-family='monospace' font-size='12' fill='#2471a3'>lower bound</text>\n"
-            << "<text x='" << (W - PAD - 130) << "' y='" << (PAD + 28)
-            << "' font-family='monospace' font-size='12' fill='#c0392b'>upper "
-               "bound</text>\n</svg>\n";
+    if (design.onBounds) {
+        design.onBounds(curve);
     }
 
     if (design.onFrame) {
@@ -3384,41 +3261,6 @@ SimplResult simplPlacer::Impl::run(const SimplParams &P, bool useFences) {
         // assembled once the legalizer and the detailed placer have added their
         // frames, and a GIF closed at the end of global placement would stop
         // exactly where the placement stops being interesting.
-
-        // A browsable index of the stills alongside the bounds curve, so a run
-        // can be flipped through frame by frame without an image viewer that
-        // knows how to sort "frame_0010" after "frame_0009".
-        if (!animEnabled_) {
-            // Nothing rastered; the SVG stills are indexed by name instead.
-            std::vector<std::string> svgs;
-            std::error_code ec;
-            for (const auto &e : std::filesystem::directory_iterator(design.artifactDir, ec)) {
-                if (ec) {
-                    break;
-                }
-                if (e.path().extension() == ".svg") {
-                    svgs.push_back(e.path().filename().string());
-                }
-            }
-            std::sort(svgs.begin(), svgs.end());
-        } else {
-            // Raster stills now live in the run's animation directory, not
-            // beside the SVGs, so index them from there.
-            std::vector<std::string> stills;
-            const std::filesystem::path animDir =
-                std::filesystem::path(design.artifactDir) / "anim";
-            std::error_code ec;
-            for (const auto &e : std::filesystem::directory_iterator(animDir, ec)) {
-                if (ec) {
-                    break;
-                }
-                const std::string n = e.path().filename().string();
-                if (n.rfind("frame_", 0) == 0 && e.path().extension() == ".ppm") {
-                    stills.push_back("anim/" + n);
-                }
-            }
-            std::sort(stills.begin(), stills.end());
-        }
     }
 
     ktlog.trace("frames written: {}", res_.framesWritten);
