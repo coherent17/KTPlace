@@ -22,6 +22,7 @@
 #include "placer/ntuplace1/ntuplace1_flowMgr.h"
 #include "placer/simpl/simpl_dm.h"
 #include "placer/simpl/simpl_flowMgr.h"
+#include "tcl/kt_tclMgr.h"
 #include "util/kt_log.h"
 #include "util/kt_scopedTimer.h"
 #include "visualization/kt_visualizer.h"
@@ -36,8 +37,6 @@
 
 namespace ktplace {
 
-namespace components = ktplace::components;
-
 class FlowMgr::Impl {
 public:
     void run(const kt_option &options);
@@ -46,9 +45,10 @@ private:
     std::unique_ptr<ktDM> db;
     PlotOptions plot;
 
+    void parseTcl(const kt_option &options);
     void loadDesign(const std::string &dirPath);
     void reportDesign();
-    void placeDesign(const kt_option &options);
+    void placeDesign();
     void writeDesign(const std::string &outputPath);
     void legalizeDesign();
     void detailPlaceDesign();
@@ -70,18 +70,30 @@ void FlowMgr::run(const kt_option &options) {
 
 
 void FlowMgr::Impl::run(const kt_option &options) {
+    parseTcl(options);
     plot = options.plot ? PlotOptions::fromOptions() : PlotOptions{};
     plot.dir = options.getPlotDir();
 
     loadDesign(options.inputPath);
     reportDesign();
-    placeDesign(options);
+    placeDesign();
     legalizeDesign();
     detailPlaceDesign();
     renderFinalImage();
     finishAnimation();
     writeDesign(options.getOutputPath());
     TimerRegistry::instance().report();
+}
+
+void FlowMgr::Impl::parseTcl(const kt_option &options) {
+    if (options.tclFile.empty()) {
+        return;
+    }
+    try {
+        tcl::TclMgr::instance().loadScript(options.tclFile);
+    } catch (const tcl::Error &error) {
+        ktlog.fatal("{}: {}", options.tclFile, error.what());
+    }
 }
 
 void FlowMgr::Impl::loadDesign(const std::string &dirPath) {
@@ -109,7 +121,7 @@ void FlowMgr::Impl::reportDesign() {
     db->reportUtilisation();
 }
 
-void FlowMgr::Impl::placeDesign(const kt_option &options) {
+void FlowMgr::Impl::placeDesign() {
     ScopedTimer timer("place");
 
     // Which placer runs is the flow's business: it is the one that knows what

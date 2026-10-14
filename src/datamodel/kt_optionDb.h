@@ -54,7 +54,7 @@ enum class Id : std::uint8_t { Simpl, NtuPlace1, Abacus, FastDp, Visualizer, Flo
 enum class OptionOrigin {
     Default,  // never set: the option's own default stands
     Script,   // an add_option in the Tcl file
-    Env,      // a KTPLACE_<COMPONENT>_<KEY> variable, as a fallback
+    Env,      // an environment variable; nothing reads the environment today
 };
 
 [[nodiscard]] const char *toString(OptionOrigin origin);

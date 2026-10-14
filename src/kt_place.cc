@@ -1,7 +1,6 @@
 #include "kt_flowMgr.h"
 #include "kt_option.h"
 
-#include "tcl/kt_tclMgr.h"
 #include "util/kt_log.h"
 
 #include <exception>
@@ -21,18 +20,6 @@ int main(int argc, char *argv[]) {
         ktlog.echo("KTPlace - Know Thyself Placement Engine v{}", VERSION);
         ktlog.echo("========================================");
         options.report();
-
-        // The script is loaded before the flow, so every component reads its
-        // options from the store when it builds its own parameters. A script that
-        // does not exist, or does not parse, stops the run here rather than half
-        // way through a placement.
-        if (!options.tclFile.empty()) {
-            try {
-                ktplace::tcl::TclMgr::instance().loadScript(options.tclFile);
-            } catch (const ktplace::tcl::Error &error) {
-                ktlog.fatal("{}: {}", options.tclFile, error.what());
-            }
-        }
 
         FlowMgr flowMgr;
         ktlog.echo("Starting placement flow...");

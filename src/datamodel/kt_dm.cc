@@ -476,6 +476,7 @@ void ktDM::setLegalizationSolution(const abacusSolution &solution) {
 
 void ktDM::setMultiRowSolution(const multiRowSolution &solution) {
     commitCells(graph, solution);
+    isLegalizePlacement();
 }
 
 void ktDM::setDetailedPlaceSolution(const fastdpSolution &solution) {

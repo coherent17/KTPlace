@@ -20,10 +20,8 @@ namespace ktplace {
 //     add_option simpl grid 64
 //     add_option simpl cg_tol 1e-6
 //
-// Each was a KTPLACE_SIMPL_* environment variable, and the environment still works:
-// an option the script did not set falls through to KTPLACE_SIMPL_<KEY>, and then
-// to the default below. That is what makes a script a strict override rather than
-// a replacement -- an existing command line keeps working unchanged.
+// Each was a KTPLACE_SIMPL_* environment variable. The environment is no longer
+// read: an option the script did not set takes the default below.
 struct SimplOptions {
     // Grid resolution. Zero means "derive from the cell count", which is what the
     // placer does when this is not set: sqrt(movable / 51) clamped to [16, 256].

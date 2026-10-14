@@ -7,8 +7,6 @@
 
 namespace ktplace::tcl {
 
-namespace components = ktplace::components;
-
 namespace {
 
 // A script word becomes the variant a component reads. The type comes from the
