@@ -29,19 +29,21 @@ using ParamValue = std::variant<bool, std::int64_t, std::size_t, double, std::st
 /// Each style is exactly what the call site did before the registry existed, so
 /// a run tuned through the environment behaves as it always has. They are not
 /// unified on purpose: the sites disagree about garbage input, and changing that
-/// would silently change existing runs. An explicit set() does not use these;
-/// it parses strictly and rejects anything malformed.
+/// would silently change existing runs. The one exception is a bool: under
+/// either number rule, true/false, on/off and yes/no (any case) are read as the
+/// words they are, since reading "true" as 0 turned KTPLACE_SIMPL_FENCES=true
+/// into "fences off" and KTPLACE_ANIM=false into "animation on". An explicit
+/// set() does not use these; it parses strictly and rejects anything malformed.
 enum class EnvParse {
     /// std::atoi / std::atoll / std::atof: the leading number, and text that is
-    /// not a number reads as 0. A bool is "the number is non-zero", so "true"
-    /// reads as false.
+    /// not a number reads as 0. A bool is a word (see below) or "the number is
+    /// non-zero".
     CNumber,
     /// std::stod: text that is not a number, or is out of range, leaves the
-    /// default. A bool is "the number is non-zero"; an integer is the double
-    /// truncated. The plot settings read their variables this way.
+    /// default. A bool is a word (see below) or "the number is non-zero"; an
+    /// integer is the double truncated. The plot settings read their variables
+    /// this way.
     NumberOrDefault,
-    /// Bool only: set to anything at all, "0" and "" included, means true.
-    Presence,
     /// String only: the raw text, validated (with any warning) by the site.
     Text,
 };

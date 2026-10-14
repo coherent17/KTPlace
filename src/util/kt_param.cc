@@ -166,8 +166,7 @@ std::vector<ParamDef> declarations() {
         boolean("KTPLACE_SIMPL_NO_LAL", simpl, false, CNumber,
                 "disable look-ahead legalization (diagnostic)"),
         integer("KTPLACE_SIMPL_LAL_ONLY", simpl, 0, CNumber, kNonNegative,
-                "diagnostic: repeat look-ahead legalization N times on one input "
-                "(any override, 0 included, runs it at least once)"),
+                "diagnostic: repeat look-ahead legalization N times on one input (0 = off)"),
 
         // --- NTUPlace1 (kt_flowMgr.cc) ---------------------------------------
         size("KTPLACE_NTU_LEAF_CELLS", ntu, 32, CNumber, kNonNegative,
@@ -189,17 +188,42 @@ std::vector<ParamDef> declarations() {
         // --- FastDP (kt_flowMgr.cc, fastdp_placer.cc) ------------------------
         size("KTPLACE_DP_WINDOW", fastdp, 6, CNumber, {2.0, 14.0},
              "local re-ordering window; the subset DP costs 2^k per window"),
-        boolean("KTPLACE_DP_NO_MEDIAN", fastdp, false, Presence,
-                "skip the median re-ordering sweep (in the environment, any value)"),
+        boolean("KTPLACE_DP_NO_MEDIAN", fastdp, false, CNumber,
+                "skip the median re-ordering sweep"),
     };
 }
 
 // --- environment parsing ----------------------------------------------------
 
+// true/false, on/off, yes/no in any case, ignoring surrounding blanks; nullopt
+// for anything else, which the number rules then read as before.
+std::optional<bool> boolWord(std::string_view raw) {
+    while (!raw.empty() && std::isspace(static_cast<unsigned char>(raw.front()))) {
+        raw.remove_prefix(1);
+    }
+    while (!raw.empty() && std::isspace(static_cast<unsigned char>(raw.back()))) {
+        raw.remove_suffix(1);
+    }
+    std::string l(raw);
+    std::ranges::transform(l, l.begin(), [](unsigned char ch) {
+        return static_cast<char>(std::tolower(ch));
+    });
+    if (l == "true" || l == "on" || l == "yes") {
+        return true;
+    }
+    if (l == "false" || l == "off" || l == "no") {
+        return false;
+    }
+    return std::nullopt;
+}
+
 std::optional<ParamValue> parseEnv(const ParamDef &def, const char *raw) {
+    if (def.type == ParamType::Bool) {
+        if (const auto word = boolWord(raw)) {
+            return ParamValue(*word);
+        }
+    }
     switch (def.envParse) {
-        case EnvParse::Presence:
-            return ParamValue(true);
         case EnvParse::Text:
             return ParamValue(std::in_place_type<std::string>, raw);
         case EnvParse::CNumber:

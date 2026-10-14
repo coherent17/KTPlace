@@ -2842,8 +2842,10 @@ SimplResult simplPlacer::Impl::run(const SimplParams &P, bool useFences) {
     // the same symptom -- "the legalizer cannot spread" versus "the loop never
     // accumulates" -- by holding the input fixed and asking whether repeated
     // projection alone converges.
-    if (const auto envRounds = paramOverride<std::int64_t>("KTPLACE_SIMPL_LAL_ONLY")) {
-        const int rounds = static_cast<int>(std::max<std::int64_t>(*envRounds, 1));
+    // 0 is off, like the default; it used to run the diagnostic once.
+    if (const auto envRounds = paramOverride<std::int64_t>("KTPLACE_SIMPL_LAL_ONLY");
+        envRounds && *envRounds > 0) {
+        const int rounds = static_cast<int>(*envRounds);
         std::vector<double> lx = lower;
         std::vector<double> ly = lowerY;
         double prev = std::numeric_limits<double>::max();

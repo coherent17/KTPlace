@@ -357,9 +357,14 @@ BOOST_AUTO_TEST_CASE(param_precedence_is_default_then_environment_then_set) {
 BOOST_AUTO_TEST_CASE(param_environment_keeps_each_sites_old_parsing) {
     auto &reg = ParamRegistry::instance();
     {
-        // std::atoi semantics: the leading number, garbage is 0, "true" is 0.
+        // std::atoi semantics: the leading number, garbage is 0 -- except that a
+        // bool reads true/false, on/off and yes/no as words, so "true" is on.
         const EnvGuard env("KTPLACE_SIMPL_FENCES");
         env.set("true");
+        BOOST_TEST(reg.get<bool>("KTPLACE_SIMPL_FENCES"));
+        env.set(" OFF ");
+        BOOST_TEST(!reg.get<bool>("KTPLACE_SIMPL_FENCES"));
+        env.set("garbage");
         BOOST_TEST(!reg.get<bool>("KTPLACE_SIMPL_FENCES"));
         env.set("2");
         BOOST_TEST(reg.get<bool>("KTPLACE_SIMPL_FENCES"));
@@ -388,6 +393,11 @@ BOOST_AUTO_TEST_CASE(param_environment_keeps_each_sites_old_parsing) {
         env.set("0.0");
         BOOST_TEST(!reg.get<bool>("KTPLACE_ANIM"));
         BOOST_TEST(!PlotOptions::fromEnvironment().animate);
+        env.set("false");
+        BOOST_TEST(!reg.get<bool>("KTPLACE_ANIM"));
+        BOOST_TEST(!PlotOptions::fromEnvironment().animate);
+        env.set("yes");
+        BOOST_TEST(reg.get<bool>("KTPLACE_ANIM"));
     }
     {
         const EnvGuard env("KTPLACE_ANIM_MAX_FRAMES");
@@ -401,11 +411,13 @@ BOOST_AUTO_TEST_CASE(param_environment_keeps_each_sites_old_parsing) {
         BOOST_TEST(PlotOptions::fromEnvironment().frameDelayCs == 7);
     }
     {
-        // Presence: "0" still means "set".
+        // "0" is off: this used to be presence-triggered, so =0 skipped the sweep.
         const EnvGuard env("KTPLACE_DP_NO_MEDIAN");
         env.clear();
         BOOST_TEST(!reg.get<bool>("KTPLACE_DP_NO_MEDIAN"));
         env.set("0");
+        BOOST_TEST(!reg.get<bool>("KTPLACE_DP_NO_MEDIAN"));
+        env.set("1");
         BOOST_TEST(reg.get<bool>("KTPLACE_DP_NO_MEDIAN"));
     }
     {

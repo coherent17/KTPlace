@@ -1488,7 +1488,6 @@ DetailPlaceResult FastDetailedPlacer::Impl::place(const DetailPlaceParams &param
 
     sweep("global", params.globalSwapPasses, res.globalSwaps, &Impl::globalSwap);
     sweep("vertical", params.verticalSwapPasses, res.verticalSwaps, &Impl::verticalSwap);
-    // In the environment, any value -- "0" included -- skips the sweep.
     if (!param<bool>("KTPLACE_DP_NO_MEDIAN")) {
         sweep("median", params.localReorderPasses, res.medianMoves, &Impl::medianReorder);
     }
