@@ -7,7 +7,10 @@
 // shortest final wirelength the run history has for SimPL and for NTUPlace1,
 // the better one in bold, and -- when the root carries a baseline.tsv (see
 // scripts/bench_baseline.py) -- the recorded baseline next to it, so a change
-// to the engine can be judged against the last sweep.
+// to the engine can be judged against the last sweep. The two are not measured
+// alike: the history keeps the database's HPWL, the baseline FastDP's, which
+// leaves fixed pins out of the vertical span and reads lower (1.064e7 against
+// 1.194e7 for one ibm01 placement). The column headers say so.
 //
 // Double-click a design to read it; the context menu also runs the whole flow
 // on it with either algorithm. Both go through the window's callbacks, so they

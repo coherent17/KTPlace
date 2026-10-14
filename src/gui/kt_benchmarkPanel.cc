@@ -78,6 +78,18 @@ BenchmarkPanel::BenchmarkPanel(const RunHistory &history, QWidget *parent)
     tree_->setToolTip(
         QStringLiteral("Best final HPWL from the run history; double-click a "
                        "design to open it"));
+    // The two kinds of column measure HPWL differently, so each header says how.
+    for (int a = 0; a < static_cast<int>(algorithms().size()); ++a) {
+        tree_->headerItem()->setToolTip(
+            resultColumn(a),
+            QStringLiteral("Best final HPWL of a complete run in the history, as the "
+                           "database measures it (every pin, fixed ones included)"));
+        tree_->headerItem()->setToolTip(
+            baselineColumn(a),
+            QStringLiteral("baseline.tsv: the HPWL in FastDP's own report, which leaves fixed "
+                           "pins out of a net's vertical span and so reads lower than the "
+                           "history's figure for the same placement"));
+    }
     connect(tree_, &QWidget::customContextMenuRequested, this, &BenchmarkPanel::contextMenu);
     connect(tree_, &QTreeWidget::itemDoubleClicked, this, [this](QTreeWidgetItem *item, int) {
         if (onOpen) {
