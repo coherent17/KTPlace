@@ -236,4 +236,44 @@ BOOST_AUTO_TEST_CASE(fenced_cells_are_placed_in_their_region_and_others_kept_out
     }
 }
 
+BOOST_AUTO_TEST_CASE(frame_hook_sees_every_cut_and_does_not_change_the_placement) {
+    const auto build = [](ktDM &db) {
+        addRows(db);
+        (void)addCells(db, "c", 40);
+        for (int i = 0; i + 1 < 40; ++i) {
+            addNet(db, "n" + std::to_string(i),
+                   {"c" + std::to_string(i), "c" + std::to_string(i + 1)});
+        }
+    };
+    ktDM plain;
+    build(plain);
+    RatioPlacer(plain).place(smallLeaves());
+
+    ktDM watched;
+    build(watched);
+    RatioPlacer placer(watched);
+    std::size_t frames = 0;
+    bool wholeDesign = true;
+    bool depthInRange = true;
+    placer.setFrameHook([&](const std::vector<float> &xs, const std::vector<float> &ys,
+                            const RatioFrameInfo &info) {
+        ++frames;
+        wholeDesign =
+            wholeDesign && xs.size() == watched.getGraph().getNumCells() && ys.size() == xs.size();
+        depthInRange = depthInRange && info.step <= info.numSteps && !info.note.empty();
+    });
+    const RatioPlaceResult res = placer.place(smallLeaves());
+
+    BOOST_TEST(frames == res.cuts);
+    BOOST_TEST(wholeDesign);
+    BOOST_TEST(depthInRange);
+    // Watching is read-only: the same cuts land the cells in the same places.
+    for (std::size_t v = 0; v < plain.getGraph().getNumCells(); ++v) {
+        const auto [wx, wy] = watched.getCellPosition(v);
+        const auto [px, py] = plain.getCellPosition(v);
+        BOOST_TEST(wx == px);
+        BOOST_TEST(wy == py);
+    }
+}
+
 BOOST_AUTO_TEST_SUITE_END()

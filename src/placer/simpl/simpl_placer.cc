@@ -347,14 +347,8 @@ private:
     std::size_t deepestLevel_ = 0;
     std::size_t maxBlockCells_ = 0;
 
-    /// Where placement frames go, when there is anywhere to go: empty means the
-    /// when no plot directory was given). Empty disables all frames.
     /// Outer-loop context for the CG frames of the solve currently running.
     std::string cgTag_;
-
-    /// Whether this stage contributes raster frames at all. The frames themselves
-    /// belong to the run's PlacementAnimator, so that the legalizer and the
-    /// detailed placer land in the same GIF rather than each keeping its own.
 
     /// Placement fences, or null for an unconstrained design. Assigned to by run()
     /// and consulted after every solve and by the frame renderers.
