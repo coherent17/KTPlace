@@ -100,7 +100,7 @@ add_option visualizer anim 0
 | `visualizer` | `anim` | record frames and assemble the GIF (`1`) |
 | `visualizer` | `anim_max_frames` | frame budget for the run (`1200`) |
 | `visualizer` | `anim_zoom` | frame scale, vs 768x768 (`2`) |
-| `visualizer` | `anim_blend` | in-between frames per placement (`3`) |
+| `visualizer` | `anim_blend` | GIF frames per placement step: the snapshot plus N-1 frames interpolated from the previous one; `1` turns blending off (`3`) |
 | `visualizer` | `final_zoom` | final still scale, vs 768x768 (`8`) |
 | `visualizer` | `final_ppm` | also write the lossless PPM beside the PNG (`0`) |
 | `simpl` | `trace_every` | SVG frame every N global iterations; `0` turns them off (`1`) |
