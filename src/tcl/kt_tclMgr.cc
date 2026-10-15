@@ -74,7 +74,7 @@ void TclMgr::registerCommand(const std::string &name, tcl::Command command) {
 // is the caller's decision, and a caller that wants a report instead needs the
 // error to come back rather than the process to end.
 void TclMgr::loadScript(const std::string &path) {
-    interpreter.evalFile(path);
+    (void)interpreter.evalFile(path);
     OptionDb::instance().report();
 }
 

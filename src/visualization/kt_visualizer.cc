@@ -12,7 +12,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
-#include <fmt/format.h>
+#include <format>
 #include <fstream>
 #include <iomanip>
 #include <iterator>
@@ -363,13 +363,12 @@ constexpr double kImageH = 768.0;
 /// Filename stem of the per-iteration stills that writeAnimatedGif() collects.
 constexpr const char *kFramePrefix = "frame_";
 
-// fmt::format rather than an ostringstream: a frame calls this four times per
+// std::format rather than an ostringstream: a frame calls this four times per
 // cell, and constructing a stream per number was most of the cost of writing one.
 // "{:.Nf}" is the same correctly rounded fixed notation as std::fixed with
-// setprecision(N), so the text is unchanged. Qualified, because inside this
-// namespace `fmt` names this function rather than the library.
+// setprecision(N), so the text is unchanged.
 std::string fmt(double v, int prec = 1) {
-    return ::fmt::format("{:.{}f}", v, prec);
+    return std::format("{:.{}f}", v, prec);
 }
 
 std::string sci(double v) {
@@ -1531,11 +1530,10 @@ void writeFrameSvg(const std::string &path, const Graph &g, const std::vector<fl
                 // is never drawn wider than it is.
                 const double w = std::max(0.75, vert.width * vp.sx);
                 const double h = std::max(0.75, vert.height * vp.sy);
-                ::fmt::format_to(std::back_inserter(text),
-                                 "<rect x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\"/>\n",
-                                 fmt(toPxX(vp, x[v]), prec),
-                                 fmt(toPxY(vp, y[v] + vert.height), prec), fmt(w, prec),
-                                 fmt(h, prec));
+                std::format_to(std::back_inserter(text),
+                               "<rect x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\"/>\n",
+                               fmt(toPxX(vp, x[v]), prec), fmt(toPxY(vp, y[v] + vert.height), prec),
+                               fmt(w, prec), fmt(h, prec));
             }
         });
         for (const std::string &text : chunks) {

@@ -488,6 +488,7 @@ BOOST_AUTO_TEST_CASE(local_reordering_keeps_cells_on_their_sites) {
         addNet(db, "n" + a + b, a, b);
     }
     const DetailPlaceResult r = runAndCommit(db, only(2));
+    BOOST_TEST(r.overlappingPairs == 0u);
     BOOST_TEST(r0_offsite(db) == 0u);
     BOOST_TEST(isLegal(db));
 }

@@ -259,13 +259,13 @@ BOOST_AUTO_TEST_CASE(push_out_with_no_fences_at_all_changes_nothing) {
 
 BOOST_AUTO_TEST_CASE(assign_by_prefix_stamps_matching_cells_only) {
     Graph graph;
-    graph.addCell("eh0/a");
-    graph.addCell("eh0/b");
-    graph.addCell("eh1/a");
-    graph.addCell("other");
+    (void)graph.addCell("eh0/a");
+    (void)graph.addCell("eh0/b");
+    (void)graph.addCell("eh1/a");
+    (void)graph.addCell("other");
     // A net vertex whose name also matches must not be stamped: only cells
     // carry a region.
-    graph.addNet("eh0/net");
+    (void)graph.addNet("eh0/net");
 
     constraintMgr mgr = singleFence();
     const std::size_t assigned = mgr.assignByPrefix(0, "eh0/", graph);
@@ -278,7 +278,7 @@ BOOST_AUTO_TEST_CASE(assign_by_prefix_stamps_matching_cells_only) {
     BOOST_TEST(graph.getCell(graph.getCellId("other")).regionId == constraintMgr::kNoRegion);
     // A net is not a cell and so cannot carry a region: the two are numbered
     // separately, and asking for the net as a cell is an error rather than a hit.
-    BOOST_CHECK_THROW(graph.getCellId("eh0/net"), std::runtime_error);
+    BOOST_CHECK_THROW((void)graph.getCellId("eh0/net"), std::runtime_error);
     BOOST_TEST(graph.getNetId("eh0/net") != static_cast<std::size_t>(-1));
 
     const Region *r = mgr.region(0);
@@ -290,8 +290,8 @@ BOOST_AUTO_TEST_CASE(the_first_matching_group_wins) {
     // A cell claimed by two overlapping groups must end up in exactly one, or
     // the two legalizers would each think they own it.
     Graph graph;
-    graph.addCell("eh0/a");
-    graph.addCell("eh0/b");
+    (void)graph.addCell("eh0/a");
+    (void)graph.addCell("eh0/b");
 
     constraintMgr mgr;
     mgr.addRegion("er0", rect(0.0, 0.0, 10.0, 10.0));
@@ -305,7 +305,7 @@ BOOST_AUTO_TEST_CASE(the_first_matching_group_wins) {
 
 BOOST_AUTO_TEST_CASE(assign_rejects_an_unusable_region_or_prefix) {
     Graph graph;
-    graph.addCell("eh0/a");
+    (void)graph.addCell("eh0/a");
 
     constraintMgr mgr = singleFence();
     BOOST_TEST(mgr.assignByPrefix(constraintMgr::kNoRegion, "eh0/", graph) == 0u);
@@ -318,7 +318,7 @@ BOOST_AUTO_TEST_CASE(a_prefix_longer_than_the_name_cannot_match) {
     // compare() on a short string must not read past its end or match
     // everything.
     Graph graph;
-    graph.addCell("a");
+    (void)graph.addCell("a");
 
     constraintMgr mgr = singleFence();
     BOOST_TEST(mgr.assignByPrefix(0, "abcdef", graph) == 0u);

@@ -71,7 +71,7 @@ BOOST_AUTO_TEST_CASE(a_bare_number_word_is_typed_by_its_spelling) {
 
 BOOST_AUTO_TEST_CASE(braced_words_are_not_substituted) {
     Interpreter interp;
-    interp.eval("set name simpl");
+    (void)interp.eval("set name simpl");
     BOOST_TEST(interp.eval("set a $name").asString() == "simpl");
     BOOST_TEST(interp.eval("set b {$name}").asString() == "$name");
     BOOST_TEST(interp.eval("set c \"$name\"").asString() == "simpl");
@@ -81,7 +81,7 @@ BOOST_AUTO_TEST_CASE(command_substitution_composes) {
     Interpreter interp;
     const Value out = interp.eval("set total [expr {2 + 3 * 4}]");
     BOOST_TEST(out.asInt() == 14);
-    interp.eval("set x [list a b]");
+    (void)interp.eval("set x [list a b]");
     BOOST_TEST(interp.eval("llength $x").asInt() == 2);
     BOOST_TEST(interp.eval("lindex $x 0").asString() == "a");
     BOOST_TEST(interp.eval("set y [lindex [list a b] 1]").asString() == "b");
@@ -103,34 +103,34 @@ BOOST_AUTO_TEST_CASE(expr_handles_the_operators_a_config_needs) {
 
 BOOST_AUTO_TEST_CASE(if_and_while_run_a_body) {
     Interpreter interp;
-    interp.eval("set n 0\nif {$n == 0} { set n 5 } else { set n 9 }");
+    (void)interp.eval("set n 0\nif {$n == 0} { set n 5 } else { set n 9 }");
     BOOST_TEST(interp.variable("n").asInt() == 5);
-    interp.eval("set i 0\nwhile {$i < 4} { incr i 2 }");
+    (void)interp.eval("set i 0\nwhile {$i < 4} { incr i 2 }");
     BOOST_TEST(interp.variable("i").asInt() == 4);
 }
 
 BOOST_AUTO_TEST_CASE(foreach_walks_a_list) {
     Interpreter interp;
-    interp.eval("set total 0\nforeach x {1 2 3 4} { incr total $x }");
+    (void)interp.eval("set total 0\nforeach x {1 2 3 4} { incr total $x }");
     BOOST_TEST(interp.variable("total").asInt() == 10);
-    interp.eval("set joined {}\nforeach {k v} {a 1 b 2} { lappend joined $k$v }");
+    (void)interp.eval("set joined {}\nforeach {k v} {a 1 b 2} { lappend joined $k$v }");
     BOOST_TEST(interp.variable("joined").asString() == "{a1 b2}");
 }
 
 BOOST_AUTO_TEST_CASE(a_multiline_script_is_separated_by_newlines) {
     Interpreter interp;
-    interp.eval("set a 1\nset b 2 ; set c 3\n");
+    (void)interp.eval("set a 1\nset b 2 ; set c 3\n");
     BOOST_TEST(interp.variable("a").asInt() == 1);
     BOOST_TEST(interp.variable("c").asInt() == 3);
 }
 
 BOOST_AUTO_TEST_CASE(comments_and_continuations_do_not_become_commands) {
     Interpreter interp;
-    interp.eval("# leading comment\nset a 1\n# final");
+    (void)interp.eval("# leading comment\nset a 1\n# final");
     BOOST_TEST(interp.variable("a").asInt() == 1);
     BOOST_CHECK_THROW(interp.eval("set a 1 # trailing"), Error);
     // A bracketed body may run over lines without becoming two commands.
-    interp.eval("set list {}\nlappend list \\\n    2\n");
+    (void)interp.eval("set list {}\nlappend list \\\n    2\n");
     BOOST_TEST(interp.variable("list").asList().size() == 1);
 }
 
@@ -146,7 +146,7 @@ BOOST_AUTO_TEST_CASE(source_runs_another_file) {
     ScriptFile inner("set from_file 7");
     ScriptFile outer("source " + inner.str());
     Interpreter interp;
-    interp.evalFile(outer.str());
+    (void)interp.evalFile(outer.str());
     BOOST_TEST(interp.variable("from_file").asInt() == 7);
 }
 
@@ -257,7 +257,7 @@ BOOST_AUTO_TEST_CASE(a_broken_example_names_the_file_and_the_mistake) {
 
 BOOST_AUTO_TEST_CASE(add_option_records_a_typed_value_per_component) {
     OptionsFixture fixture;
-    fixture.mgr().interpreter.eval(
+    (void)fixture.mgr().interpreter.eval(
         "add_option simpl grid 64\n"
         "add_option simpl cg_tol 1e-6\n"
         "add_option simpl fences 0\n"
@@ -285,19 +285,19 @@ BOOST_AUTO_TEST_CASE(add_option_needs_three_arguments) {
 
 BOOST_AUTO_TEST_CASE(an_option_value_is_taken_from_a_variable) {
     OptionsFixture fixture;
-    fixture.mgr().interpreter.eval("set g 128\nadd_option simpl grid $g\n");
+    (void)fixture.mgr().interpreter.eval("set g 128\nadd_option simpl grid $g\n");
     BOOST_TEST(std::get<int>(stored(Component::Simpl, "grid")) == 128);
 }
 
 BOOST_AUTO_TEST_CASE(a_braced_value_stays_a_string) {
     OptionsFixture fixture;
-    fixture.mgr().interpreter.eval("add_option simpl tag {64}\n");
+    (void)fixture.mgr().interpreter.eval("add_option simpl tag {64}\n");
     BOOST_TEST(std::get<std::string>(stored(Component::Simpl, "tag")) == "64");
 }
 
 BOOST_AUTO_TEST_CASE(a_component_reads_its_own_options) {
     OptionsFixture fixture;
-    fixture.mgr().interpreter.eval("add_option simpl grid 96\nadd_option simpl fences 0\n");
+    (void)fixture.mgr().interpreter.eval("add_option simpl grid 96\nadd_option simpl fences 0\n");
 
     const ComponentOptions simpl = optionsOf(Component::Simpl);
     BOOST_TEST(simpl.get<int>("grid").value_or(-1) == 96);
@@ -307,7 +307,7 @@ BOOST_AUTO_TEST_CASE(a_component_reads_its_own_options) {
 
 BOOST_AUTO_TEST_CASE(load_options_keeps_the_component_defaults_for_unset_keys) {
     OptionsFixture fixture;
-    fixture.mgr().interpreter.eval("add_option simpl grid 96\nadd_option simpl fences 0\n");
+    (void)fixture.mgr().interpreter.eval("add_option simpl grid 96\nadd_option simpl fences 0\n");
 
     const SimplOptions options = loadOptions<SimplOptions>();
     BOOST_TEST(options.binsPerAxis == 96u);
@@ -318,7 +318,7 @@ BOOST_AUTO_TEST_CASE(load_options_keeps_the_component_defaults_for_unset_keys) {
 
 BOOST_AUTO_TEST_CASE(a_value_of_the_wrong_type_is_refused_not_converted) {
     OptionsFixture fixture;
-    fixture.mgr().interpreter.eval("add_option simpl grid sixty-four\n");
+    (void)fixture.mgr().interpreter.eval("add_option simpl grid sixty-four\n");
     BOOST_TEST(!optionsOf(Component::Simpl).get<int>("grid").has_value());
     BOOST_TEST(loadOptions<SimplOptions>().binsPerAxis == SimplOptions{}.binsPerAxis);
 }
