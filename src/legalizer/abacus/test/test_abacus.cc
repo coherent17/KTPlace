@@ -10,6 +10,7 @@
 // alone puts both right, without leaving anyone unplaced.
 
 #define BOOST_TEST_MODULE ktplace_abacus
+#define BOOST_TEST_DYN_LINK
 
 #include "constraint/kt_constraintMgr.h"
 #include "datamodel/kt_dm.h"
@@ -18,7 +19,7 @@
 #include "legalizer/kt_rowFence.h"
 #include "util/kt_log.h"
 
-#include <boost/test/included/unit_test.hpp>
+#include <boost/test/unit_test.hpp>
 #include <string>
 #include <vector>
 

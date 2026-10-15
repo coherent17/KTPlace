@@ -13,7 +13,6 @@ OBJ_DIR ?= ../build/obj/legalizer
 
 # Source files in this directory
 SRCS := abacus/abacus_legalizer.cc abacus/abacus_design.cc abacus/abacus_dm.cc \
-        abacus/abacus_options.cc \
         abacus/abacus_flowMgr.cc multirow/multirow_legalizer.cc multirow/multirow_design.cc multirow/multirow_dm.cc \
         multirow/multirow_flowMgr.cc
 

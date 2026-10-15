@@ -338,7 +338,7 @@ BOOST_AUTO_TEST_CASE(flow_exits_on_an_unknown_algorithm) {
     expectFatalExit(
         [&] {
             FlowMgr flow;
-            OptionDb::instance().set("flow", "algorithm", OptionValue{std::string("no_such_algo")});
+            OptionDb::instance().set(Component::Flow, "algorithm", std::string("no_such_algo"));
             const kt_option opt = optionsFor(dir, designDir(dir).string());
             flow.run(opt);
         },

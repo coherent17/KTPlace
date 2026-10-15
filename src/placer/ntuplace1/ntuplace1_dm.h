@@ -1,41 +1,47 @@
 // @file ntuplace1_dm.h
 // NTUPlace1's own database.
 //
-// Unlike SimPL, NTUPlace1 has no private working state: it partitions the design
-// it is given and writes the answer straight back. So this is a handle on the
-// caller's database plus the options that configure the run, not a copy of the
-// netlist -- which is what "build the DM" buys this stage.
+// It does not read ktDM and does not write to it. It runs against an
+// ntuplace1::Design copied out of the shared database, and hands its answer back
+// from here.
 
 #pragma once
 
-#include "datamodel/kt_dm.h"
 #include "datamodel/kt_solutionMgr.h"
 #include "placer/ntuplace1/kt_ntuplace1.h"
+#include "placer/ntuplace1/ntuplace1_design.h"
 #include "placer/ntuplace1/ntuplace1_options.h"
 
-namespace ktplace::ntuplace1 {
+namespace ktplace {
+
+class ktDM;
+
+namespace ntuplace1 {
 
 class ntuplace1DM {
 public:
-    explicit ntuplace1DM(ktDM &shared);
+    explicit ntuplace1DM(Design design);
 
-    // NTUPlace1's options, read from the run's option store, and the parameters
-    // they configure. Assembled here so the flow has nothing to collect.
-    [[nodiscard]] Ntuplace1Options options() const;
-    [[nodiscard]] RatioPlaceParams params() const;
-
-    // The database the partitioner reads and writes.
-    [[nodiscard]] ktDM &database() const noexcept {
-        return shared;
+    [[nodiscard]] const Ntuplace1Options &options() const noexcept {
+        return opts;
     }
 
-    // Where the cells ended up, as the flow's solution type.
+    [[nodiscard]] const Design &design() const noexcept {
+        return d;
+    }
+    [[nodiscard]] Design &design() noexcept {
+        return d;
+    }
+
     [[nodiscard]] ntuplace1Solution solution() const;
 
+    Ntuplace1Options opts;
+
 private:
-    ktDM &shared;
+    Design d;
 };
 
-[[nodiscard]] ntuplace1DM buildNtuplace1DM(ktDM &db);
+[[nodiscard]] ntuplace1DM buildNtuplace1DM(const ktDM &db);
 
-}  // namespace ktplace::ntuplace1
+}  // namespace ntuplace1
+}  // namespace ktplace

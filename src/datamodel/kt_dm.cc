@@ -496,19 +496,18 @@ double ktDM::hpwl() const {
     return netlistHPWL(graph, sol.xs(), sol.ys());
 }
 
-std::size_t ktDM::multiRowCells() const {
-    // The shortest row sets the bar: a cell taller than every row has no single
-    // row to go in, and that is the case the row slicer exists for.
+double ktDM::macroHeight() const {
     double minHeight = std::numeric_limits<double>::max();
     for (const RowInfo &ri : getRows()) {
         if (ri.height > 0.0 && !ri.subrows.empty()) {
             minHeight = std::min(minHeight, ri.height);
         }
     }
-    if (minHeight == std::numeric_limits<double>::max()) {
-        return 0;
-    }
-    const double tall = minHeight * 1.5;
+    return minHeight == std::numeric_limits<double>::max() ? minHeight : 1.5 * minHeight;
+}
+
+std::size_t ktDM::multiRowCells() const {
+    const double tall = macroHeight();
     const Graph &g = getGraph();
     std::size_t n = 0;
     for (std::size_t v = 0; v < g.getNumCells(); ++v) {

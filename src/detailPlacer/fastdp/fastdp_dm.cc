@@ -11,7 +11,7 @@ namespace ktplace::fastdp {
 
 namespace {
 
-void copyCells(const ktplace::Graph &graph, std::vector<Cell> &out) {
+void copyCells(const ktplace::Graph &graph, double macroHeight, std::vector<Cell> &out) {
     out.resize(graph.getNumCells());
     for (std::size_t v = 0; v < graph.getNumCells(); ++v) {
         const ktplace::Vertex &cell = graph.getCell(v);
@@ -20,7 +20,7 @@ void copyCells(const ktplace::Graph &graph, std::vector<Cell> &out) {
         c.y = cell.y;
         c.width = cell.width;
         c.height = cell.height;
-        c.isFixed = cell.isFixed;
+        c.isFixed = cell.isFixed || cell.height > macroHeight;
         c.isTerminal = cell.isTerminal;
         c.region = cell.regionId;
     }
@@ -62,7 +62,7 @@ void copyRows(const std::vector<ktplace::RowInfo> &rows, std::vector<RowInfo> &o
 
 fastdpDM buildFastdpDM(const ktDM &db) {
     Design design;
-    copyCells(db.getGraph(), design.cells);
+    copyCells(db.getGraph(), db.macroHeight(), design.cells);
     copyNets(db.getGraph(), design.pins, design.nets);
     copyRows(db.getRows(), design.rows);
     design.die = placementDieBox(db.die(), db.getGraph());
@@ -95,7 +95,7 @@ fastdpDM buildFastdpDM(const ktDM &db) {
                                      info.hpwlInitial, info.overflow, info.mandatory});
     };
     fastdpDM result(std::move(design));
-    result.par.localReorderWindow = static_cast<std::size_t>(result.options().window);
+    result.opts = loadOptions<FastdpOptions>();
     return result;
 }
 
@@ -126,16 +126,12 @@ void reportRun(const DetailPlaceResult &res) {
 
 fastdpDM::fastdpDM(Design design) : d(std::move(design)) {}
 
-FastdpOptions fastdpDM::options() const {
-    return FastdpOptions::load();
-}
-
-fastdpSolution fastdpDM::run(const DetailPlaceParams &params) {
-    options().report();
+fastdpSolution fastdpDM::run() {
+    reportOptions(opts);
     ScopedTimer timer("detailplace");
 
     FastDetailedPlacer placer(d);
-    const DetailPlaceResult result = placer.place(params);
+    const DetailPlaceResult result = placer.place(opts);
     reportRun(result);
 
     // Only the placement crosses the boundary. The statistics are printed above

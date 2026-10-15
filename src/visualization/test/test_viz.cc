@@ -3,12 +3,13 @@
 
 
 #define BOOST_TEST_MODULE ktplace_viz
+#define BOOST_TEST_DYN_LINK
 
 #include "visualization/kt_gif.h"
 #include "visualization/kt_visualizer.h"
 
 #include <algorithm>
-#include <boost/test/included/unit_test.hpp>
+#include <boost/test/unit_test.hpp>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
@@ -422,7 +423,7 @@ BOOST_AUTO_TEST_CASE(net_vertices_are_not_part_of_the_die) {
     // Nets have a width of zero and would otherwise anchor the box at 0,0 for a
     // design whose cells sit elsewhere.
     Graph g = sampleGraph();
-    g.addNet("n1");
+    (void)g.addNet("n1");
     const BBox box = fixedCellBBox(g);
     BOOST_TEST(box[0] == 0.0);
     BOOST_TEST(box[2] == 100.0);

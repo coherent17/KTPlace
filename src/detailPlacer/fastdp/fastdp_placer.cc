@@ -55,6 +55,7 @@ struct NetPin {
     double offX = 0.0;  ///< offset from the cell's origin
     double offY = 0.0;  ///< offset from the cell's origin
     double absX = 0.0;  ///< used when slot == kNoSlot
+    double absY = 0.0;  ///< used when slot == kNoSlot
 };
 
 struct FixedBox {
@@ -69,7 +70,7 @@ class FastDetailedPlacer::Impl {
 public:
     explicit Impl(const fastdp::Design &d) : design(d) {}
 
-    DetailPlaceResult place(const DetailPlaceParams &params);
+    DetailPlaceResult place(const FastdpOptions &params);
 
 private:
     void buildSpans();
@@ -456,9 +457,10 @@ void FastDetailedPlacer::Impl::buildNetlist() {
             const std::size_t s = slotOf[pin.cellId];
             const fastdp::Cell &c = design.cells[pin.cellId];
             if (s == kNoSlot) {
-                netPins_[n].push_back(NetPin{kNoSlot, pin.offsetX, pin.offsetY, c.x + pin.offsetX});
+                netPins_[n].push_back(NetPin{kNoSlot, pin.offsetX, pin.offsetY, c.x + pin.offsetX,
+                                             c.y + pin.offsetY});
             } else {
-                netPins_[n].push_back(NetPin{s, pin.offsetX, pin.offsetY, 0.0});
+                netPins_[n].push_back(NetPin{s, pin.offsetX, pin.offsetY, 0.0, 0.0});
                 cellNets_[s].push_back(n);
             }
         }
@@ -476,31 +478,13 @@ double FastDetailedPlacer::Impl::hpwl() const {
         double bx = -std::numeric_limits<double>::max();
         double ay = std::numeric_limits<double>::max();
         double by = -std::numeric_limits<double>::max();
-        bool anyMovable = false;
         for (const NetPin &p : pins) {
             const double px = (p.slot == kNoSlot) ? p.absX : (x_[p.slot] + p.offX);
+            const double py = (p.slot == kNoSlot) ? p.absY : (y_[p.slot] + p.offY);
             ax = std::min(ax, px);
             bx = std::max(bx, px);
-            if (p.slot != kNoSlot) {
-                anyMovable = true;
-                // The pin's own y, not the cell's box. HPWL is a wirelength between
-                // pins, and the .nets offsets are up to 1420 units against a
-                // 12-unit row: taking the cell's bottom and top edges instead
-                // inflates every net's vertical extent by up to a full cell
-                // height, and the result is not the quantity SimPL and the
-                // legalizer report. deltaSwap() already used the pin's y, so the
-                // two disagreed with each other as well.
-                ay = std::min(ay, y_[p.slot] + p.offY);
-                by = std::max(by, y_[p.slot] + p.offY);
-            }
-        }
-        // Both axes: the legalizer measures HPWL the same way, so the two stages
-        // have to agree or the reported change is meaningless. A net whose pins
-        // are all fixed has no y extent to speak of, and leaving the sentinels in
-        // place made the total -inf.
-        if (!anyMovable) {
-            ay = 0.0;
-            by = 0.0;
+            ay = std::min(ay, py);
+            by = std::max(by, py);
         }
         total += (bx - ax) + (by - ay);
     }
@@ -575,7 +559,7 @@ double FastDetailedPlacer::Impl::deltaSwap(std::size_t a, double na, double nay,
     };
     const auto pinY = [&](const NetPin &p, double ay, double by) {
         if (p.slot == kNoSlot) {
-            return 0.0;
+            return p.absY;
         }
         if (p.slot == a) {
             return ay + p.offY;
@@ -605,21 +589,12 @@ double FastDetailedPlacer::Impl::deltaSwap(std::size_t a, double na, double nay,
             nxhi = std::max(nxhi, npx);
             oxlo = std::min(oxlo, opx);
             oxhi = std::max(oxhi, opx);
-            if (p.slot == kNoSlot) {
-                continue;
-            }
             const double npy = pinY(p, nay, nby);
             const double opy = pinY(p, y_[a], y_[b]);
-            const double h = h_[p.slot];
             nylo = std::min(nylo, npy);
-            nyhi = std::max(nyhi, npy + h);
+            nyhi = std::max(nyhi, npy);
             oylo = std::min(oylo, opy);
-            oyhi = std::max(oyhi, opy + h);
-        }
-        // A net whose pins are all fixed has no y extent to speak of, and the
-        // sentinels would otherwise make the term -inf. hpwl() zeroes it too.
-        if (nylo == std::numeric_limits<double>::max()) {
-            nylo = nyhi = oylo = oyhi = 0.0;
+            oyhi = std::max(oyhi, opy);
         }
         delta += (nxhi - nxlo) + (nyhi - nylo);
         delta -= (oxhi - oxlo) + (oyhi - oylo);
@@ -1355,17 +1330,10 @@ void FastDetailedPlacer::Impl::selfCheck(DetailPlaceResult &res) const {
     }
 }
 
-DetailPlaceResult FastDetailedPlacer::Impl::place(const DetailPlaceParams &params) {
+DetailPlaceResult FastDetailedPlacer::Impl::place(const FastdpOptions &params) {
     DetailPlaceResult res;
     ScopedTimer timer("detail-place");
     localWindow_ = params.localReorderWindow;
-    // The subset DP costs 2^k per window, so the window is the one knob that sets
-    // the price of re-ordering. Measured on adaptec1: k=8 costs about 36 of 52
-    // seconds for a few tenths of a percent. Overridable so the curve can be
-    // walked without a rebuild.
-    if (const long v = static_cast<long>(FastdpOptions().window); v >= 2 && v <= 14) {
-        localWindow_ = static_cast<std::size_t>(v);
-    }
 
 
     // place() is a normal call, not a one-shot: the same object may be run
@@ -1507,7 +1475,7 @@ DetailPlaceResult FastDetailedPlacer::Impl::place(const DetailPlaceParams &param
 
     sweep("global", params.globalSwapPasses, res.globalSwaps, &Impl::globalSwap);
     sweep("vertical", params.verticalSwapPasses, res.verticalSwaps, &Impl::verticalSwap);
-    if (!FastdpOptions().noMedian) {
+    if (!params.noMedian) {
         sweep("median", params.localReorderPasses, res.medianMoves, &Impl::medianReorder);
     }
     sweep("reorder", params.localReorderPasses, res.reorderMoves, &Impl::localReorder);
@@ -1568,8 +1536,8 @@ void report(const DetailPlaceResult &r) {
 
 }  // namespace
 
-DetailPlaceResult FastDetailedPlacer::place(const DetailPlaceParams &params) {
-    DetailPlaceResult result = pImpl->place(params);
+DetailPlaceResult FastDetailedPlacer::place(const FastdpOptions &options) {
+    DetailPlaceResult result = pImpl->place(options);
     report(result);
     return result;
 }

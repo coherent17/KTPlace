@@ -1,622 +1,812 @@
 // @file multirow_legalizer.cc
-// Legalizer that can place cells taller than one row
+// Multi-row height legalization: Abacus extended to cells spanning several rows
+// (Chow, Pui & Young, DAC 2016), after a macro pre-pass for very tall cells
 
 #include "legalizer/multirow/multirow_legalizer.h"
 
+#include "legalizer/kt_rowFence.h"
 #include "legalizer/multirow/multirow_design.h"
-#include "util/kt_log.h"
-#include "util/kt_reportTable.h"
 #include "util/kt_scopedTimer.h"
-#include "visualization/kt_visualizer.h"
 
 #include <algorithm>
 #include <cmath>
-#include <fmt/format.h>
+#include <cstdint>
 #include <limits>
+#include <numeric>
+#include <tuple>
+#include <utility>
 #include <vector>
 
 namespace ktplace {
 
 namespace {
 
-/// A free rectangle inside one row: an x range, the y range it covers, and how
-/// much of it has been committed from the left.
-///
-/// `ylo` is not always the row's base. Slicing leaves segments that sit *under*
-/// a cell taller than the row, and those start above it -- which is exactly how a
-/// later cell finds the space beneath a tall one.
-struct Segment {
-    double xlo = 0.0;
-    double xhi = 0.0;
-    /// Origin of the site grid this segment was cut from. A legal cell sits at
-    /// origin + k*pitch, so this is what a placement snaps to.
-    double originX = 0.0;
-    double ylo = 0.0;
-    double yhi = 0.0;
-    double used = 0.0;
+constexpr double kEps = 1e-9;
+constexpr std::uint32_t kNone = std::numeric_limits<std::uint32_t>::max();
 
-    [[nodiscard]] double width() const {
-        return xhi - xlo;
-    }
-    [[nodiscard]] double free() const {
-        return xhi - used;
-    }
+struct Box {
+    double x0 = 0.0;
+    double y0 = 0.0;
+    double x1 = 0.0;
+    double y1 = 0.0;
 };
 
-struct Track {
+using Intervals = std::vector<std::pair<double, double>>;
+
+Intervals subtract(const Intervals &from, double lo, double hi) {
+    Intervals out;
+    for (const auto &[s, e] : from) {
+        if (hi <= s || lo >= e) {
+            out.emplace_back(s, e);
+            continue;
+        }
+        if (lo > s) {
+            out.emplace_back(s, lo);
+        }
+        if (hi < e) {
+            out.emplace_back(hi, e);
+        }
+    }
+    return out;
+}
+
+struct Lane {
+    std::size_t row = 0;
     double y = 0.0;
     double height = 0.0;
-    double pitch = 1.0;
-    std::vector<Segment> segments;  // sorted by xlo, disjoint in x
+    double xlo = 0.0;
+    double xhi = 0.0;
+    double pitch = 0.0;
+    int region = multirow::Fences::kNoRegion;
+    std::vector<std::uint32_t> clusters;
+};
 
-    [[nodiscard]] double freeWidth() const {
-        double total = 0.0;
-        for (const Segment &s : segments) {
-            total += s.free();
-        }
-        return total;
+struct Extent {
+    std::uint32_t lane = 0;
+    double lo = 0.0;
+    double hi = 0.0;
+};
+
+struct Cluster {
+    double n = 0.0;
+    double a = 0.0;
+    double b = 0.0;
+    double x = 0.0;
+    std::uint32_t root = kNone;
+    std::vector<Extent> extents;
+
+    [[nodiscard]] double ideal() const {
+        return n > 0.0 ? -a / n : 0.0;
     }
-
-    /// The segment wholly containing [x0, x1], or nullptr.
-    [[nodiscard]] const Segment *covering(double x0, double x1) const {
-        for (const Segment &s : segments) {
-            if (s.xlo <= x0 + 1e-9 && s.xhi >= x1 - 1e-9) {
-                return &s;
+    [[nodiscard]] const Extent *in(std::uint32_t lane) const {
+        for (const Extent &e : extents) {
+            if (e.lane == lane) {
+                return &e;
+            }
+        }
+        return nullptr;
+    }
+    [[nodiscard]] Extent *in(std::uint32_t lane) {
+        for (Extent &e : extents) {
+            if (e.lane == lane) {
+                return &e;
             }
         }
         return nullptr;
     }
 };
 
-/// A cell waiting to be placed, in the placer's own indexing.
-struct Item {
-    std::uint32_t vertex = 0;
-    double w = 0.0;
-    double h = 0.0;
-    double area = 0.0;
-    double x = 0.0;  // global-placement position
-    double y = 0.0;
+struct Slot {
+    std::vector<std::uint32_t> lanes;
+    double lo = 0.0;
+    double hi = 0.0;
 };
 
-constexpr double kSiteEps = 1e-6;
-
 }  // namespace
-
-// ---------------------------------------------------------------------------
 
 class MultiRowLegalizer::Impl {
 public:
     explicit Impl(const multirow::Design &d) : design(d) {}
 
-    MultiRowLegalizeResult run(const MultiRowLegalizeParams &params);
+    MultiRowLegalizeResult run(const MultiRowOptions &params);
+
+    std::vector<double> xs;
+    std::vector<double> ys;
 
 private:
-    void buildTracks();
-    void collect();
-    /// Cut [x0,x1] x [y0,y1] out of every track it touches. This is the whole
-    /// mechanism: a cell that spans several rows leaves a segment under itself and
-    /// one either side, and everything placed afterwards sees those segments as
-    /// ordinary free space.
-    void carve(const Item &cell);
-    void carveBox(double x0, double y0, double x1, double y1);
-    /// Index of the track whose y range contains `y`, or the closest one.
-    [[nodiscard]] std::size_t trackNear(double y) const;
-    /// Can a cell of this size sit with its base on track `t` and left edge `x`?
-    [[nodiscard]] bool fits(std::size_t t, double x, double w, double h) const;
-    /// Nearest legal site to `x`.
-    [[nodiscard]] double snap(double x, double originX, double pitch) const;
-    /// A candidate placement: a left edge and the grid origin to snap it to.
-    struct Candidate {
-        double x = 0.0;
-        double originX = 0.0;
-    };
+    void legalizeMacros(const std::vector<std::uint32_t> &macros, MultiRowLegalizeResult &res);
+    void buildLanes();
+    [[nodiscard]] std::vector<Slot> slots(std::size_t bottom, std::size_t span, int region,
+                                          double width) const;
+    [[nodiscard]] std::size_t spanOf(double height) const;
+    [[nodiscard]] std::vector<std::uint32_t> fillGaps(std::vector<std::uint32_t> pending,
+                                                      const std::vector<std::uint32_t> &placed,
+                                                      std::vector<std::size_t> &bottomRow);
 
-    /// Left edges worth trying on this track.
-    [[nodiscard]] std::vector<Candidate> candidates(std::size_t t) const;
-    void selfCheck(MultiRowLegalizeResult &res) const;
-    [[nodiscard]] double hpwl() const;
-    /// Offer a snapshot to the sink. A no-op when the stage has no sink, so the
-    /// caller below does not have to ask whether drawing is on.
-    void writeFrame(const std::string &note, std::size_t step, std::size_t total);
+    [[nodiscard]] double offset(std::uint32_t cell) const;
+    [[nodiscard]] double place(const Cluster &c, bool &feasible) const;
+    [[nodiscard]] std::size_t indexIn(std::uint32_t lane, std::uint32_t cluster) const;
+    std::uint32_t insert(std::uint32_t cell, const Slot &slot, double target, bool &feasible);
+    void merge(std::uint32_t left, std::uint32_t right);
+
+    void touchCluster(std::uint32_t id);
+    void touchLane(std::uint32_t id);
+    void setParent(std::uint32_t cell, std::uint32_t parent, double delta);
+    void rollback();
+    void forget();
 
     const multirow::Design &design;
+    double rowHeight = 0.0;
+    std::vector<multirow::RowInfo> rows;
+    std::vector<Box> blocked;
+    std::vector<Lane> lanes;
+    std::vector<std::vector<std::uint32_t>> lanesOfRow;
+    std::vector<Cluster> clusters;
+    std::vector<std::uint32_t> parent;
+    std::vector<double> delta;
+    std::vector<std::uint32_t> clusterOf;
 
-    std::vector<Track> tracks_;
-    std::vector<Item> items_;
-    std::vector<std::size_t> order_;  // placement order: largest area first
-
-    double dieX0_ = 0.0;
-    double dieY0_ = 0.0;
-    double dieX1_ = 0.0;
-    double dieY1_ = 0.0;
-    std::array<double, 4> die_{};
-    const multirow::Fences *fences_ = nullptr;
-    std::size_t frames_ = 0;
-    double hpwlInitial_ = 0.0;
-
-public:
-    /// Position of every cell, indexed by cell id. Seeded from the design and
-    /// updated as cells are placed; this is what legalize() hands back.
-    std::vector<double> solX_;
-    std::vector<double> solY_;
+    std::vector<std::pair<std::uint32_t, Cluster>> savedClusters;
+    std::vector<std::pair<std::uint32_t, std::vector<std::uint32_t>>> savedLanes;
+    std::vector<std::tuple<std::uint32_t, std::uint32_t, double>> savedParents;
+    std::size_t savedClusterCount = 0;
+    std::vector<char> clusterTouched;
+    std::vector<char> laneTouched;
 };
 
-void MultiRowLegalizer::Impl::buildTracks() {
-    tracks_.clear();
-    for (const multirow::RowInfo &ri : design.rows) {
-        if (!(ri.height > 0.0) || ri.subrows.empty()) {
-            continue;
-        }
-        Track t;
-        t.y = ri.coordinate;
-        t.height = ri.height;
-        t.pitch = ri.pitch();
-        for (const multirow::Subrow &si : ri.subrows) {
-            Segment s;
-            s.xlo = si.xlo;
-            s.xhi = si.xhi;
-            s.originX = si.xlo;
-            s.ylo = ri.coordinate;
-            s.yhi = ri.coordinate + ri.height;
-            s.used = s.xlo;
-            if (s.width() > kSiteEps) {
-                t.segments.push_back(s);
-            }
-        }
-        if (!t.segments.empty()) {
-            tracks_.push_back(std::move(t));
-        }
-    }
-    std::sort(tracks_.begin(), tracks_.end(), [](const Track &a, const Track &b) {
-        return a.y < b.y;
-    });
-}
-
-void MultiRowLegalizer::Impl::collect() {
-    items_.clear();
-    const std::size_t nv = design.cells.size();
-    for (std::size_t v = 0; v < nv; ++v) {
-        const multirow::Cell &vert = design.cells[v];
-        if (vert.isFixed || vert.isTerminal) {
-            continue;
-        }
-        if (!(vert.width > 0.0) || !(vert.height > 0.0)) {
-            continue;
-        }
-        Item item;
-        item.vertex = static_cast<std::uint32_t>(v);
-        item.w = vert.width;
-        item.h = vert.height;
-        item.area = vert.width * vert.height;
-        item.x = vert.x;
-        item.y = vert.y;
-        items_.push_back(item);
-    }
-    // Largest first, as the reference placer does: a big cell that cannot be
-    // placed later is worth discovering while the design is still loose.
-    order_.resize(items_.size());
-    for (std::size_t i = 0; i < order_.size(); ++i) {
-        order_[i] = i;
-    }
-    std::sort(order_.begin(), order_.end(), [&](std::size_t a, std::size_t b) {
-        return items_[a].area > items_[b].area;
-    });
-}
-
-void MultiRowLegalizer::Impl::carveBox(double x0, double y0, double x1, double y1) {
-    if (tracks_.empty()) {
-        return;
-    }
-    // Tracks are sorted by y, so the affected ones are a contiguous run.
-    auto first = std::lower_bound(tracks_.begin(), tracks_.end(), y0, [](const Track &t, double v) {
-        return t.y + t.height < v - kSiteEps;
-    });
-    for (auto it = first; it != tracks_.end(); ++it) {
-        if (it->y > y1 - kSiteEps) {
-            break;
-        }
-        const double overlapY0 = std::max(y0, it->y);
-        const double overlapY1 = std::min(y1, it->y + it->height);
-        if (overlapY1 - overlapY0 <= kSiteEps) {
-            continue;
-        }
-
-        std::vector<Segment> next;
-        next.reserve(it->segments.size() + 2);
-        for (const Segment &s : it->segments) {
-            if (s.xhi <= x0 + kSiteEps || s.xlo >= x1 - kSiteEps) {
-                next.push_back(s);  // no x overlap: untouched
-                continue;
-            }
-            // (a) left of the box
-            if (s.xlo < x0 - kSiteEps) {
-                Segment left = s;
-                left.xhi = x0;
-                left.used = std::min(left.used, left.xhi);
-                next.push_back(left);
-            }
-            // (b) under the box, if the box starts above this row's base
-            if (overlapY0 > it->y + kSiteEps) {
-                Segment under = s;
-                under.xlo = std::max(s.xlo, x0);
-                under.xhi = std::min(s.xhi, x1);
-                under.ylo = s.ylo;
-                under.yhi = overlapY0;
-                under.used = under.xlo;
-                if (under.width() > kSiteEps) {
-                    next.push_back(under);
+std::vector<std::uint32_t> MultiRowLegalizer::Impl::fillGaps(
+    std::vector<std::uint32_t> pending, const std::vector<std::uint32_t> &placed,
+    std::vector<std::size_t> &bottomRow) {
+    std::vector<Intervals> used(lanes.size());
+    const auto occupy = [&](std::uint32_t v) {
+        const multirow::Cell &c = design.cells[v];
+        const std::size_t span = spanOf(c.height);
+        for (std::size_t k = bottomRow[v]; k < bottomRow[v] + span && k < rows.size(); ++k) {
+            for (const std::uint32_t l : lanesOfRow[k]) {
+                if (lanes[l].xlo <= xs[v] + kEps && xs[v] + c.width <= lanes[l].xhi + kEps) {
+                    Intervals &u = used[l];
+                    const std::pair<double, double> taken{xs[v], xs[v] + c.width};
+                    u.insert(std::lower_bound(u.begin(), u.end(), taken), taken);
+                    break;
                 }
             }
-            // (c) right of the box
-            if (s.xhi > x1 + kSiteEps) {
-                Segment right = s;
-                right.xlo = x1;
-                right.used = std::max(right.used, right.xlo);
-                next.push_back(right);
-            }
         }
-        std::sort(next.begin(), next.end(), [](const Segment &a, const Segment &b) {
-            return a.xlo < b.xlo;
+    };
+    for (const std::uint32_t v : placed) {
+        occupy(v);
+    }
+
+    std::stable_sort(pending.begin(), pending.end(), [&](std::uint32_t a, std::uint32_t b) {
+        const multirow::Cell &ca = design.cells[a];
+        const multirow::Cell &cb = design.cells[b];
+        return ca.width * ca.height > cb.width * cb.height;
+    });
+    std::vector<std::uint32_t> filled;
+    std::vector<std::size_t> byDistance(rows.size());
+    for (const std::uint32_t v : pending) {
+        const multirow::Cell &cell = design.cells[v];
+        const std::size_t span = spanOf(cell.height);
+        const int region = cell.regionId >= 0 && static_cast<std::size_t>(cell.regionId) <
+                                                     design.fences.numRegions()
+                               ? cell.regionId
+                               : multirow::Fences::kNoRegion;
+        std::iota(byDistance.begin(), byDistance.end(), 0u);
+        std::sort(byDistance.begin(), byDistance.end(), [&](std::size_t a, std::size_t b) {
+            return std::abs(rows[a].coordinate - cell.y) < std::abs(rows[b].coordinate - cell.y);
         });
-        it->segments = std::move(next);
-    }
-}
-
-void MultiRowLegalizer::Impl::carve(const Item &cell) {
-    carveBox(cell.x, cell.y, cell.x + cell.w, cell.y + cell.h);
-}
-
-std::size_t MultiRowLegalizer::Impl::trackNear(double y) const {
-    if (tracks_.empty()) {
-        return 0;
-    }
-    // The last track whose base is at or below y, else the first.
-    std::size_t lo = 0;
-    std::size_t hi = tracks_.size();
-    while (lo < hi) {
-        const std::size_t mid = lo + (hi - lo) / 2;
-        if (tracks_[mid].y <= y + kSiteEps) {
-            lo = mid + 1;
-        } else {
-            hi = mid;
-        }
-    }
-    return (lo == 0) ? 0 : lo - 1;
-}
-
-double MultiRowLegalizer::Impl::snap(double x, double originX, double pitch) const {
-    if (!(pitch > 0.0)) {
-        return x;
-    }
-    // Nearest site. A cell is legal only at origin + k*pitch, and an unsnapped
-    // left edge is the commonest way a placement comes out unusable even with no
-    // overlaps reported.
-    return originX + std::round((x - originX) / pitch) * pitch;
-}
-
-bool MultiRowLegalizer::Impl::fits(std::size_t t, double x, double w, double h) const {
-    if (t >= tracks_.size()) {
-        return false;
-    }
-    if (x < dieX0_ - kSiteEps || x + w > dieX1_ + kSiteEps) {
-        return false;
-    }
-    // The candidate position has its base on the track, not where the cell came
-    // from: the whole question is whether this row can take it.
-    const double base = tracks_[t].y;
-    const double top = base + h;
-    if (top <= base) {
-        return true;
-    }
-
-    std::size_t i = t;
-    while (i < tracks_.size() && top > tracks_[i].y + kSiteEps) {
-        const Track &tr = tracks_[i];
-        const double spanLo = std::max(base, tr.y);
-        const double spanHi = std::min(top, tr.y + tr.height);
-        if (spanHi - spanLo > kSiteEps) {
-            const Segment *seg = tr.covering(x, x + w);
-            if (seg == nullptr || seg->ylo > spanLo + kSiteEps || seg->yhi < spanHi - kSiteEps) {
-                return false;
-            }
-        }
-        ++i;
-    }
-    // i > t keeps this from reading tracks_[t - 1] when the cell stops inside the
-    // base row, and t == 0 has no row below it.
-    return i > t && top <= tracks_[i - 1].y + tracks_[i - 1].height + kSiteEps;
-}
-
-std::vector<MultiRowLegalizer::Impl::Candidate> MultiRowLegalizer::Impl::candidates(
-    std::size_t t) const {
-    std::vector<Candidate> xs;
-    if (t >= tracks_.size()) {
-        return xs;
-    }
-    for (const Segment &s : tracks_[t].segments) {
-        xs.push_back({s.xlo, s.originX});
-        if (s.used > s.xlo + kSiteEps && s.used < s.xhi - kSiteEps) {
-            xs.push_back({s.used, s.originX});
-        }
-    }
-    return xs;
-}
-
-MultiRowLegalizeResult MultiRowLegalizer::Impl::run(const MultiRowLegalizeParams &params) {
-    MultiRowLegalizeResult res;
-    ScopedTimer timer("legalize");
-
-    // Where every cell starts. Updated in place as cells are placed, so hpwl(),
-    // the self-check and a frame all read the placement this pass has reached.
-    solX_.resize(design.cells.size());
-    solY_.resize(design.cells.size());
-    for (std::size_t v = 0; v < design.cells.size(); ++v) {
-        solX_[v] = design.cells[v].x;
-        solY_[v] = design.cells[v].y;
-    }
-    res.hpwlBefore = hpwl();
-    hpwlInitial_ = res.hpwlBefore;
-
-    die_ = design.die;
-    dieX0_ = die_[0];
-    dieY0_ = die_[1];
-    dieX1_ = die_[2];
-    dieY1_ = die_[3];
-    fences_ = &design.fences;
-
-    buildTracks();
-    collect();
-    res.movable = items_.size();
-
-    if (tracks_.empty() || items_.empty()) {
-        res.seconds = timer.elapsedSeconds();
-        return res;
-    }
-
-    // The row height that decides what "multi-row" means. Rows may differ, so the
-    // shortest row is the safe test: a cell taller than every row needs slicing,
-    // and one taller than the shortest may still fit a taller row.
-    double minRow = std::numeric_limits<double>::max();
-    for (const Track &t : tracks_) {
-        minRow = std::min(minRow, t.height);
-    }
-    const double tall = minRow * 1.5;
-
-    // Fixed blocks first: they are immovable, so the free space has to be
-    // described around them before anything else competes for it.
-    const std::size_t nv = design.cells.size();
-    for (std::size_t v = 0; v < nv; ++v) {
-        const multirow::Cell &vert = design.cells[v];
-        if (!vert.isFixed || vert.isTerminal) {
-            continue;
-        }
-        if (!(vert.width > 0.0) || !(vert.height > 0.0)) {
-            continue;
-        }
-        carveBox(vert.x, vert.y, vert.x + vert.width, vert.y + vert.height);
-    }
-
-    for (std::size_t i : order_) {
-        Item &cell = items_[i];
-        const bool isTall = cell.h > tall;
-        if (isTall) {
-            ++res.multiRow;
-        }
-
-        // Search outward from the track the cell came from, and stop as soon as
-        // the rows are further away vertically than the best placement found so
-        // far: a cell cannot be improved by moving further than it already would
-        // have to move. That bound is what keeps this linear in practice.
-        const std::size_t home = trackNear(cell.y);
         double bestCost = std::numeric_limits<double>::max();
         double bestX = 0.0;
-        std::size_t bestTrack = home;
-        bool found = false;
-
-        for (std::size_t d = 0; d < tracks_.size(); ++d) {
-            const bool down = d <= home;
-            const std::size_t t = down ? home - d : home + d;
-            if (t >= tracks_.size()) {
+        std::size_t bestRow = 0;
+        for (const std::size_t r : byDistance) {
+            const double dy = rows[r].coordinate - cell.y;
+            if (dy * dy >= bestCost) {
                 break;
             }
-            const double dy = std::fabs(tracks_[t].y - cell.y);
-            if (found && dy >= bestCost) {
-                break;  // every remaining row is further away than the best so far
-            }
-            for (const Candidate &cand : candidates(t)) {
-                const double x = snap(cand.x, cand.originX, tracks_[t].pitch);
-                if (!fits(t, x, cell.w, cell.h)) {
-                    continue;
+            for (const Slot &slot : slots(r, span, region, cell.width)) {
+                Intervals free{{slot.lo, slot.hi}};
+                for (const std::uint32_t l : slot.lanes) {
+                    for (const auto &[a, b] : used[l]) {
+                        if (b > slot.lo && a < slot.hi) {
+                            free = subtract(free, a, b);
+                        }
+                    }
                 }
-                const double cost = dy + std::fabs(x - cell.x);
-                if (cost < bestCost) {
-                    bestCost = cost;
-                    bestX = x;
-                    bestTrack = t;
-                    found = true;
-                }
-            }
-        }
-
-        if (!found) {
-            ++res.unplaced;
-            continue;
-        }
-
-        // Keeping the cell's own x is worth a small amount of vertical movement:
-        // a placement that only had to change rows preserves wirelength far better
-        // than one that also slid sideways to a segment edge.
-        {
-            const Segment *seg = tracks_[bestTrack].covering(cell.x, cell.x + cell.w);
-            const double origin = seg != nullptr ? seg->originX : dieX0_;
-            const double snapped = snap(cell.x, origin, tracks_[bestTrack].pitch);
-            if (fits(bestTrack, snapped, cell.w, cell.h)) {
-                bestX = snapped;
-            }
-        }
-        cell.x = bestX;
-        cell.y = tracks_[bestTrack].y;
-        solX_[cell.vertex] = cell.x;
-        solY_[cell.vertex] = cell.y;
-        carve(cell);
-        ++res.placed;
-        if (isTall) {
-            ++res.multiRowPlaced;
-        }
-
-        if (design.onFrame && params.frameEvery > 0 && (res.placed % params.frameEvery) == 0) {
-            writeFrame("multi-row legalization", res.placed, items_.size());
-        }
-    }
-
-    selfCheck(res);
-    res.hpwlAfter = hpwl();
-    res.seconds = timer.elapsedSeconds();
-    return res;
-}
-
-void MultiRowLegalizer::Impl::selfCheck(MultiRowLegalizeResult &res) const {
-    const std::size_t nv = design.cells.size();
-    double rowHeight = 0.0;
-    double pitch = 1.0;
-    if (!tracks_.empty()) {
-        rowHeight = tracks_.front().height;
-        pitch = tracks_.front().pitch;
-    }
-
-    std::size_t offRow = 0;
-    std::size_t offSite = 0;
-    std::size_t overFixed = 0;
-    for (std::size_t v = 0; v < nv; ++v) {
-        const multirow::Cell &vert = design.cells[v];
-        if (vert.isFixed || vert.isTerminal) {
-            continue;
-        }
-        const double x = solX_[v];
-        const double y = solY_[v];
-        // A cell belongs to a row when its base sits on that row's base line.
-        // Testing the base rather than "inside one band" is what makes this work
-        // for a cell taller than a row: such a cell is deliberately not inside any
-        // single band, and counting that as an off-row cell reported every legal
-        // placement of a tall cell as illegal.
-        const std::size_t t = trackNear(y);
-        const bool onRow = !tracks_.empty() && std::fabs(y - tracks_[t].y) <= 1e-6;
-        if (!onRow) {
-            ++offRow;
-        } else {
-            // The grid origin belongs to the segment the cell actually sits in,
-            // not to the first segment of the row: slicing moved that edge, and
-            // measuring against it reports every carved row as off-site.
-            const Segment *seg = tracks_[t].covering(x, x + vert.width);
-            const double origin = seg != nullptr ? seg->originX : tracks_[t].segments.front().xlo;
-            const double off = std::fmod(x - origin, tracks_[t].pitch);
-            if (off > 1e-3 && off < tracks_[t].pitch - 1e-3) {
-                ++offSite;
-            }
-        }
-        if (vert.regionId != multirow::Fences::kNoRegion) {
-            std::vector<double> flat{x, y};
-            std::vector<int> ids{vert.regionId};
-            overFixed += fences_->countViolations(flat, ids);
-        }
-    }
-    res.offRow = offRow;
-    res.offSite = offSite;
-    res.overFixed = overFixed;
-
-    // Overlaps, by a coarse grid. A full pairwise check is quadratic and this is
-    // a self-check, not the run's verdict, so the grid is deliberately coarse --
-    // but it is still bounded in both directions, because a bin size derived from
-    // a small row pitch on a large die asks for a table of tens of millions of
-    // buckets to count one number.
-    std::size_t overlaps = 0;
-    const double spanX = std::max(dieX1_ - dieX0_, 1.0);
-    const double spanY = std::max(dieY1_ - dieY0_, 1.0);
-    const double target = std::max(std::max(pitch, rowHeight), std::sqrt(spanX * spanY / 4e6));
-    const std::size_t nbx = std::min<std::size_t>(
-        2048, std::max<std::size_t>(1, static_cast<std::size_t>(spanX / target)));
-    const std::size_t nby = std::min<std::size_t>(
-        2048, std::max<std::size_t>(1, static_cast<std::size_t>(spanY / target)));
-    const double dx = spanX / static_cast<double>(nbx);
-    const double dy = spanY / static_cast<double>(nby);
-    const auto cellAt = [&](std::size_t v) -> const multirow::Cell * {
-        const multirow::Cell &c = design.cells[v];
-        return (!c.isFixed && !c.isTerminal) ? &c : nullptr;
-    };
-    std::vector<std::vector<std::size_t>> buckets(nbx * nby);
-    const std::size_t nv2 = design.cells.size();
-    for (std::size_t v = 0; v < nv2; ++v) {
-        const multirow::Cell *c = cellAt(v);
-        if (c == nullptr) {
-            continue;
-        }
-        const double cx = solX_[v];
-        const double cy = solY_[v];
-        const auto bx = static_cast<std::size_t>(
-            std::clamp((cx - dieX0_) / dx, 0.0, static_cast<double>(nbx) - 1.0));
-        const auto by = static_cast<std::size_t>(
-            std::clamp((cy - dieY0_) / dy, 0.0, static_cast<double>(nby) - 1.0));
-        // A cell wider than a bin reaches its neighbour, so a 3x3 neighbourhood
-        // is what a bucket count has to consider.
-        const std::size_t bx0 = (bx > 0) ? bx - 1 : 0;
-        const std::size_t bx1 = std::min(bx + 2, nbx);
-        const std::size_t by0 = (by > 0) ? by - 1 : 0;
-        const std::size_t by1 = std::min(by + 2, nby);
-        for (std::size_t yy = by0; yy < by1; ++yy) {
-            for (std::size_t xx = bx0; xx < bx1; ++xx) {
-                for (const std::size_t u : buckets[xx * nby + yy]) {
-                    const multirow::Cell &d = *cellAt(u);
-                    const double ux = solX_[u];
-                    const double uy = solY_[u];
-                    if (cx < ux + d.width - 1e-9 && ux < cx + c->width - 1e-9 &&
-                        cy < uy + d.height - 1e-9 && uy < cy + c->height - 1e-9) {
-                        ++overlaps;
+                const double pitch = lanes[slot.lanes.front()].pitch;
+                for (const auto &[lo, hi] : free) {
+                    if (hi - lo < cell.width - kEps) {
+                        continue;
+                    }
+                    double x = std::clamp(cell.x, lo, hi - cell.width);
+                    if (pitch > 0.0) {
+                        x = std::round(x / pitch) * pitch;
+                        if (x + cell.width > hi + kEps) {
+                            x -= pitch;
+                        }
+                        if (x < lo - kEps) {
+                            continue;
+                        }
+                    }
+                    const double cost = (x - cell.x) * (x - cell.x) + dy * dy;
+                    if (cost < bestCost) {
+                        bestCost = cost;
+                        bestX = x;
+                        bestRow = r;
                     }
                 }
             }
         }
-        buckets[bx * nby + by].push_back(v);
+        if (bestCost == std::numeric_limits<double>::max()) {
+            continue;
+        }
+        xs[v] = bestX;
+        ys[v] = rows[bestRow].coordinate;
+        bottomRow[v] = bestRow;
+        occupy(v);
+        filled.push_back(v);
     }
-    res.overlappingPairs = overlaps / 2;
+    return filled;
 }
 
-void MultiRowLegalizer::Impl::writeFrame(const std::string &note, std::size_t step,
-                                         std::size_t total) {
-    ++frames_;
-    const std::size_t nv = design.cells.size();
-    std::vector<float> xs(nv, 0.0f);
-    std::vector<float> ys(nv, 0.0f);
-    for (std::size_t v = 0; v < nv; ++v) {
-        xs[v] = static_cast<float>(solX_[v]);
-        ys[v] = static_cast<float>(solY_[v]);
-    }
-    // The host draws; this pass only says when. Positions and `hpwl()` both read
-    // the solution, so a frame shows the placement this pass has reached so far.
-    if (design.onFrame) {
-        multirow::FrameInfo info;
-        info.note = note;
-        info.step = step;
-        info.numSteps = total;
-        info.hpwl = hpwl();
-        info.hpwlInitial = hpwlInitial_;
-        info.mandatory = true;
-        design.onFrame(xs, ys, info);
+std::size_t MultiRowLegalizer::Impl::spanOf(double height) const {
+    return static_cast<std::size_t>(std::max(1.0, std::ceil(height / rowHeight - 1e-6)));
+}
+
+void MultiRowLegalizer::Impl::legalizeMacros(const std::vector<std::uint32_t> &macros,
+                                             MultiRowLegalizeResult &res) {
+    std::vector<std::uint32_t> order = macros;
+    std::stable_sort(order.begin(), order.end(), [&](std::uint32_t a, std::uint32_t b) {
+        const multirow::Cell &ca = design.cells[a];
+        const multirow::Cell &cb = design.cells[b];
+        return ca.width * ca.height > cb.width * cb.height;
+    });
+    std::vector<std::size_t> byDistance(rows.size());
+    for (const std::uint32_t v : order) {
+        const multirow::Cell &cell = design.cells[v];
+        std::iota(byDistance.begin(), byDistance.end(), 0u);
+        std::sort(byDistance.begin(), byDistance.end(), [&](std::size_t a, std::size_t b) {
+            return std::abs(rows[a].coordinate - cell.y) < std::abs(rows[b].coordinate - cell.y);
+        });
+        const std::size_t span = spanOf(cell.height);
+        double bestCost = std::numeric_limits<double>::max();
+        Box best;
+        for (const std::size_t r : byDistance) {
+            const double dy = rows[r].coordinate - cell.y;
+            if (dy * dy >= bestCost) {
+                break;
+            }
+            if (r + span > rows.size()) {
+                continue;
+            }
+            Intervals free;
+            for (const multirow::Subrow &s : rows[r].subrows) {
+                free.emplace_back(s.xlo, s.xhi);
+            }
+            std::sort(free.begin(), free.end());
+            bool contiguous = true;
+            for (std::size_t k = r + 1; k < r + span && contiguous; ++k) {
+                contiguous = std::abs(rows[k].coordinate -
+                                      (rows[k - 1].coordinate + rows[k - 1].height)) < 1e-6;
+                Intervals here;
+                for (const multirow::Subrow &s : rows[k].subrows) {
+                    here.emplace_back(s.xlo, s.xhi);
+                }
+                std::sort(here.begin(), here.end());
+                Intervals both;
+                std::size_t i = 0;
+                std::size_t j = 0;
+                while (i < free.size() && j < here.size()) {
+                    const double lo = std::max(free[i].first, here[j].first);
+                    const double hi = std::min(free[i].second, here[j].second);
+                    if (hi > lo) {
+                        both.emplace_back(lo, hi);
+                    }
+                    (free[i].second < here[j].second) ? ++i : ++j;
+                }
+                free = std::move(both);
+            }
+            if (!contiguous) {
+                continue;
+            }
+            const double y0 = rows[r].coordinate;
+            const double y1 = y0 + cell.height;
+            for (const Box &b : blocked) {
+                if (b.y1 > y0 + kEps && b.y0 < y1 - kEps) {
+                    free = subtract(free, b.x0, b.x1);
+                }
+            }
+            const double pitch = rows[r].pitch();
+            for (const auto &[lo, hi] : free) {
+                if (hi - lo < cell.width - kEps) {
+                    continue;
+                }
+                double x = std::clamp(cell.x, lo, hi - cell.width);
+                if (pitch > 0.0) {
+                    x = lo + std::round((x - lo) / pitch) * pitch;
+                    if (x + cell.width > hi + kEps) {
+                        x -= pitch;
+                    }
+                    if (x < lo - kEps) {
+                        continue;
+                    }
+                }
+                const double cost = (x - cell.x) * (x - cell.x) + dy * dy;
+                if (cost < bestCost) {
+                    bestCost = cost;
+                    best = {x, y0, x + cell.width, y1};
+                }
+            }
+        }
+        if (bestCost == std::numeric_limits<double>::max()) {
+            continue;
+        }
+        xs[v] = best.x0;
+        ys[v] = best.y0;
+        blocked.push_back(best);
+        ++res.macrosPlaced;
     }
 }
 
-double MultiRowLegalizer::Impl::hpwl() const {
-    // Over the solution, not the design: this pass never writes to the design, so
-    // measuring it reported the placement it was given as the one it produced.
-    return multirow::netlistHPWL(design.cells, design.nets, design.pins, solX_, solY_);
+void MultiRowLegalizer::Impl::buildLanes() {
+    std::vector<FenceRect> fenceRects;
+    for (int id = 0; id < static_cast<int>(design.fences.numRegions()); ++id) {
+        for (const multirow::Rect &rc : design.fences.region(id).rects) {
+            fenceRects.push_back({rc.xlo, rc.ylo, rc.xhi, rc.yhi, id});
+        }
+    }
+    lanesOfRow.assign(rows.size(), {});
+    for (std::size_t r = 0; r < rows.size(); ++r) {
+        const multirow::RowInfo &row = rows[r];
+        const double y0 = row.coordinate;
+        const double y1 = y0 + row.height;
+        Intervals free;
+        for (const multirow::Subrow &s : row.subrows) {
+            if (s.xhi > s.xlo) {
+                free.emplace_back(s.xlo, s.xhi);
+            }
+        }
+        for (const Box &b : blocked) {
+            if (b.y1 > y0 + kEps && b.y0 < y1 - kEps) {
+                free = subtract(free, b.x0, b.x1);
+            }
+        }
+        std::sort(free.begin(), free.end());
+        for (const auto &[lo, hi] : free) {
+            for (const RowPiece &piece :
+                 splitRowByFences(lo, hi, y0, y1, row.pitch(), fenceRects)) {
+                if (piece.xhi - piece.xlo < std::max(row.pitch(), kEps)) {
+                    continue;
+                }
+                lanesOfRow[r].push_back(static_cast<std::uint32_t>(lanes.size()));
+                lanes.push_back(
+                    {r, y0, row.height, piece.xlo, piece.xhi, row.pitch(), piece.region, {}});
+            }
+        }
+    }
 }
 
-// ---------------------------------------------------------------------------
-
-multiRowSolution MultiRowLegalizer::solution() const {
-    multiRowSolution out;
-    out.xs = pImpl->solX_;
-    out.ys = pImpl->solY_;
+std::vector<Slot> MultiRowLegalizer::Impl::slots(std::size_t bottom, std::size_t span, int region,
+                                                 double width) const {
+    std::vector<Slot> out;
+    if (bottom + span > rows.size()) {
+        return out;
+    }
+    for (std::size_t k = bottom + 1; k < bottom + span; ++k) {
+        if (std::abs(rows[k].coordinate - (rows[k - 1].coordinate + rows[k - 1].height)) > 1e-6) {
+            return out;
+        }
+    }
+    for (const std::uint32_t l : lanesOfRow[bottom]) {
+        if (lanes[l].region == region) {
+            out.push_back({{l}, lanes[l].xlo, lanes[l].xhi});
+        }
+    }
+    for (std::size_t k = bottom + 1; k < bottom + span && !out.empty(); ++k) {
+        std::vector<Slot> next;
+        for (const Slot &s : out) {
+            for (const std::uint32_t l : lanesOfRow[k]) {
+                const Lane &lane = lanes[l];
+                const double lo = std::max(s.lo, lane.xlo);
+                const double hi = std::min(s.hi, lane.xhi);
+                if (lane.region == region && hi - lo >= width - kEps) {
+                    Slot grown = s;
+                    grown.lanes.push_back(l);
+                    grown.lo = lo;
+                    grown.hi = hi;
+                    next.push_back(std::move(grown));
+                }
+            }
+        }
+        out = std::move(next);
+    }
+    out.erase(std::remove_if(out.begin(), out.end(),
+                             [&](const Slot &s) {
+                                 return s.hi - s.lo < width - kEps;
+                             }),
+              out.end());
     return out;
+}
+
+double MultiRowLegalizer::Impl::offset(std::uint32_t cell) const {
+    double sum = 0.0;
+    for (std::uint32_t c = cell; c != kNone; c = parent[c]) {
+        sum += delta[c];
+    }
+    return sum;
+}
+
+double MultiRowLegalizer::Impl::place(const Cluster &c, bool &feasible) const {
+    double lo = -std::numeric_limits<double>::max();
+    double hi = std::numeric_limits<double>::max();
+    double pitch = 0.0;
+    for (const Extent &e : c.extents) {
+        const Lane &lane = lanes[e.lane];
+        lo = std::max(lo, lane.xlo - e.lo);
+        hi = std::min(hi, lane.xhi - e.hi);
+        pitch = std::max(pitch, lane.pitch);
+    }
+    feasible = lo <= hi + kEps;
+    double x = std::clamp(c.ideal(), lo, std::max(lo, hi));
+    if (pitch > 0.0) {
+        x = std::round(x / pitch) * pitch;
+        if (x > hi + kEps) {
+            x -= pitch;
+        }
+        if (x < lo - kEps) {
+            x += pitch;
+        }
+        feasible = feasible && x >= lo - kEps && x <= hi + kEps;
+    }
+    return x;
+}
+
+std::size_t MultiRowLegalizer::Impl::indexIn(std::uint32_t lane, std::uint32_t cluster) const {
+    const std::vector<std::uint32_t> &list = lanes[lane].clusters;
+    for (std::size_t k = list.size(); k-- > 0;) {
+        if (list[k] == cluster) {
+            return k;
+        }
+    }
+    return list.size();
+}
+
+void MultiRowLegalizer::Impl::touchCluster(std::uint32_t id) {
+    if (id < savedClusterCount && !clusterTouched[id]) {
+        clusterTouched[id] = 1;
+        savedClusters.emplace_back(id, clusters[id]);
+    }
+}
+
+void MultiRowLegalizer::Impl::touchLane(std::uint32_t id) {
+    if (!laneTouched[id]) {
+        laneTouched[id] = 1;
+        savedLanes.emplace_back(id, lanes[id].clusters);
+    }
+}
+
+void MultiRowLegalizer::Impl::setParent(std::uint32_t cell, std::uint32_t newParent,
+                                        double newDelta) {
+    savedParents.emplace_back(cell, parent[cell], delta[cell]);
+    parent[cell] = newParent;
+    delta[cell] = newDelta;
+}
+
+void MultiRowLegalizer::Impl::rollback() {
+    for (auto it = savedParents.rbegin(); it != savedParents.rend(); ++it) {
+        parent[std::get<0>(*it)] = std::get<1>(*it);
+        delta[std::get<0>(*it)] = std::get<2>(*it);
+    }
+    for (auto &[id, saved] : savedLanes) {
+        lanes[id].clusters = std::move(saved);
+    }
+    for (auto &[id, saved] : savedClusters) {
+        clusters[id] = std::move(saved);
+    }
+    clusters.resize(savedClusterCount);
+    forget();
+}
+
+void MultiRowLegalizer::Impl::forget() {
+    for (const auto &[id, saved] : savedClusters) {
+        clusterTouched[id] = 0;
+    }
+    for (const auto &[id, saved] : savedLanes) {
+        laneTouched[id] = 0;
+    }
+    savedClusters.clear();
+    savedLanes.clear();
+    savedParents.clear();
+    savedClusterCount = clusters.size();
+    clusterTouched.resize(savedClusterCount, 0);
+}
+
+void MultiRowLegalizer::Impl::merge(std::uint32_t left, std::uint32_t right) {
+    touchCluster(left);
+    touchCluster(right);
+    Cluster &l = clusters[left];
+    Cluster &r = clusters[right];
+    double shift = -std::numeric_limits<double>::max();
+    for (const Extent &e : r.extents) {
+        if (const Extent *mine = l.in(e.lane)) {
+            shift = std::max(shift, mine->hi - e.lo);
+        }
+    }
+    if (shift == -std::numeric_limits<double>::max()) {
+        shift = r.x - l.x;
+    }
+    l.a += r.a + r.n * shift;
+    l.b += r.b + 2.0 * shift * r.a + r.n * shift * shift;
+    l.n += r.n;
+    for (const Extent &e : r.extents) {
+        touchLane(e.lane);
+        std::vector<std::uint32_t> &list = lanes[e.lane].clusters;
+        const std::size_t at = indexIn(e.lane, right);
+        if (Extent *mine = l.in(e.lane)) {
+            mine->lo = std::min(mine->lo, e.lo + shift);
+            mine->hi = std::max(mine->hi, e.hi + shift);
+            if (at < list.size()) {
+                list.erase(list.begin() + static_cast<long>(at));
+            }
+        } else {
+            l.extents.push_back({e.lane, e.lo + shift, e.hi + shift});
+            if (at < list.size()) {
+                list[at] = left;
+            }
+        }
+    }
+    setParent(r.root, l.root, delta[r.root] + shift - delta[l.root]);
+    r.extents.clear();
+    r.n = 0.0;
+}
+
+std::uint32_t MultiRowLegalizer::Impl::insert(std::uint32_t cell, const Slot &slot, double target,
+                                              bool &feasible) {
+    const multirow::Cell &c = design.cells[cell];
+    Cluster fresh;
+    fresh.n = 1.0;
+    fresh.a = -target;
+    fresh.b = target * target;
+    fresh.root = cell;
+    for (const std::uint32_t l : slot.lanes) {
+        fresh.extents.push_back({l, 0.0, c.width});
+    }
+    std::uint32_t id = static_cast<std::uint32_t>(clusters.size());
+    clusters.push_back(std::move(fresh));
+    clusterTouched.push_back(0);
+    setParent(cell, kNone, 0.0);
+    for (const std::uint32_t l : slot.lanes) {
+        touchLane(l);
+        lanes[l].clusters.push_back(id);
+    }
+
+    for (;;) {
+        touchCluster(id);
+        const double x = place(clusters[id], feasible);
+        if (!feasible) {
+            return id;
+        }
+        clusters[id].x = x;
+        std::uint32_t neighbour = kNone;
+        bool neighbourIsLeft = false;
+        for (const Extent &e : clusters[id].extents) {
+            const std::vector<std::uint32_t> &list = lanes[e.lane].clusters;
+            const std::size_t at = indexIn(e.lane, id);
+            if (at > 0) {
+                const Cluster &p = clusters[list[at - 1]];
+                const Extent *pe = p.in(e.lane);
+                if (p.x + pe->hi > x + e.lo + kEps) {
+                    neighbour = list[at - 1];
+                    neighbourIsLeft = true;
+                    break;
+                }
+            }
+            if (at + 1 < list.size()) {
+                const Cluster &s = clusters[list[at + 1]];
+                const Extent *se = s.in(e.lane);
+                if (x + e.hi > s.x + se->lo + kEps) {
+                    neighbour = list[at + 1];
+                    neighbourIsLeft = false;
+                    break;
+                }
+            }
+        }
+        if (neighbour == kNone) {
+            return id;
+        }
+        if (neighbourIsLeft) {
+            merge(neighbour, id);
+            id = neighbour;
+        } else {
+            merge(id, neighbour);
+        }
+    }
+}
+
+MultiRowLegalizeResult MultiRowLegalizer::Impl::run(const MultiRowOptions &params) {
+    ScopedTimer timer("multirow-legalize");
+    MultiRowLegalizeResult res;
+
+    rows = design.rows;
+    std::sort(rows.begin(), rows.end(), [](const multirow::RowInfo &a, const multirow::RowInfo &b) {
+        return a.coordinate < b.coordinate;
+    });
+    rowHeight = std::numeric_limits<double>::max();
+    for (const multirow::RowInfo &r : rows) {
+        if (r.height > 0.0 && !r.subrows.empty()) {
+            rowHeight = std::min(rowHeight, r.height);
+        }
+    }
+
+    const std::size_t n = design.cells.size();
+    xs.resize(n);
+    ys.resize(n);
+    std::vector<std::uint32_t> macros;
+    std::vector<std::uint32_t> cells;
+    for (std::uint32_t v = 0; v < n; ++v) {
+        const multirow::Cell &c = design.cells[v];
+        xs[v] = c.x;
+        ys[v] = c.y;
+        if (c.isFixed || c.isTerminal) {
+            if (c.width > 0.0 && c.height > 0.0) {
+                blocked.push_back({c.x, c.y, c.x + c.width, c.y + c.height});
+            }
+            continue;
+        }
+        ++res.movable;
+        if (c.height > 1.5 * rowHeight) {
+            ++res.multiRow;
+        }
+        if (spanOf(c.height) > params.macroRows) {
+            macros.push_back(v);
+        } else {
+            cells.push_back(v);
+        }
+    }
+    res.macros = macros.size();
+    res.hpwlBefore = multirow::netlistHPWL(design.cells, design.nets, design.pins, xs, ys);
+    if (rows.empty()) {
+        res.unplaced = res.movable;
+        res.hpwlAfter = res.hpwlBefore;
+        return res;
+    }
+
+    legalizeMacros(macros, res);
+    buildLanes();
+
+    parent.assign(n, kNone);
+    delta.assign(n, 0.0);
+    clusterOf.assign(n, kNone);
+    laneTouched.assign(lanes.size(), 0);
+    forget();
+
+    std::stable_sort(cells.begin(), cells.end(), [&](std::uint32_t a, std::uint32_t b) {
+        return design.cells[a].x < design.cells[b].x;
+    });
+    std::vector<double> rowY(rows.size());
+    for (std::size_t r = 0; r < rows.size(); ++r) {
+        rowY[r] = rows[r].coordinate;
+    }
+
+    std::vector<std::uint32_t> placedCells;
+    std::vector<std::uint32_t> pending;
+    std::vector<std::size_t> bottomRow(n, 0);
+    for (const std::uint32_t v : cells) {
+        const multirow::Cell &cell = design.cells[v];
+        const std::size_t span = spanOf(cell.height);
+        const int region = cell.regionId >= 0 && static_cast<std::size_t>(cell.regionId) <
+                                                     design.fences.numRegions()
+                               ? cell.regionId
+                               : multirow::Fences::kNoRegion;
+        const std::size_t home = static_cast<std::size_t>(
+            std::lower_bound(rowY.begin(), rowY.end(), cell.y) - rowY.begin());
+
+        double bestCost = std::numeric_limits<double>::max();
+        Slot best;
+        std::size_t bestRow = 0;
+        const auto tryRow = [&](std::size_t r) {
+            const double dy = rows[r].coordinate - cell.y;
+            for (const Slot &slot : slots(r, span, region, cell.width)) {
+                const double dx = cell.x < slot.lo                ? slot.lo - cell.x
+                                  : cell.x > slot.hi - cell.width ? cell.x - (slot.hi - cell.width)
+                                                                  : 0.0;
+                if (dx * dx + dy * dy >= bestCost) {
+                    continue;
+                }
+                bool feasible = false;
+                const std::uint32_t id = insert(v, slot, cell.x, feasible);
+                if (feasible) {
+                    const double moved = clusters[id].x + offset(v) - cell.x;
+                    const double cost = moved * moved + dy * dy;
+                    if (cost < bestCost) {
+                        bestCost = cost;
+                        best = slot;
+                        bestRow = r;
+                    }
+                }
+                rollback();
+            }
+        };
+        const auto rowDistance = [&](std::size_t r) {
+            return std::abs(rows[r].coordinate - cell.y);
+        };
+        std::size_t up = std::min(home, rows.size() - 1);
+        std::size_t down = up;
+        bool upOpen = true;
+        bool downOpen = up > 0;
+        if (downOpen) {
+            --down;
+        }
+        while (upOpen || downOpen) {
+            const bool takeUp = upOpen && (!downOpen || rowDistance(up) <= rowDistance(down));
+            const std::size_t r = takeUp ? up : down;
+            const double d = rowDistance(r);
+            if (d * d >= bestCost) {
+                if (takeUp) {
+                    upOpen = false;
+                } else {
+                    downOpen = false;
+                }
+                continue;
+            }
+            tryRow(r);
+            if (takeUp) {
+                upOpen = ++up < rows.size();
+            } else {
+                downOpen = down-- > 0;
+            }
+        }
+        if (bestCost == std::numeric_limits<double>::max()) {
+            pending.push_back(v);
+            continue;
+        }
+        bool feasible = false;
+        insert(v, best, cell.x, feasible);
+        forget();
+        bottomRow[v] = bestRow;
+        placedCells.push_back(v);
+        ++res.placed;
+        if (cell.height > 1.5 * rowHeight) {
+            ++res.multiRowPlaced;
+        }
+    }
+
+    std::vector<double> clusterX(n, 0.0);
+    for (const Cluster &c : clusters) {
+        if (c.n > 0.0) {
+            clusterX[c.root] = c.x;
+        }
+    }
+    for (const std::uint32_t v : placedCells) {
+        std::uint32_t root = v;
+        double sum = 0.0;
+        for (std::uint32_t c = v; c != kNone; c = parent[c]) {
+            sum += delta[c];
+            root = c;
+        }
+        xs[v] = clusterX[root] + sum;
+        ys[v] = rows[bottomRow[v]].coordinate;
+    }
+
+    for (const std::uint32_t v : fillGaps(pending, placedCells, bottomRow)) {
+        ++res.placed;
+        if (design.cells[v].height > 1.5 * rowHeight) {
+            ++res.multiRowPlaced;
+        }
+    }
+
+    res.placed += res.macrosPlaced;
+    res.multiRowPlaced += res.macrosPlaced;
+    res.unplaced = res.movable - res.placed;
+    for (std::uint32_t v = 0; v < n; ++v) {
+        const multirow::Cell &c = design.cells[v];
+        if (!c.isFixed && !c.isTerminal) {
+            const double moved = std::hypot(xs[v] - c.x, ys[v] - c.y);
+            res.displacement += moved;
+            res.maxDisplacement = std::max(res.maxDisplacement, moved);
+        }
+    }
+    res.hpwlAfter = multirow::netlistHPWL(design.cells, design.nets, design.pins, xs, ys);
+    res.seconds = timer.elapsedSeconds();
+    return res;
 }
 
 MultiRowLegalizer::MultiRowLegalizer(const multirow::Design &design)
@@ -628,39 +818,12 @@ MultiRowLegalizer::MultiRowLegalizer(MultiRowLegalizer &&) noexcept = default;
 
 MultiRowLegalizer &MultiRowLegalizer::operator=(MultiRowLegalizer &&) noexcept = default;
 
-namespace {
-
-void report(const MultiRowLegalizeResult &r) {
-    ktReportTable t("Legalization (multi-row)");
-    t.setHeaders({"metric", "value"});
-    t.addRow({"movable cells", fmt::format("{}", r.movable)});
-    t.addRow({"cells placed", fmt::format("{}", r.placed)});
-    t.addRow({"cells unplaced", fmt::format("{}", r.unplaced)});
-    t.addRow({"cells taller than a row", fmt::format("{}", r.multiRow)});
-    t.addRow({"of those, placed", fmt::format("{}", r.multiRowPlaced)});
-    t.addRow({"HPWL before", fmt::format("{:.6}", r.hpwlBefore)});
-    t.addRow({"HPWL after", fmt::format("{:.6}", r.hpwlAfter)});
-    t.addRow({"time (s)", fmt::format("{:.6}", r.seconds)});
-    t.addRow({"overlapping pairs", fmt::format("{}", r.overlappingPairs)});
-    t.addRow({"cells off row", fmt::format("{}", r.offRow)});
-    t.addRow({"cells off site", fmt::format("{}", r.offSite)});
-    t.addRow({"cells over macro", fmt::format("{}", r.overFixed)});
-    t.emit();
-    if (r.overlappingPairs != 0 || r.offRow != 0 || r.overFixed != 0) {
-        ktlog.warning("legalization is not legal; see the counts above");
-    }
-    if (r.unplaced > 0) {
-        ktlog.warning("{} cell(s) could not be placed in any row and kept their global placement",
-                      r.unplaced);
-    }
+MultiRowLegalizeResult MultiRowLegalizer::legalize(const MultiRowOptions &options) {
+    return pImpl->run(options);
 }
 
-}  // namespace
-
-MultiRowLegalizeResult MultiRowLegalizer::legalize(const MultiRowLegalizeParams &params) {
-    MultiRowLegalizeResult result = pImpl->run(params);
-    report(result);
-    return result;
+multiRowSolution MultiRowLegalizer::solution() const {
+    return {pImpl->xs, pImpl->ys};
 }
 
 }  // namespace ktplace

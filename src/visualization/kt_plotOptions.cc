@@ -14,13 +14,14 @@ namespace {}  // namespace
 
 PlotOptions PlotOptions::fromOptions() {
     PlotOptions out;
-    const VisualizerOptions opts = VisualizerOptions::load();
+    const VisualizerOptions opts = loadOptions<VisualizerOptions>();
     out.animate = opts.anim;
     out.frameBudget = opts.animMaxFrames;
     out.frameZoom = opts.animZoom;
     out.finalZoom = opts.finalZoom;
     out.writePpm = opts.finalPpm;
-    opts.report();
+    out.blendFrames = opts.animBlend;
+    reportOptions(opts);
     return out;
 }
 

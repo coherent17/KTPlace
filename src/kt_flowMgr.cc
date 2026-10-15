@@ -10,14 +10,10 @@
 #include "datamodel/kt_optionDb.h"
 #include "detailPlacer/fastdp/fastdp_dm.h"
 #include "detailPlacer/fastdp/fastdp_flowMgr.h"
-#include "detailPlacer/fastdp/fastdp_placer.h"
 #include "legalizer/abacus/abacus_dm.h"
 #include "legalizer/abacus/abacus_flowMgr.h"
-#include "legalizer/abacus/abacus_legalizer.h"
 #include "legalizer/multirow/multirow_dm.h"
 #include "legalizer/multirow/multirow_flowMgr.h"
-#include "legalizer/multirow/multirow_legalizer.h"
-#include "placer/ntuplace1/kt_ntuplace1.h"
 #include "placer/ntuplace1/ntuplace1_dm.h"
 #include "placer/ntuplace1/ntuplace1_flowMgr.h"
 #include "placer/simpl/simpl_dm.h"
@@ -27,7 +23,6 @@
 #include "util/kt_scopedTimer.h"
 #include "visualization/kt_visualizer.h"
 
-#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
@@ -53,8 +48,6 @@ private:
     void legalizeDesign();
     void detailPlaceDesign();
     void renderFinalImage();
-    /// The committed placement as float arrays, the shape every draw call takes.
-    [[nodiscard]] std::pair<std::vector<float>, std::vector<float>> positions() const;
     void finishAnimation();
 };
 
@@ -127,8 +120,10 @@ void FlowMgr::Impl::placeDesign() {
     // Which placer runs is the flow's business: it is the one that knows what
     // placers exist. The script chooses with `add_option flow algorithm ...`, and
     // SimPL runs when nothing says otherwise.
-    const std::string algorithm =
-        getComponentOption<components::Id::Flow, std::string>("algorithm").value_or("simpl");
+    const std::string algorithm = OptionDb::instance()
+                                      .getComponentOption(Component::Flow)
+                                      .get<std::string>("algorithm")
+                                      .value_or("simpl");
     if (algorithm != "simpl" && algorithm != "ntuplace1") {
         ktlog.fatal("unknown placer '{}'; expected simpl or ntuplace1", algorithm);
     }
@@ -148,31 +143,20 @@ void FlowMgr::Impl::placeDesign() {
 
     if (algorithm == "simpl") {
         ktlog.echo("Running SimPL global placement (B2B net model + look-ahead legalization)...");
-        // Fences come from the LEF/DEF reader; Bookshelf carries none, so an empty
-        // set is a correctly unconstrained design. Ignoring fences scatters fenced
-        // cells across the die and draws no regions. `add_option simpl fences 0`
-        // shows the placement without them, which is the only way to see what the
-        // constraint costs.
-        if (!simpl::buildSimplDM(*db, plot).useFences()) {
+        simpl::simplDM simplDB = simpl::buildSimplDM(*db, plot);
+        if (!simplDB.options().fences) {
             ktlog.echo("SimPL: fence enforcement disabled by 'add_option simpl fences 0'");
         }
-
-        // Build SimPL's own database from ours, run it there, commit the answer.
-        // SimPL has no way to reach ktDM, so this is the one write, and SimPL
-        // assembles its own parameters from the options it was given.
-        simpl::simplDM simplDB = simpl::buildSimplDM(*db, plot);
-        const simpl::SimplParams params = simplDB.params();
         simpl::flowMgr flow(simplDB);
-        db->setGPSolution(flow.runGlobalPlacer(params, simplDB.useFences()));
+        db->setGPSolution(flow.runGlobalPlacer());
         return;
 
     } else if (algorithm == "ntuplace1") {
         // Build this placer's own database, run it there, commit the answer: the
         // same shape as every other stage.
         ntuplace1::ntuplace1DM placeDB = ntuplace1::buildNtuplace1DM(*db);
-        const RatioPlaceParams params = placeDB.params();
         ntuplace1::flowMgr flow(placeDB);
-        db->setGPSolution(flow.runGlobalPlacer(params));
+        db->setGPSolution(flow.runGlobalPlacer());
         return;
 
     } else {
@@ -185,68 +169,55 @@ void FlowMgr::Impl::legalizeDesign() {
     // remaining budget.
     Visualizer::instance().holdBack(0);
 
-    // Abacus places into a single row, so a cell taller than one has nowhere to
-    // go and is left overlapping. When the design has such cells, the row-slicing
-    // legalizer runs instead: it cuts cells out of every row they span, so a tall
-    // cell occupies a real well and the cells around it place normally.
-    if (db->multiRowCells() > 0) {
-        ktlog.echo("Running multi-row legalization ({} cell(s) taller than a row)...",
-                   db->multiRowCells());
-        // The pass's own cadence; the sink handles the rest.
-        MultiRowLegalizeParams params;
-        params.frameEvery = plot.legalFrameEvery;
+    if (const std::size_t tall = db->multiRowCells(); tall > 0) {
+        ktlog.echo("Running multi-row legalization ({} cell(s) taller than a row)...", tall);
         multirow::multirowDM multiDB = multirow::buildMultiRowDM(*db);
         multirow::flowMgr flow(multiDB);
-        db->setMultiRowSolution(flow.runLegalizer(params));
+        db->setMultiRowSolution(flow.runLegalizer());
         return;
     }
 
     ktlog.echo("Running Abacus legalization...");
     abacus::abacusDM abacusDB = abacus::buildAbacusDM(*db);
-    const LegalizeParams lparams = abacusDB.params();
     abacus::flowMgr flow(abacusDB);
-    db->setLegalizationSolution(flow.runLegalizer(lparams));
+    db->setLegalizationSolution(flow.runLegalizer());
 }
 
 
 void FlowMgr::Impl::detailPlaceDesign() {
     ktlog.echo("Running FastDP detailed placement...");
     fastdp::fastdpDM dpDB = fastdp::buildFastdpDM(*db);
-    const DetailPlaceParams dparams = dpDB.params();
     fastdp::flowMgr flow(dpDB);
-    db->setDetailedPlaceSolution(flow.runDetailedPlacer(dparams));
+    db->setDetailedPlaceSolution(flow.runDetailedPlacer());
 }
 
-
-std::pair<std::vector<float>, std::vector<float>> FlowMgr::Impl::positions() const {
-    const Graph &g = db->getGraph();
-    std::vector<float> x(g.getNumCells());
-    std::vector<float> y(g.getNumCells());
-    for (std::size_t v = 0; v < g.getNumCells(); ++v) {
-        x[v] = static_cast<float>(g.getCell(v).x);
-        y[v] = static_cast<float>(g.getCell(v).y);
-    }
-    return {x, y};
-}
 
 void FlowMgr::Impl::renderFinalImage() {
     Visualizer::instance().finalImage(db->getGraph(), &db->constraints(), db->hpwl());
 }
 
 void FlowMgr::Impl::finishAnimation() {
+    const Graph &graph = db->getGraph();
+    const auto coordinates = [&graph](double Vertex::*axis) {
+        std::vector<float> out(graph.getNumCells());
+        for (std::size_t v = 0; v < out.size(); ++v) {
+            out[v] = static_cast<float>(graph.getCell(v).*axis);
+        }
+        return out;
+    };
     Visualizer &viz = Visualizer::instance();
-    const bool written = viz.finish(db->getGraph(), positions().first, positions().second,
+    const bool written = viz.finish(graph, coordinates(&Vertex::x), coordinates(&Vertex::y),
                                     db->placementDieBox(), &db->constraints(), db->hpwl());
     if (written) {
         ktlog.echo(
             "animation: {} frames -> {}/anim/placement.gif (global placement, then "
             "legalization, then detailed placement)",
-            Visualizer::instance().frameCount(), viz.directory());
+            viz.frameCount(), viz.directory());
     } else {
         ktlog.echo(
             "animation: {} frame(s) recorded, no GIF written (one animation needs at "
             "least two frames)",
-            Visualizer::instance().frameCount());
+            viz.frameCount());
     }
 }
 
