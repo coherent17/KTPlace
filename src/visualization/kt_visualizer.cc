@@ -137,10 +137,6 @@ bool Visualizer::enabled() const noexcept {
     return !dir.empty();
 }
 
-bool Visualizer::drawing() const noexcept {
-    return drawingNow;
-}
-
 void Visualizer::holdBack(std::size_t frames) {
     if (!animOn) {
         return;

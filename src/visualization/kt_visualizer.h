@@ -162,13 +162,6 @@ public:
     [[nodiscard]] const std::string &directory() const noexcept {
         return dir;
     }
-    [[nodiscard]] const StageVisual &currentStage() const noexcept {
-        return stage;
-    }
-
-    /// True when the current stage has asked for frames and there is somewhere to
-    /// put them. A stage checks this before doing the work of building a frame.
-    [[nodiscard]] bool drawing() const noexcept;
 
     /// Draw one snapshot: a vector still, and a frame for the run's animation.
     /// `x` and `y` hold one entry per cell.
