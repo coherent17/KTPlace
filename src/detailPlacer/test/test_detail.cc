@@ -3,6 +3,7 @@
 
 
 #define BOOST_TEST_MODULE ktplace_detail
+#define BOOST_TEST_DYN_LINK
 
 #include "constraint/kt_constraintMgr.h"
 #include "datamodel/kt_dm.h"
@@ -10,7 +11,7 @@
 #include "detailPlacer/fastdp/fastdp_placer.h"
 #include "util/kt_log.h"
 
-#include <boost/test/included/unit_test.hpp>
+#include <boost/test/unit_test.hpp>
 
 // Run the placer over a database built from `db`, then commit its answer -- the
 // same two steps the flow performs. The placer itself writes nothing, so a test

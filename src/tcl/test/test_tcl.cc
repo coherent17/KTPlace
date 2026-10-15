@@ -3,13 +3,14 @@
 // Unit tests for the Tcl interpreter and the option registry.
 
 #define BOOST_TEST_MODULE ktplace_tcl
+#define BOOST_TEST_DYN_LINK
 
 #include "datamodel/kt_optionDb.h"
 #include "placer/simpl/simpl_options.h"
 #include "tcl/kt_tclMgr.h"
 #include "util/kt_log.h"
 
-#include <boost/test/included/unit_test.hpp>
+#include <boost/test/unit_test.hpp>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>

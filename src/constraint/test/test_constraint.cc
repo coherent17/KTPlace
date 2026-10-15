@@ -3,11 +3,12 @@
 
 
 #define BOOST_TEST_MODULE ktplace_constraint
+#define BOOST_TEST_DYN_LINK
 
 #include "constraint/kt_constraintMgr.h"
 #include "util/kt_log.h"
 
-#include <boost/test/included/unit_test.hpp>
+#include <boost/test/unit_test.hpp>
 #include <string>
 #include <vector>
 

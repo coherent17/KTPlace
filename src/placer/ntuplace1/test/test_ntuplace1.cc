@@ -10,6 +10,7 @@
 // inside the rows rather than in the pad ring around them.
 
 #define BOOST_TEST_MODULE ktplace_ntuplace1
+#define BOOST_TEST_DYN_LINK
 
 #include "constraint/kt_constraintMgr.h"
 #include "datamodel/kt_dm.h"
@@ -17,7 +18,7 @@
 #include "placer/ntuplace1/ntuplace1_dm.h"
 #include "util/kt_log.h"
 
-#include <boost/test/included/unit_test.hpp>
+#include <boost/test/unit_test.hpp>
 #include <string>
 #include <utility>
 #include <vector>
