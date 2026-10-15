@@ -109,7 +109,7 @@ add_option visualizer anim 0
 | `ntuplace1` | `leaf_cells`, `max_levels`, `retries`, `verbose` | partitioner settings |
 | `abacus` | `max_row_dist`, `min_subrow_sites` | legalizer settings |
 | `abacus` | `frame_every` | SVG frame every N cells placed; `0` keeps only the first and last (`0`) |
-| `multirow` | `macro_rows` | cells spanning more rows than this are legalized first as macros (`8`) |
+| `multirow` | `macro_rows` | cells spanning more rows than this are legalized first as blocks, before the standard cells are legalized around them (`3`) |
 | `fastdp` | `window`, `no_median` | detailed placer settings |
 
 Each component's keys and defaults are listed in its `*_options.h`. An unknown
