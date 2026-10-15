@@ -12,18 +12,26 @@ namespace ktplace {
 struct FastdpOptions {
     static constexpr Component kComponent = Component::FastDp;
 
-    std::size_t localReorderWindow = 0;
-    bool noMedian = false;
+    std::size_t reorderWindow = 3;
+    double penaltyWeight1 = 0.1;
+    double penaltyWeight2 = 1.0;
+    std::size_t maxIterations = 20;
+    double minImprovement = 1e-3;
 
-    std::size_t globalSwapPasses = 4;
-    std::size_t verticalSwapPasses = 2;
-    std::size_t localReorderPasses = 2;
-    std::size_t clusterPasses = 2;
-    double minImprovement = 1e-4;
+    bool globalSwap = true;
+    bool verticalSwap = true;
+    bool localReorder = true;
+    bool clustering = true;
+    std::size_t swapCandidates = 64;
+    std::size_t verticalCandidates = 3;
+    std::size_t clusterBounds = 16;
 
     static void fields(auto &self, auto &&visit) {
-        visit("window", self.localReorderWindow);
-        visit("no_median", self.noMedian);
+        visit("window", self.reorderWindow);
+        visit("wt1", self.penaltyWeight1);
+        visit("wt2", self.penaltyWeight2);
+        visit("max_iterations", self.maxIterations);
+        visit("min_improvement", self.minImprovement);
     }
 };
 

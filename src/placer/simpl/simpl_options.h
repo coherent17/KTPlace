@@ -6,6 +6,7 @@
 #include "datamodel/kt_optionDb.h"
 
 #include <cstddef>
+#include <string>
 
 namespace ktplace {
 
@@ -15,6 +16,7 @@ struct SimplOptions {
     std::size_t binsPerAxis = 0;
     double cgTol = 1e-4;
     std::size_t initMaxIters = 15;
+    std::string initialNetModel = "star";
     std::size_t maxIters = 100;
     std::size_t seed = 20240607;
     bool fences = true;
@@ -35,6 +37,7 @@ struct SimplOptions {
         visit("grid", self.binsPerAxis);
         visit("cg_tol", self.cgTol);
         visit("init_iters", self.initMaxIters);
+        visit("init_net", self.initialNetModel);
         visit("iters", self.maxIters);
         visit("seed", self.seed);
         visit("fences", self.fences);

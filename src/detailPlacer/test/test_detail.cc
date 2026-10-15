@@ -117,11 +117,10 @@ void addNet(ktDM &db, const std::string &net, const std::string &a, const std::s
 
 [[nodiscard]] FastdpOptions only(std::size_t which) {
     FastdpOptions p;
-    p.localReorderWindow = 6;
-    p.globalSwapPasses = which == 0 ? 1 : 0;
-    p.verticalSwapPasses = which == 1 ? 1 : 0;
-    p.localReorderPasses = which == 2 ? 1 : 0;
-    p.clusterPasses = which == 3 ? 1 : 0;
+    p.globalSwap = which == 0;
+    p.verticalSwap = which == 1;
+    p.localReorder = which == 2;
+    p.clustering = which == 3;
     return p;
 }
 
@@ -150,10 +149,10 @@ void addNet(ktDM &db, const std::string &net, const std::string &a, const std::s
 /// inert when asked to do nothing, which is what a fully converged design wants.
 [[nodiscard]] FastdpOptions none() {
     FastdpOptions p;
-    p.globalSwapPasses = 0;
-    p.verticalSwapPasses = 0;
-    p.localReorderPasses = 0;
-    p.clusterPasses = 0;
+    p.globalSwap = false;
+    p.verticalSwap = false;
+    p.localReorder = false;
+    p.clustering = false;
     return p;
 }
 
@@ -417,12 +416,12 @@ BOOST_AUTO_TEST_CASE(vertical_swap_pulls_a_cell_back_to_its_own_row) {
 
 BOOST_AUTO_TEST_CASE(local_reordering_reduces_a_backwards_ordering) {
     // Three cells whose nets want "p" between the other two, but which are
-    // stored r,p,q. The left-to-right order is wrong, which is exactly what the
-    // reordering dynamic program is there to fix, so the other three are off.
+    // stored p,r,q. The left-to-right order is wrong, which is exactly what local
+    // re-ordering is there to fix, so the other three are off.
     ktDM db;
     addRow(db, 0, 40);
-    addCell(db, "r", 2.0, 0);
-    addCell(db, "p", 5.0, 0);
+    addCell(db, "p", 2.0, 0);
+    addCell(db, "r", 5.0, 0);
     addCell(db, "q", 8.0, 0);
     addNet(db, "n0", "p", "r");
     addNet(db, "n1", "p", "q");
@@ -559,10 +558,12 @@ BOOST_AUTO_TEST_CASE(the_move_counts_add_up_to_the_reported_totals) {
 
 BOOST_AUTO_TEST_CASE(the_default_parameters_run_every_technique) {
     const FastdpOptions p;
-    BOOST_TEST(p.globalSwapPasses > 0u);
-    BOOST_TEST(p.verticalSwapPasses > 0u);
-    BOOST_TEST(p.localReorderPasses > 0u);
-    BOOST_TEST(p.clusterPasses > 0u);
+    BOOST_TEST(p.globalSwap);
+    BOOST_TEST(p.verticalSwap);
+    BOOST_TEST(p.localReorder);
+    BOOST_TEST(p.clustering);
+    BOOST_TEST(p.reorderWindow == 3u);
+    BOOST_TEST(p.penaltyWeight2 > p.penaltyWeight1);
     BOOST_TEST(p.minImprovement >= 0.0);
 }
 
@@ -576,13 +577,13 @@ BOOST_AUTO_TEST_CASE(a_local_reorder_window_of_zero_does_not_hang) {
         addCell(db, "c" + std::to_string(c), static_cast<double>(c) * 2.0, 0);
     }
     FastdpOptions p = none();
-    p.localReorderPasses = 1;
-    p.localReorderWindow = 0;
+    p.localReorder = true;
+    p.reorderWindow = 0;
     DetailPlaceResult r;
     BOOST_CHECK_NO_THROW(r = runAndCommit(db, p));
     BOOST_TEST(r.overlappingPairs == 0u);
 
-    p.localReorderWindow = 1;
+    p.reorderWindow = 1;
     BOOST_CHECK_NO_THROW(runAndCommit(db, p));
     BOOST_TEST(r.overlappingPairs == 0u);
 }
@@ -601,8 +602,8 @@ BOOST_AUTO_TEST_CASE(an_oversized_local_reorder_window_is_capped_not_obeyed) {
         addNet(db, "n" + a + b, a, b);
     }
     FastdpOptions p = none();
-    p.localReorderPasses = 1;
-    p.localReorderWindow = 64;
+    p.localReorder = true;
+    p.reorderWindow = 64;
     DetailPlaceResult r;
     BOOST_CHECK_NO_THROW(r = runAndCommit(db, p));
     BOOST_TEST(r.overlappingPairs == 0u);
@@ -697,7 +698,7 @@ BOOST_AUTO_TEST_CASE(fences_are_accepted_without_being_enforced) {
     db.setConstraints(std::move(cstr));
 
     FastdpOptions p = none();
-    p.globalSwapPasses = 2;
+    p.globalSwap = true;
     DetailPlaceResult r;
     BOOST_CHECK_NO_THROW(r = runAndCommit(db, p));
     BOOST_TEST(r.overlappingPairs == 0u);

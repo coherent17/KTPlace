@@ -1,5 +1,8 @@
-// @file fastdp_placer.h// Fast detailed placement: global swap, vertical swap, local re-ordering,// single-segment clustering// Detailed placement runs after legalization. The legalizer minimises// displacement, which is not the same as minimising wirelength, so a legal// placement is usually a little worse than the global placement it came from and// this stage wins it back.// Implements the four techniques of Pan, Viswanathan and Chu, "Fast and// effective detailed placement", ICCAD 2005:// 1. Global swap. For each cell, the best x for it is the median of the x// coordinates its nets allow, which is the classic "median" move. If some// other cell already sits near that x and the two can trade places without// breaking legality, swap them.// 2. Vertical swap. The same exchange restricted to cells in adjacent rows,// which fixes cells that want to change row.// 3. Local re-ordering. Within a short window of a row, find the best left to// right ordering exactly, by a subset dynamic program.// 4. Single-segment clustering. With the order fixed, re-place a segment with// the legalizer's cluster dynamic program, which is the same optimisation// applied to one segment rather than a whole row.// Every technique preserves legality: a move is only applied if each cell stays// in its row band, on a site, and clear of its neighbours and of any macro.
-
+// @file fastdp_placer.h
+// Detailed placement after Pan, Viswanathan and Chu, "An Efficient and Effective
+// Detailed Placement Algorithm", ICCAD 2005: single-segment clustering, then
+// global swap, vertical swap and local re-ordering until the wirelength stops
+// improving, then single-segment clustering again.
 
 #pragma once
 
@@ -19,8 +22,6 @@ struct DetailPlaceResult {
     std::size_t globalSwaps = 0;
     std::size_t verticalSwaps = 0;
     std::size_t reorderMoves = 0;
-    /// Median moves: the O(cells x degree) pass, as against the window search.
-    std::size_t medianMoves = 0;
     std::size_t clusterMoves = 0;
     double hpwlBefore = 0.0;
     double hpwlAfter = 0.0;

@@ -303,6 +303,9 @@ private:
     void buildSystem(SparseSystem &sys, const std::vector<double> &pos, double lengthFloor,
                      double alpha, const std::vector<double> &anchor, bool vertical);
     void solve(std::vector<double> &x, std::vector<double> &y, const std::string &tag);
+    std::size_t buildStarSystems();
+    void buildStarSystem(SparseSystem &sys, const std::vector<std::uint32_t> &starOf,
+                         std::size_t size, bool vertical) const;
     [[nodiscard]] double hpwl(const std::vector<double> &x, const std::vector<double> &y) const;
 
     [[nodiscard]] double centre(const std::vector<double> &pos, std::uint32_t i,
@@ -588,6 +591,92 @@ void simplPlacer::Impl::buildSystem(SparseSystem &sys, const std::vector<double>
         sys.diag[i] = std::max(diag, 1e-12);
         sys.rhs[i] = rhs;
     });
+}
+
+std::size_t simplPlacer::Impl::buildStarSystems() {
+    std::vector<std::uint32_t> starOf(nets.size(), kNoVar);
+    std::size_t size = numMovable;
+    for (std::size_t n = 0; n < nets.size(); ++n) {
+        const std::vector<std::uint32_t> &cells = nets[n].cells;
+        const bool movable = std::ranges::any_of(cells, [&](std::uint32_t c) {
+            return varOfVertex[c] != kNoVar;
+        });
+        if (cells.size() >= 3 && movable) {
+            starOf[n] = static_cast<std::uint32_t>(size++);
+        }
+    }
+    tbb::parallel_invoke(
+        [&] {
+            buildStarSystem(sysX, starOf, size, true);
+        },
+        [&] {
+            buildStarSystem(sysY, starOf, size, false);
+        });
+    return size;
+}
+
+void simplPlacer::Impl::buildStarSystem(SparseSystem &sys, const std::vector<std::uint32_t> &starOf,
+                                        std::size_t size, bool vertical) const {
+    struct End {
+        std::uint32_t var;
+        double offset;
+        double fixed;
+    };
+    std::vector<std::vector<std::pair<std::uint32_t, double>>> rows(size);
+    sys.diag.assign(size, 0.0);
+    sys.rhs.assign(size, 0.0);
+    const auto spring = [&](const End &a, const End &b, double w) {
+        const auto pull = [&](const End &self, const End &other) {
+            if (self.var == kNoVar) {
+                return;
+            }
+            sys.diag[self.var] += w;
+            if (other.var != kNoVar) {
+                rows[self.var].emplace_back(other.var, -w);
+                sys.rhs[self.var] += w * (other.offset - self.offset);
+            } else {
+                sys.rhs[self.var] += w * (other.fixed + other.offset - self.offset);
+            }
+        };
+        pull(a, b);
+        pull(b, a);
+    };
+    for (std::size_t n = 0; n < nets.size(); ++n) {
+        const NetPins &net = nets[n];
+        const std::size_t p = net.cells.size();
+        if (p < 2) {
+            continue;
+        }
+        const auto end = [&](std::size_t q) {
+            const std::uint32_t c = net.cells[q];
+            return End{varOfVertex[c], vertical ? net.offX[q] : net.offY[q],
+                       vertical ? fixedX[c] : fixedY[c]};
+        };
+        if (p == 2) {
+            spring(end(0), end(1), net.weight);
+        } else if (starOf[n] != kNoVar) {
+            const End star{starOf[n], 0.0, 0.0};
+            const double w = net.weight * static_cast<double>(p) / static_cast<double>(p - 1);
+            for (std::size_t q = 0; q < p; ++q) {
+                spring(end(q), star, w);
+            }
+        }
+    }
+    sys.rowPtr.assign(size + 1, 0);
+    for (std::size_t i = 0; i < size; ++i) {
+        sys.rowPtr[i + 1] = sys.rowPtr[i] + rows[i].size();
+        sys.diag[i] = std::max(sys.diag[i], 1e-12);
+    }
+    sys.col.resize(sys.rowPtr.back());
+    sys.val.resize(sys.rowPtr.back());
+    for (std::size_t i = 0; i < size; ++i) {
+        std::size_t slot = sys.rowPtr[i];
+        for (const auto &[c, v] : rows[i]) {
+            sys.col[slot] = c;
+            sys.val[slot] = v;
+            ++slot;
+        }
+    }
 }
 
 void simplPlacer::Impl::solve(std::vector<double> &x, std::vector<double> &y,
@@ -1072,28 +1161,56 @@ SimplResult simplPlacer::Impl::run(const SimplOptions &params) {
     res.hpwlInit = res.hpwlSeed;
     std::size_t accepted = 0;
     std::size_t framed = 0;
-    for (std::size_t it = 0; it < par.initMaxIters; ++it) {
-        ScopedTimer timer("simpl-init");
-        std::vector<double> x = lower;
-        std::vector<double> y = lowerY;
-        buildSystems(x, y, 0.0, noAnchors, noAnchors);
-        solve(x, y, "init" + frameStep(it));
-        res.initIters = it + 1;
-        const double h = hpwl(x, y);
-        ktlog.trace("init iter {:2d}: hpwl {:.6e}", it, h);
-        if (!(h < res.hpwlInit)) {
-            break;
+    const auto initialPhase = [&](bool star) {
+        std::vector<double> extendedX;
+        std::vector<double> extendedY;
+        if (star) {
+            ScopedTimer timer("simpl-init");
+            const std::size_t size = buildStarSystems();
+            extendedX = lower;
+            extendedY = lowerY;
+            extendedX.resize(size, 0.5 * (die[0] + die[2]));
+            extendedY.resize(size, 0.5 * (die[1] + die[3]));
         }
-        lower = std::move(x);
-        lowerY = std::move(y);
-        res.hpwlInit = h;
-        accepted = it + 1;
-        if ((accepted & (accepted - 1)) == 0) {
-            framed = accepted;
-            writeFrame("LSS_init", lower, lowerY,
-                       fmt::format("initial placement round {}", accepted), accepted,
-                       par.initMaxIters);
+        for (std::size_t round = 0; round < par.initMaxIters; ++round) {
+            ScopedTimer timer("simpl-init");
+            std::vector<double> x = star ? extendedX : lower;
+            std::vector<double> y = star ? extendedY : lowerY;
+            if (!star) {
+                buildSystems(x, y, 0.0, noAnchors, noAnchors);
+            }
+            solve(x, y, "init" + frameStep(res.initIters));
+            if (star) {
+                extendedX = x;
+                extendedY = y;
+                x.resize(numMovable);
+                y.resize(numMovable);
+            }
+            const double h = hpwl(x, y);
+            ktlog.trace("init iter {:2d} ({}): hpwl {:.6e}", res.initIters, star ? "star" : "b2b",
+                        h);
+            ++res.initIters;
+            const bool first = star && round == 0;
+            if (!first && !(h < res.hpwlInit)) {
+                break;
+            }
+            lower = std::move(x);
+            lowerY = std::move(y);
+            res.hpwlInit = h;
+            accepted = res.initIters;
+            if ((accepted & (accepted - 1)) == 0) {
+                framed = accepted;
+                writeFrame("LSS_init", lower, lowerY,
+                           fmt::format("initial placement round {}", accepted), accepted,
+                           par.initMaxIters);
+            }
         }
+    };
+    if (par.initialNetModel != "b2b") {
+        initialPhase(true);
+    }
+    if (par.initialNetModel != "star") {
+        initialPhase(false);
     }
     if (accepted > 0 && framed != accepted) {
         writeFrame("LSS_init", lower, lowerY, fmt::format("initial placement round {}", accepted),

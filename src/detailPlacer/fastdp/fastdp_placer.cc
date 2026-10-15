@@ -1,6 +1,5 @@
 // @file fastdp_placer.cc
-// Fast detailed placement. See fastdp_placer.h for the technique summary.
-
+// FastDP detailed placement (Pan, Viswanathan and Chu, ICCAD 2005)
 
 #include "detailPlacer/fastdp/fastdp_placer.h"
 
@@ -11,59 +10,123 @@
 #include "util/kt_scopedTimer.h"
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cmath>
-#include <cstdio>
-#include <cstdlib>
-#include <filesystem>
+#include <cstdint>
 #include <limits>
 #include <memory>
 #include <numeric>
-
+#include <span>
+#include <utility>
+#include <vector>
 
 namespace ktplace {
 
 namespace {
 
 constexpr std::size_t kNoSlot = std::numeric_limits<std::size_t>::max();
+constexpr double kEps = 1e-6;
+constexpr double kInf = std::numeric_limits<double>::infinity();
 
-/// One placeable span, mirroring the legalizer's subrows so a cell can only ever
-/// be exchanged with another cell in the same span.
 struct Span {
-    double ylo = 0.0, yhi = 0.0;
-    double xlo = 0.0, xhi = 0.0;
+    double ylo = 0.0;
+    double yhi = 0.0;
+    double xlo = 0.0;
+    double xhi = 0.0;
     double site = 1.0;
-    /// Row pitch, taken as the row height. Vertical swaps compare row distances
-    /// against this; comparing against the site width (1 on adaptec1, whose row
-    /// pitch is 12) made every pair look non-adjacent and the technique never ran.
-    double pitch = 1.0;
-    std::size_t row = 0;  ///< index of the row this span belongs to
-    /// The fence this span lies in, or fastdp::kNoRegion. Only cells of the same region
-    /// may sit in it, which is how a move keeps every cell on its side of a fence.
+    std::size_t row = 0;
     int region = fastdp::kNoRegion;
-    std::vector<std::size_t> cells;  ///< ascending x
+    std::vector<std::size_t> cells;
 
-    [[nodiscard]] bool contains(double px, double pw) const {
-        return px >= xlo - 1e-6 && px + pw <= xhi + 1e-6;
+    [[nodiscard]] double width() const noexcept {
+        return xhi - xlo;
+    }
+    [[nodiscard]] bool contains(double px, double pw) const noexcept {
+        return px >= xlo - kEps && px + pw <= xhi + kEps;
     }
 };
 
-/// A pin on a net. Fixed pins carry their absolute x and never move.
 struct NetPin {
-    std::size_t slot;   ///< kNoSlot for a fixed pin
-    double offX = 0.0;  ///< offset from the cell's origin
-    double offY = 0.0;  ///< offset from the cell's origin
-    double absX = 0.0;  ///< used when slot == kNoSlot
-    double absY = 0.0;  ///< used when slot == kNoSlot
+    std::size_t slot = kNoSlot;
+    double offX = 0.0;
+    double offY = 0.0;
+    double absX = 0.0;
+    double absY = 0.0;
 };
 
 struct FixedBox {
-    double y0, y1, x0, x1;
+    double y0 = 0.0;
+    double y1 = 0.0;
+    double x0 = 0.0;
+    double x1 = 0.0;
 };
 
-}  // namespace
+struct Interval {
+    double lo = 0.0;
+    double hi = 0.0;
 
-// ---------------------------------------------------------------------------
+    [[nodiscard]] bool contains(double v) const noexcept {
+        return v >= lo - kEps && v <= hi + kEps;
+    }
+    [[nodiscard]] double center() const noexcept {
+        return 0.5 * (lo + hi);
+    }
+};
+
+struct OptimalRegion {
+    Interval x;
+    Interval y;
+};
+
+struct Move {
+    std::size_t cell = kNoSlot;
+    double x = 0.0;
+    double y = 0.0;
+};
+
+struct BoundingBox {
+    double xlo = kInf;
+    double xhi = -kInf;
+    double ylo = kInf;
+    double yhi = -kInf;
+
+    void add(double x, double y) noexcept {
+        xlo = std::min(xlo, x);
+        xhi = std::max(xhi, x);
+        ylo = std::min(ylo, y);
+        yhi = std::max(yhi, y);
+    }
+    [[nodiscard]] double halfPerimeter() const noexcept {
+        return xlo > xhi ? 0.0 : (xhi - xlo) + (yhi - ylo);
+    }
+};
+
+Interval medianInterval(std::vector<double> &values) {
+    const std::size_t k = values.size() / 2;
+    std::ranges::nth_element(values, values.begin() + static_cast<std::ptrdiff_t>(k));
+    const double hi = values[k];
+    const double lo =
+        k == 0 ? hi
+               : *std::max_element(values.begin(), values.begin() + static_cast<std::ptrdiff_t>(k));
+    return {lo, hi};
+}
+
+void keepCentral(std::vector<double> &bounds, std::size_t keep) {
+    std::ranges::sort(bounds);
+    if (bounds.size() > keep) {
+        const std::size_t drop = (bounds.size() - keep) / 2;
+        bounds.erase(bounds.end() - static_cast<std::ptrdiff_t>(bounds.size() - keep - drop),
+                     bounds.end());
+        bounds.erase(bounds.begin(), bounds.begin() + static_cast<std::ptrdiff_t>(drop));
+    }
+}
+
+double secondsSince(std::chrono::steady_clock::time_point start) {
+    return std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
+}
+
+}  // namespace
 
 class FastDetailedPlacer::Impl {
 public:
@@ -71,371 +134,227 @@ public:
 
     DetailPlaceResult place(const FastdpOptions &params);
 
+    const fastdp::Design &design;
+    std::vector<std::size_t> mov_;
+    std::vector<double> x_;
+    std::vector<double> y_;
+
 private:
+    struct Candidate {
+        double benefit = 0.0;
+        std::size_t partner = kNoSlot;
+        std::size_t span = kNoSlot;
+        double x = 0.0;
+        double partnerX = 0.0;
+    };
+
+    void collectCells(double rowHeight);
     void buildSpans();
+    void assignCells();
+    void indexFixed();
     void buildNetlist();
+
     [[nodiscard]] double hpwl() const;
-    /// Exact HPWL change from moving cell c to nx, given a scratch copy of the
-    /// affected positions.
-    [[nodiscard]] double deltaMove(std::size_t c, double nx) const;
-    /// Exact HPWL change from exchanging two cells.
-    /// @param  nay  y cell a lands at; y_[a] is unchanged
-    /// @param  nby  y cell b lands at
-    /// Both axes are measured, because the exchange is judged against the same
-    /// HPWL that hpwl() reports. An earlier x-only version let a vertical swap
-    /// pass the "improves" test while making the true two-axis HPWL worse, so
-    /// a run could report a net loss as a gain.
-    [[nodiscard]] double deltaSwap(std::size_t a, double na, double nay, std::size_t b, double nb,
-                                   double nby) const;
-    /// Can c sit at nx without overlapping a neighbour, a macro, or leaving its
-    /// span? The span bounds and the site grid are checked; the neighbour check
-    /// is done against the cells sorted by x in the span.
-    [[nodiscard]] bool canPlace(std::size_t c, double nx) const;
-    /// The x that minimises this cell's own net span lengths: the median of the
-    /// interval its nets allow.
-    [[nodiscard]] double medianX(std::size_t c) const;
+    [[nodiscard]] double wirelengthDelta(std::span<const Move> moves) const;
+    [[nodiscard]] OptimalRegion optimalRegion(std::size_t c) const;
+
+    [[nodiscard]] std::size_t indexIn(std::size_t s, std::size_t c) const;
+    [[nodiscard]] double gap(std::size_t s, std::ptrdiff_t g) const;
+    [[nodiscard]] double snap(double x, std::size_t s, double w) const;
+    [[nodiscard]] double penalty(double excess, double nearRoom, double wideRoom) const;
+    [[nodiscard]] double cellPenalty(std::size_t s, std::size_t k, double excess) const;
+    [[nodiscard]] std::size_t nearestRow(double y) const;
+
+    [[nodiscard]] Candidate swapWith(std::size_t i, std::size_t j) const;
+    [[nodiscard]] Candidate moveInto(std::size_t i, std::size_t s, std::size_t g,
+                                     double target) const;
+    [[nodiscard]] bool tryGlobal(std::size_t i, const OptimalRegion &region);
+    void apply(std::size_t i, const Candidate &c);
+    void relocate(std::size_t c, double nx, std::size_t s);
+    void legalizeSpan(std::size_t s);
+    void legalizeTouched();
+
     std::size_t globalSwap();
     std::size_t verticalSwap();
     std::size_t localReorder();
-    std::size_t medianReorder();
-    std::size_t singleSegmentCluster();
+    std::size_t clusterSegments();
+
     void selfCheck(DetailPlaceResult &res) const;
-    /// Offer a snapshot to the sink. A no-op when the stage has no sink, so the
-    /// callers below do not each have to ask whether drawing is on.
     void writeFrame(const char *note, std::size_t step = 0) const;
-    /// Fences, carried from the params so the frame writer can draw them.
 
-    void commit(std::size_t c, double nx);
-    /// Re-sort a span's cells by x. The neighbour check in canPlace() binary
-    /// searches that order, so it has to be restored after every move.
-    void resort(std::size_t s);
-    std::size_t overlaps(const std::vector<std::size_t> &cells,
-                         const std::vector<double> *nx = nullptr) const;
-    std::size_t offSites(const std::vector<std::size_t> &cells,
-                         const std::vector<double> *nx = nullptr) const;
-    double segmentHpwl(const std::vector<std::size_t> &cells,
-                       const std::vector<double> *nx = nullptr) const;
-    // Ranks two layouts of one span. Legality dominates: a layout with fewer
-    // overlaps wins, then one with fewer cells off the site pitch, and only a
-    // tie on both is broken by wirelength. Ranking it the other way round would
-    // leave a legal span alone but never repair an illegal one.
-    static bool betterLayout(std::size_t ovNew, std::size_t offNew, double hpNew, std::size_t ovOld,
-                             std::size_t offOld, double hpOld);
-    /// Spans in the rows immediately above and below each row, built once.
-    std::vector<std::vector<std::size_t>> rowsNear_;
-    /// Fixed boxes bucketed by y, so testing a cell against them costs the boxes
-    /// in its own row band rather than every macro in the design. The flat scan
-    /// this replaces was cells times macros -- 114 million box tests on adaptec1
-    /// and about 33 of detail placement's 54 seconds.
-    std::vector<std::vector<std::size_t>> fixedByBand_;
-    double bandY_ = 0.0, bandY0_ = 0.0;
-    /// Cells left untouched because they span rows. Reported, because "the detail
-    /// placer did nothing to them" should be visible rather than look like a pass
-    /// that found no improvement.
-    std::size_t tallSkipped_ = 0;
-    /// Index of the first span in each row, so locate() starts at the spans of the
-    /// cell's own row instead of at span 0. A cell is in exactly one row, and the
-    /// spans are grouped by row, so the candidate set is a handful and the test is
-    /// not a walk over the whole design.
-    std::vector<std::size_t> spanRowStart_;
-    void removeFromSpan(std::size_t c);
-    /// Could cell c legally sit at nx in span s, ignoring the cells in `ignore`?
-    /// This is checked *before* any mutation so an exchange never has to be
-    /// rolled back: the earlier mutate-then-validate version left 11 overlapping
-    /// pairs and 67 cells unassigned when a restore did not land exactly.
-    [[nodiscard]] bool fitsIgnoring(std::size_t c, double nx, std::size_t s,
-                                    const std::size_t *ignore, std::size_t nIgnore) const;
-    /// Find the span cell c currently sits in, and re-check bounds, site grid
-    /// and macros for it. False if it is not legally placeable anywhere.
-    bool locate(std::size_t c);
-    std::size_t localWindow_ = 8;
-
-public:
-    /// The design this pass runs against, and its live position per movable slot.
-    /// Public because solution() is what carries the result out: the design
-    /// itself is never written.
-    const fastdp::Design &design;
-    std::vector<std::size_t> mov_;
-    std::vector<double> x_, y_;
-
-private:
-    std::vector<double> w_, h_;        ///< per movable slot
-    std::vector<int> region_;          ///< fence of each movable slot, or fastdp::kNoRegion
-    std::vector<std::size_t> spanOf_;  ///< span index per movable slot
+    FastdpOptions opts_;
+    std::vector<double> w_;
+    std::vector<double> h_;
+    std::vector<int> region_;
+    std::vector<char> movable_;
+    std::vector<char> stranded_;
+    std::vector<std::size_t> spanOf_;
     std::vector<Span> spans_;
+    std::vector<double> used_;
+    std::vector<char> touched_;
+    std::vector<std::vector<std::size_t>> spansInRow_;
+    std::vector<double> rowY_;
     std::vector<std::vector<NetPin>> netPins_;
-    /// For each slot, the nets it appears on.
     std::vector<std::vector<std::size_t>> cellNets_;
     std::vector<FixedBox> fixed_;
-    /// fixed_ bucketed by y band, so a blockage test looks at the boxes near the
-    /// cell's rows instead of every macro and pad in the design.
-    std::vector<std::vector<std::uint32_t>> fixedBuckets_;
-    double fixedY0_ = 0.0, fixedBand_ = 1.0;
-    void buildFixedIndex(double band);
-    /// True when a cell box [x, x+w) x [y, y+h) overlaps a fixed box.
-    [[nodiscard]] bool hitsFixed(double x, double w, double y, double h) const;
-    std::array<double, 4> die_{};
+    std::vector<std::vector<std::size_t>> fixedByBand_;
+    double bandY_ = kInf;
+    double bandY0_ = 0.0;
+    std::size_t tallSkipped_ = 0;
+
+    mutable std::vector<std::size_t> moveOf_;
+    mutable std::vector<std::uint32_t> netStamp_;
+    mutable std::uint32_t stamp_ = 0;
 };
 
-void FastDetailedPlacer::Impl::buildSpans() {
-    spans_.clear();
-    std::vector<fastdp::RowInfo> rows(design.rows);
-    std::sort(rows.begin(), rows.end(), [](const fastdp::RowInfo &a, const fastdp::RowInfo &b) {
-        return a.coordinate < b.coordinate;
-    });
-    // Free space per row, not the row itself. A span is what is actually empty
-    // between the cells that are there now, so every placement lands in a gap and
-    // cannot overlap anything by construction. Taking spans from the row
-    // description alone was only sound while the rows still described the
-    // placement: the multi-row legalizer cuts rows into segments that the db
-    // still reports as one full subrow, and on ibm01 that mismatch is what left
-    // the detail placer placing two cells on top of each other.
-    std::vector<std::vector<std::pair<double, double>>> occupied(rows.size());
+void FastDetailedPlacer::Impl::collectCells(double rowHeight) {
+    movable_.assign(design.cells.size(), 0);
     for (std::size_t v = 0; v < design.cells.size(); ++v) {
-        const fastdp::Cell &vert = design.cells[v];
-        if (vert.width <= 0.0 || vert.height <= 0.0) {
+        const fastdp::Cell &cell = design.cells[v];
+        const bool tall = cell.height > rowHeight + kEps;
+        if (cell.isFixed || tall) {
+            fixed_.push_back(FixedBox{cell.y, cell.y + cell.height, cell.x, cell.x + cell.width});
+        }
+        if (cell.isFixed || cell.isTerminal || tall) {
+            tallSkipped_ += (tall && !cell.isFixed && !cell.isTerminal) ? 1 : 0;
             continue;
         }
-        // Rows are sorted, so start at the first row whose top reaches past the
-        // cell's bottom and walk down only over the rows the cell actually
-        // covers. Scanning all rows per cell was quadratic on a design with
-        // 210k cells and 700 rows.
-        const auto above = std::lower_bound(rows.begin(), rows.end(), vert.y + vert.height,
-                                            [](const fastdp::RowInfo &ri, double limit) {
-                                                return ri.coordinate + ri.height < limit;
-                                            });
-        for (auto it = above; it != rows.begin();) {
-            --it;
-            if (it->coordinate + it->height <= vert.y + 1e-6) {
-                break;  // past the cell's bottom
-            }
-            occupied[static_cast<std::size_t>(it - rows.begin())].emplace_back(vert.x,
-                                                                               vert.x + vert.width);
-        }
+        movable_[v] = 1;
+        mov_.push_back(v);
+        w_.push_back(cell.width);
+        h_.push_back(cell.height);
+        x_.push_back(cell.x);
+        y_.push_back(cell.y);
+        region_.push_back(cell.region);
     }
-    for (std::size_t r = 0; r < rows.size(); ++r) {
-        const fastdp::RowInfo &ri = rows[r];
-        const double site = ri.pitch() > 0.0 ? ri.pitch() : 1.0;
-        std::vector<std::pair<double, double>> &obs = occupied[r];
-        std::sort(obs.begin(), obs.end());
-        for (const fastdp::Subrow &si : ri.subrows) {
-            for (double lo = si.xlo; lo < si.xhi - 1e-9;) {
-                double hi = si.xhi;
-                // Each obstacle splits the run in two: stop just short of it, and
-                // resume at its far edge.
-                for (const auto &o : obs) {
-                    if (o.first <= lo + 1e-9 || o.second >= hi - 1e-9) {
+}
+
+void FastDetailedPlacer::Impl::buildSpans() {
+    std::vector<fastdp::RowInfo> rows(design.rows);
+    std::ranges::sort(rows, {}, &fastdp::RowInfo::coordinate);
+    rowY_.clear();
+    for (const fastdp::RowInfo &ri : rows) {
+        rowY_.push_back(ri.coordinate);
+    }
+    stranded_.assign(mov_.size(), 0);
+    for (int attempt = 0; attempt < 2; ++attempt) {
+        std::vector<std::vector<std::pair<double, double>>> blocked(rows.size());
+        const auto block = [&](double x0, double x1, double y0, double y1) {
+            auto r = std::ranges::upper_bound(rows, y0 + kEps, {}, [](const fastdp::RowInfo &ri) {
+                return ri.coordinate + ri.height;
+            });
+            for (; r != rows.end() && r->coordinate < y1 - kEps; ++r) {
+                blocked[static_cast<std::size_t>(r - rows.begin())].emplace_back(x0, x1);
+            }
+        };
+        for (std::size_t v = 0; v < design.cells.size(); ++v) {
+            const fastdp::Cell &cell = design.cells[v];
+            if (!movable_[v] && cell.width > 0.0 && cell.height > 0.0) {
+                block(cell.x, cell.x + cell.width, cell.y, cell.y + cell.height);
+            }
+        }
+        for (std::size_t i = 0; i < mov_.size(); ++i) {
+            if (stranded_[i]) {
+                block(x_[i], x_[i] + w_[i], y_[i], y_[i] + h_[i]);
+            }
+        }
+
+        spans_.clear();
+        spansInRow_.assign(rows.size(), {});
+        for (std::size_t r = 0; r < rows.size(); ++r) {
+            const fastdp::RowInfo &ri = rows[r];
+            std::vector<std::pair<double, double>> &obs = blocked[r];
+            std::ranges::sort(obs);
+            for (const fastdp::Subrow &sub : ri.subrows) {
+                const auto emit = [&](double lo, double hi) {
+                    if (hi > lo + kEps) {
+                        spansInRow_[r].push_back(spans_.size());
+                        spans_.push_back(Span{ri.coordinate,
+                                              ri.coordinate + ri.height,
+                                              lo,
+                                              hi,
+                                              ri.pitch() > 0.0 ? ri.pitch() : 1.0,
+                                              r,
+                                              sub.region,
+                                              {}});
+                    }
+                };
+                double cursor = sub.xlo;
+                for (const auto &[o0, o1] : obs) {
+                    if (o1 <= cursor + kEps || o0 >= sub.xhi - kEps) {
                         continue;
                     }
-                    hi = std::min(hi, o.first);
+                    emit(cursor, std::min(o0, sub.xhi));
+                    cursor = std::max(cursor, o1);
                 }
-                if (hi > lo + 1e-9) {
-                    Span sp;
-                    sp.row = r;
-                    sp.ylo = ri.coordinate;
-                    sp.yhi = ri.coordinate + ri.height;
-                    sp.xlo = lo;
-                    sp.xhi = hi;
-                    sp.site = site;
-                    sp.pitch = ri.height > 0.0 ? ri.height : 1.0;
-                    sp.region = si.region;
-                    spans_.push_back(std::move(sp));
-                }
-                // Resume at the obstacle that cut the run short, so the rest of the
-                // row is still visited.
-                lo = hi;
+                emit(cursor, sub.xhi);
             }
         }
+        assignCells();
+        if (attempt == 1 || std::ranges::none_of(spanOf_, [](std::size_t s) {
+                return s == kNoSlot;
+            })) {
+            break;
+        }
+        for (std::size_t i = 0; i < mov_.size(); ++i) {
+            stranded_[i] = spanOf_[i] == kNoSlot ? 1 : 0;
+        }
     }
-    // Spans bucketed by row, in index order. Built before the cells are assigned
-    // so the assignment can look in a cell's own row instead of every span.
-    std::vector<std::vector<std::size_t>> spansInRow(rows.size());
-    for (std::size_t t = 0; t < spans_.size(); ++t) {
-        spansInRow[spans_[t].row].push_back(t);
+    used_.assign(spans_.size(), 0.0);
+    for (std::size_t s = 0; s < spans_.size(); ++s) {
+        for (const std::size_t c : spans_[s].cells) {
+            used_[s] += w_[c];
+        }
     }
+    touched_.assign(spans_.size(), 0);
+}
 
-    // Each cell joins the lowest-indexed span that holds it. Spans are numbered
-    // row by row and rows are sorted by y, so that span lies in the first row
-    // whose band contains the cell's y: binary-search that row, then scan only
-    // its spans (and any later row whose band still contains y). Scanning every
-    // span for every cell was O(cells x spans) -- 211k x thousands on adaptec1 --
-    // and buildSpans runs before every pass of every technique, which made it a
-    // third of FastDP's time while being reported under no phase at all.
+void FastDetailedPlacer::Impl::assignCells() {
     spanOf_.assign(mov_.size(), kNoSlot);
     for (std::size_t i = 0; i < mov_.size(); ++i) {
-        const double y = y_[i];
-        auto r = static_cast<std::size_t>(
-            std::lower_bound(rows.begin(), rows.end(), y,
-                             [](const fastdp::RowInfo &ri, double v) {
-                                 return ri.coordinate + ri.height - 1e-6 <= v;
-                             }) -
-            rows.begin());
-        bool placed = false;
-        for (; r < rows.size() && !placed; ++r) {
-            if (rows[r].coordinate - 1e-6 > y) {
-                break;  // rows are sorted: no later band can contain y
-            }
-            for (const std::size_t s : spansInRow[r]) {
-                const Span &sp = spans_[s];
-                // A cell only joins a span of its own region. One the legalizer
-                // left on the wrong side of a fence finds no span and is left
-                // where it is.
-                if (sp.region == region_[i] && y >= sp.ylo - 1e-6 && y < sp.yhi - 1e-6 &&
-                    sp.contains(x_[i], w_[i])) {
-                    spanOf_[i] = s;
-                    spans_[s].cells.push_back(i);
-                    placed = true;
-                    break;
-                }
+        if (stranded_[i]) {
+            continue;
+        }
+        const std::size_t r = nearestRow(y_[i]);
+        if (r == kNoSlot || std::abs(rowY_[r] - y_[i]) > kEps) {
+            continue;
+        }
+        for (const std::size_t s : spansInRow_[r]) {
+            if (spans_[s].region == region_[i] && spans_[s].contains(x_[i], w_[i])) {
+                spanOf_[i] = s;
+                spans_[s].cells.push_back(i);
+                break;
             }
         }
     }
     for (Span &sp : spans_) {
-        std::sort(sp.cells.begin(), sp.cells.end(), [&](std::size_t a, std::size_t b) {
-            return x_[a] < x_[b];
+        std::ranges::sort(sp.cells, {}, [this](std::size_t c) {
+            return x_[c];
         });
     }
+}
 
-    // Index the spans in the rows immediately above and below each row, so a
-    // vertical swap does not have to walk the whole design per cell. Walking every
-    // span for every span was quadratic in the span count and, worse, appended
-    // from inside the outer loop: a row with k spans put the same neighbour into
-    // rowsNear_ k times, so each vertical-swap trial was re-evaluated k times.
-    rowsNear_.assign(rows.size(), {});
-    for (std::size_t r = 0; r < rows.size(); ++r) {
-        if (r > 0) {
-            rowsNear_[r].insert(rowsNear_[r].end(), spansInRow[r - 1].begin(),
-                                spansInRow[r - 1].end());
-        }
-        if (r + 1 < rows.size()) {
-            rowsNear_[r].insert(rowsNear_[r].end(), spansInRow[r + 1].begin(),
-                                spansInRow[r + 1].end());
+void FastDetailedPlacer::Impl::indexFixed() {
+    bandY0_ = rowY_.empty() ? 0.0 : rowY_.front();
+    for (const fastdp::RowInfo &ri : design.rows) {
+        if (ri.height > 0.0) {
+            bandY_ = std::min(bandY_, ri.height);
         }
     }
-
-    // First span of each row, over the row-ordered span list, so locate() can jump
-    // to the cell's own row.
-    spanRowStart_.assign(rows.size() + 1, spans_.size());
-    {
-        std::size_t s = 0;
-        for (std::size_t r = 0; r < rows.size(); ++r) {
-            spanRowStart_[r] = s;
-            while (s < spans_.size() && spans_[s].row == r) {
-                ++s;
-            }
-        }
-        spanRowStart_[rows.size()] = spans_.size();
+    if (!std::isfinite(bandY_)) {
+        bandY_ = 1.0;
     }
-
-    // Fixed boxes by y band, one row pitch tall, so a cell only meets the macros
-    // that can actually reach it.
-    bandY_ = rows.empty() ? 1.0 : std::max(1e-9, rows[0].height);
-    bandY0_ = rows.empty() ? 0.0 : rows.front().coordinate;
-    const std::size_t nBands = rows.empty() ? 1 : rows.size() + 2;
-    fixedByBand_.assign(nBands, {});
+    const std::size_t bands = design.rows.size() + 2;
+    fixedByBand_.assign(bands, {});
+    const auto band = [&](double y) {
+        return std::clamp<long>(static_cast<long>(std::floor((y - bandY0_) / bandY_)), 0,
+                                static_cast<long>(bands) - 1);
+    };
     for (std::size_t i = 0; i < fixed_.size(); ++i) {
-        const FixedBox &f = fixed_[i];
-        long b0 = static_cast<long>(std::floor((f.y0 - bandY0_) / bandY_));
-        long b1 = static_cast<long>(std::floor((f.y1 - bandY0_) / bandY_));
-        b0 = std::max<long>(b0, 0);
-        b1 = std::min<long>(b1, static_cast<long>(nBands) - 1);
-        for (long b = b0; b <= b1; ++b) {
+        for (long b = band(fixed_[i].y0); b <= band(fixed_[i].y1); ++b) {
             fixedByBand_[static_cast<std::size_t>(b)].push_back(i);
         }
     }
-}
-
-void FastDetailedPlacer::Impl::buildFixedIndex(double band) {
-    fixedBuckets_.clear();
-    if (fixed_.empty()) {
-        return;
-    }
-    double y0 = std::numeric_limits<double>::max(), y1 = -std::numeric_limits<double>::max();
-    for (const FixedBox &f : fixed_) {
-        y0 = std::min(y0, f.y0);
-        y1 = std::max(y1, f.y1);
-    }
-    fixedY0_ = y0;
-    fixedBand_ = band > 0.0 ? band : 1.0;
-    const auto nb = static_cast<std::size_t>((y1 - y0) / fixedBand_) + 1;
-    fixedBuckets_.assign(nb, {});
-    for (std::uint32_t k = 0; k < fixed_.size(); ++k) {
-        const auto b0 = static_cast<std::size_t>(std::max(0.0, (fixed_[k].y0 - y0) / fixedBand_));
-        const auto b1 =
-            std::min(nb - 1, static_cast<std::size_t>((fixed_[k].y1 - y0) / fixedBand_));
-        for (std::size_t b = b0; b <= b1; ++b) {
-            fixedBuckets_[b].push_back(k);
-        }
-    }
-}
-
-bool FastDetailedPlacer::Impl::hitsFixed(double x, double w, double y, double h) const {
-    if (fixedBuckets_.empty()) {
-        return false;
-    }
-    // Every box overlapping the cell in y is registered in some bucket the cell's
-    // [y, y+h] covers, so this is the same test as scanning all of fixed_, only
-    // without the boxes that cannot overlap.
-    const double lo = (y - fixedY0_) / fixedBand_, hi = (y + h - fixedY0_) / fixedBand_;
-    if (hi < 0.0) {
-        return false;
-    }
-    const std::size_t nb = fixedBuckets_.size();
-    const auto b0 = static_cast<std::size_t>(std::max(0.0, lo));
-    if (b0 >= nb) {
-        return false;
-    }
-    const std::size_t b1 = std::min(nb - 1, static_cast<std::size_t>(hi));
-    for (std::size_t b = b0; b <= b1; ++b) {
-        for (const std::uint32_t k : fixedBuckets_[b]) {
-            const FixedBox &f = fixed_[k];
-            if (x + w > f.x0 + 1e-6 && x < f.x1 - 1e-6 && y + h > f.y0 + 1e-6 && y < f.y1 - 1e-6) {
-                return true;
-            }
-        }
-    }
-    return false;
-}
-
-bool FastDetailedPlacer::Impl::fitsIgnoring(std::size_t c, double nx, std::size_t s,
-                                            const std::size_t *ignore, std::size_t nIgnore) const {
-    const Span &sp = spans_[s];
-    if (!sp.contains(nx, w_[c])) {
-        return false;
-    }
-    if (sp.site > 0.0) {
-        const double q = nx / sp.site;
-        if (std::fabs(q - std::round(q)) * sp.site > 1e-6 * std::max(1.0, std::fabs(nx))) {
-            return false;
-        }
-    }
-    const std::vector<std::size_t> &cells = sp.cells;
-    const auto it = std::lower_bound(cells.begin(), cells.end(), nx, [&](std::size_t a, double v) {
-        return x_[a] < v;
-    });
-    for (auto k = it; k != cells.end() && x_[*k] < nx + w_[c] - 1e-6; ++k) {
-        if (std::find(ignore, ignore + nIgnore, *k) == ignore + nIgnore) {
-            return false;
-        }
-    }
-    if (it != cells.begin()) {
-        const std::size_t prev = *std::prev(it);
-        if (x_[prev] + w_[prev] > nx + 1e-6 &&
-            std::find(ignore, ignore + nIgnore, prev) == ignore + nIgnore) {
-            return false;
-        }
-    }
-    return !hitsFixed(nx, w_[c], y_[c], h_[c]);
-}
-
-void FastDetailedPlacer::Impl::removeFromSpan(std::size_t c) {
-    const std::size_t s = spanOf_[c];
-    if (s == kNoSlot) {
-        return;
-    }
-    std::vector<std::size_t> &cells = spans_[s].cells;
-    cells.erase(std::remove(cells.begin(), cells.end(), c), cells.end());
-    spanOf_[c] = kNoSlot;
 }
 
 void FastDetailedPlacer::Impl::buildNetlist() {
@@ -453,765 +372,587 @@ void FastDetailedPlacer::Impl::buildNetlist() {
             if (s == kNoSlot) {
                 netPins_[n].push_back(NetPin{kNoSlot, pin.offsetX, pin.offsetY, c.x + pin.offsetX,
                                              c.y + pin.offsetY});
-            } else {
-                netPins_[n].push_back(NetPin{s, pin.offsetX, pin.offsetY, 0.0, 0.0});
+                continue;
+            }
+            netPins_[n].push_back(NetPin{s, pin.offsetX, pin.offsetY, 0.0, 0.0});
+            if (cellNets_[s].empty() || cellNets_[s].back() != n) {
                 cellNets_[s].push_back(n);
             }
         }
     }
+    moveOf_.assign(mov_.size(), kNoSlot);
+    netStamp_.assign(design.nets.size(), 0);
 }
 
 double FastDetailedPlacer::Impl::hpwl() const {
     double total = 0.0;
-    for (std::size_t v = 0; v < netPins_.size(); ++v) {
-        const std::vector<NetPin> &pins = netPins_[v];
-        if (pins.size() < 2) {
-            continue;
-        }
-        double ax = std::numeric_limits<double>::max();
-        double bx = -std::numeric_limits<double>::max();
-        double ay = std::numeric_limits<double>::max();
-        double by = -std::numeric_limits<double>::max();
+    for (const std::vector<NetPin> &pins : netPins_) {
+        BoundingBox box;
         for (const NetPin &p : pins) {
-            const double px = (p.slot == kNoSlot) ? p.absX : (x_[p.slot] + p.offX);
-            const double py = (p.slot == kNoSlot) ? p.absY : (y_[p.slot] + p.offY);
-            ax = std::min(ax, px);
-            bx = std::max(bx, px);
-            ay = std::min(ay, py);
-            by = std::max(by, py);
+            if (p.slot == kNoSlot) {
+                box.add(p.absX, p.absY);
+            } else {
+                box.add(x_[p.slot] + p.offX, y_[p.slot] + p.offY);
+            }
         }
-        total += (bx - ax) + (by - ay);
+        total += box.halfPerimeter();
     }
     return total;
 }
 
-double FastDetailedPlacer::Impl::deltaMove(std::size_t c, double nx) const {
-    const double old = x_[c];
-    if (std::fabs(old - nx) < 1e-12) {
-        return 0.0;
+double FastDetailedPlacer::Impl::wirelengthDelta(std::span<const Move> moves) const {
+    if (++stamp_ == 0) {
+        std::ranges::fill(netStamp_, 0u);
+        stamp_ = 1;
     }
-    // Only the nets this cell is on can change, and the new x of this one cell
-    // is the only unknown, so each affected net is re-bounded directly.
+    for (std::size_t k = 0; k < moves.size(); ++k) {
+        moveOf_[moves[k].cell] = k;
+    }
     double delta = 0.0;
-    for (const std::size_t n : cellNets_[c]) {
-        const std::vector<NetPin> &pins = netPins_[n];
-        double ax = std::numeric_limits<double>::max();
-        double bx = -std::numeric_limits<double>::max();
-        for (const NetPin &p : pins) {
-            double px;
-            if (p.slot == kNoSlot) {
-                px = p.absX;
-            } else if (p.slot == c) {
-                px = nx + p.offX;
-            } else {
-                px = x_[p.slot] + p.offX;
+    for (const Move &m : moves) {
+        for (const std::size_t n : cellNets_[m.cell]) {
+            if (netStamp_[n] == stamp_) {
+                continue;
             }
-            ax = std::min(ax, px);
-            bx = std::max(bx, px);
+            netStamp_[n] = stamp_;
+            BoundingBox before;
+            BoundingBox after;
+            for (const NetPin &p : netPins_[n]) {
+                if (p.slot == kNoSlot) {
+                    before.add(p.absX, p.absY);
+                    after.add(p.absX, p.absY);
+                    continue;
+                }
+                before.add(x_[p.slot] + p.offX, y_[p.slot] + p.offY);
+                if (const std::size_t k = moveOf_[p.slot]; k != kNoSlot) {
+                    after.add(moves[k].x + p.offX, moves[k].y + p.offY);
+                } else {
+                    after.add(x_[p.slot] + p.offX, y_[p.slot] + p.offY);
+                }
+            }
+            delta += after.halfPerimeter() - before.halfPerimeter();
         }
-        delta += (bx - ax);
     }
-    // Subtract the old contribution of the same nets.
-    for (const std::size_t n : cellNets_[c]) {
-        const std::vector<NetPin> &pins = netPins_[n];
-        double ax = std::numeric_limits<double>::max();
-        double bx = -std::numeric_limits<double>::max();
-        for (const NetPin &p : pins) {
-            const double px = (p.slot == kNoSlot) ? p.absX : (x_[p.slot] + p.offX);
-            ax = std::min(ax, px);
-            bx = std::max(bx, px);
-        }
-        delta -= (bx - ax);
-    }
-    return delta;
-}
-
-double FastDetailedPlacer::Impl::deltaSwap(std::size_t a, double na, double nay, std::size_t b,
-                                           double nb, double nby) const {
-    // Union of the nets of both cells, deduplicated.
-    std::vector<std::size_t> nets = cellNets_[a];
-    nets.insert(nets.end(), cellNets_[b].begin(), cellNets_[b].end());
-    std::sort(nets.begin(), nets.end());
-    nets.erase(std::unique(nets.begin(), nets.end()), nets.end());
-
-    // Per-pin coordinates after and before the exchange. Only a and b move, so
-    // every other pin keeps its current position. A fixed pin has no y: hpwl()
-    // takes the y extent from movable pins only, and this has to agree with that
-    // term for term or the comparison is against a different quantity than the
-    // one reported.
-    const auto pinX = [&](const NetPin &p, double ax, double bx) {
-        if (p.slot == kNoSlot) {
-            return p.absX;
-        }
-        if (p.slot == a) {
-            return ax + p.offX;
-        }
-        if (p.slot == b) {
-            return bx + p.offX;
-        }
-        return x_[p.slot] + p.offX;
-    };
-    const auto pinY = [&](const NetPin &p, double ay, double by) {
-        if (p.slot == kNoSlot) {
-            return p.absY;
-        }
-        if (p.slot == a) {
-            return ay + p.offY;
-        }
-        if (p.slot == b) {
-            return by + p.offY;
-        }
-        return y_[p.slot] + p.offY;
-    };
-
-    // Accumulated as new-minus-old over every affected net, so a negative total
-    // means the exchange shortens the wirelength.
-    double delta = 0.0;
-    for (const std::size_t n : nets) {
-        double nxlo = std::numeric_limits<double>::max();
-        double nxhi = -std::numeric_limits<double>::max();
-        double oxlo = std::numeric_limits<double>::max();
-        double oxhi = -std::numeric_limits<double>::max();
-        double nylo = std::numeric_limits<double>::max();
-        double nyhi = -std::numeric_limits<double>::max();
-        double oylo = std::numeric_limits<double>::max();
-        double oyhi = -std::numeric_limits<double>::max();
-        for (const NetPin &p : netPins_[n]) {
-            const double npx = pinX(p, na, nb);
-            const double opx = pinX(p, x_[a], x_[b]);
-            nxlo = std::min(nxlo, npx);
-            nxhi = std::max(nxhi, npx);
-            oxlo = std::min(oxlo, opx);
-            oxhi = std::max(oxhi, opx);
-            const double npy = pinY(p, nay, nby);
-            const double opy = pinY(p, y_[a], y_[b]);
-            nylo = std::min(nylo, npy);
-            nyhi = std::max(nyhi, npy);
-            oylo = std::min(oylo, opy);
-            oyhi = std::max(oyhi, opy);
-        }
-        delta += (nxhi - nxlo) + (nyhi - nylo);
-        delta -= (oxhi - oxlo) + (oyhi - oylo);
+    for (const Move &m : moves) {
+        moveOf_[m.cell] = kNoSlot;
     }
     return delta;
 }
 
-double FastDetailedPlacer::Impl::medianX(std::size_t c) const {
-    // Collect the interval each net allows this cell to move in, then take the
-    // median of the interval endpoints. This is the classic median move: it is
-    // the x that minimises the sum of this cell's own net spans.
-    std::vector<double> los, his;
-    los.reserve(cellNets_[c].size());
-    his.reserve(cellNets_[c].size());
+OptimalRegion FastDetailedPlacer::Impl::optimalRegion(std::size_t c) const {
+    std::vector<double> xs;
+    std::vector<double> ys;
     for (const std::size_t n : cellNets_[c]) {
-        double ax = std::numeric_limits<double>::max();
-        double bx = -std::numeric_limits<double>::max();
-        double moff = 0.0;
-        bool has = false;
+        BoundingBox others;
+        const NetPin *own = nullptr;
         for (const NetPin &p : netPins_[n]) {
-            const double px = (p.slot == kNoSlot) ? p.absX : (x_[p.slot] + p.offX);
             if (p.slot == c) {
-                moff = p.offX;
-                has = true;
+                own = own != nullptr ? own : &p;
+            } else if (p.slot == kNoSlot) {
+                others.add(p.absX, p.absY);
+            } else {
+                others.add(x_[p.slot] + p.offX, y_[p.slot] + p.offY);
             }
-            ax = std::min(ax, px);
-            bx = std::max(bx, px);
         }
-        if (!has) {
+        if (own == nullptr || others.xlo > others.xhi) {
             continue;
         }
-        // Keep the pin inside the other pins' span: the cell's left edge may run
-        // from (min - off) to (max - off).
-        los.push_back(ax - moff);
-        his.push_back(bx - moff);
+        xs.insert(xs.end(), {others.xlo - own->offX, others.xhi - own->offX});
+        ys.insert(ys.end(), {others.ylo - own->offY, others.yhi - own->offY});
     }
-    if (los.empty()) {
-        return x_[c];
+    if (xs.empty()) {
+        return {{x_[c], x_[c]}, {y_[c], y_[c]}};
     }
-    std::vector<double> mids;
-    mids.reserve(los.size());
-    for (std::size_t i = 0; i < los.size(); ++i) {
-        mids.push_back(0.5 * (los[i] + his[i]));
-    }
-    std::nth_element(mids.begin(), mids.begin() + static_cast<long>(mids.size() / 2), mids.end());
-    return mids[mids.size() / 2];
+    return {medianInterval(xs), medianInterval(ys)};
 }
 
-bool FastDetailedPlacer::Impl::canPlace(std::size_t c, double nx) const {
-    const std::size_t s = spanOf_[c];
-    if (s == kNoSlot) {
-        return false;
+std::size_t FastDetailedPlacer::Impl::indexIn(std::size_t s, std::size_t c) const {
+    const std::vector<std::size_t> &cells = spans_[s].cells;
+    auto it = std::ranges::lower_bound(cells, x_[c] - kEps, {}, [this](std::size_t a) {
+        return x_[a];
+    });
+    while (it != cells.end() && *it != c) {
+        ++it;
+    }
+    if (it == cells.end()) {
+        it = std::ranges::find(cells, c);
+    }
+    return static_cast<std::size_t>(it - cells.begin());
+}
+
+double FastDetailedPlacer::Impl::gap(std::size_t s, std::ptrdiff_t g) const {
+    const Span &sp = spans_[s];
+    const auto n = static_cast<std::ptrdiff_t>(sp.cells.size());
+    if (g < 0 || g > n) {
+        return 0.0;
+    }
+    double left = sp.xlo;
+    if (g > 0) {
+        const std::size_t prev = sp.cells[static_cast<std::size_t>(g - 1)];
+        left = x_[prev] + w_[prev];
+    }
+    const double right = g == n ? sp.xhi : x_[sp.cells[static_cast<std::size_t>(g)]];
+    return std::max(0.0, right - left);
+}
+
+double FastDetailedPlacer::Impl::snap(double x, std::size_t s, double w) const {
+    const Span &sp = spans_[s];
+    const double lo = std::ceil(sp.xlo / sp.site - kEps) * sp.site;
+    const double hi = std::floor((sp.xhi - w) / sp.site + kEps) * sp.site;
+    return std::clamp(std::round(x / sp.site) * sp.site, lo, std::max(lo, hi));
+}
+
+double FastDetailedPlacer::Impl::penalty(double excess, double nearRoom, double wideRoom) const {
+    return std::max(0.0, excess - nearRoom) * opts_.penaltyWeight1 +
+           std::max(0.0, excess - wideRoom) * opts_.penaltyWeight2;
+}
+
+double FastDetailedPlacer::Impl::cellPenalty(std::size_t s, std::size_t k, double excess) const {
+    if (excess <= 0.0) {
+        return 0.0;
+    }
+    const auto g = static_cast<std::ptrdiff_t>(k);
+    const double nearRoom = gap(s, g) + gap(s, g + 1);
+    return penalty(excess, nearRoom, nearRoom + gap(s, g - 1) + gap(s, g + 2));
+}
+
+std::size_t FastDetailedPlacer::Impl::nearestRow(double y) const {
+    if (rowY_.empty()) {
+        return kNoSlot;
+    }
+    const auto it = std::ranges::lower_bound(rowY_, y);
+    if (it == rowY_.end()) {
+        return rowY_.size() - 1;
+    }
+    if (it != rowY_.begin() && y - *std::prev(it) < *it - y) {
+        return static_cast<std::size_t>(it - rowY_.begin()) - 1;
+    }
+    return static_cast<std::size_t>(it - rowY_.begin());
+}
+
+FastDetailedPlacer::Impl::Candidate FastDetailedPlacer::Impl::swapWith(std::size_t i,
+                                                                       std::size_t j) const {
+    const std::size_t si = spanOf_[i];
+    const std::size_t sj = spanOf_[j];
+    if (j == i || sj == kNoSlot || spans_[si].region != region_[j]) {
+        return {};
+    }
+    if (si != sj && (used_[sj] - w_[j] + w_[i] > spans_[sj].width() + kEps ||
+                     used_[si] - w_[i] + w_[j] > spans_[si].width() + kEps)) {
+        return {};
+    }
+    const double xi = snap(x_[j] + 0.5 * (w_[j] - w_[i]), sj, w_[i]);
+    const double xj = snap(x_[i] + 0.5 * (w_[i] - w_[j]), si, w_[j]);
+    const std::array<Move, 2> moves{Move{i, xi, spans_[sj].ylo}, Move{j, xj, spans_[si].ylo}};
+    const double overlap = w_[i] > w_[j] ? cellPenalty(sj, indexIn(sj, j), w_[i] - w_[j])
+                                         : cellPenalty(si, indexIn(si, i), w_[j] - w_[i]);
+    return {-wirelengthDelta(moves) - overlap, j, sj, xi, xj};
+}
+
+FastDetailedPlacer::Impl::Candidate FastDetailedPlacer::Impl::moveInto(std::size_t i, std::size_t s,
+                                                                       std::size_t g,
+                                                                       double target) const {
+    if (s != spanOf_[i] && used_[s] + w_[i] > spans_[s].width() + kEps) {
+        return {};
     }
     const Span &sp = spans_[s];
-    if (!sp.contains(nx, w_[c])) {
-        return false;
+    const auto gi = static_cast<std::ptrdiff_t>(g);
+    const double room = gap(s, gi);
+    const double left = g == 0 ? sp.xlo : x_[sp.cells[g - 1]] + w_[sp.cells[g - 1]];
+    const double x = room >= w_[i] ? snap(std::clamp(target, left, left + room - w_[i]), s, w_[i])
+                                   : snap(left + 0.5 * (room - w_[i]), s, w_[i]);
+    const std::array<Move, 1> moves{Move{i, x, sp.ylo}};
+    const double overlap =
+        room >= w_[i] ? 0.0 : penalty(w_[i], room, room + gap(s, gi - 1) + gap(s, gi + 1));
+    return {-wirelengthDelta(moves) - overlap, kNoSlot, s, x, 0.0};
+}
+
+bool FastDetailedPlacer::Impl::tryGlobal(std::size_t i, const OptimalRegion &region) {
+    const double cx = region.x.center();
+    const double cy = region.y.center();
+    std::vector<std::size_t> rows;
+    const auto lo = std::ranges::lower_bound(rowY_, region.y.lo - kEps);
+    const auto hi = std::ranges::upper_bound(rowY_, region.y.hi + kEps);
+    for (auto r = lo; r != hi; ++r) {
+        rows.push_back(static_cast<std::size_t>(r - rowY_.begin()));
     }
-    if (sp.site > 0.0) {
-        const double q = nx / sp.site;
-        if (std::fabs(q - std::round(q)) * sp.site > 1e-6 * std::max(1.0, std::fabs(nx))) {
-            return false;
-        }
+    if (rows.empty()) {
+        rows.push_back(nearestRow(cy));
     }
-    // Neighbours: the span's cells are sorted by x, so only the ones bracketing
-    // nx can overlap it. Scanning the whole span would be quadratic overall.
-    const std::vector<std::size_t> &cells = sp.cells;
-    const auto it = std::lower_bound(cells.begin(), cells.end(), nx, [&](std::size_t a, double v) {
-        return x_[a] < v;
+    std::ranges::sort(rows, {}, [&](std::size_t r) {
+        return std::abs(rowY_[r] - cy);
     });
-    if (it != cells.end() && *it != c && x_[*it] < nx + w_[c] - 1e-6) {
-        return false;
-    }
-    if (it != cells.begin()) {
-        const std::size_t prev = *std::prev(it);
-        if (prev != c && x_[prev] + w_[prev] > nx + 1e-6) {
-            return false;
+
+    struct Item {
+        double distance;
+        std::size_t index;
+        bool isGap;
+    };
+    std::vector<Item> items;
+    std::size_t budget = opts_.swapCandidates;
+    Candidate best;
+    for (const std::size_t r : rows) {
+        for (const std::size_t s : spansInRow_[r]) {
+            const Span &sp = spans_[s];
+            if (sp.region != region_[i] || sp.xhi < region.x.lo || sp.xlo > region.x.hi + w_[i]) {
+                continue;
+            }
+            const std::vector<std::size_t> &cells = sp.cells;
+            const auto at =
+                static_cast<std::size_t>(std::ranges::lower_bound(cells, cx, {},
+                                                                  [this](std::size_t c) {
+                                                                      return x_[c];
+                                                                  }) -
+                                         cells.begin());
+            const std::size_t first = at > budget ? at - budget : 0;
+            const std::size_t last = std::min(cells.size(), at + budget);
+            items.clear();
+            for (std::size_t k = first; k < last; ++k) {
+                if (region.x.contains(x_[cells[k]])) {
+                    items.push_back({std::abs(x_[cells[k]] - cx), k, false});
+                }
+            }
+            for (std::size_t g = first; g <= last; ++g) {
+                const double left = g == 0 ? sp.xlo : x_[cells[g - 1]] + w_[cells[g - 1]];
+                const double right = g == cells.size() ? sp.xhi : x_[cells[g]];
+                if (right > left + kEps && right >= region.x.lo - kEps &&
+                    left <= region.x.hi + kEps) {
+                    items.push_back({std::abs(std::clamp(cx, left, right) - cx), g, true});
+                }
+            }
+            std::ranges::sort(items, {}, &Item::distance);
+            for (const Item &item : items) {
+                const Candidate c =
+                    item.isGap ? moveInto(i, s, item.index, cx) : swapWith(i, cells[item.index]);
+                if (c.span != kNoSlot && c.benefit > best.benefit) {
+                    best = c;
+                }
+                if (--budget == 0) {
+                    break;
+                }
+            }
+            if (budget == 0) {
+                break;
+            }
+        }
+        if (budget == 0) {
+            break;
         }
     }
-    // Macros.
-    if (hitsFixed(nx, w_[c], y_[c], h_[c])) {
+    if (best.span == kNoSlot || best.benefit <= kEps) {
         return false;
     }
+    apply(i, best);
     return true;
 }
 
-void FastDetailedPlacer::Impl::commit(std::size_t c, double nx) {
+void FastDetailedPlacer::Impl::apply(std::size_t i, const Candidate &c) {
+    const std::size_t si = spanOf_[i];
+    if (c.partner != kNoSlot) {
+        relocate(c.partner, c.partnerX, si);
+    }
+    relocate(i, c.x, c.span);
+}
+
+void FastDetailedPlacer::Impl::relocate(std::size_t c, double nx, std::size_t s) {
+    if (const std::size_t old = spanOf_[c]; old != kNoSlot) {
+        std::vector<std::size_t> &cells = spans_[old].cells;
+        cells.erase(cells.begin() + static_cast<std::ptrdiff_t>(indexIn(old, c)));
+        used_[old] -= w_[c];
+        touched_[old] = 1;
+    }
     x_[c] = nx;
-}
-
-bool FastDetailedPlacer::Impl::locate(std::size_t c) {
-    spanOf_[c] = kNoSlot;
-    for (std::size_t s = 0; s < spans_.size(); ++s) {
-        const Span &sp = spans_[s];
-        if (sp.region != region_[c] || y_[c] < sp.ylo - 1e-6 || y_[c] >= sp.yhi - 1e-6) {
-            continue;
-        }
-        if (!sp.contains(x_[c], w_[c])) {
-            continue;
-        }
-        const double q = x_[c] / sp.site;
-        if (std::fabs(q - std::round(q)) * sp.site > 1e-6 * std::max(1.0, std::fabs(x_[c]))) {
-            continue;
-        }
-        if (hitsFixed(x_[c], w_[c], y_[c], h_[c])) {
-            continue;
-        }
-        // Overlap against the span's other cells. Without this a vertical swap
-        // could land a cell on top of a third cell: locate() checked bounds, the
-        // site grid and the macros, but not its neighbours, and that left 67298
-        // overlapping pairs. The span's cells are sorted by x, so only the ones
-        // bracketing this position can overlap it.
-        const std::vector<std::size_t> &others = spans_[s].cells;
-        const auto it =
-            std::lower_bound(others.begin(), others.end(), x_[c], [&](std::size_t a, double v) {
-                return x_[a] < v;
-            });
-        if (it != others.end() && x_[*it] < x_[c] + w_[c] - 1e-6) {
-            continue;
-        }
-        if (it != others.begin()) {
-            const std::size_t prev = *std::prev(it);
-            if (x_[prev] + w_[prev] > x_[c] + 1e-6) {
-                continue;
-            }
-        }
-        spanOf_[c] = s;
-        spans_[s].cells.push_back(c);
-        return true;
-    }
-    return false;
-}
-
-// How many adjacent pairs in a span overlap. nx overrides the positions, which
-// is how a candidate layout is scored before it is committed.
-std::size_t FastDetailedPlacer::Impl::overlaps(const std::vector<std::size_t> &cells,
-                                               const std::vector<double> *nx) const {
-    std::size_t bad = 0;
-    for (std::size_t k = 1; k < cells.size(); ++k) {
-        const double a = nx ? (*nx)[k - 1] : x_[cells[k - 1]];
-        const double b = nx ? (*nx)[k] : x_[cells[k]];
-        if (a + w_[cells[k - 1]] > b + 1e-6) {
-            ++bad;
-        }
-    }
-    return bad;
-}
-
-// How many cells of a span are not on the site pitch. nx overrides positions.
-std::size_t FastDetailedPlacer::Impl::offSites(const std::vector<std::size_t> &cells,
-                                               const std::vector<double> *nx) const {
-    const double site = spans_.empty() ? 1.0 : spans_[0].site;
-    std::size_t bad = 0;
-    for (std::size_t k = 0; k < cells.size(); ++k) {
-        const double v = nx ? (*nx)[k] : x_[cells[k]];
-        const double q = v / site;
-        if (std::fabs(q - std::round(q)) * site > 1e-6 * std::max(1.0, std::fabs(v))) {
-            ++bad;
-        }
-    }
-    return bad;
-}
-
-bool FastDetailedPlacer::Impl::betterLayout(std::size_t ovNew, std::size_t offNew, double hpNew,
-                                            std::size_t ovOld, std::size_t offOld, double hpOld) {
-    if (ovNew != ovOld) {
-        return ovNew < ovOld;
-    }
-    if (offNew != offOld) {
-        return offNew < offOld;
-    }
-    return hpNew < hpOld - 1e-9;
-}
-
-// The x-extent HPWL of the nets that only these cells touch. Used to compare two
-// layouts of the same span, where the rest of the design is identical and
-// cancels, so only the x term is needed to rank them.
-double FastDetailedPlacer::Impl::segmentHpwl(const std::vector<std::size_t> &cells,
-                                             const std::vector<double> *nx) const {
-    std::vector<std::size_t> nets;
-    for (const std::size_t c : cells) {
-        nets.insert(nets.end(), cellNets_[c].begin(), cellNets_[c].end());
-    }
-    std::sort(nets.begin(), nets.end());
-    nets.erase(std::unique(nets.begin(), nets.end()), nets.end());
-
-    // In the candidate layout only the cells of this span move, so each one's
-    // index within the span is all that is needed to find its new x.
-    // Only read when a candidate layout is given. It is the size of the whole
-    // design, and callers that only measure the current layout (two per window in
-    // localReorder, two per cell in medianReorder) were allocating and filling it
-    // anyway: a 211k-entry vector per call on adaptec1.
-    std::vector<std::size_t> slotInSpan;
-    if (nx != nullptr) {
-        slotInSpan.assign(mov_.size(), kNoSlot);
-        for (std::size_t k = 0; k < cells.size(); ++k) {
-            slotInSpan[cells[k]] = k;
-        }
-    }
-
-    double total = 0.0;
-    for (const std::size_t n : nets) {
-        double lo = std::numeric_limits<double>::max();
-        double hi = -std::numeric_limits<double>::max();
-        for (const NetPin &p : netPins_[n]) {
-            double v;
-            if (p.slot == kNoSlot) {
-                v = p.absX;
-            } else if (nx != nullptr && slotInSpan[p.slot] != kNoSlot) {
-                v = (*nx)[slotInSpan[p.slot]] + p.offX;
-            } else {
-                v = x_[p.slot] + p.offX;
-            }
-            lo = std::min(lo, v);
-            hi = std::max(hi, v);
-        }
-        total += hi - lo;
-    }
-    return total;
-}
-
-void FastDetailedPlacer::Impl::resort(std::size_t s) {
+    y_[c] = spans_[s].ylo;
     std::vector<std::size_t> &cells = spans_[s].cells;
-    std::sort(cells.begin(), cells.end(), [&](std::size_t a, std::size_t b) {
-        return x_[a] < x_[b];
+    cells.insert(std::ranges::upper_bound(cells, nx, {},
+                                          [this](std::size_t a) {
+                                              return x_[a];
+                                          }),
+                 c);
+    used_[s] += w_[c];
+    spanOf_[c] = s;
+    touched_[s] = 1;
+}
+
+void FastDetailedPlacer::Impl::legalizeSpan(std::size_t s) {
+    Span &sp = spans_[s];
+    if (sp.cells.empty() || used_[s] > sp.width() + kEps) {
+        return;
+    }
+    std::ranges::stable_sort(sp.cells, {}, [this](std::size_t c) {
+        return x_[c];
     });
+    struct Cluster {
+        double weight;
+        double q;
+        double width;
+        double x;
+        std::size_t first;
+    };
+    std::vector<Cluster> clusters;
+    const auto place = [&](Cluster &cl) {
+        cl.x = snap(cl.q / cl.weight, s, cl.width);
+    };
+    for (std::size_t k = 0; k < sp.cells.size(); ++k) {
+        const std::size_t c = sp.cells[k];
+        Cluster cur{1.0, x_[c], w_[c], 0.0, k};
+        place(cur);
+        while (!clusters.empty() && clusters.back().x + clusters.back().width > cur.x + kEps) {
+            Cluster prev = clusters.back();
+            clusters.pop_back();
+            prev.q += cur.q - cur.weight * prev.width;
+            prev.weight += cur.weight;
+            prev.width += cur.width;
+            place(prev);
+            cur = prev;
+        }
+        clusters.push_back(cur);
+    }
+    for (std::size_t m = 0; m < clusters.size(); ++m) {
+        const std::size_t end = m + 1 < clusters.size() ? clusters[m + 1].first : sp.cells.size();
+        double x = clusters[m].x;
+        for (std::size_t k = clusters[m].first; k < end; ++k) {
+            x_[sp.cells[k]] = x;
+            x += w_[sp.cells[k]];
+        }
+    }
+}
+
+void FastDetailedPlacer::Impl::legalizeTouched() {
+    for (std::size_t s = 0; s < spans_.size(); ++s) {
+        if (touched_[s]) {
+            legalizeSpan(s);
+            touched_[s] = 0;
+        }
+    }
 }
 
 std::size_t FastDetailedPlacer::Impl::globalSwap() {
-    std::size_t moves = 0;
-    for (std::size_t c = 0; c < mov_.size(); ++c) {
-        const std::size_t s = spanOf_[c];
-        if (s == kNoSlot) {
+    std::size_t swaps = 0;
+    for (std::size_t i = 0; i < mov_.size(); ++i) {
+        if (spanOf_[i] == kNoSlot) {
             continue;
         }
-        const double want = medianX(c);
-        if (!canPlace(c, want)) {
+        const OptimalRegion region = optimalRegion(i);
+        if (region.x.contains(x_[i]) && region.y.contains(y_[i])) {
             continue;
         }
-        if (deltaMove(c, want) < -1e-9) {
-            commit(c, want);
-            resort(s);
-            ++moves;
-        }
+        swaps += tryGlobal(i, region) ? 1 : 0;
     }
-    return moves;
+    legalizeTouched();
+    return swaps;
 }
 
 std::size_t FastDetailedPlacer::Impl::verticalSwap() {
-    // Exchange a cell with one in an adjacent row. Only spans in the rows
-    // immediately above and below are considered: walking every span in the
-    // design for every cell made this quadratic in the design and effectively
-    // hung on adaptec1. Within a candidate span only the cells bracketing the
-    // partner's x are tried, since a swap that is not x-adjacent cannot pay.
-    std::size_t moves = 0;
-    std::vector<std::size_t> order(mov_.size());
-    std::iota(order.begin(), order.end(), 0u);
-
-    for (const std::size_t c : order) {
-        const std::size_t sc = spanOf_[c];
-        if (sc == kNoSlot) {
+    std::size_t swaps = 0;
+    for (std::size_t i = 0; i < mov_.size(); ++i) {
+        const std::size_t si = spanOf_[i];
+        if (si == kNoSlot) {
             continue;
         }
-        const Span &spc = spans_[sc];
-        for (const std::size_t s2 : rowsNear_[spc.row]) {
-            if (s2 == sc) {
-                continue;
-            }
-            Span &sp2 = spans_[s2];
-            // Nearest cells in x on the other side, in both directions.
-            const std::vector<std::size_t> &oc = sp2.cells;
-            if (oc.empty()) {
+        const OptimalRegion region = optimalRegion(i);
+        const std::size_t row = spans_[si].row;
+        std::size_t target = kNoSlot;
+        if (region.y.lo > y_[i] + kEps && row + 1 < rowY_.size()) {
+            target = row + 1;
+        } else if (region.y.hi < y_[i] - kEps && row > 0) {
+            target = row - 1;
+        }
+        if (target == kNoSlot) {
+            continue;
+        }
+        Candidate best;
+        for (const std::size_t s : spansInRow_[target]) {
+            const Span &sp = spans_[s];
+            if (sp.region != region_[i] || sp.cells.empty() || sp.xhi < x_[i] ||
+                sp.xlo > x_[i] + w_[i]) {
                 continue;
             }
             const auto at =
-                std::lower_bound(oc.begin(), oc.end(), x_[c], [&](std::size_t a, double v) {
-                    return x_[a] < v;
-                });
-            const std::size_t cands[2] = {
-                (at == oc.end()) ? kNoSlot : *at,
-                (at == oc.begin()) ? kNoSlot : *std::prev(at),
-            };
-            for (const std::size_t d : cands) {
-                if (d == kNoSlot) {
-                    continue;
-                }
-                // Each cell lands in the other's span, so each span must be of the
-                // region of the cell coming in.
-                if (sp2.region != region_[c] || spans_[sc].region != region_[d]) {
-                    continue;
-                }
-                // Validate the whole exchange before touching anything.
-                const std::size_t ignore[2] = {c, d};
-                const double ocx = x_[c], odx = x_[d];
-                if (!fitsIgnoring(c, odx, s2, ignore, 2) || !fitsIgnoring(d, ocx, sc, ignore, 2)) {
-                    continue;
-                }
-                // The two cells change row as well as column, so the y each one
-                // lands at is part of the decision. Judging on x alone let a
-                // swap through that lengthened the real wirelength.
-                const double ncy = spans_[s2].ylo;
-                const double ndy = spans_[sc].ylo;
-                if (deltaSwap(c, odx, ncy, d, ocx, ndy) >= -1e-9) {
-                    continue;
-                }
-                // Clear the macro test for the y each one lands at.
-                //
-                // The trial rewrites y_ and must undo it exactly on failure. It
-                // used to restore from the spans captured at the top of the cell's
-                // iteration (sc / s2), which was only right while the cell had not
-                // moved yet: once the pass had already swapped this cell into
-                // another row, a later failed trial put y_ back at its *original*
-                // row while spanOf_ still pointed at the row it was swapped into.
-                // y_ and spanOf_ then disagreed -- a cell whose geometry sat in one
-                // row's band while the reasoner held it in the row next door, so
-                // the per-span legality sweep could not see the overlap it created
-                // with a cell in the row it physically occupied. On adaptec1 that
-                // reproduced as o87670 sitting inside o169225 (see the selfCheck
-                // code), with brute-force and per-span overlap counts disagreeing.
-                // Snapshotting the real values and restoring them is exact in both
-                // cases: a cell with no prior move goes back to where it was, and
-                // one that was already swapped this iteration goes back to the row
-                // the successful swap landed it in.
-                const double oyc = y_[c];
-                const double oyd = y_[d];
-                y_[c] = spans_[s2].ylo;
-                y_[d] = spans_[sc].ylo;
-                if (!fitsIgnoring(c, odx, s2, ignore, 2) || !fitsIgnoring(d, ocx, sc, ignore, 2)) {
-                    y_[c] = oyc;
-                    y_[d] = oyd;
-                    continue;
-                }
-                removeFromSpan(c);
-                removeFromSpan(d);
-                commit(c, odx);
-                commit(d, ocx);
-                spanOf_[c] = s2;
-                spanOf_[d] = sc;
-                spans_[s2].cells.push_back(c);
-                spans_[sc].cells.push_back(d);
-                resort(s2);
-                resort(sc);
-                ++moves;
-                break;
-            }
-        }
-    }
-    return moves;
-}
-
-std::size_t FastDetailedPlacer::Impl::medianReorder() {
-    // The classic median move, over every span: for each cell, take the x that
-    // minimises its own net spans and move it there if the span still fits it.
-    //
-    // This is what the exhaustive window search in localReorder() is trying to
-    // approximate, at a fraction of the cost. localReorder enumerates all 2^k
-    // orderings of a k=12 cell window and evaluates segmentHpwl() for each, which
-    // on adaptec1 is about 3.6e9 evaluations spread over 17575 windows; it
-    // returns roughly 31000 moves. Here each cell costs one median and one
-    // legality check, so the same ground is covered in time proportional to
-    // cells times net degree.
-    std::size_t moves = 0;
-    for (std::size_t s = 0; s < spans_.size(); ++s) {
-        Span &sp = spans_[s];
-        if (sp.cells.size() < 2) {
-            continue;
-        }
-        // The pass walks a SNAPSHOT of the span's cells, not the span itself.
-        //
-        // It used to index sp.cells directly, while each accepted move called
-        // resort() and re-sorted that same vector. The index therefore referred to
-        // a different cell after every move, so the pass was not the left-to-right
-        // sweep it claimed to be: it revisited cells it had already handled and
-        // skipped others, in an order that changed underneath it. The result was a
-        // placement with an overlapping pair -- o87670 sitting five units inside
-        // o169225, both in one row -- and the run reported FAIL on adaptec1 at the
-        // 64-cell-per-bin grid.
-        //
-        // The legality gate was not the problem: canPlace() was consulted before
-        // every commit, and it does reject a move onto a neighbour. Walking a
-        // container that the loop mutates is simply not a defined traversal, and
-        // nothing downstream can be trusted once the pass has done it.
-        //
-        // One pass left to right over the snapshot, then one right to left: a
-        // cell's median depends on where its neighbours in the span are, so a
-        // single sweep leaves every move made early in the pass stale for the cells
-        // after it.
-        const std::vector<std::size_t> snapshot = sp.cells;
-        for (int dir = 0; dir < 2; ++dir) {
-            for (std::size_t i = 0; i < snapshot.size(); ++i) {
-                const std::size_t c = snapshot[dir ? snapshot.size() - 1 - i : i];
-                if (spanOf_[c] != s) {
-                    continue;  // a cell that has since been rehomed
-                }
-                const double cur = x_[c];
-                const double want = std::clamp(medianX(c), sp.xlo, sp.xhi);
-                if (std::fabs(want - cur) < 1e-9) {
-                    continue;
-                }
-                if (!canPlace(c, want)) {
-                    continue;
-                }
-                // Only c moves, so only c's nets can change length; measuring the
-                // whole span per cell made a pass over a long row quadratic.
-                const std::vector<std::size_t> moving{c};
-                const double before = segmentHpwl(moving);
-                if (!canPlace(c, cur)) {
-                    continue;  // the median is blocked; leave the cell where it is
-                }
-                commit(c, want);
-                const double after = segmentHpwl(moving);
-                if (after < before - 1e-9) {
-                    ++moves;
-                    // The move can carry c past its neighbours, so the span's
-                    // x order is restored. A rejected move puts c back exactly
-                    // where it was, which leaves the order as it stood.
-                    resort(s);
-                } else {
-                    commit(c, cur);
+                static_cast<std::size_t>(std::ranges::lower_bound(sp.cells, x_[i], {},
+                                                                  [this](std::size_t c) {
+                                                                      return x_[c];
+                                                                  }) -
+                                         sp.cells.begin());
+            const std::size_t reach = opts_.verticalCandidates;
+            const std::size_t first = at > reach ? at - reach : 0;
+            const std::size_t last = std::min(sp.cells.size(), at + reach);
+            for (std::size_t k = first; k < last; ++k) {
+                const Candidate c = swapWith(i, sp.cells[k]);
+                if (c.span != kNoSlot && c.benefit > best.benefit) {
+                    best = c;
                 }
             }
         }
+        if (best.span != kNoSlot && best.benefit > kEps) {
+            apply(i, best);
+            ++swaps;
+        }
     }
-    return moves;
+    legalizeTouched();
+    return swaps;
 }
 
 std::size_t FastDetailedPlacer::Impl::localReorder() {
-    // For each window of consecutive cells in a span, find the best left-to-right
-    // ordering exactly. With the order fixed and the cells packed from the
-    // window's left edge, each ordering is scored by the resulting positions, and
-    // a subset dynamic program over 2^k states finds the optimum.
-    std::size_t moves = 0;
-    const std::size_t k = std::min<std::size_t>(localWindow_, 12);
-    if (k < 2) {
+    const std::size_t n = std::min<std::size_t>(opts_.reorderWindow, 6);
+    if (n < 2) {
         return 0;
     }
+    std::size_t moves = 0;
+    std::vector<std::size_t> order(n);
+    std::vector<Move> trial(n);
+    std::vector<Move> best(n);
     for (Span &sp : spans_) {
-        const std::size_t n = sp.cells.size();
-        if (n < 2) {
-            continue;
-        }
-        for (std::size_t start = 0; start + 1 < n; start += k) {
-            const std::size_t len = std::min(k, n - start);
-            if (len < 2) {
-                break;
+        std::vector<std::size_t> &cells = sp.cells;
+        for (std::size_t k = 0; k + n <= cells.size(); ++k) {
+            const std::span<std::size_t> group(cells.data() + k, n);
+            const double left = x_[group.front()];
+            const double right = x_[group.back()] + w_[group.back()];
+            double widths = 0.0;
+            for (const std::size_t c : group) {
+                widths += w_[c];
             }
-            const std::size_t states = static_cast<std::size_t>(1) << len;
-            std::vector<double> cost(states, std::numeric_limits<double>::infinity());
-            std::vector<std::size_t> last(states, kNoSlot);
-            cost[0] = 0.0;
-            const double base = std::floor(x_[sp.cells[start]] / sp.site) * sp.site;
-            for (std::size_t mask = 0; mask < states; ++mask) {
-                if (!std::isfinite(cost[mask])) {
-                    continue;
-                }
-                // The window's left edge is where the cells already are. Packing
-                // from the subrow's left edge instead explores orderings that are
-                // all worse than the current one, so no improvement is ever found.
-                double cursor = base;
-                // Rebuild the cursor for this mask by summing the widths already
-                // placed, which is what the packing constraint is.
-                for (std::size_t b = 0; b < len; ++b) {
-                    if (mask & (static_cast<std::size_t>(1) << b)) {
-                        cursor += w_[sp.cells[start + b]];
-                    }
-                }
-                for (std::size_t b = 0; b < len; ++b) {
-                    const std::size_t bit = static_cast<std::size_t>(1) << b;
-                    if (mask & bit) {
-                        continue;
-                    }
-                    const std::size_t c = sp.cells[start + b];
-                    const double nx = cursor;
-                    if (nx + w_[c] > sp.xhi + 1e-6) {
-                        continue;
-                    }
-                    // The subrow's right edge is the only thing the packing bound
-                    // above checks, so a cell can be planned onto a macro or on
-                    // top of the cell just outside the window. The other passes go
-                    // through fitsIgnoring, which tests both; skipping it here is
-                    // what put 9879 cells over macros on adaptec1. The whole
-                    // window is ignored, since the packing constraint is what
-                    // keeps the window's own cells apart and they are not all
-                    // where they are now.
-                    const std::size_t sIdx = static_cast<std::size_t>(&sp - spans_.data());
-                    if (!fitsIgnoring(c, nx, sIdx, sp.cells.data() + start, len)) {
-                        continue;
-                    }
-                    const double cand = cost[mask] + deltaMove(c, nx);
-                    const std::size_t nm = mask | bit;
-                    if (cand < cost[nm]) {
-                        cost[nm] = cand;
-                        last[nm] = c;
-                    }
-                }
-            }
-            const std::size_t all = states - 1;
-            if (!std::isfinite(cost[all]) || cost[all] >= -1e-9) {
-                continue;  // no ordering improves on the current one
-            }
-            // Walk the chain back to recover the winning order, then apply it.
-            std::vector<std::size_t> order;
-            std::size_t mask = all;
-            while (mask != 0) {
-                const std::size_t c = last[mask];
-                if (c == kNoSlot) {
-                    order.clear();
-                    break;
-                }
-                order.push_back(c);
-                std::size_t bit = 0;
-                while (c != sp.cells[start + bit]) {
-                    ++bit;
-                }
-                mask ^= static_cast<std::size_t>(1) << bit;
-            }
-            if (order.size() != len) {
+            const double spacing = (right - left - widths) / static_cast<double>(n - 1);
+            if (spacing < -kEps) {
                 continue;
             }
-            std::reverse(order.begin(), order.end());
-            // The dynamic program scores each cell against the layout it started
-            // from, so the order it picks can come out worse once the moves are
-            // actually applied. The winner is therefore committed, measured, and
-            // rolled back to the positions the window started at if the real
-            // wirelength did not improve. Re-packing the new order would not
-            // restore anything.
-            //
-            // Only the window's cells move, so only they are saved, and only the
-            // nets touching them are measured: every other net is the same length
-            // before and after. Saving and measuring the whole span instead made
-            // each window cost O(span), and a pass over a long row O(span^2).
-            const std::vector<std::size_t> window(
-                sp.cells.begin() + static_cast<long>(start),
-                sp.cells.begin() + static_cast<long>(start + len));
-            const double hpBefore = segmentHpwl(window);
-            std::vector<double> keep(len);
-            for (std::size_t idx = 0; idx < len; ++idx) {
-                keep[idx] = x_[window[idx]];
-            }
-            double cursor = base;
-            std::size_t moved = 0;
-            for (const std::size_t c : order) {
-                const double nx = cursor;
-                if (std::fabs(x_[c] - nx) > 1e-9) {
-                    commit(c, nx);
-                    ++moved;
+            std::iota(order.begin(), order.end(), 0u);
+            double bestDelta = -kEps;
+            bool improved = false;
+            do {
+                double x = left;
+                for (std::size_t t = 0; t < n; ++t) {
+                    const std::size_t c = group[order[t]];
+                    trial[t] =
+                        Move{c, left + std::floor((x - left) / sp.site + kEps) * sp.site, y_[c]};
+                    x += w_[c] + spacing;
                 }
-                cursor = nx + w_[c];
-            }
-            if (segmentHpwl(window) < hpBefore - 1e-9) {
-                moves += moved;
-            } else {
-                for (std::size_t idx = 0; idx < len; ++idx) {
-                    commit(window[idx], keep[idx]);
+                if (const double delta = wirelengthDelta(trial); delta < bestDelta) {
+                    bestDelta = delta;
+                    best = trial;
+                    improved = true;
+                }
+            } while (std::ranges::next_permutation(order).found);
+            if (improved) {
+                for (std::size_t t = 0; t < n; ++t) {
+                    moves += std::abs(x_[best[t].cell] - best[t].x) > kEps ? 1 : 0;
+                    x_[best[t].cell] = best[t].x;
+                    group[t] = best[t].cell;
                 }
             }
-            // The window came out in a new left-to-right order, so the span's
-            // cell list no longer matches the x order there. Everything downstream
-            // assumes a span is sorted by x, and selfCheck reported a correct
-            // reordering as a set of overlaps until this was added. The window's
-            // cells stay packed between its neighbours, so re-sorting its own slice
-            // restores the whole span's order.
-            std::sort(sp.cells.begin() + static_cast<long>(start),
-                      sp.cells.begin() + static_cast<long>(start + len),
-                      [&](std::size_t a, std::size_t b) {
-                          return x_[a] < x_[b];
-                      });
         }
     }
     return moves;
 }
 
-std::size_t FastDetailedPlacer::Impl::singleSegmentCluster() {
-    // With the left-to-right order fixed, re-place each span with the
-    // legalizer's greedy cluster pass: every cell goes to the site nearest its
-    // current x that does not overlap its predecessor. Cells that end up on the
-    // same site as a neighbour are pulled apart, which is where the wirelength
-    // comes from.
+std::size_t FastDetailedPlacer::Impl::clusterSegments() {
+    struct Cluster {
+        std::vector<double> bounds;
+        double width;
+        double x;
+        std::size_t first;
+    };
     std::size_t moves = 0;
+    std::vector<std::size_t> orderOf(mov_.size(), kNoSlot);
+    std::vector<Move> placed;
+    std::vector<Cluster> clusters;
     for (std::size_t s = 0; s < spans_.size(); ++s) {
-        const std::size_t n = spans_[s].cells.size();
-        if (n < 2) {
+        const Span &sp = spans_[s];
+        const std::vector<std::size_t> &cells = sp.cells;
+        if (cells.empty()) {
             continue;
         }
-        std::vector<double> nx(n, 0.0);
-        double cursor = spans_[s].xlo;
-        bool ok = true;
-        for (std::size_t k = 0; k < n; ++k) {
-            const std::size_t c = spans_[s].cells[k];
-            double want = std::max(x_[c], cursor);
-            want = std::round(want / spans_[s].site) * spans_[s].site;
-            if (want + w_[c] > spans_[s].xhi + 1e-6) {
-                ok = false;
-                break;
-            }
-            nx[k] = want;
-            cursor = want + w_[c];
+        for (std::size_t k = 0; k < cells.size(); ++k) {
+            orderOf[cells[k]] = k;
         }
-        if (!ok) {
-            continue;
-        }
-        // Pulling overlapping cells apart is the point of this pass, and it
-        // necessarily lengthens the nets between them, so legality has to be
-        // ranked above wirelength or an illegal span is never repaired.
-        if (betterLayout(overlaps(spans_[s].cells, &nx), offSites(spans_[s].cells, &nx),
-                         segmentHpwl(spans_[s].cells, &nx), overlaps(spans_[s].cells),
-                         offSites(spans_[s].cells), segmentHpwl(spans_[s].cells))) {
-            for (std::size_t k = 0; k < n; ++k) {
-                const std::size_t c = spans_[s].cells[k];
-                if (std::fabs(x_[c] - nx[k]) > 1e-9) {
-                    commit(c, nx[k]);
-                    ++moves;
+        const auto boundsOf = [&](std::size_t c) {
+            std::vector<double> bounds;
+            for (const std::size_t n : cellNets_[c]) {
+                double lo = kInf;
+                double hi = -kInf;
+                const NetPin *own = nullptr;
+                for (const NetPin &p : netPins_[n]) {
+                    if (p.slot == c) {
+                        own = own != nullptr ? own : &p;
+                        continue;
+                    }
+                    double px = p.absX;
+                    if (p.slot != kNoSlot && spanOf_[p.slot] == s) {
+                        px = orderOf[p.slot] < orderOf[c] ? sp.xlo : sp.xhi;
+                    } else if (p.slot != kNoSlot) {
+                        px = x_[p.slot] + p.offX;
+                    }
+                    lo = std::min(lo, px);
+                    hi = std::max(hi, px);
+                }
+                if (own != nullptr && lo <= hi) {
+                    bounds.insert(bounds.end(), {lo - own->offX, hi - own->offX});
                 }
             }
-            // The pass keeps the order, so the span is still sorted by x.
-            resort(s);
+            keepCentral(bounds, opts_.clusterBounds);
+            return bounds;
+        };
+        const auto place = [&](Cluster &cl) {
+            double target = x_[cells[cl.first]];
+            if (!cl.bounds.empty()) {
+                std::vector<double> scratch = cl.bounds;
+                target = medianInterval(scratch).center();
+            }
+            cl.x = snap(target, s, cl.width);
+        };
+
+        clusters.clear();
+        for (std::size_t k = 0; k < cells.size(); ++k) {
+            Cluster cur{boundsOf(cells[k]), w_[cells[k]], 0.0, k};
+            place(cur);
+            while (!clusters.empty() && clusters.back().x + clusters.back().width > cur.x + kEps) {
+                Cluster prev = std::move(clusters.back());
+                clusters.pop_back();
+                for (const double b : cur.bounds) {
+                    prev.bounds.push_back(b - prev.width);
+                }
+                keepCentral(prev.bounds, opts_.clusterBounds);
+                prev.width += cur.width;
+                place(prev);
+                cur = std::move(prev);
+            }
+            clusters.push_back(std::move(cur));
+        }
+
+        placed.clear();
+        for (std::size_t m = 0; m < clusters.size(); ++m) {
+            const std::size_t end = m + 1 < clusters.size() ? clusters[m + 1].first : cells.size();
+            double x = clusters[m].x;
+            for (std::size_t k = clusters[m].first; k < end; ++k) {
+                placed.push_back(Move{cells[k], x, y_[cells[k]]});
+                x += w_[cells[k]];
+            }
+        }
+        bool overlapping = false;
+        for (std::size_t k = 1; k < cells.size(); ++k) {
+            overlapping = overlapping || x_[cells[k - 1]] + w_[cells[k - 1]] > x_[cells[k]] + kEps;
+        }
+        const bool fits = placed.back().x + w_[cells.back()] <= sp.xhi + kEps;
+        if (fits && (overlapping || wirelengthDelta(placed) < -kEps)) {
+            for (const Move &m : placed) {
+                moves += std::abs(x_[m.cell] - m.x) > kEps ? 1 : 0;
+                x_[m.cell] = m.x;
+            }
+        }
+        for (const std::size_t c : cells) {
+            orderOf[c] = kNoSlot;
         }
     }
     return moves;
 }
 
 void FastDetailedPlacer::Impl::writeFrame(const char *note, std::size_t step) const {
+    if (!design.onFrame) {
+        return;
+    }
     const std::size_t nv = design.cells.size();
-    std::vector<float> fx(nv), fy(nv);
+    std::vector<float> fx(nv);
+    std::vector<float> fy(nv);
     for (std::size_t v = 0; v < nv; ++v) {
         fx[v] = static_cast<float>(design.cells[v].x);
         fy[v] = static_cast<float>(design.cells[v].y);
@@ -1220,20 +961,16 @@ void FastDetailedPlacer::Impl::writeFrame(const char *note, std::size_t step) co
         fx[mov_[i]] = static_cast<float>(x_[i]);
         fy[mov_[i]] = static_cast<float>(y_[i]);
     }
-    // The sink draws; the placer only says when.
-    if (design.onFrame) {
-        fastdp::FrameInfo info;
-        info.note = note;
-        info.step = step;
-        info.hpwl = hpwl();
-        info.hpwlInitial = hpwl();
-        info.mandatory = true;
-        design.onFrame(fx, fy, info);
-    }
+    fastdp::FrameInfo info;
+    info.note = note;
+    info.step = step;
+    info.hpwl = hpwl();
+    info.hpwlInitial = info.hpwl;
+    info.mandatory = true;
+    design.onFrame(fx, fy, info);
 }
 
 void FastDetailedPlacer::Impl::selfCheck(DetailPlaceResult &res) const {
-    const double eps = 1e-6;
     res.overlappingPairs = 0;
     res.offRow = 0;
     res.offSite = 0;
@@ -1249,65 +986,20 @@ void FastDetailedPlacer::Impl::selfCheck(DetailPlaceResult &res) const {
             continue;
         }
         const double q = x_[i] / sp.site;
-        if (std::fabs(q - std::round(q)) * sp.site > 1e-6 * std::max(1.0, std::fabs(x_[i]))) {
+        if (std::fabs(q - std::round(q)) * sp.site > kEps * std::max(1.0, std::fabs(x_[i]))) {
             ++res.offSite;
         }
     }
-    // Sorted by x before the sweep, rather than trusted to be.
-    //
-    // This walks consecutive pairs, which is only correct if the span's cell list
-    // is in x order -- and that is an invariant of the passes, not a property of
-    // the data. Any technique that commits a move without re-sorting breaks it, and
-    // the check then under-counts instead of reporting the fault: on adaptec1 both
-    // the legalizer and this placer reported zero overlapping pairs while the
-    // independent check found o87670 sitting inside o169225. A self-check that
-    // reports a clean bill of health for an illegal placement is worse than no
-    // check, because it is the number the run is judged on.
-    // A second, brute-force count straight off the cell arrays, sorted by row and
-    // then by x. It shares no code and no invariants with the per-span sweep above,
-    // so if the two disagree the span view is the thing that is wrong, and which of
-    // the two is telling the truth becomes a measurement instead of an argument.
-    {
-        std::vector<std::size_t> all(mov_.size());
-        std::iota(all.begin(), all.end(), 0u);
-        std::sort(all.begin(), all.end(), [&](std::size_t a, std::size_t b) {
-            if (y_[a] != y_[b]) {
-                return y_[a] < y_[b];
-            }
-            return x_[a] < x_[b];
-        });
-        std::size_t brute = 0;
-        for (std::size_t k = 1; k < all.size(); ++k) {
-            const std::size_t a = all[k - 1], b = all[k];
-            if (y_[a] == y_[b] && x_[a] + w_[a] > x_[b] + 1e-6) {
-                ++brute;
-            }
-        }
-        ktlog.echo("  detail-place overlap counts: brute-force {}, per-span {} (spans {})", brute,
-                   res.overlappingPairs, spans_.size());
-        if (brute != res.overlappingPairs) {
-            ktlog.warning(
-                "the per-span overlap sweep and a brute-force sweep over the cell "
-                "arrays disagree ({} vs {}): the spans do not partition the cells "
-                "the way the sweep assumes",
-                brute, res.overlappingPairs);
-        }
-        res.overlappingPairs = std::max(res.overlappingPairs, brute);
-    }
-    std::vector<std::size_t> byX;
-    for (const Span &sp : spans_) {
-        if (sp.cells.size() < 2) {
-            continue;
-        }
-        byX = sp.cells;
-        std::sort(byX.begin(), byX.end(), [&](std::size_t a, std::size_t b) {
-            return x_[a] < x_[b];
-        });
-        for (std::size_t k = 1; k < byX.size(); ++k) {
-            const std::size_t a = byX[k - 1], b = byX[k];
-            if (x_[a] + w_[a] > x_[b] + eps) {
-                ++res.overlappingPairs;
-            }
+    std::vector<std::size_t> all(mov_.size());
+    std::iota(all.begin(), all.end(), 0u);
+    std::ranges::sort(all, [&](std::size_t a, std::size_t b) {
+        return y_[a] != y_[b] ? y_[a] < y_[b] : x_[a] < x_[b];
+    });
+    for (std::size_t k = 1; k < all.size(); ++k) {
+        const std::size_t a = all[k - 1];
+        const std::size_t b = all[k];
+        if (y_[a] == y_[b] && x_[a] + w_[a] > x_[b] + kEps) {
+            ++res.overlappingPairs;
         }
     }
     for (std::size_t i = 0; i < mov_.size(); ++i) {
@@ -1315,8 +1007,8 @@ void FastDetailedPlacer::Impl::selfCheck(DetailPlaceResult &res) const {
                                         0, static_cast<long>(fixedByBand_.size()) - 1);
         for (const std::size_t fi : fixedByBand_[static_cast<std::size_t>(b)]) {
             const FixedBox &f = fixed_[fi];
-            if (x_[i] + w_[i] > f.x0 + eps && x_[i] < f.x1 - eps && y_[i] + h_[i] > f.y0 + eps &&
-                y_[i] < f.y1 - eps) {
+            if (x_[i] + w_[i] > f.x0 + kEps && x_[i] < f.x1 - kEps && y_[i] + h_[i] > f.y0 + kEps &&
+                y_[i] < f.y1 - kEps) {
                 ++res.overFixed;
                 break;
             }
@@ -1327,16 +1019,7 @@ void FastDetailedPlacer::Impl::selfCheck(DetailPlaceResult &res) const {
 DetailPlaceResult FastDetailedPlacer::Impl::place(const FastdpOptions &params) {
     DetailPlaceResult res;
     ScopedTimer timer("detail-place");
-    localWindow_ = params.localReorderWindow;
-
-
-    // place() is a normal call, not a one-shot: the same object may be run
-    // again with different parameters. The per-run accumulators below append
-    // rather than assign, so without this a second call doubled mov_ and every
-    // other vector, and the placement ended up reported as heavily overlapping.
-    // The snapshots inside are the source of truth for a run, so clearing them
-    // is enough; nothing carries across runs except the DB, which place()
-    // writes back at the end.
+    opts_ = params;
     mov_.clear();
     w_.clear();
     h_.clear();
@@ -1344,14 +1027,11 @@ DetailPlaceResult FastDetailedPlacer::Impl::place(const FastdpOptions &params) {
     y_.clear();
     region_.clear();
     fixed_.clear();
-    netPins_.clear();
-    die_ = std::array<double, 4>{};
+    tallSkipped_ = 0;
+    bandY_ = kInf;
 
-    // The shortest row, measured here rather than taken from bandY_: bandY_ is
-    // set by the fixed-box pass, which runs later, so reading it here skipped
-    // every cell in the design and left the detail placer doing nothing at all.
-    double rowHeight = std::numeric_limits<double>::max();
-    for (const auto &ri : design.rows) {
+    double rowHeight = kInf;
+    for (const fastdp::RowInfo &ri : design.rows) {
         if (ri.height > 0.0) {
             rowHeight = std::min(rowHeight, ri.height);
         }
@@ -1359,144 +1039,91 @@ DetailPlaceResult FastDetailedPlacer::Impl::place(const FastdpOptions &params) {
     if (!std::isfinite(rowHeight)) {
         rowHeight = 1.0;
     }
-
-    for (std::size_t v = 0; v < design.cells.size(); ++v) {
-        const fastdp::Cell &vert = design.cells[v];
-        if (vert.isFixed) {
-            fixed_.push_back(FixedBox{vert.y, vert.y + vert.height, vert.x, vert.x + vert.width});
-        }
-        if (vert.isFixed || vert.isTerminal) {
-            continue;
-        }
-        // Only a cell that fits inside one row may move here. Every pass --
-        // vertical swap, reorder, cluster -- looks for a slot in a single row's
-        // band, so a taller cell has nowhere valid to go. Letting one through
-        // re-inserted the overlap the legalizer had just removed: on ibm01 it
-        // cost 1378 overlapping pairs. Such cells are left exactly where
-        // legalization put them.
-        if (vert.height > rowHeight) {
-            ++tallSkipped_;
-            // ...and a blockage, not just skipped. Left out of the blockage set the
-            // passes treat those rows as empty and place cells straight on top of
-            // them: skipping without blocking cost 977 overlapping pairs on ibm01,
-            // which the legalizer had not produced and FastDP's own check never
-            // saw, because it only tests the cells it moved.
-            fixed_.push_back(FixedBox{vert.y, vert.y + vert.height, vert.x, vert.x + vert.width});
-            continue;
-        }
-        mov_.push_back(v);
-        w_.push_back(vert.width);
-        h_.push_back(vert.height);
-        x_.push_back(vert.x);
-        y_.push_back(vert.y);
-        region_.push_back(vert.region);
-    }
+    collectCells(rowHeight);
     if (mov_.empty()) {
         return res;
     }
-    const fastdp::DieBox d = design.die;
-    die_ = std::array<double, 4>{d[0], d[1], d[2], d[3]};
-    buildFixedIndex(rowHeight);
-    {
-        const auto t0 = std::chrono::steady_clock::now();
-        buildSpans();
-        const auto t1 = std::chrono::steady_clock::now();
-        buildNetlist();
-        const auto t2 = std::chrono::steady_clock::now();
-        res.hpwlBefore = hpwl();
-        const auto t3 = std::chrono::steady_clock::now();
-        ktlog.echo("  detail-place build-spans  {:>8.3f}s",
-                   std::chrono::duration<double>(t1 - t0).count());
-        ktlog.echo("  detail-place build-nets   {:>8.3f}s",
-                   std::chrono::duration<double>(t2 - t1).count());
-        ktlog.echo("  detail-place hpwl-in      {:>8.3f}s",
-                   std::chrono::duration<double>(t3 - t2).count());
-    }
+    buildSpans();
+    indexFixed();
+    buildNetlist();
+    res.hpwlBefore = hpwl();
+    writeFrame("legalized input");
 
-    if (design.onFrame) {
-        writeFrame("legalized input");
-    }
-
-    double prev = res.hpwlBefore;
-    int pass = 0;
-    // The technique is passed as a function rather than as a name to dispatch on.
-    // Selecting it by the first letter of a label looked equivalent and was not:
-    // "reorder" starts with 'r', so it fell through to the clustering branch,
-    // which meant local re-ordering never ran in any flow and single-segment
-    // clustering ran twice per pass. The move counters made this invisible --
-    // both branches increment the same field, so the totals still looked sane.
-    const auto sweep = [&](const char *name, std::size_t limit, std::size_t &counter,
-                           std::size_t (Impl::*technique)()) {
-        double phaseSeconds = 0.0;
-        for (std::size_t k = 0; k < limit; ++k) {
-            const std::size_t before = counter;
-            // Free space has to be re-derived before every pass, not once up
-            // front. The passes relocate cells, so spans built from the
-            // legalized placement go stale as soon as the first of them runs, and
-            // two cells end up placed into the same gap.
-            buildSpans();
-            // std::chrono rather than ScopedTimer: that one registers its interval
-            // in a shared table under a name, and these are per-phase, per-pass.
-            const auto phaseStart = std::chrono::steady_clock::now();
-            counter = (this->*technique)();
-            // Accumulate across passes: each phase runs up to `limit` passes and
-            // timing only the last one made reorder look like 18 of 52 seconds when
-            // it is nearly half.
-            phaseSeconds +=
-                std::chrono::duration<double>(std::chrono::steady_clock::now() - phaseStart)
-                    .count();
-            const double now = hpwl();
-            char note[128];
-            std::snprintf(note, sizeof(note), "%s pass %zu (hpwl %.6g)", name, k, now);
-            if (design.onFrame) {
-                writeFrame(note, ++pass);
-            }
-            if (counter == 0) {
-                break;
-            }
-            if (prev > 0.0 && (prev - now) / prev < params.minImprovement) {
-                break;  // converged
-            }
-            prev = now;
-            (void)before;
-        }
-        // Per-phase time. The techniques overlap in what they touch, so the total
-        // alone does not say where the time goes: the window search and the median
-        // pass both cover every span, and which one dominates is a property of the
-        // design's row occupancy, not something to be guessed at.
-        ktlog.echo("  detail-place {:<8} {:>8.3f}s", name, phaseSeconds);
+    double globalSeconds = 0.0;
+    double verticalSeconds = 0.0;
+    double reorderSeconds = 0.0;
+    double clusterSeconds = 0.0;
+    const auto timed = [](double &total, auto &&technique) {
+        const auto start = std::chrono::steady_clock::now();
+        const std::size_t moves = technique();
+        total += secondsSince(start);
+        return moves;
+    };
+    const auto improvedEnough = [&](double before) {
+        return before > 0.0 && (before - hpwl()) / before >= opts_.minImprovement;
+    };
+    const auto cluster = [&] {
+        res.clusterMoves += timed(clusterSeconds, [&] {
+            return clusterSegments();
+        });
     };
 
-    sweep("global", params.globalSwapPasses, res.globalSwaps, &Impl::globalSwap);
-    sweep("vertical", params.verticalSwapPasses, res.verticalSwaps, &Impl::verticalSwap);
-    if (!params.noMedian) {
-        sweep("median", params.localReorderPasses, res.medianMoves, &Impl::medianReorder);
+    std::size_t step = 0;
+    if (opts_.clustering) {
+        cluster();
     }
-    sweep("reorder", params.localReorderPasses, res.reorderMoves, &Impl::localReorder);
-    sweep("cluster", params.clusterPasses, res.clusterMoves, &Impl::singleSegmentCluster);
+    for (std::size_t iteration = 0; iteration < opts_.maxIterations; ++iteration) {
+        const double before = hpwl();
+        if (opts_.globalSwap) {
+            res.globalSwaps += timed(globalSeconds, [&] {
+                return globalSwap();
+            });
+        }
+        if (opts_.verticalSwap) {
+            res.verticalSwaps += timed(verticalSeconds, [&] {
+                return verticalSwap();
+            });
+        }
+        if (opts_.localReorder) {
+            res.reorderMoves += timed(reorderSeconds, [&] {
+                return localReorder();
+            });
+        }
+        writeFrame("global swap, vertical swap, local re-ordering", ++step);
+        if (!improvedEnough(before)) {
+            break;
+        }
+    }
+    if (opts_.clustering) {
+        for (std::size_t iteration = 0; iteration < opts_.maxIterations; ++iteration) {
+            const double before = hpwl();
+            cluster();
+            if (!improvedEnough(before)) {
+                break;
+            }
+        }
+        writeFrame("single-segment clustering", ++step);
+    }
+    ktlog.echo("  detail-place global      {:>8.3f}s", globalSeconds);
+    ktlog.echo("  detail-place vertical    {:>8.3f}s", verticalSeconds);
+    ktlog.echo("  detail-place reorder     {:>8.3f}s", reorderSeconds);
+    ktlog.echo("  detail-place cluster     {:>8.3f}s", clusterSeconds);
 
-    const auto t4 = std::chrono::steady_clock::now();
     res.hpwlAfter = hpwl();
-    for (std::size_t i = 0; i < mov_.size(); ++i) {
-    }
-    const auto t5 = std::chrono::steady_clock::now();
     selfCheck(res);
-    const auto t6 = std::chrono::steady_clock::now();
-    ktlog.echo("  detail-place write-back   {:>8.3f}s",
-               std::chrono::duration<double>(t5 - t4).count());
-    ktlog.echo("  detail-place self-check   {:>8.3f}s",
-               std::chrono::duration<double>(t6 - t5).count());
     res.seconds = timer.elapsedSeconds();
     ktlog.echo(
         "FastDP: {:.3f}s, HPWL {:.6e} -> {:.6e} ({:+.2f}%), swaps {} global / {} vertical, "
         "reorder {}, cluster {}",
         res.seconds, res.hpwlBefore, res.hpwlAfter,
-        (res.hpwlBefore > 0.0) ? 100.0 * (res.hpwlAfter - res.hpwlBefore) / res.hpwlBefore : 0.0,
+        res.hpwlBefore > 0.0 ? 100.0 * (res.hpwlAfter - res.hpwlBefore) / res.hpwlBefore : 0.0,
         res.globalSwaps, res.verticalSwaps, res.reorderMoves, res.clusterMoves);
+    if (tallSkipped_ > 0) {
+        ktlog.echo("  detail-place left {} multi-row cell(s) where legalization put them",
+                   tallSkipped_);
+    }
     return res;
 }
-
-// ---------------------------------------------------------------------------
 
 FastDetailedPlacer::FastDetailedPlacer(const fastdp::Design &design)
     : pImpl(std::make_unique<Impl>(design)) {}
@@ -1522,7 +1149,6 @@ void report(const DetailPlaceResult &r) {
     t.addRow({"cells off site", fmt::format("{}", r.offSite)});
     t.addRow({"cells over macro", fmt::format("{}", r.overFixed)});
     t.emit();
-
     if (r.overlappingPairs != 0 || r.offRow != 0 || r.overFixed != 0) {
         ktlog.warning("detailed placement broke legality; see the counts above");
     }
