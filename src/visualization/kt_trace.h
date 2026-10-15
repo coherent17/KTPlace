@@ -7,8 +7,7 @@
 // calls, in the same order, with the same values, so the pictures are the ones
 // drawing during the run would have made.
 //
-// The file is gzip, holding "KTTRACE\0", a u32 version, then records, each a
-// one-byte tag and its payload:
+// The file is gzip, holding records, each a one-byte tag and its payload:
 //
 //     'S' stage begins    'F' frame    'B' bounds curve    'H' frames held back
 //
@@ -30,8 +29,6 @@
 #include <vector>
 
 namespace ktplace {
-
-inline constexpr std::uint32_t kTraceVersion = 2;
 
 class TraceWriter {
 public:
@@ -69,8 +66,7 @@ private:
 
 /// Draw the closed trace at `path` through `viz`, which the caller has
 /// configured. `graph` and `fences` are the netlist the frames were taken of.
-/// Returns the number of frames drawn. A file that is not a trace, is from
-/// another version, or stops part-way through a record is fatal.
+/// Returns the number of frames drawn. A record cut short is fatal.
 std::size_t replayTrace(const std::string &path, Visualizer &viz, const Graph &graph,
                         const constraintMgr *fences);
 

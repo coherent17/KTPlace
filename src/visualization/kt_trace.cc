@@ -6,15 +6,12 @@
 #include "util/kt_log.h"
 
 #include <algorithm>
-#include <cstring>
 #include <type_traits>
 #include <zlib.h>
 
 namespace ktplace {
 
 namespace {
-
-constexpr char kMagic[8] = {'K', 'T', 'T', 'R', 'A', 'C', 'E', '\0'};
 
 enum Tag : std::uint8_t {
     kStage = 'S',
@@ -73,11 +70,7 @@ public:
     }
 
     std::size_t size() {
-        const auto n = get<std::uint64_t>();
-        if (n > (std::uint64_t{1} << 34)) {
-            ktlog.fatal("trace {} holds an implausible count ({})", file, n);
-        }
-        return static_cast<std::size_t>(n);
+        return static_cast<std::size_t>(get<std::uint64_t>());
     }
 
     std::string str() {
@@ -161,10 +154,7 @@ private:
     gzFile f;
 };
 
-TraceWriter::TraceWriter(const std::string &path) : out(std::make_unique<Out>(path)), file(path) {
-    out->raw(kMagic, sizeof kMagic);
-    out->put<std::uint32_t>(kTraceVersion);
-}
+TraceWriter::TraceWriter(const std::string &path) : out(std::make_unique<Out>(path)), file(path) {}
 
 TraceWriter::~TraceWriter() = default;
 
@@ -215,16 +205,6 @@ void TraceWriter::holdBack(std::size_t n) {
 std::size_t replayTrace(const std::string &path, Visualizer &viz, const Graph &graph,
                         const constraintMgr *fences) {
     In in(path);
-    char magic[sizeof kMagic];
-    in.raw(magic, sizeof magic);
-    if (std::memcmp(magic, kMagic, sizeof kMagic) != 0) {
-        ktlog.fatal("{} is not a ktplace trace", path);
-    }
-    if (const auto version = in.get<std::uint32_t>(); version != kTraceVersion) {
-        ktlog.fatal("trace {} is version {}; this build reads version {}", path, version,
-                    kTraceVersion);
-    }
-
     std::size_t frames = 0;
     std::uint8_t t = 0;
     while (in.tag(t)) {

@@ -84,7 +84,6 @@ Rules a stage follows:
 little from more), holding:
 
 ```
-"KTTRACE\0"  u32 version (kTraceVersion, currently 2)
 records: a one-byte tag, then its payload
   'S'  stage begins: stage, subdir, cadence
   'F'  frame: fences flag, die, VisualFrame fields, x and y (f32 arrays)
@@ -94,7 +93,8 @@ records: a one-byte tag, then its payload
 
 Little-endian fixed-width fields; a string is a u32 length and its bytes, an array a u64 count
 and its elements. The netlist, the fences and the final placement are not recorded: the flow
-still holds them when it draws.
+still holds them when it draws. The file has no header or version: it is written and read by the
+same process and deleted after, so no other build ever reads it.
 
 A replay makes the visualizer the same calls, in the same order, with the same values (floats
 are stored as their raw bytes, not printed), so the pictures are **byte-identical** to the ones
@@ -128,7 +128,7 @@ instead of inside the solver.
 4. Do not include anything from `visualization/` in the stage.
 
 A new kind of picture (not a placement frame) gets a `Visualizer` call, a record in the trace (a
-new tag and a version bump) and its case in `replayTrace()`.
+new tag) and its case in `replayTrace()`.
 
 ## Known gaps
 
