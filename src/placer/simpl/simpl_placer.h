@@ -5,32 +5,13 @@
 
 #include "datamodel/kt_solutionMgr.h"
 #include "placer/simpl/simpl_design.h"
+#include "placer/simpl/simpl_options.h"
 
 #include <cstddef>
 #include <cstdint>
 #include <memory>
 
 namespace ktplace::simpl {
-
-struct SimplParams {
-    std::size_t initMaxIters = 15;
-    double densityLimit = 1.0;
-    std::size_t binsPerAxis = 0;
-    std::size_t maxLevel = 10;
-    std::size_t minCellsToSplit = 4;
-    double stripeAreaFraction = 0.1;
-    double alphaBase = 0.01;
-    std::size_t gapReferenceIter = 10;
-    double gapRelaxedFrac = 0.25;
-    double gapTightFrac = 0.10;
-    std::size_t cgMaxIter = 60;
-    double cgTol = 1e-4;
-    std::size_t maxIters = 100;
-    std::size_t traceEvery = 1;
-    std::size_t cgEvery = 0;
-    bool densityMaps = true;
-    std::uint64_t seed = 20240607;
-};
 
 struct SimplResult {
     std::size_t numMovable = 0;
@@ -72,7 +53,7 @@ public:
     simplPlacer(simplPlacer &&) noexcept;
     simplPlacer &operator=(simplPlacer &&) noexcept;
 
-    SimplResult place(const SimplParams &params, bool useFences);
+    SimplResult place(const SimplOptions &options);
 
     [[nodiscard]] const simplSolution &solution() const noexcept {
         return answer;

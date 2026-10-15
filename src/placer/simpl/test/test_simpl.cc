@@ -11,6 +11,7 @@
 // every other cell out of it.
 
 #define BOOST_TEST_MODULE ktplace_simpl
+#define BOOST_TEST_DYN_LINK
 
 #include "constraint/kt_constraintMgr.h"
 #include "datamodel/kt_dm.h"
@@ -19,7 +20,7 @@
 #include "util/kt_log.h"
 #include "visualization/kt_plotOptions.h"
 
-#include <boost/test/included/unit_test.hpp>
+#include <boost/test/unit_test.hpp>
 #include <string>
 #include <utility>
 #include <vector>
@@ -107,9 +108,10 @@ SimplResult place(ktDM &db, bool useFences) {
     // No plots: this checks the solver, not what it draws.
     simpl::simplDM dm = simpl::buildSimplDM(db, PlotOptions{});
     simplPlacer placer(dm.design());
-    SimplParams params;
-    params.maxIters = 30;
-    const SimplResult res = placer.place(params, useFences);
+    SimplOptions options;
+    options.maxIters = 30;
+    options.fences = useFences;
+    const SimplResult res = placer.place(options);
     db.setGPSolution(placer.solution());
     return res;
 }

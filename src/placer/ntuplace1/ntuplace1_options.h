@@ -1,45 +1,28 @@
 // @file ntuplace1_options.h
-// NTUPlace1's options, and where they came from
+// NTUPlace1's options
 
 #pragma once
 
 #include "datamodel/kt_optionDb.h"
 
 #include <cstddef>
-#include <string>
-#include <vector>
 
 namespace ktplace {
 
-// Every option NTUPlace1 reads:
-//
-//     add_option ntuplace1 leaf_cells 64
-//
-// Each was a KTPLACE_NTU_* environment variable. The environment is no longer
-// read; a script is the only way to set them.
 struct Ntuplace1Options {
-    // When to stop subdividing. A leaf holds this many cells, at most.
-    std::size_t leafCells = 100;
+    static constexpr Component kComponent = Component::NtuPlace1;
 
-    // A cap on the recursion, as a backstop for a region that will not split.
+    std::size_t targetLeafCells = 100;
     std::size_t maxLevels = 32;
-
-    // How many times a cut may be retried with a looser imbalance before the
-    // region is left whole.
-    std::size_t retries = 4;
-
-    // Log every accepted cut and its split.
+    std::size_t maxRatioRetries = 4;
     bool verbose = false;
 
-    [[nodiscard]] static Ntuplace1Options load();
-    void report() const;
-
-    [[nodiscard]] const std::vector<ResolvedOption> &resolved() const noexcept {
-        return rows;
+    static void fields(auto &self, auto &&visit) {
+        visit("leaf_cells", self.targetLeafCells);
+        visit("max_levels", self.maxLevels);
+        visit("retries", self.maxRatioRetries);
+        visit("verbose", self.verbose);
     }
-
-private:
-    std::vector<ResolvedOption> rows;
 };
 
 }  // namespace ktplace

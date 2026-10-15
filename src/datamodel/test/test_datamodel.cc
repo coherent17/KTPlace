@@ -206,8 +206,8 @@ BOOST_AUTO_TEST_CASE(a_pin_joins_a_cell_to_a_net) {
 
 BOOST_AUTO_TEST_CASE(cell_and_net_ids_are_separate_spaces) {
     Graph g;
-    g.addCell("c0");
-    g.addNet("n0");
+    (void)g.addCell("c0");
+    (void)g.addNet("n0");
     // A cell and a net are numbered independently, so both can be 0 without
     // either being mistaken for the other.
     BOOST_TEST(g.getNumCells() == 1);
@@ -218,8 +218,8 @@ BOOST_AUTO_TEST_CASE(cell_and_net_ids_are_separate_spaces) {
 
 BOOST_AUTO_TEST_CASE(clear_empties_the_graph) {
     Graph g;
-    g.addCell("c0");
-    g.addNet("n0");
+    (void)g.addCell("c0");
+    (void)g.addNet("n0");
     BOOST_TEST(g.getNumCells() == 1);
     BOOST_TEST(g.getNumNets() == 1);
     g.clear();
@@ -231,8 +231,8 @@ BOOST_AUTO_TEST_CASE(clear_empties_the_graph) {
 
 BOOST_AUTO_TEST_CASE(clear_resets_the_id_counters) {
     Graph g;
-    g.addCell("c0");
-    g.addNet("n0");
+    (void)g.addCell("c0");
+    (void)g.addNet("n0");
     g.clear();
     // Ids restart, otherwise a fresh design would inherit stale numbering.
     BOOST_TEST(g.addCell("again") == 0);

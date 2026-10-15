@@ -70,7 +70,7 @@ class FastDetailedPlacer::Impl {
 public:
     explicit Impl(const fastdp::Design &d) : design(d) {}
 
-    DetailPlaceResult place(const DetailPlaceParams &params);
+    DetailPlaceResult place(const FastdpOptions &params);
 
 private:
     void buildSpans();
@@ -1330,17 +1330,10 @@ void FastDetailedPlacer::Impl::selfCheck(DetailPlaceResult &res) const {
     }
 }
 
-DetailPlaceResult FastDetailedPlacer::Impl::place(const DetailPlaceParams &params) {
+DetailPlaceResult FastDetailedPlacer::Impl::place(const FastdpOptions &params) {
     DetailPlaceResult res;
     ScopedTimer timer("detail-place");
     localWindow_ = params.localReorderWindow;
-    // The subset DP costs 2^k per window, so the window is the one knob that sets
-    // the price of re-ordering. Measured on adaptec1: k=8 costs about 36 of 52
-    // seconds for a few tenths of a percent. Overridable so the curve can be
-    // walked without a rebuild.
-    if (const long v = static_cast<long>(FastdpOptions().window); v >= 2 && v <= 14) {
-        localWindow_ = static_cast<std::size_t>(v);
-    }
 
 
     // place() is a normal call, not a one-shot: the same object may be run
@@ -1482,7 +1475,7 @@ DetailPlaceResult FastDetailedPlacer::Impl::place(const DetailPlaceParams &param
 
     sweep("global", params.globalSwapPasses, res.globalSwaps, &Impl::globalSwap);
     sweep("vertical", params.verticalSwapPasses, res.verticalSwaps, &Impl::verticalSwap);
-    if (!FastdpOptions().noMedian) {
+    if (!params.noMedian) {
         sweep("median", params.localReorderPasses, res.medianMoves, &Impl::medianReorder);
     }
     sweep("reorder", params.localReorderPasses, res.reorderMoves, &Impl::localReorder);
@@ -1543,8 +1536,8 @@ void report(const DetailPlaceResult &r) {
 
 }  // namespace
 
-DetailPlaceResult FastDetailedPlacer::place(const DetailPlaceParams &params) {
-    DetailPlaceResult result = pImpl->place(params);
+DetailPlaceResult FastDetailedPlacer::place(const FastdpOptions &options) {
+    DetailPlaceResult result = pImpl->place(options);
     report(result);
     return result;
 }

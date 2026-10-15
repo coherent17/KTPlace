@@ -5,6 +5,7 @@
 
 #include "datamodel/kt_solutionMgr.h"
 #include "legalizer/multirow/multirow_design.h"
+#include "legalizer/multirow/multirow_options.h"
 
 #include <memory>
 #include <string>
@@ -12,10 +13,6 @@
 namespace ktplace {
 
 class constraintMgr;
-
-struct MultiRowLegalizeParams {
-    std::size_t macroRows = 8;
-};
 
 struct MultiRowLegalizeResult {
     std::size_t movable = 0;
@@ -52,7 +49,7 @@ public:
     MultiRowLegalizer(MultiRowLegalizer &&) noexcept;
     MultiRowLegalizer &operator=(MultiRowLegalizer &&) noexcept;
 
-    MultiRowLegalizeResult legalize(const MultiRowLegalizeParams &params = {});
+    MultiRowLegalizeResult legalize(const MultiRowOptions &options = {});
 
     /// Where the last run put every cell. Nothing is written anywhere else: the
     /// caller commits this through ktDM.

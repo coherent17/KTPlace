@@ -104,22 +104,9 @@ simplDM buildSimplDM(const ktDM &db, const PlotOptions &plot) {
     };
     design.artifactDir = plotDir;
 
-    // SimPL's own parameters, from the options it was given and the cadence the
-    // visualizer was configured with. Built here so the flow has nothing to
-    // assemble and nowhere to get a second list wrong.
-    const SimplOptions options = SimplOptions::load();
     simplDM out(std::move(design));
-    out.par.binsPerAxis = static_cast<std::size_t>(std::max(options.grid, 0));
-    out.par.cgTol = options.cgTol;
-    out.par.initMaxIters = options.initIters;
-    out.par.maxIters = options.iters;
-    out.par.seed = options.seed;
-    out.par.densityLimit = options.density;
-    out.par.alphaBase = options.alphaBase;
-    out.par.traceEvery = plot.traceEvery;
-    out.par.cgEvery = plot.cgFrameEvery;
-    out.par.densityMaps = plot.densityMaps;
-    out.useFences_ = options.fences;
+    out.opts = loadOptions<SimplOptions>();
+    out.opts.densityMaps = plot.densityMaps;
     return out;
 }
 
@@ -159,16 +146,12 @@ void reportRun(const SimplResult &res) {
 
 simplDM::simplDM(Design design) : d(std::move(design)) {}
 
-SimplOptions simplDM::options() const {
-    return SimplOptions::load();
-}
-
-simplSolution simplDM::run(const SimplParams &params, bool useFences) {
+simplSolution simplDM::run() {
     ScopedTimer timer("simpl");
-    options().report();
+    reportOptions(opts);
 
     simplPlacer placer(d);
-    const SimplResult result = placer.place(params, useFences);
+    const SimplResult result = placer.place(opts);
     reportRun(result);
 
     // Only the placement crosses the boundary. The statistics are printed above

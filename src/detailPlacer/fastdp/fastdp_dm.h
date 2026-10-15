@@ -25,13 +25,8 @@ public:
     /// Takes ownership of the design the adaptor built.
     explicit fastdpDM(Design design);
 
-    // Fastdp options, read from the run's option store where the component's
-    // own configuration is assembled.
-    [[nodiscard]] FastdpOptions options() const;
-
-    // The parameters those options configure, assembled here.
-    [[nodiscard]] DetailPlaceParams params() const noexcept {
-        return par;
+    [[nodiscard]] const FastdpOptions &options() const noexcept {
+        return opts;
     }
 
     [[nodiscard]] const Design &design() const noexcept {
@@ -49,9 +44,9 @@ public:
     /// Move the cells, and return where every cell ended up. The pass's
     /// statistics are reported from inside the run; they are not returned, because
     /// nothing outside FastDP can act on them.
-    fastdpSolution run(const DetailPlaceParams &params);
+    fastdpSolution run();
 
-    DetailPlaceParams par;
+    FastdpOptions opts;
 
 private:
     Design d;

@@ -23,7 +23,7 @@ namespace ktplace::tcl {
 //     add_option simpl grid $g
 //
 // The value is typed by its spelling, exactly as Tcl types a bare word, so a
-// component's Option<T> can ask for the type it expects. Other commands are
+// component can ask for the type it expects with ComponentOptions::get<T>. Other commands are
 // registered alongside; the interpreter is not restricted to this one.
 class TclMgr {
 public:
@@ -43,10 +43,6 @@ public:
     // commands is the whole extension point, and a caller may reasonably want to
     // read a variable the script left behind.
     tcl::Interpreter interpreter;
-
-    // The options a script set, for the component named. Null when the script
-    // never mentioned it.
-    [[nodiscard]] std::optional<OptionMap> optionsFor(const std::string &component) const;
 
     // What the store holds, for a report or a test.
     [[nodiscard]] const OptionDb &db() const noexcept {

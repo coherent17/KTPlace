@@ -2,8 +2,8 @@
 
 namespace ktplace::abacus {
 
-abacusSolution flowMgr::runLegalizer(const LegalizeParams &params) {
-    return dm.run(params);
+abacusSolution flowMgr::runLegalizer() {
+    return dm.run();
 }
 
 }  // namespace ktplace::abacus

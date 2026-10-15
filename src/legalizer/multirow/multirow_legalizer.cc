@@ -108,7 +108,7 @@ class MultiRowLegalizer::Impl {
 public:
     explicit Impl(const multirow::Design &d) : design(d) {}
 
-    MultiRowLegalizeResult run(const MultiRowLegalizeParams &params);
+    MultiRowLegalizeResult run(const MultiRowOptions &params);
 
     std::vector<double> xs;
     std::vector<double> ys;
@@ -621,7 +621,7 @@ std::uint32_t MultiRowLegalizer::Impl::insert(std::uint32_t cell, const Slot &sl
     }
 }
 
-MultiRowLegalizeResult MultiRowLegalizer::Impl::run(const MultiRowLegalizeParams &params) {
+MultiRowLegalizeResult MultiRowLegalizer::Impl::run(const MultiRowOptions &params) {
     ScopedTimer timer("multirow-legalize");
     MultiRowLegalizeResult res;
 
@@ -818,8 +818,8 @@ MultiRowLegalizer::MultiRowLegalizer(MultiRowLegalizer &&) noexcept = default;
 
 MultiRowLegalizer &MultiRowLegalizer::operator=(MultiRowLegalizer &&) noexcept = default;
 
-MultiRowLegalizeResult MultiRowLegalizer::legalize(const MultiRowLegalizeParams &params) {
-    return pImpl->run(params);
+MultiRowLegalizeResult MultiRowLegalizer::legalize(const MultiRowOptions &options) {
+    return pImpl->run(options);
 }
 
 multiRowSolution MultiRowLegalizer::solution() const {

@@ -3,12 +3,14 @@
 // Unit tests for the Tcl interpreter and the option registry.
 
 #define BOOST_TEST_MODULE ktplace_tcl
+#define BOOST_TEST_DYN_LINK
 
 #include "datamodel/kt_optionDb.h"
+#include "placer/simpl/simpl_options.h"
 #include "tcl/kt_tclMgr.h"
 #include "util/kt_log.h"
 
-#include <boost/test/included/unit_test.hpp>
+#include <boost/test/unit_test.hpp>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
@@ -24,12 +26,6 @@ std::ostream &operator<<(std::ostream &out, const Value &value) {
     return out << value.asString();
 }
 }  // namespace ktplace::tcl
-
-namespace ktplace {
-std::ostream &operator<<(std::ostream &out, OptionOrigin origin) {
-    return out << toString(origin);
-}
-}  // namespace ktplace
 
 namespace {
 
@@ -75,7 +71,7 @@ BOOST_AUTO_TEST_CASE(a_bare_number_word_is_typed_by_its_spelling) {
 
 BOOST_AUTO_TEST_CASE(braced_words_are_not_substituted) {
     Interpreter interp;
-    interp.eval("set name simpl");
+    (void)interp.eval("set name simpl");
     BOOST_TEST(interp.eval("set a $name").asString() == "simpl");
     BOOST_TEST(interp.eval("set b {$name}").asString() == "$name");
     BOOST_TEST(interp.eval("set c \"$name\"").asString() == "simpl");
@@ -85,7 +81,7 @@ BOOST_AUTO_TEST_CASE(command_substitution_composes) {
     Interpreter interp;
     const Value out = interp.eval("set total [expr {2 + 3 * 4}]");
     BOOST_TEST(out.asInt() == 14);
-    interp.eval("set x [list a b]");
+    (void)interp.eval("set x [list a b]");
     BOOST_TEST(interp.eval("llength $x").asInt() == 2);
     BOOST_TEST(interp.eval("lindex $x 0").asString() == "a");
     BOOST_TEST(interp.eval("set y [lindex [list a b] 1]").asString() == "b");
@@ -107,34 +103,34 @@ BOOST_AUTO_TEST_CASE(expr_handles_the_operators_a_config_needs) {
 
 BOOST_AUTO_TEST_CASE(if_and_while_run_a_body) {
     Interpreter interp;
-    interp.eval("set n 0\nif {$n == 0} { set n 5 } else { set n 9 }");
+    (void)interp.eval("set n 0\nif {$n == 0} { set n 5 } else { set n 9 }");
     BOOST_TEST(interp.variable("n").asInt() == 5);
-    interp.eval("set i 0\nwhile {$i < 4} { incr i 2 }");
+    (void)interp.eval("set i 0\nwhile {$i < 4} { incr i 2 }");
     BOOST_TEST(interp.variable("i").asInt() == 4);
 }
 
 BOOST_AUTO_TEST_CASE(foreach_walks_a_list) {
     Interpreter interp;
-    interp.eval("set total 0\nforeach x {1 2 3 4} { incr total $x }");
+    (void)interp.eval("set total 0\nforeach x {1 2 3 4} { incr total $x }");
     BOOST_TEST(interp.variable("total").asInt() == 10);
-    interp.eval("set joined {}\nforeach {k v} {a 1 b 2} { lappend joined $k$v }");
+    (void)interp.eval("set joined {}\nforeach {k v} {a 1 b 2} { lappend joined $k$v }");
     BOOST_TEST(interp.variable("joined").asString() == "{a1 b2}");
 }
 
 BOOST_AUTO_TEST_CASE(a_multiline_script_is_separated_by_newlines) {
     Interpreter interp;
-    interp.eval("set a 1\nset b 2 ; set c 3\n");
+    (void)interp.eval("set a 1\nset b 2 ; set c 3\n");
     BOOST_TEST(interp.variable("a").asInt() == 1);
     BOOST_TEST(interp.variable("c").asInt() == 3);
 }
 
 BOOST_AUTO_TEST_CASE(comments_and_continuations_do_not_become_commands) {
     Interpreter interp;
-    interp.eval("# leading comment\nset a 1\n# final");
+    (void)interp.eval("# leading comment\nset a 1\n# final");
     BOOST_TEST(interp.variable("a").asInt() == 1);
     BOOST_CHECK_THROW(interp.eval("set a 1 # trailing"), Error);
     // A bracketed body may run over lines without becoming two commands.
-    interp.eval("set list {}\nlappend list \\\n    2\n");
+    (void)interp.eval("set list {}\nlappend list \\\n    2\n");
     BOOST_TEST(interp.variable("list").asList().size() == 1);
 }
 
@@ -150,7 +146,7 @@ BOOST_AUTO_TEST_CASE(source_runs_another_file) {
     ScriptFile inner("set from_file 7");
     ScriptFile outer("source " + inner.str());
     Interpreter interp;
-    interp.evalFile(outer.str());
+    (void)interp.evalFile(outer.str());
     BOOST_TEST(interp.variable("from_file").asInt() == 7);
 }
 
@@ -192,6 +188,16 @@ private:
 
 namespace {
 
+[[nodiscard]] ComponentOptions optionsOf(Component component) {
+    return OptionDb::instance().getComponentOption(component);
+}
+
+[[nodiscard]] OptionValue stored(Component component, std::string_view key) {
+    const std::optional<OptionValue> value = optionsOf(component).find(key);
+    BOOST_REQUIRE(value.has_value());
+    return *value;
+}
+
 /// One of the .tcl files next to this test. The path is compiled in, so the test
 /// does not depend on the directory the binary is run from.
 [[nodiscard]] std::string exampleScript(const char *name) {
@@ -204,25 +210,23 @@ BOOST_AUTO_TEST_CASE(the_basic_example_sets_what_it_says) {
     OptionsFixture fixture;
     fixture.mgr().loadScript(exampleScript("add_option_basic.tcl"));
 
-    BOOST_TEST(std::get<int>(*OptionDb::instance().find("simpl", "grid")) == 64);
-    BOOST_TEST(std::get<double>(*OptionDb::instance().find("simpl", "cg_tol")) == 1e-6);
-    BOOST_TEST(std::get<int>(*OptionDb::instance().find("abacus", "max_row_dist")) == 3);
+    BOOST_TEST(std::get<int>(stored(Component::Simpl, "grid")) == 64);
+    BOOST_TEST(std::get<double>(stored(Component::Simpl, "cg_tol")) == 1e-6);
+    BOOST_TEST(std::get<int>(stored(Component::Abacus, "max_row_dist")) == 3);
     // The script mentioned no fastdp, so fastdp is unconfigured.
-    BOOST_TEST(!OptionDb::instance().optionsFor("fastdp").has_value());
+    BOOST_TEST(optionsOf(Component::FastDp).empty());
 }
 
 BOOST_AUTO_TEST_CASE(the_types_example_keeps_each_type) {
     OptionsFixture fixture;
     fixture.mgr().loadScript(exampleScript("add_option_types.tcl"));
 
-    BOOST_TEST(std::get<int>(*OptionDb::instance().find("simpl", "grid")) == 64);
-    BOOST_TEST(std::get<double>(*OptionDb::instance().find("simpl", "alpha_base")) == 1.5e-3);
+    BOOST_TEST(std::get<int>(stored(Component::Simpl, "grid")) == 64);
+    BOOST_TEST(std::get<double>(stored(Component::Simpl, "alpha_base")) == 1.5e-3);
     // A bare 0 is an int, and a bool option reads it as false.
-    const Option<bool> fences("simpl", "fences", true);
-    BOOST_TEST(fences.value() == false);
+    BOOST_TEST(optionsOf(Component::Simpl).get<bool>("fences").value_or(true) == false);
     // Braces keep a string that reads like a number a string.
-    BOOST_TEST(std::get<std::string>(*OptionDb::instance().find("simpl", "tag")) ==
-               "a name with spaces");
+    BOOST_TEST(std::get<std::string>(stored(Component::Simpl, "tag")) == "a name with spaces");
 }
 
 BOOST_AUTO_TEST_CASE(the_computed_example_runs_ordinary_tcl) {
@@ -230,12 +234,12 @@ BOOST_AUTO_TEST_CASE(the_computed_example_runs_ordinary_tcl) {
     fixture.mgr().loadScript(exampleScript("computed_options.tcl"));
 
     // The `if` narrowed the default the script set first.
-    BOOST_TEST(std::get<int>(*OptionDb::instance().find("simpl", "grid")) == 64);
+    BOOST_TEST(std::get<int>(stored(Component::Simpl, "grid")) == 64);
     // `foreach` set an option on each of two components.
-    BOOST_TEST(std::get<int>(*OptionDb::instance().find("abacus", "max_row_dist")) == 3);
-    BOOST_TEST(std::get<int>(*OptionDb::instance().find("fastdp", "window")) == 2);
+    BOOST_TEST(std::get<int>(stored(Component::Abacus, "max_row_dist")) == 3);
+    BOOST_TEST(std::get<int>(stored(Component::FastDp, "window")) == 2);
     // A value taken from a variable.
-    BOOST_TEST(std::get<int>(*OptionDb::instance().find("simpl", "cluster_scale")) == 4);
+    BOOST_TEST(std::get<int>(stored(Component::Simpl, "cluster_scale")) == 4);
 }
 
 BOOST_AUTO_TEST_CASE(a_broken_example_names_the_file_and_the_mistake) {
@@ -253,7 +257,7 @@ BOOST_AUTO_TEST_CASE(a_broken_example_names_the_file_and_the_mistake) {
 
 BOOST_AUTO_TEST_CASE(add_option_records_a_typed_value_per_component) {
     OptionsFixture fixture;
-    fixture.mgr().interpreter.eval(
+    (void)fixture.mgr().interpreter.eval(
         "add_option simpl grid 64\n"
         "add_option simpl cg_tol 1e-6\n"
         "add_option simpl fences 0\n"
@@ -261,20 +265,15 @@ BOOST_AUTO_TEST_CASE(add_option_records_a_typed_value_per_component) {
 
     // An unset option is nullopt, which is what lets a component keep its own
     // default instead of inheriting a zero.
-    BOOST_TEST(!OptionDb::instance().find("simpl", "cluster_scale").has_value());
-    BOOST_TEST(!OptionDb::instance().optionsFor("fastdp").has_value());
+    BOOST_TEST(!optionsOf(Component::Simpl).contains("cluster_scale"));
+    BOOST_TEST(optionsOf(Component::FastDp).empty());
 
-    const auto tol = OptionDb::instance().find("simpl", "cg_tol");
-    BOOST_REQUIRE(tol.has_value());
-    BOOST_TEST(std::get<double>(*tol) == 1e-6);
-
-    const auto grid = OptionDb::instance().find("simpl", "grid");
-    BOOST_REQUIRE(grid.has_value());
-    BOOST_TEST(std::get<int>(*grid) == 64);
+    BOOST_TEST(std::get<double>(stored(Component::Simpl, "cg_tol")) == 1e-6);
+    BOOST_TEST(std::get<int>(stored(Component::Simpl, "grid")) == 64);
 
     // Components are independent: the same key in two is two options.
-    BOOST_TEST(std::get<int>(*OptionDb::instance().find("abacus", "max_row_dist")) == 3);
-    BOOST_TEST(!OptionDb::instance().find("abacus", "grid").has_value());
+    BOOST_TEST(std::get<int>(stored(Component::Abacus, "max_row_dist")) == 3);
+    BOOST_TEST(!optionsOf(Component::Abacus).contains("grid"));
 }
 
 BOOST_AUTO_TEST_CASE(add_option_needs_three_arguments) {
@@ -286,42 +285,61 @@ BOOST_AUTO_TEST_CASE(add_option_needs_three_arguments) {
 
 BOOST_AUTO_TEST_CASE(an_option_value_is_taken_from_a_variable) {
     OptionsFixture fixture;
-    fixture.mgr().interpreter.eval("set g 128\nadd_option simpl grid $g\n");
-    BOOST_TEST(std::get<int>(*OptionDb::instance().find("simpl", "grid")) == 128);
+    (void)fixture.mgr().interpreter.eval("set g 128\nadd_option simpl grid $g\n");
+    BOOST_TEST(std::get<int>(stored(Component::Simpl, "grid")) == 128);
 }
 
 BOOST_AUTO_TEST_CASE(a_braced_value_stays_a_string) {
     OptionsFixture fixture;
-    fixture.mgr().interpreter.eval("add_option simpl tag {64}\n");
-    const auto tag = OptionDb::instance().find("simpl", "tag");
-    BOOST_REQUIRE(tag.has_value());
-    BOOST_TEST(std::get<std::string>(*tag) == "64");
+    (void)fixture.mgr().interpreter.eval("add_option simpl tag {64}\n");
+    BOOST_TEST(std::get<std::string>(stored(Component::Simpl, "tag")) == "64");
 }
 
 BOOST_AUTO_TEST_CASE(a_component_reads_its_own_options) {
     OptionsFixture fixture;
-    fixture.mgr().interpreter.eval("add_option simpl grid 96\nadd_option simpl fences 0\n");
+    (void)fixture.mgr().interpreter.eval("add_option simpl grid 96\nadd_option simpl fences 0\n");
 
-    // The typed view is what a component declares: key, type and default together.
-    const Option<int> grid("simpl", "grid", 64);
-    const Option<bool> fences("simpl", "fences", true);
-    const Option<int> unconfigured("simpl", "cluster_scale", 2);
+    const ComponentOptions simpl = optionsOf(Component::Simpl);
+    BOOST_TEST(simpl.get<int>("grid").value_or(-1) == 96);
+    BOOST_TEST(simpl.get<bool>("fences").value_or(true) == false);
+    BOOST_TEST(!simpl.get<int>("cluster_scale").has_value());
+}
 
-    BOOST_TEST(grid.value() == 96);
-    BOOST_TEST(grid.isSet());
-    BOOST_TEST(fences.value() == false);
-    // Unset falls back to the component's own default, and says so.
-    BOOST_TEST(unconfigured.value() == 2);
-    BOOST_TEST(unconfigured.isSet() == false);
-    BOOST_TEST(unconfigured.origin() == OptionOrigin::Default);
-    BOOST_TEST(grid.origin() == OptionOrigin::Script);
+BOOST_AUTO_TEST_CASE(load_options_keeps_the_component_defaults_for_unset_keys) {
+    OptionsFixture fixture;
+    (void)fixture.mgr().interpreter.eval("add_option simpl grid 96\nadd_option simpl fences 0\n");
+
+    const SimplOptions options = loadOptions<SimplOptions>();
+    BOOST_TEST(options.binsPerAxis == 96u);
+    BOOST_TEST(options.fences == false);
+    BOOST_TEST(options.maxIters == SimplOptions{}.maxIters);
+    BOOST_TEST(options.cgTol == SimplOptions{}.cgTol);
 }
 
 BOOST_AUTO_TEST_CASE(a_value_of_the_wrong_type_is_refused_not_converted) {
     OptionsFixture fixture;
-    fixture.mgr().interpreter.eval("add_option simpl grid sixty-four\n");
-    // A string where an int was expected is not silently read as 0.
-    const Option<int> grid("simpl", "grid", 64);
-    BOOST_TEST(grid.isSet() == false);
-    BOOST_TEST(grid.value() == 64);
+    (void)fixture.mgr().interpreter.eval("add_option simpl grid sixty-four\n");
+    BOOST_TEST(!optionsOf(Component::Simpl).get<int>("grid").has_value());
+    BOOST_TEST(loadOptions<SimplOptions>().binsPerAxis == SimplOptions{}.binsPerAxis);
+}
+
+BOOST_AUTO_TEST_CASE(numbers_convert_to_the_type_asked_for) {
+    BOOST_TEST(convertOption<double>(OptionValue{3}).value_or(-1.0) == 3.0);
+    BOOST_TEST(convertOption<int>(OptionValue{64.0}).value_or(-1) == 64);
+    BOOST_TEST(convertOption<bool>(OptionValue{0}).value_or(true) == false);
+    BOOST_TEST(convertOption<bool>(OptionValue{2.5}).value_or(false) == true);
+    BOOST_TEST(convertOption<std::size_t>(OptionValue{7}).value_or(0u) == 7u);
+    BOOST_TEST(!convertOption<std::size_t>(OptionValue{-1}).has_value());
+    BOOST_TEST(!convertOption<int>(OptionValue{true}).has_value());
+    BOOST_TEST(!convertOption<int>(OptionValue{std::string("64")}).has_value());
+    BOOST_TEST(!convertOption<std::string>(OptionValue{64}).has_value());
+}
+
+BOOST_AUTO_TEST_CASE(component_names_round_trip) {
+    for (const std::string_view name : kComponentNames) {
+        const std::optional<Component> id = componentFromName(name);
+        BOOST_REQUIRE(id.has_value());
+        BOOST_TEST(toString(*id) == name);
+    }
+    BOOST_TEST(!componentFromName("nonesuch").has_value());
 }

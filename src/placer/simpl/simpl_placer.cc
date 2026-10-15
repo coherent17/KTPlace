@@ -290,7 +290,7 @@ class simplPlacer::Impl {
 public:
     explicit Impl(const Design &d) : design(d), graph(d.graph) {}
 
-    SimplResult run(const SimplParams &params, bool useFences);
+    SimplResult run(const SimplOptions &params);
 
     std::vector<double> outX;
     std::vector<double> outY;
@@ -338,7 +338,7 @@ private:
     const Graph &graph;
     const Fences *fences = nullptr;
 
-    SimplParams par;
+    SimplOptions par;
     SimplResult res;
 
     std::size_t numMovable = 0;
@@ -1134,10 +1134,10 @@ void simplPlacer::Impl::writeBounds(const std::vector<std::pair<double, double>>
         << "' font-family='monospace' font-size='12' fill='#c0392b'>upper bound</text>\n</svg>\n";
 }
 
-SimplResult simplPlacer::Impl::run(const SimplParams &params, bool useFences) {
+SimplResult simplPlacer::Impl::run(const SimplOptions &params) {
     par = params;
     g = std::clamp(par.densityLimit, 0.05, 1.0);
-    fences = useFences ? &design.fences : nullptr;
+    fences = params.fences ? &design.fences : nullptr;
     res.fenceRegions = fences != nullptr ? fences->numRegions() : 0;
 
     {
@@ -1296,8 +1296,8 @@ simplPlacer::~simplPlacer() = default;
 simplPlacer::simplPlacer(simplPlacer &&) noexcept = default;
 simplPlacer &simplPlacer::operator=(simplPlacer &&) noexcept = default;
 
-SimplResult simplPlacer::place(const SimplParams &params, bool useFences) {
-    SimplResult result = pImpl->run(params, useFences);
+SimplResult simplPlacer::place(const SimplOptions &options) {
+    SimplResult result = pImpl->run(options);
     answer.xs = pImpl->outX;
     answer.ys = pImpl->outY;
     return result;

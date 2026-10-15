@@ -7,48 +7,63 @@
 #include "util/kt_reportTable.h"
 
 #include <algorithm>
-#include <cctype>
 #include <fmt/format.h>
 
 namespace ktplace {
 
-namespace components {
-bool known(std::string_view name) noexcept {
-    return name == toString(Id::Simpl) || name == toString(Id::NtuPlace1) ||
-           name == toString(Id::Abacus) || name == toString(Id::MultiRow) ||
-           name == toString(Id::FastDp) || name == toString(Id::Visualizer) ||
-           name == toString(Id::Flow);
-}
-}  // namespace components
-
 namespace {
 
-// The text a report prints for any of the variant's types.
 std::string toText(const OptionValue &value) {
-    if (const auto *asInt = std::get_if<int>(&value)) {
-        return std::to_string(*asInt);
-    }
-    if (const auto *asBool = std::get_if<bool>(&value)) {
-        return *asBool ? "1" : "0";
-    }
-    if (const auto *asDouble = std::get_if<double>(&value)) {
-        return fmt::format("{}", *asDouble);
-    }
-    return std::get<std::string>(value);
+    return std::visit(
+        [](const auto &held) -> std::string {
+            using Held = std::decay_t<decltype(held)>;
+            if constexpr (std::same_as<Held, bool>) {
+                return held ? "1" : "0";
+            } else {
+                return fmt::format("{}", held);
+            }
+        },
+        value);
 }
 
 }  // namespace
 
-const char *toString(OptionOrigin origin) {
-    switch (origin) {
-        case OptionOrigin::Default:
-            return "default";
-        case OptionOrigin::Script:
-            return "script";
-        case OptionOrigin::Env:
-            return "environment";
+std::optional<Component> componentFromName(std::string_view name) noexcept {
+    const auto found = std::ranges::find(kComponentNames, name);
+    if (found == kComponentNames.end()) {
+        return std::nullopt;
     }
-    return "unknown";
+    return static_cast<Component>(std::distance(kComponentNames.begin(), found));
+}
+
+ComponentOptions::ComponentOptions(Component component, OptionMap configured)
+    : id(component), values(std::move(configured)) {}
+
+std::optional<OptionValue> ComponentOptions::find(std::string_view key) const {
+    const auto found = values.find(key);
+    if (found == values.end()) {
+        return std::nullopt;
+    }
+    return found->second;
+}
+
+void ComponentOptions::warnWrongType(std::string_view key, const OptionValue &value,
+                                     std::string_view expected) const {
+    ktlog.warning("option {} {}: expected {}, got '{}'; the default is used", toString(id), key,
+                  expected, toText(value));
+}
+
+void reportOptionTable(Component component,
+                       const std::vector<std::pair<std::string_view, OptionValue>> &rows) {
+    if (rows.empty()) {
+        return;
+    }
+    ktReportTable table(std::string(toString(component)) + " options");
+    table.setHeaders({"option", "value"});
+    for (const auto &[key, value] : rows) {
+        table.addRow({std::string(key), toText(value)});
+    }
+    table.emit();
 }
 
 OptionDb &OptionDb::instance() {
@@ -56,108 +71,38 @@ OptionDb &OptionDb::instance() {
     return db;
 }
 
-void OptionDb::set(const std::string &component, const std::string &key, OptionValue value,
-                   OptionOrigin origin) {
-    auto &entries = byComponent[component];
-    if (entries.find(key) == entries.end()) {
-        ++total;
-    }
-    entries.insert_or_assign(key, Entry{std::move(value), origin});
+void OptionDb::set(Component component, std::string key, OptionValue value) {
+    byComponent[std::to_underlying(component)].insert_or_assign(std::move(key), std::move(value));
 }
 
-void OptionDb::clear() {
-    byComponent.clear();
-    total = 0;
+void OptionDb::clear() noexcept {
+    for (OptionMap &options : byComponent) {
+        options.clear();
+    }
 }
 
-std::optional<OptionMap> OptionDb::optionsFor(const std::string &component) const {
-    const auto found = byComponent.find(component);
-    if (found == byComponent.end()) {
-        return std::nullopt;
-    }
-    OptionMap out;
-    out.reserve(found->second.size());
-    for (const auto &entry : found->second) {
-        out.emplace(entry.first, entry.second.value);
-    }
-    return out;
+ComponentOptions OptionDb::getComponentOption(Component component) const {
+    return ComponentOptions(component, byComponent[std::to_underlying(component)]);
 }
 
-std::optional<OptionValue> OptionDb::find(const std::string &component,
-                                          const std::string &key) const {
-    const auto found = byComponent.find(component);
-    if (found == byComponent.end()) {
-        return std::nullopt;
+std::size_t OptionDb::size() const noexcept {
+    std::size_t total = 0;
+    for (const OptionMap &options : byComponent) {
+        total += options.size();
     }
-    const auto entry = found->second.find(key);
-    if (entry == found->second.end()) {
-        return std::nullopt;
-    }
-    return entry->second.value;
-}
-
-std::optional<OptionOrigin> OptionDb::originOf(const std::string &component,
-                                               const std::string &key) const {
-    const auto found = byComponent.find(component);
-    if (found == byComponent.end()) {
-        return std::nullopt;
-    }
-    const auto entry = found->second.find(key);
-    if (entry == found->second.end()) {
-        return std::nullopt;
-    }
-    return entry->second.origin;
-}
-
-std::vector<std::string> OptionDb::components() const {
-    std::vector<std::string> names;
-    names.reserve(byComponent.size());
-    for (const auto &entry : byComponent) {
-        names.push_back(entry.first);
-    }
-    std::sort(names.begin(), names.end());
-    return names;
+    return total;
 }
 
 void OptionDb::report() const {
-    if (byComponent.empty()) {
+    if (size() == 0) {
         return;
     }
     ktReportTable table("Configured options");
-    table.setHeaders({"component", "option", "value", "from"});
-    for (const std::string &name : components()) {
-        std::vector<std::string> keys;
-        for (const auto &entry : byComponent.at(name)) {
-            keys.push_back(entry.first);
+    table.setHeaders({"component", "option", "value"});
+    for (std::size_t c = 0; c < byComponent.size(); ++c) {
+        for (const auto &[key, value] : byComponent[c]) {
+            table.addRow({std::string(kComponentNames[c]), key, toText(value)});
         }
-        std::sort(keys.begin(), keys.end());
-        for (const std::string &key : keys) {
-            const Entry &entry = byComponent.at(name).at(key);
-            table.addRow({name, key, toText(entry.value), toString(entry.origin)});
-        }
-    }
-    table.emit();
-}
-
-void reportOptions(const std::string &component, const std::vector<ResolvedOption> &options) {
-    if (options.empty()) {
-        return;
-    }
-    std::vector<const ResolvedOption *> ordered;
-    ordered.reserve(options.size());
-    for (const ResolvedOption &option : options) {
-        ordered.push_back(&option);
-    }
-    std::sort(ordered.begin(), ordered.end(),
-              [](const ResolvedOption *left, const ResolvedOption *right) {
-                  return left->key < right->key;
-              });
-
-    ktReportTable table(component + " options");
-    table.setHeaders({"option", "value", "default", "from"});
-    for (const ResolvedOption *option : ordered) {
-        table.addRow({option->key, toText(option->value), toText(option->fallback),
-                      toString(option->origin)});
     }
     table.emit();
 }

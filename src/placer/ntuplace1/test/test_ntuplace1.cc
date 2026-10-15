@@ -10,13 +10,17 @@
 // inside the rows rather than in the pad ring around them.
 
 #define BOOST_TEST_MODULE ktplace_ntuplace1
+#define BOOST_TEST_DYN_LINK
 
 #include "constraint/kt_constraintMgr.h"
+#include "datamodel/kt_dm.h"
 #include "placer/ntuplace1/kt_ntuplace1.h"
+#include "placer/ntuplace1/ntuplace1_dm.h"
 #include "util/kt_log.h"
 
-#include <boost/test/included/unit_test.hpp>
+#include <boost/test/unit_test.hpp>
 #include <string>
+#include <utility>
 #include <vector>
 
 using namespace ktplace;
@@ -59,10 +63,28 @@ void addNet(ktDM &db, const std::string &net, const std::vector<std::string> &ce
     }
 }
 
+struct Placed {
+    RatioPlaceResult result;
+    ntuplace1Solution solution;
+
+    [[nodiscard]] std::pair<double, double> at(std::size_t id) const {
+        return {solution.xs[id], solution.ys[id]};
+    }
+};
+
+Placed place(const ktDM &db, const Ntuplace1Options &params) {
+    ntuplace1::ntuplace1DM dm = ntuplace1::buildNtuplace1DM(db);
+    RatioPlacer placer(dm.design());
+    Placed out;
+    out.result = placer.place(params);
+    out.solution = dm.solution();
+    return out;
+}
+
 /// Every cell (1 wide, one row tall) lies inside the rows.
-void expectInRows(ktDM &db, const std::vector<std::size_t> &ids) {
+void expectInRows(const Placed &placed, const std::vector<std::size_t> &ids) {
     for (const std::size_t id : ids) {
-        const auto [x, y] = db.getCellPosition(id);
+        const auto [x, y] = placed.at(id);
         BOOST_TEST(x >= -1e-9);
         BOOST_TEST(x + 1.0 <= kWidth + 1e-9);
         BOOST_TEST(y >= -1e-9);
@@ -72,8 +94,8 @@ void expectInRows(ktDM &db, const std::vector<std::size_t> &ids) {
 
 /// Small leaves, so the recursion goes deep enough on a toy design to show
 /// where it sends things.
-RatioPlaceParams smallLeaves() {
-    RatioPlaceParams p;
+Ntuplace1Options smallLeaves() {
+    Ntuplace1Options p;
     p.targetLeafCells = 4;
     return p;
 }
@@ -92,16 +114,16 @@ BOOST_AUTO_TEST_CASE(cells_avoid_a_macro_marked_as_terminal) {
         addNet(db, "n" + std::to_string(i), {"c" + std::to_string(i), "c" + std::to_string(i + 1)});
     }
 
-    RatioPlacer placer(db);
-    const RatioPlaceResult res = placer.place(smallLeaves());
+    const Placed placed = place(db, smallLeaves());
+    const RatioPlaceResult &res = placed.result;
 
     BOOST_TEST(res.numFixed == 1u);
     for (const std::size_t id : ids) {
-        const auto [x, y] = db.getCellPosition(id);
+        const auto [x, y] = placed.at(id);
         (void)y;
         BOOST_TEST(x >= 50.0 - 1e-9, "cell " << id << " at x=" << x << " is on the macro");
     }
-    expectInRows(db, ids);
+    expectInRows(placed, ids);
 }
 
 BOOST_AUTO_TEST_CASE(cells_follow_their_pads) {
@@ -129,20 +151,19 @@ BOOST_AUTO_TEST_CASE(cells_follow_their_pads) {
         addNet(db, "pb" + std::to_string(i), {"padR", "b" + std::to_string(i)});
     }
 
-    RatioPlacer placer(db);
-    (void)placer.place(smallLeaves());
+    const Placed placed = place(db, smallLeaves());
 
     double meanA = 0.0, meanB = 0.0;
     for (const std::size_t id : a) {
-        meanA += db.getCellPosition(id).first / 16.0;
+        meanA += placed.at(id).first / 16.0;
     }
     for (const std::size_t id : b) {
-        meanB += db.getCellPosition(id).first / 16.0;
+        meanB += placed.at(id).first / 16.0;
     }
     BOOST_TEST(meanA < 35.0);
     BOOST_TEST(meanB > 65.0);
-    expectInRows(db, a);
-    expectInRows(db, b);
+    expectInRows(placed, a);
+    expectInRows(placed, b);
 }
 
 BOOST_AUTO_TEST_CASE(split_follows_free_area_and_stays_in_rows) {
@@ -156,14 +177,13 @@ BOOST_AUTO_TEST_CASE(split_follows_free_area_and_stays_in_rows) {
     // A pad far outside the rows: it must not drag the placement area with it.
     addFixed(db, "pad", 400.0, 400.0, 1.0, 1.0);
 
-    RatioPlacer placer(db);
-    RatioPlaceParams p;
+    Ntuplace1Options p;
     p.targetLeafCells = 16;
-    (void)placer.place(p);
+    const Placed placed = place(db, p);
 
     std::size_t left = 0;
     for (const std::size_t id : ids) {
-        const auto [x, y] = db.getCellPosition(id);
+        const auto [x, y] = placed.at(id);
         BOOST_TEST(x >= 25.0 - 1e-9);
         BOOST_TEST(x + 1.0 <= kWidth + 1e-9);
         BOOST_TEST(y >= 0.0);
@@ -182,12 +202,12 @@ BOOST_AUTO_TEST_CASE(tiny_designs_do_not_fail) {
     addRows(db);
     const auto ids = addCells(db, "c", 3);
     addNet(db, "n", {"c0", "c1", "c2"});
-    RatioPlacer placer(db);
-    RatioPlaceParams p;
+    Ntuplace1Options p;
     p.targetLeafCells = 1;  // forces cuts down to single cells
-    const RatioPlaceResult res = placer.place(p);
+    const Placed placed = place(db, p);
+    const RatioPlaceResult &res = placed.result;
     BOOST_TEST(res.numMovable == 3u);
-    expectInRows(db, ids);
+    expectInRows(placed, ids);
 }
 
 // Fences (ISPD 2015) are exclusive: members inside their region, every other
@@ -217,15 +237,15 @@ BOOST_AUTO_TEST_CASE(fenced_cells_are_placed_in_their_region_and_others_kept_out
         db.setConstraints(std::move(mgr));
     }
 
-    RatioPlacer placer(db);
-    const RatioPlaceResult res = placer.place(smallLeaves());
+    const Placed placed = place(db, smallLeaves());
+    const RatioPlaceResult &res = placed.result;
 
     BOOST_TEST(res.fenceRegions == 1u);
     BOOST_TEST(res.fenceViolations == 0u);
     // The engine's own containment test is on the lower-left corner, and that is
     // what global placement promises; whole cells are the legalizer's job.
     const auto inside = [&](std::size_t id) {
-        const auto [x, y] = db.getCellPosition(id);
+        const auto [x, y] = placed.at(id);
         return x >= fx0 && x <= fx1 && y >= fy0 && y <= fy1;
     };
     for (const std::size_t id : members) {
