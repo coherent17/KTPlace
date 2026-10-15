@@ -9,8 +9,6 @@
 #include "kt_option.h"
 
 #include "datamodel/kt_optionDb.h"
-#include "visualization/kt_trace.h"
-#include "visualization/kt_visualizer.h"
 
 #include <boost/test/unit_test_suite.hpp>
 #include <cstdio>
@@ -18,7 +16,6 @@
 #include <filesystem>
 #include <fstream>
 #include <functional>
-#include <map>
 #include <sstream>
 #include <string>
 #include <sys/wait.h>
@@ -341,7 +338,7 @@ BOOST_AUTO_TEST_CASE(flow_exits_on_an_unknown_algorithm) {
     expectFatalExit(
         [&] {
             FlowMgr flow;
-            OptionDb::instance().set("flow", "algorithm", OptionValue{std::string("no_such_algo")});
+            OptionDb::instance().set(Component::Flow, "algorithm", std::string("no_such_algo"));
             const kt_option opt = optionsFor(dir, designDir(dir).string());
             flow.run(opt);
         },
@@ -398,69 +395,4 @@ BOOST_AUTO_TEST_CASE(flow_exits_when_the_design_files_are_missing) {
             flow.run(optionsFor(dir, dir.str()));
         },
         "no input format recognises");
-}
-
-namespace {
-
-/// Every file under `root` but the logs and the trace, by relative path, with
-/// its bytes: what two runs are compared on.
-std::map<std::string, std::string> picturesUnder(const fs::path &root) {
-    std::map<std::string, std::string> files;
-    for (const auto &e : fs::recursive_directory_iterator(root)) {
-        if (!e.is_regular_file()) {
-            continue;
-        }
-        const fs::path p = e.path();
-        if (p.extension() == ".log" || p.extension() == ".ktrace") {
-            continue;
-        }
-        std::ifstream in(p, std::ios::binary);
-        std::ostringstream bytes;
-        bytes << in.rdbuf();
-        files[fs::relative(p, root).string()] = bytes.str();
-    }
-    return files;
-}
-
-}  // namespace
-
-BOOST_AUTO_TEST_CASE(a_recorded_run_draws_nothing_and_its_trace_draws_the_same_pictures) {
-    // Drawn during the run: the reference.
-    const ScratchDir drawnDir("drawn");
-    writeBookshelfDesign(drawnDir);
-    {
-        FlowMgr flow;
-        flow.run(optionsFor(drawnDir, designDir(drawnDir).string()));
-    }
-    const fs::path drawnPlots = optionsFor(drawnDir, "").getPlotDir();
-
-    // Recorded: the run writes its trace and no pictures.
-    const ScratchDir recordedDir("recorded");
-    writeBookshelfDesign(recordedDir);
-    kt_option recorded = optionsFor(recordedDir, designDir(recordedDir).string());
-    recorded.record = true;
-    {
-        FlowMgr flow;
-        flow.run(recorded);
-    }
-    const fs::path trace = traceFile(recorded.getPlotDir());
-    BOOST_REQUIRE(fs::exists(trace));
-    BOOST_TEST(picturesUnder(recorded.getPlotDir()).empty());
-    // The placement does not depend on where the pictures go.
-    BOOST_TEST(picturesUnder(recordedDir.str()).at("placed.pl") ==
-               picturesUnder(drawnDir.str()).at("placed.pl"));
-
-    // Drawn from the trace, somewhere else: the same files, byte for byte.
-    const ScratchDir replayDir("replay");
-    const TraceReplay r = replayTrace(trace.string(), replayDir.str(), Visualizer::instance());
-    BOOST_TEST(r.complete);
-    BOOST_TEST(r.frames > 0u);
-    const auto expected = picturesUnder(drawnPlots);
-    const auto got = picturesUnder(replayDir.str());
-    BOOST_REQUIRE(!expected.empty());
-    BOOST_TEST(got.size() == expected.size());
-    for (const auto &[name, bytes] : expected) {
-        const auto found = got.find(name);
-        BOOST_TEST((found != got.end() && found->second == bytes), name << " differs");
-    }
 }

@@ -6,6 +6,7 @@
 #include "constraint/kt_constraintMgr.h"
 #include "datamodel/kt_solutionMgr.h"
 #include "legalizer/abacus/abacus_design.h"
+#include "legalizer/abacus/abacus_options.h"
 
 #include <cstddef>
 #include <memory>
@@ -13,17 +14,6 @@
 #include <vector>
 
 namespace ktplace {
-
-struct LegalizeParams {
-    /// Rows further than this many row pitches from the cell's target row are
-    /// never considered. 0 means unlimited (the paper's own bound is the cost
-    /// lower bound, not a fixed distance).
-    std::size_t maxRowDistance = 0;
-    /// Snapshot this many cells apart while the pass runs, plus one before
-    /// and one after. This is the pass's own cadence: it knows how many cells it
-    /// has to place, and a sink is not in a position to judge one.
-    std::size_t frameEvery = 0;
-};
 
 struct LegalizeResult {
     std::size_t cellsPlaced = 0;
@@ -57,7 +47,7 @@ public:
     AbacusLegalizer &operator=(const AbacusLegalizer &) = delete;
 
     /// Legalize in place, writing the new positions back into the database.
-    LegalizeResult legalize(const LegalizeParams &params = {});
+    LegalizeResult legalize(const AbacusOptions &options = {});
 
     /// Where the last run put every cell. Nothing is written anywhere else: the
     /// caller commits this through ktDM.

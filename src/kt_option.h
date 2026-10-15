@@ -29,10 +29,6 @@ public:
     bool plot = true;
     std::string tclFile;
 
-    // Record the snapshots to <plots>/trace.ktrace instead of drawing them, for
-    // ktplace-viz to draw afterwards. Nothing to record when `plot` is off.
-    bool record = false;
-
     bool parse(int argc, char *argv[]);
 
     void report() const;

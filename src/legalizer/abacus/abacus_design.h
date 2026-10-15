@@ -53,6 +53,7 @@ struct Net {
 struct Subrow {
     double xlo = 0.0;
     double xhi = 0.0;
+    int region = kNoRegion;
 };
 
 /// One placement row: its band and its site pitch.

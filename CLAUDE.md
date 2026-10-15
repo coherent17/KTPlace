@@ -14,7 +14,7 @@ make format-check          # what CI checks; it fails on any unformatted file
 make compile-commands      # compile_commands.json for clangd
 make hooks                 # pre-commit: staged-file format check plus unit tests
                            #   (KTPLACE_SKIP_HOOKS=1 bypasses it; KTPLACE_HOOK_TESTS=0 skips the tests)
-python3 scripts/coverage_report.py --clean --build --min 80   # gcov line coverage, the CI gate
+python3 scripts/coverage_report.py --clean --build --min 80   # gcov line coverage (local only, not in CI)
 ```
 
 Each component has its own test binary: `test_datamodel`, `test_adaptor`, `test_flow`, `test_util`, `test_constraint`, `test_option`, `test_viz`, `test_detail`, `test_ntuplace1`, `test_abacus`, `test_tcl` and `test_simpl`. To run one suite or one case, build the tests and then call Boost.Test directly:
@@ -27,7 +27,7 @@ build/bin/test_abacus --run_test=ktplace_abacus/<case>   # --list_content lists 
 
 A new test binary needs a `TEST_<name>` variable, a `TEST_BINS` entry and a link rule in `src/Master.make`. A new source file must be added to `SRCS` in its directory's `Master.make`. The build does not glob.
 
-CI (`.github/workflows/ci.yml`) runs, in order: format check, build, unit tests, the coverage gate, then smoke placements of the vendored `benchmark/ISPD_2005/adaptec1` and `benchmark/ICCAD04/ibm01`, each configured by a small `-tcl` script. The smoke step checks the exact netlist counts in the log and the line count of `placed.pl`. Do not change those log strings by accident.
+CI (`.github/workflows/ci.yml`) has a `build` job (format check, build, test binaries; it uploads the stripped `build/bin` as an artifact) and three jobs that start after it and run in parallel: unit tests, the adaptec1 smoke placement, and the ibm01 multi-row smoke placement, each configured by a small `-tcl` script. The smoke step checks the exact netlist counts in the log and the line count of `placed.pl`. Do not change those log strings by accident.
 
 ## Running
 
@@ -40,7 +40,7 @@ ktplace benchmark/ICCAD04/ibm01 -w output/ibm01 [-tcl run.tcl] [--no-plots] [-v]
 
 ## Configuration: Tcl option store
 
-The README's `-a/--algorithm` flag and its `KTPLACE_*` tables are partly stale. Run configuration now goes through a Tcl script passed with `-tcl`:
+Run configuration goes through a Tcl script passed with `-tcl` (the README's *Configuration* section lists every key). The web console (`webui/server.py`) still launches runs with `-a` and `KTPLACE_*` overrides, which the engine no longer accepts:
 
 ```tcl
 add_option flow algorithm ntuplace1   # simpl is the default
@@ -48,9 +48,10 @@ add_option simpl grid 64
 add_option visualizer anim 0
 ```
 
-- `datamodel/kt_optionDb.h`: `OptionDb` is a process-wide store of `component -> key -> std::variant<int,bool,double,string>`. Valid components are the `components::Id` enum (`simpl`, `ntuplace1`, `abacus`, `fastdp`, `visualizer`, `flow`), and `add_option` rejects any other name. A new component must be added to that enum.
-- Lookup order: the script value, then the default. **The environment is not read**, even though `OptionOrigin::Env` exists. A value of the wrong type is reported, not converted. Only component names are checked, so a misspelled key is stored and never read.
-- Components read their options through typed accessors (`Option<T>`, `getComponentOption<components::Id::X, T>(key)`). Each stage keeps all of its options in one `*_options.{h,cc}` struct.
+- `datamodel/kt_optionDb.h`: `OptionDb` is a process-wide store of `Component -> key -> std::variant<int,bool,double,string>`. Valid components are the `Component` enum and its `kComponentNames` (`simpl`, `ntuplace1`, `abacus`, `multirow`, `fastdp`, `visualizer`, `flow`), and `add_option` rejects any other name. A new component needs an enumerator and a name.
+- Each stage has one `<stage>_options.h` struct (`SimplOptions`, `AbacusOptions`, ...) that is the stage's whole configuration: its field initializers are the defaults, `kComponent` names its component, and a static `fields(self, visit)` lists only the keys a script may set. Constants nobody should change are plain members outside `fields()`. There are no separate `*Params` structs: the algorithm takes the options struct.
+- `build<Stage>DM` calls `loadOptions<XOptions>()`, which overwrites each listed field the script set, and stores the struct in the DM. The DM's `run()` reports it with `reportOptions(opts)` and hands it to the algorithm. Nothing keeps the `ComponentOptions` that `OptionDb::getComponentOption` returns.
+- Lookup order: the script value, then the default. **The environment is not read.** `ComponentOptions::get<T>(key)` returns `std::optional<T>`; a value of the wrong type is not converted: it logs a warning and the default is used. A misspelled key is stored and never read.
 - `tcl/` holds a small Tcl subset (`set`, `expr`, `if`, `foreach`, `source`, ...) and `TclMgr`, which adds `add_option`, the only ktplace-specific command. `FlowMgr::run` loads the script in its first step, `parseTcl`, before anything reads the store.
 
 ## Architecture
@@ -60,7 +61,7 @@ add_option visualizer anim 0
 load → report → global place → legalize → detailed place → final image, GIF → write `.pl`
 
 - **Input** (`adaptor/`): `makeInputReader` auto-detects the format. A `.def`/`.def.gz` goes to the LEF/DEF adaptor and anything else goes to Bookshelf. Both build the shared `ktDM`.
-- **Shared database** (`datamodel/`): `ktDM` owns the `Graph`, where cells and nets share one vertex-id space, along with the die and rows, the constraints (fences, from `constraint/`) and design-level queries such as `multiRowCells()`, `hpwl()` and the placement check.
+- **Shared database** (`datamodel/`): `ktDM` owns the `Graph`, where cells and nets share one vertex-id space, along with the die and rows, the constraints (fences, from `constraint/`) and design-level queries such as `multiRowCells()`, `hpwl()`, the placement check and `fencedSubrows()`: the rows cut at fence boundaries, each piece labelled with its region (`datamodel/kt_rowFence.h`). The row-based stages get those labelled subrows from their DM builder and never split rows by fences themselves.
 - **Stage shape.** Every stage follows the same pattern:
   1. `build<Stage>DM(ktDM)` copies what the stage needs into its own `<stage>::Design` / `<stage>DM`. A stage never reads or writes `ktDM`.
   2. `<stage>::flowMgr` runs the algorithm on that DM and returns a `solutionMgr`, a value type holding positions indexed by vertex id.
@@ -73,8 +74,8 @@ load → report → global place → legalize → detailed place → final image
   - `legalizer/abacus`: single-row legalizer, fence-aware.
   - `legalizer/multirow`: used instead of Abacus when the design has cells taller than one row.
   - `detailPlacer/fastdp`: detailed placement.
-- **Visualization** (`visualization/`): `Visualizer::instance()` is a singleton shared by every stage, so all stages add to one GIF with one frame budget. Global placement may use at most 3/5 of the frames (`holdBack`). Everything is rendered in C++ (SVG, plus PNG/GIF through CImg), with no external tools.
-- `util/`: logging, `KT_ASSERT`, `ScopedTimer`/`TimerRegistry`, report tables, row-fence labelling.
+- **Visualization** (`visualization/`): stages never include it. A stage reports snapshots through plain-data hooks on its own `Design` (`onFrame`; SimPL also `onBounds`), and `FlowMgr` installs them (`drawStage` in `kt_flowMgr.cc`) only when plots are on. How often a stage offers a snapshot is that stage's own option (`simpl trace_every`, `abacus frame_every`, ...). `Visualizer::instance()` is the singleton the flow draws through, so all stages add to one GIF with one frame budget. Global placement may use at most 3/5 of the frames (`holdBack`). Everything is rendered in C++ (SVG, plus PNG/GIF through CImg), with no external tools.
+- `util/`: logging, `KT_ASSERT`, `ScopedTimer`/`TimerRegistry`, report tables.
 
 ## Conventions
 

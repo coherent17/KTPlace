@@ -10,7 +10,6 @@
 #include "datamodel/kt_solutionMgr.h"
 #include "legalizer/multirow/multirow_design.h"
 #include "legalizer/multirow/multirow_legalizer.h"
-#include "legalizer/multirow/multirow_options.h"
 
 #include <string>
 
@@ -25,18 +24,15 @@ public:
     /// Takes ownership of the design the adaptor built.
     explicit multirowDM(Design design);
 
-    // The pass's options, read from the run's option store, and the parameters
-    // they configure, assembled here so the flow has nothing to collect.
-    [[nodiscard]] MultirowOptions options() const;
-    [[nodiscard]] MultiRowLegalizeParams params() const noexcept {
-        return par;
-    }
-
     [[nodiscard]] const Design &design() const noexcept {
         return d;
     }
     [[nodiscard]] Design &design() noexcept {
         return d;
+    }
+
+    [[nodiscard]] const MultiRowOptions &options() const noexcept {
+        return opts;
     }
 
     /// Install the host's frame hook. This pass never draws on its own.
@@ -47,21 +43,19 @@ public:
     /// Legalize, and return where every cell ended up. The pass's statistics are
     /// reported from inside the run; they are not returned, because nothing
     /// outside this pass can act on them.
-    multiRowSolution run(const MultiRowLegalizeParams &params);
+    multiRowSolution run();
 
-    friend multirowDM buildMultiRowDM(const ktDM &db);
+    MultiRowOptions opts;
 
 private:
     Design d;
-    MultiRowLegalizeParams par;
 };
 
 /// ktDM -> multirow::multirowDM.
 ///
 /// Only what this stage reads: the cells and their sizes, the rows, the regions, and just enough
 /// netlist to report the wirelength the pass cost. The stage itself never
-/// draws, and no hook is installed here: the flow decides what a run draws and
-/// installs one on the result.
+/// draws: it hands the positions to the visualizer, which decides where they go.
 [[nodiscard]] multirowDM buildMultiRowDM(const ktDM &db);
 
 }  // namespace multirow

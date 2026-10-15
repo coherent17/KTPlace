@@ -4,7 +4,6 @@
 #include "util/kt_reportTable.h"
 #include "util/kt_scopedTimer.h"
 
-#include <algorithm>
 
 namespace ktplace::simpl {
 namespace {
@@ -75,7 +74,7 @@ simplDM buildSimplDM(const ktDM &db) {
     design.die = placementDieBox(db.die(), db.getGraph());
 
     simplDM out(std::move(design));
-    out.useFences_ = SimplOptions().fences;
+    out.opts = loadOptions<SimplOptions>();
     return out;
 }
 
@@ -115,16 +114,12 @@ void reportRun(const SimplResult &res) {
 
 simplDM::simplDM(Design design) : d(std::move(design)) {}
 
-SimplOptions simplDM::options() const {
-    return SimplOptions::load();
-}
-
-simplSolution simplDM::run(const SimplParams &params, bool useFences) {
+simplSolution simplDM::run() {
     ScopedTimer timer("simpl");
-    options().report();
+    reportOptions(opts);
 
     simplPlacer placer(d);
-    const SimplResult result = placer.place(params, useFences);
+    const SimplResult result = placer.place(opts);
     reportRun(result);
 
     // Only the placement crosses the boundary. The statistics are printed above

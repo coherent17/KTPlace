@@ -24,19 +24,9 @@ public:
     /// Takes ownership of the design the adaptor built.
     explicit simplDM(Design design);
 
-    // SimPL's options, read from the run's option store, and the parameters they
-    // configure. Built and reported here rather than by the flow, which does not
-    // know what SimPL has options.
-    [[nodiscard]] SimplOptions options() const;
-    [[nodiscard]] SimplParams params() const noexcept {
-        return par;
+    [[nodiscard]] const SimplOptions &options() const noexcept {
+        return opts;
     }
-
-    // Whether placement regions are honoured. False means `add_option simpl fences 0`.
-    [[nodiscard]] bool useFences() const noexcept {
-        return useFences_;
-    }
-
     [[nodiscard]] const Design &design() const noexcept {
         return d;
     }
@@ -44,13 +34,9 @@ public:
         return d;
     }
 
-    /// Install the host's hooks. SimPL never draws on its own, and with none
-    /// installed it builds no snapshots at all.
+    /// Install the host's frame hook. SimPL never draws on its own.
     void setFrameHook(FrameHook hook) {
         d.onFrame = std::move(hook);
-    }
-    void setDensityHook(DensityHook hook) {
-        d.onDensity = std::move(hook);
     }
     void setBoundsHook(BoundsHook hook) {
         d.onBounds = std::move(hook);
@@ -60,14 +46,13 @@ public:
     /// statistics are reported from inside the run; they are not returned, because
     /// nothing outside the solver can act on them. Nothing is written outside this
     /// object.
-    simplSolution run(const SimplParams &params, bool useFences);
+    simplSolution run();
 
     friend simplDM buildSimplDM(const ktDM &db);
 
 private:
     Design d;
-    SimplParams par;
-    bool useFences_ = true;
+    SimplOptions opts;
 };
 
 /// ktDM -> SimPL's own database.
@@ -75,9 +60,6 @@ private:
 /// The whole of SimPL's contact with the shared database, in one place. It
 /// returns a plain value: SimPL keeps no reference back to ktDM, so a stale
 /// design cannot be mistaken for a current one.
-///
-/// No hooks are installed: what a run draws is the host's to decide, so the
-/// flow installs them on the result.
 [[nodiscard]] simplDM buildSimplDM(const ktDM &db);
 
 }  // namespace simpl

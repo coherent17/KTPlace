@@ -50,8 +50,6 @@ bool kt_option::parse(int argc, char *argv[]) {
             verbose = true;
         } else if (arg == "--no-plots") {
             plot = false;
-        } else if (arg == "--record") {
-            record = true;
         } else if (arg == "-tcl" || arg == "--tcl") {
             tclFile = value();
         } else {
@@ -77,9 +75,6 @@ void kt_option::report() const {
     config.add("output path", getOutputPath());
     config.add("plot directory", getPlotDir());
     config.add("log file", getLogFile());
-    if (record && plot) {
-        config.add("pictures", "recorded to plots/trace.ktrace, not drawn");
-    }
     if (verbose) {
         config.add("trace file", Logger::tracePathFor(getLogFile()));
     }
@@ -98,9 +93,6 @@ Options:
   -w, --work-dir <dir>      Where to write everything; created if missing
                             (default: the current directory)
   --no-plots                Draw nothing; skip every frame and picture
-  --record                  Record the pictures to plots/trace.ktrace instead
-                            of drawing them; `ktplace-viz plots/trace.ktrace`
-                            draws them afterwards
   -tcl, --tcl <file>        Tcl script configuring the run, through
                             add_option <component> <key> <value>
   -v, --verbose             Also send trace diagnostics to the console.

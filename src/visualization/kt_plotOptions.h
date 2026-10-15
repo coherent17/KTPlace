@@ -28,11 +28,6 @@ struct PlotOptions {
     std::size_t finalHold = 8;           // extra frames the finished placement is held
     bool writePpm = false;               // also write the lossless raster, 113 MB at 8x
 
-    // How often a stage offers a snapshot is not set here: each stage knows how
-    // long its own loops are, so it is that stage's option (`add_option simpl
-    // trace_every`, `add_option abacus frame_every`, ...). These settings only
-    // decide what an offered snapshot becomes.
-
     // The defaults, with the run's visualizer options applied over them.
     [[nodiscard]] static PlotOptions fromOptions();
 

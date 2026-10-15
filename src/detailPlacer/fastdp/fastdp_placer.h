@@ -6,6 +6,7 @@
 #include "constraint/kt_constraintMgr.h"
 #include "datamodel/kt_solutionMgr.h"
 #include "detailPlacer/fastdp/fastdp_design.h"
+#include "detailPlacer/fastdp/fastdp_options.h"
 
 #include <cstddef>
 #include <memory>
@@ -13,27 +14,6 @@
 #include <vector>
 
 namespace ktplace {
-
-struct DetailPlaceParams {
-    /// Number of global-swap sweeps. Each sweep is a full pass over all cells.
-    std::size_t globalSwapPasses = 4;
-    /// Number of vertical-swap sweeps.
-    std::size_t verticalSwapPasses = 2;
-    /// Number of local re-ordering passes.
-    std::size_t localReorderPasses = 2;
-    /// Length of the window local re-ordering re-orders, and the one knob that
-    /// sets its price: the subset dynamic program costs 2^k per window. Measured
-    /// on adaptec1, k=8 spends 44 of 61 seconds for -3.69% wirelength, k=6
-    /// spends 19 of 36 for -3.06%. The 0.66% between them is a fifth of what
-    /// legalization costs on the way in, so the bigger window is not worth it.
-    std::size_t localReorderWindow = 6;
-    /// Number of single-segment clustering passes.
-    std::size_t clusterPasses = 2;
-    /// Stop early once a pass improves HPWL by less than this fraction.
-    double minImprovement = 1e-4;
-    /// If non-empty, write an SVG frame per pass to this directory.
-    /// Fence regions, drawn in the frames but not enforced by the optimiser.
-};
 
 struct DetailPlaceResult {
     std::size_t globalSwaps = 0;
@@ -61,7 +41,7 @@ public:
     FastDetailedPlacer &operator=(const FastDetailedPlacer &) = delete;
 
     /// Improve the placement in place, writing positions back to the database.
-    DetailPlaceResult place(const DetailPlaceParams &params = {});
+    DetailPlaceResult place(const FastdpOptions &options = {});
 
     /// Where the last run put every cell. Nothing is written anywhere else: the
     /// caller commits this through ktDM.

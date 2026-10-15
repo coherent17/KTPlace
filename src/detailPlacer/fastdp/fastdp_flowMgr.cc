@@ -2,8 +2,8 @@
 
 namespace ktplace::fastdp {
 
-fastdpSolution flowMgr::runDetailedPlacer(const DetailPlaceParams &params) {
-    return dm.run(params);
+fastdpSolution flowMgr::runDetailedPlacer() {
+    return dm.run();
 }
 
 }  // namespace ktplace::fastdp

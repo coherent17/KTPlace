@@ -3,13 +3,13 @@
 
 
 #define BOOST_TEST_MODULE ktplace_viz
+#define BOOST_TEST_DYN_LINK
 
 #include "visualization/kt_gif.h"
-#include "visualization/kt_trace.h"
 #include "visualization/kt_visualizer.h"
 
 #include <algorithm>
-#include <boost/test/included/unit_test.hpp>
+#include <boost/test/unit_test.hpp>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
@@ -423,7 +423,7 @@ BOOST_AUTO_TEST_CASE(net_vertices_are_not_part_of_the_die) {
     // Nets have a width of zero and would otherwise anchor the box at 0,0 for a
     // design whose cells sit elsewhere.
     Graph g = sampleGraph();
-    g.addNet("n1");
+    (void)g.addNet("n1");
     const BBox box = fixedCellBBox(g);
     BOOST_TEST(box[0] == 0.0);
     BOOST_TEST(box[2] == 100.0);
@@ -1120,29 +1120,7 @@ BOOST_AUTO_TEST_CASE(the_singleton_is_one_object_for_the_whole_process) {
     BOOST_TEST(&Visualizer::instance() == &Visualizer::instance());
 }
 
-// Density maps and the bounds curve. Both used to be drawn inside SimPL and
-// arrive now as plain numbers, so these pin what the numbers become.
-
 namespace {
-
-/// Two bins side by side on a 4x2 die: the left one overfull (u = 2), the right
-/// one without sites, which is not part of the density problem.
-DensityField twoBinField() {
-    DensityField f;
-    f.series = "density_t";
-    f.step = 3;
-    f.note = "test field";
-    f.overflow = 0.25;
-    f.die = {0.0, 0.0, 4.0, 2.0};
-    f.dx = 2.0;
-    f.dy = 2.0;
-    f.nbx = 2;
-    f.nby = 1;
-    f.occ = {8.0, 0.0};
-    f.avail = {4.0, 0.0};
-    f.blockages = {{0.0, 0.0, 1.0, 1.0}, {1.0, 1.0, 0.0, 0.0}};
-    return f;
-}
 
 std::size_t countOf(const std::string &hay, const std::string &needle) {
     std::size_t n = 0;
@@ -1161,40 +1139,12 @@ PlotOptions stillsOnly() {
 
 }  // namespace
 
-BOOST_AUTO_TEST_CASE(density_map_draws_each_bin_with_sites_and_each_real_blockage) {
-    const ScratchDir dir("density");
-    freshAnimator();
-    Visualizer::instance().configure(dir.str(), stillsOnly());
-    Visualizer::instance().beginStage({"simpl", "", 0});
-    Visualizer::instance().densityMap(twoBinField());
-
-    // Named like the stage's own frames: <stage>_<series>_<step>.
-    const std::string svg = readAll(dir.file("simpl_density_t_000003.svg"));
-    BOOST_REQUIRE(!svg.empty());
-    // u = 2 is overfull: red, darkened halfway to its cap at u = 3.
-    BOOST_TEST(contains(svg, "fill=\"rgb(255,45,45)\""));
-    // One bin (the siteless one is skipped) plus the twelve legend swatches.
-    BOOST_TEST(countOf(svg, "fill=\"rgb(") == 13u);
-    // The zero-size blockage is not drawn; the real one is.
-    BOOST_TEST(countOf(svg, "fill-opacity=\"0.45\"") == 1u);
-    BOOST_TEST(contains(svg, "bin density test field  ovf 0.2500"));
-    freshAnimator();
-}
-
-BOOST_AUTO_TEST_CASE(density_map_outside_a_stage_writes_nothing) {
-    const ScratchDir dir("densitynostage");
-    freshAnimator();
-    Visualizer::instance().configure(dir.str(), stillsOnly());
-    Visualizer::instance().densityMap(twoBinField());
-    BOOST_TEST(std::filesystem::is_empty(dir.str()));
-    freshAnimator();
-}
-
 BOOST_AUTO_TEST_CASE(bounds_curve_records_every_iteration_and_plots_both_bounds) {
     const ScratchDir dir("bounds");
     freshAnimator();
     Visualizer::instance().configure(dir.str(), stillsOnly());
-    Visualizer::instance().boundsCurve("b", "the title", {{3.0, 1.0}, {2.0, 1.5}});
+    const std::vector<BoundsSample> curve{{3.0, 1.0}, {2.0, 1.5}};
+    Visualizer::instance().boundsCurve("b", "the title", curve);
 
     BOOST_TEST(readAll(dir.file("b.csv")) ==
                "iter,hpwl_upper,hpwl_lower,gap\n0,3,1,2\n1,2,1.5,0.5\n");
@@ -1208,104 +1158,8 @@ BOOST_AUTO_TEST_CASE(bounds_curve_with_drawing_off_writes_nothing) {
     freshAnimator();
     Visualizer::instance().configure("", stillsOnly());
     BOOST_TEST(!Visualizer::instance().enabled());
-    // An empty directory would otherwise resolve "/b.csv" against the root.
-    BOOST_CHECK_NO_THROW(Visualizer::instance().boundsCurve("b", "t", {{1.0, 0.5}}));
+    const std::vector<BoundsSample> curve{{1.0, 0.5}};
+    BOOST_CHECK_NO_THROW(Visualizer::instance().boundsCurve("b", "t", curve));
     BOOST_TEST(!std::filesystem::exists("/b.csv"));
-    freshAnimator();
-}
-
-// Traces: what a recorded run hands ktplace-viz. The full round trip -- a run
-// recorded, then drawn, against the same run drawn directly -- is in test_flow;
-// these cover the trace's own edges.
-
-namespace {
-
-/// Record a short run into `path`: one stage, two frames, a final still.
-/// `closeIt` false leaves the trace as a run that stopped early leaves it.
-void recordSample(const std::string &path, bool closeIt) {
-    const Graph g = sampleGraph();
-    PlotOptions opts = animOptions(10, 5, 1);
-    TraceWriter trace(path, opts);
-    trace.beginStage({"simpl", "", 0});
-    trace.frame(g, sampleX(g), sampleY(g), fixedCellBBox(g), nullptr,
-                VisualFrame{"LSS", 0, 2, "first", 1.0, 1.0, 0.0, true});
-    trace.frame(g, sampleX(g), sampleY(g), fixedCellBBox(g), nullptr,
-                VisualFrame{"LSS", 1, 2, "second", 1.0, 1.0, 0.0, true});
-    trace.finalImage(g, nullptr, 1.0);
-    (void)trace.finish(g, sampleX(g), sampleY(g), fixedCellBBox(g), nullptr, 1.0);
-    BOOST_TEST(trace.frameCount() == 2u);
-    if (closeIt) {
-        trace.close();
-    }
-}
-
-}  // namespace
-
-BOOST_AUTO_TEST_CASE(a_closed_trace_replays_completely) {
-    const ScratchDir dir("traceok");
-    const std::string path = dir.file("t.ktrace").string();
-    recordSample(path, /*closeIt=*/true);
-
-    freshAnimator();
-    const ScratchDir out("traceokout");
-    const TraceReplay r = replayTrace(path, out.str(), Visualizer::instance());
-    BOOST_TEST(r.complete);
-    BOOST_TEST(r.frames == 2u);
-    BOOST_TEST(r.animationWritten);
-    BOOST_TEST(std::filesystem::exists(out.file("simpl_LSS_000001.svg")));
-    BOOST_TEST(std::filesystem::exists(out.file("anim/placement.gif")));
-    BOOST_TEST(std::filesystem::exists(out.file("final/final.png")));
-    freshAnimator();
-}
-
-BOOST_AUTO_TEST_CASE(a_trace_never_closed_is_drawn_and_reported_incomplete) {
-    const ScratchDir dir("traceopen");
-    const std::string path = dir.file("t.ktrace").string();
-    recordSample(path, /*closeIt=*/false);
-
-    freshAnimator();
-    const ScratchDir out("traceopenout");
-    const TraceReplay r = replayTrace(path, out.str(), Visualizer::instance());
-    BOOST_TEST(!r.complete);
-    BOOST_TEST(r.frames == 2u);
-    freshAnimator();
-}
-
-BOOST_AUTO_TEST_CASE(a_trace_cut_off_mid_record_draws_what_came_before) {
-    const ScratchDir dir("tracecut");
-    const std::string path = dir.file("t.ktrace").string();
-    recordSample(path, /*closeIt=*/true);
-    // Keep the first half of the compressed bytes: gzip then runs out part-way
-    // through a record, which is what a run that exits mid-write leaves.
-    const std::string whole = readAll(path);
-    const std::string cutPath = dir.file("cut.ktrace").string();
-    {
-        std::ofstream cut(cutPath, std::ios::binary);
-        cut << whole.substr(0, whole.size() / 2);
-    }
-
-    freshAnimator();
-    const ScratchDir out("tracecutout");
-    TraceReplay r;
-    BOOST_CHECK_NO_THROW(r = replayTrace(cutPath, out.str(), Visualizer::instance()));
-    BOOST_TEST(!r.complete);
-    freshAnimator();
-}
-
-BOOST_AUTO_TEST_CASE(a_replay_can_change_the_recorded_picture_settings) {
-    const ScratchDir dir("traceadjust");
-    const std::string path = dir.file("t.ktrace").string();
-    recordSample(path, /*closeIt=*/true);
-
-    freshAnimator();
-    const ScratchDir out("traceadjustout");
-    const TraceReplay r = replayTrace(path, out.str(), Visualizer::instance(), [](PlotOptions &p) {
-        p.animate = false;
-    });
-    BOOST_TEST(!r.options.animate);
-    BOOST_TEST(!r.animationWritten);
-    BOOST_TEST(!std::filesystem::exists(out.file("anim/placement.gif")));
-    // The stills do not depend on the animation.
-    BOOST_TEST(std::filesystem::exists(out.file("simpl_LSS_000001.svg")));
     freshAnimator();
 }

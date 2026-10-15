@@ -69,7 +69,6 @@ logs/
 docs/*
 !docs/simpl.md
 !docs/docker.md
-!docs/visualization.md
 ref/
 *.whl
 

@@ -2,8 +2,7 @@
 // Runs one NTUPlace1 partition.
 //
 // This is the stage as the rest of KTPlace sees it: run against a database the
-// caller owns, hand back the placement. It knows about reporting because that is a
-// flow concern; it does not know about ktDM.
+// stage owns, hand back the placement. It does not know about ktDM.
 
 #pragma once
 
@@ -19,7 +18,7 @@ public:
     // Partition, and return where every cell ended up. The placement handed back
     // is deliberately overfull: the paper's global placement is, and legalization
     // is a separate step in both the paper and this flow.
-    ntuplace1Solution runGlobalPlacer(const RatioPlaceParams &params);
+    ntuplace1Solution runGlobalPlacer();
 
 private:
     ntuplace1DM &dm;

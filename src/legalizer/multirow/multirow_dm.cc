@@ -2,6 +2,8 @@
 
 #include "datamodel/kt_die.h"
 #include "datamodel/kt_dm.h"
+#include "datamodel/kt_optionDb.h"
+#include "util/kt_log.h"
 #include "util/kt_reportTable.h"
 #include "util/kt_scopedTimer.h"
 
@@ -42,16 +44,19 @@ void copyNets(const ktplace::Graph &graph, std::vector<Pin> &pins, std::vector<N
     }
 }
 
-void copyRows(const std::vector<ktplace::RowInfo> &rows, std::vector<RowInfo> &out) {
+void copyRows(const std::vector<ktplace::RowInfo> &rows,
+              const std::vector<std::vector<ktplace::RowPiece>> &pieces,
+              std::vector<RowInfo> &out) {
     out.reserve(rows.size());
-    for (const ktplace::RowInfo &r : rows) {
+    for (std::size_t i = 0; i < rows.size(); ++i) {
+        const ktplace::RowInfo &r = rows[i];
         RowInfo info;
         info.coordinate = r.coordinate;
         info.height = r.height;
         info.sitePitch = r.pitch();
-        info.subrows.reserve(r.subrows.size());
-        for (const ktplace::SubrowInfo &s : r.subrows) {
-            info.subrows.push_back(Subrow{s.xlo(), s.xhi(r.pitch())});
+        info.subrows.reserve(pieces[i].size());
+        for (const ktplace::RowPiece &p : pieces[i]) {
+            info.subrows.push_back(Subrow{p.xlo, p.xhi, p.region});
         }
         out.push_back(std::move(info));
     }
@@ -79,14 +84,12 @@ multirowDM buildMultiRowDM(const ktDM &db) {
     Design design;
     copyCells(db.getGraph(), design.cells);
     copyNets(db.getGraph(), design.pins, design.nets);
-    copyRows(db.getRows(), design.rows);
+    copyRows(db.getRows(), db.fencedSubrows(), design.rows);
     copyFences(db.constraints(), design.fences);
     design.die = placementDieBox(db.die(), db.getGraph());
 
-    // No frame hook: what a run draws is the flow's to decide, so it installs
-    // one on the result.
     multirowDM result(std::move(design));
-    result.par.frameEvery = result.options().frameEvery;
+    result.opts = loadOptions<MultiRowOptions>();
     return result;
 }
 
@@ -96,37 +99,37 @@ namespace {
 /// than by the caller. Nothing outside this pass can act on these, so they are
 /// printed here and not returned.
 void reportRun(const MultiRowLegalizeResult &res) {
-    ktReportTable table("Multi-row legalization results");
+    ktReportTable table("Legalization (multi-row)");
     table.setHeaders({"metric", "value"});
     table.addRow({"movable cells", fmt::format("{}", res.movable)});
-    table.addRow({"placed", fmt::format("{}", res.placed)});
-    table.addRow({"unplaced", fmt::format("{}", res.unplaced)});
-    table.addRow({"taller than a row", fmt::format("{}", res.multiRow)});
-    table.addRow({"taller, placed", fmt::format("{}", res.multiRowPlaced)});
+    table.addRow({"cells placed", fmt::format("{}", res.placed)});
+    table.addRow({"cells unplaced", fmt::format("{}", res.unplaced)});
+    table.addRow({"cells taller than a row", fmt::format("{}", res.multiRow)});
+    table.addRow({"of those, placed", fmt::format("{}", res.multiRowPlaced)});
+    table.addRow({"macros legalized first", fmt::format("{}", res.macros)});
+    table.addRow({"macros placed", fmt::format("{}", res.macrosPlaced)});
+    table.addRow({"total displacement", fmt::format("{:.6e}", res.displacement)});
+    table.addRow({"max displacement", fmt::format("{:.1f}", res.maxDisplacement)});
     table.addRow({"HPWL before", fmt::format("{:.6e}", res.hpwlBefore)});
     table.addRow({"HPWL after", fmt::format("{:.6e}", res.hpwlAfter)});
-    table.addRow({"overlapping pairs", fmt::format("{}", res.overlappingPairs)});
-    table.addRow({"off row", fmt::format("{}", res.offRow)});
-    table.addRow({"off site", fmt::format("{}", res.offSite)});
-    table.addRow({"over fixed", fmt::format("{}", res.overFixed)});
     table.addRow({"seconds", fmt::format("{:.3f}", res.seconds)});
     table.emit();
+    if (res.unplaced > 0) {
+        ktlog.warning("{} cell(s) found no legal position and kept their global placement",
+                      res.unplaced);
+    }
 }
 
 }  // namespace
 
 multirowDM::multirowDM(Design design) : d(std::move(design)) {}
 
-MultirowOptions multirowDM::options() const {
-    return MultirowOptions::load();
-}
-
-multiRowSolution multirowDM::run(const MultiRowLegalizeParams &params) {
-    options().report();
+multiRowSolution multirowDM::run() {
     ScopedTimer timer("legalize");
 
+    reportOptions(opts);
     MultiRowLegalizer legalizer(d);
-    const MultiRowLegalizeResult result = legalizer.legalize(params);
+    const MultiRowLegalizeResult result = legalizer.legalize(opts);
     reportRun(result);
 
     // Only the placement crosses the boundary. The statistics are printed above
