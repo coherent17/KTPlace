@@ -9,7 +9,6 @@
 
 #pragma once
 
-#include "legalizer/kt_rowFence.h"
 
 #include <array>
 #include <cstddef>
@@ -18,6 +17,8 @@
 #include <vector>
 
 namespace ktplace::fastdp {
+
+inline constexpr int kNoRegion = -1;
 
 /// A cell to move. Its size, where it is, and whether it is pinned: everything
 /// a detailed placer needs to decide whether it may move at all.
@@ -28,9 +29,9 @@ struct Cell {
     double height = 0.0;
     bool isFixed = false;
     bool isTerminal = false;
-    /// The fence the cell is bound to, or kOpenSpace. Moves keep a fenced cell in
+    /// The fence the cell is bound to, or kNoRegion. Moves keep a fenced cell in
     /// its region and every other cell out of all regions.
-    int region = kOpenSpace;
+    int region = kNoRegion;
 };
 
 /// A pin on a cell. Only its offset from the cell origin matters, for HPWL.
@@ -58,6 +59,7 @@ struct Net {
 struct Subrow {
     double xlo = 0.0;
     double xhi = 0.0;
+    int region = kNoRegion;
 };
 
 /// One placement row: its band and its site pitch.
@@ -100,8 +102,6 @@ struct Design {
     std::vector<Net> nets;
     std::vector<RowInfo> rows;
     DieBox die{};
-    /// Fence rectangles, each tagged with its region. Empty when unconstrained.
-    std::vector<FenceRect> fences;
     /// Installed by the host. The placer never draws.
     FrameHook onFrame;
 };

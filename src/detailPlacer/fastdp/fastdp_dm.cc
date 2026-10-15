@@ -43,16 +43,19 @@ void copyNets(const ktplace::Graph &graph, std::vector<Pin> &pins, std::vector<N
     }
 }
 
-void copyRows(const std::vector<ktplace::RowInfo> &rows, std::vector<RowInfo> &out) {
+void copyRows(const std::vector<ktplace::RowInfo> &rows,
+              const std::vector<std::vector<ktplace::RowPiece>> &pieces,
+              std::vector<RowInfo> &out) {
     out.reserve(rows.size());
-    for (const ktplace::RowInfo &r : rows) {
+    for (std::size_t i = 0; i < rows.size(); ++i) {
+        const ktplace::RowInfo &r = rows[i];
         RowInfo info;
         info.coordinate = r.coordinate;
         info.height = r.height;
         info.sitePitch = r.pitch();
-        info.subrows.reserve(r.subrows.size());
-        for (const ktplace::SubrowInfo &s : r.subrows) {
-            info.subrows.push_back(Subrow{s.xlo(), s.xhi(r.pitch())});
+        info.subrows.reserve(pieces[i].size());
+        for (const ktplace::RowPiece &p : pieces[i]) {
+            info.subrows.push_back(Subrow{p.xlo, p.xhi, p.region});
         }
         out.push_back(std::move(info));
     }
@@ -64,16 +67,8 @@ fastdpDM buildFastdpDM(const ktDM &db) {
     Design design;
     copyCells(db.getGraph(), db.macroHeight(), design.cells);
     copyNets(db.getGraph(), design.pins, design.nets);
-    copyRows(db.getRows(), design.rows);
+    copyRows(db.getRows(), db.fencedSubrows(), design.rows);
     design.die = placementDieBox(db.die(), db.getGraph());
-    const constraintMgr &mgr = db.constraints();
-    for (int id = 0; id < static_cast<int>(mgr.numRegions()); ++id) {
-        if (const Region *r = mgr.region(id)) {
-            for (const Rect &rc : r->rects) {
-                design.fences.push_back(FenceRect{rc.lo.x, rc.lo.y, rc.hi.x, rc.hi.y, id});
-            }
-        }
-    }
 
     // The stage decides when a snapshot matters; the visualizer decides where it
     // lands and what it is called, because it is the one that holds the shared

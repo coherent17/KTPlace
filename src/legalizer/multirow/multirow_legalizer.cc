@@ -4,7 +4,6 @@
 
 #include "legalizer/multirow/multirow_legalizer.h"
 
-#include "legalizer/kt_rowFence.h"
 #include "legalizer/multirow/multirow_design.h"
 #include "util/kt_scopedTimer.h"
 
@@ -347,39 +346,32 @@ void MultiRowLegalizer::Impl::legalizeMacros(const std::vector<std::uint32_t> &m
 }
 
 void MultiRowLegalizer::Impl::buildLanes() {
-    std::vector<FenceRect> fenceRects;
-    for (int id = 0; id < static_cast<int>(design.fences.numRegions()); ++id) {
-        for (const multirow::Rect &rc : design.fences.region(id).rects) {
-            fenceRects.push_back({rc.xlo, rc.ylo, rc.xhi, rc.yhi, id});
-        }
-    }
     lanesOfRow.assign(rows.size(), {});
     for (std::size_t r = 0; r < rows.size(); ++r) {
         const multirow::RowInfo &row = rows[r];
         const double y0 = row.coordinate;
         const double y1 = y0 + row.height;
-        Intervals free;
+        std::vector<std::tuple<double, double, int>> pieces;
         for (const multirow::Subrow &s : row.subrows) {
-            if (s.xhi > s.xlo) {
-                free.emplace_back(s.xlo, s.xhi);
+            if (!(s.xhi > s.xlo)) {
+                continue;
             }
-        }
-        for (const Box &b : blocked) {
-            if (b.y1 > y0 + kEps && b.y0 < y1 - kEps) {
-                free = subtract(free, b.x0, b.x1);
-            }
-        }
-        std::sort(free.begin(), free.end());
-        for (const auto &[lo, hi] : free) {
-            for (const RowPiece &piece :
-                 splitRowByFences(lo, hi, y0, y1, row.pitch(), fenceRects)) {
-                if (piece.xhi - piece.xlo < std::max(row.pitch(), kEps)) {
-                    continue;
+            Intervals free{{s.xlo, s.xhi}};
+            for (const Box &b : blocked) {
+                if (b.y1 > y0 + kEps && b.y0 < y1 - kEps) {
+                    free = subtract(free, b.x0, b.x1);
                 }
-                lanesOfRow[r].push_back(static_cast<std::uint32_t>(lanes.size()));
-                lanes.push_back(
-                    {r, y0, row.height, piece.xlo, piece.xhi, row.pitch(), piece.region, {}});
             }
+            for (const auto &[lo, hi] : free) {
+                if (hi - lo >= std::max(row.pitch(), kEps)) {
+                    pieces.emplace_back(lo, hi, s.region);
+                }
+            }
+        }
+        std::ranges::sort(pieces);
+        for (const auto &[lo, hi, region] : pieces) {
+            lanesOfRow[r].push_back(static_cast<std::uint32_t>(lanes.size()));
+            lanes.push_back({r, y0, row.height, lo, hi, row.pitch(), region, {}});
         }
     }
 }
