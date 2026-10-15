@@ -926,6 +926,14 @@ void fillRectAA(CImg<unsigned char> &img, double x0f, double y0f, double x1f, do
 // The same, for a rectangle's *outline* rather than its interior. Four filled
 // bands rather than one fillRectAA, because filling the box would paint the die
 // solid: the die frame is a wall, not a surface.
+void outlineRect(CImg<unsigned char> &img, int x0, int y0, int x1, int y1,
+                 const std::uint8_t *rgb) {
+    img.draw_rectangle(x0, y0, x1, y0, rgb);
+    img.draw_rectangle(x0, y1, x1, y1, rgb);
+    img.draw_rectangle(x0, y0, x0, y1, rgb);
+    img.draw_rectangle(x1, y0, x1, y1, rgb);
+}
+
 void strokeRectAA(CImg<unsigned char> &img, double x0, double y0, double x1, double y1, double t,
                   const std::uint8_t *rgb, double alpha) {
     if (t <= 0.0 || x1 <= x0 || y1 <= y0) {
@@ -1047,10 +1055,10 @@ CImg<unsigned char> renderFrameCImg(const Graph &g, const std::vector<float> &x,
         // palette quantisation that a GIF imposes better than a long thin line.
         const int tick = std::max(static_cast<int>(std::lround(6.0 * zoom)), (gx1 - gx0) / 24);
         const std::uint8_t *c = pal.ptr(hexColor("#ffeb3b"));
-        img.draw_rectangle(gx0, gy0, gx0 + tick, gy0, c, 1.0f, 1u);
-        img.draw_rectangle(gx0, gy1 - 1, gx0 + tick, gy1, c, 1.0f, 1u);
-        img.draw_rectangle(gx1 - tick, gy0, gx1, gy0, c, 1.0f, 1u);
-        img.draw_rectangle(gx1 - tick, gy1 - 1, gx1, gy1, c, 1.0f, 1u);
+        img.draw_rectangle(gx0, gy0, gx0 + tick, gy0, c);
+        img.draw_rectangle(gx0, gy1 - 1, gx0 + tick, gy1, c);
+        img.draw_rectangle(gx1 - tick, gy0, gx1, gy0, c);
+        img.draw_rectangle(gx1 - tick, gy1 - 1, gx1, gy1, c);
     }
 
     // Fence regions, under the cells so the placement stays readable.
@@ -1067,7 +1075,7 @@ CImg<unsigned char> renderFrameCImg(const Graph &g, const std::vector<float> &x,
                 pixelSpan(toPxX(vp, r.lo.x), toPxX(vp, r.hi.x), x0, x1);
                 pixelSpan(toPxY(vp, r.hi.y), toPxY(vp, r.lo.y), y0, y1);
                 img.draw_rectangle(x0, y0, x1, y1, pal.ptr(flat), 1.0f);
-                img.draw_rectangle(x0, y0, x1, y1, pal.ptr(edge), 1.0f, 1u);
+                outlineRect(img, x0, y0, x1, y1, pal.ptr(edge));
             }
             img.draw_text(static_cast<int>(toPxX(vp, reg.minX)) + static_cast<int>(3 * zoom),
                           static_cast<int>(toPxY(vp, reg.minY)) - static_cast<int>(3 * zoom),
