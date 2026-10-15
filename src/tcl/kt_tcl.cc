@@ -1295,6 +1295,12 @@ Value Interpreter::eval(const std::string &script, int depth) {
         if (pos >= script.size()) {
             break;
         }
+        if (script[pos] == '#') {
+            while (pos < script.size() && script[pos] != '\n') {
+                pos += script[pos] == '\\' ? 2 : 1;
+            }
+            continue;
+        }
         // One command runs to the next newline or ';' outside quotes and braces.
         const std::size_t begin = pos;
         int braces = 0;

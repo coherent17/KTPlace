@@ -134,6 +134,16 @@ BOOST_AUTO_TEST_CASE(comments_and_continuations_do_not_become_commands) {
     BOOST_TEST(interp.variable("list").asList().size() == 1);
 }
 
+BOOST_AUTO_TEST_CASE(a_comment_runs_to_the_end_of_its_line) {
+    Interpreter interp;
+    (void)interp.eval("# one; set a 1\n#two; set b 2\nset c 3; # three; set d 4\nset e 5");
+    BOOST_TEST(!interp.hasVariable("a"));
+    BOOST_TEST(!interp.hasVariable("b"));
+    BOOST_TEST(!interp.hasVariable("d"));
+    BOOST_TEST(interp.variable("c").asInt() == 3);
+    BOOST_TEST(interp.variable("e").asInt() == 5);
+}
+
 BOOST_AUTO_TEST_CASE(a_failure_stops_the_script) {
     Interpreter interp;
     BOOST_CHECK_THROW(interp.eval("set a 1\nnosuchcommand x\nset b 2"), Error);
