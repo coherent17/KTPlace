@@ -27,7 +27,7 @@ build/bin/test_abacus --run_test=ktplace_abacus/<case>   # --list_content lists 
 
 A new test binary needs a `TEST_<name>` variable, a `TEST_BINS` entry and a link rule in `src/Master.make`. A new source file must be added to `SRCS` in its directory's `Master.make`. The build does not glob.
 
-CI (`.github/workflows/ci.yml`) runs, in order: format check, build, unit tests, then smoke placements of the vendored `benchmark/ISPD_2005/adaptec1` and `benchmark/ICCAD04/ibm01`, each configured by a small `-tcl` script. The smoke step checks the exact netlist counts in the log and the line count of `placed.pl`. Do not change those log strings by accident.
+CI (`.github/workflows/ci.yml`) has a `build` job (format check, build, test binaries; it uploads the stripped `build/bin` as an artifact) and three jobs that start after it and run in parallel: unit tests, the adaptec1 smoke placement, and the ibm01 multi-row smoke placement, each configured by a small `-tcl` script. The smoke step checks the exact netlist counts in the log and the line count of `placed.pl`. Do not change those log strings by accident.
 
 ## Running
 

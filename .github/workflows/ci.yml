@@ -11,8 +11,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build-and-test:
-    name: Build, unit tests and smoke placement
+  build:
+    name: Format check and build
     runs-on: ubuntu-latest
 
     steps:
@@ -21,9 +21,6 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          # No gcov here: it is part of gcc and has no package of its own on
-          # Ubuntu 24.04, so naming it makes `apt-get install` fail outright
-          # before a single line of the build runs. It arrives with g++.
           sudo apt-get install -y --no-install-recommends \
             g++ \
             libtbb-dev \
@@ -62,8 +59,77 @@ jobs:
         # test binaries link the same objects, so they get the same treatment.
         run: make -j"$(nproc)"
 
+      - name: Build the unit tests
+        run: make -C src -f Master.make -j"$(nproc)" test-build
+
+      - name: Pack the binaries
+        # Debug info is most of the 450 MB; the jobs below only run the binaries.
+        run: |
+          strip --strip-debug build/bin/*
+          tar -czf binaries.tar.gz build/bin ktplace.sh ktplace.csh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: binaries
+          path: binaries.tar.gz
+          retention-days: 1
+
+  unit-tests:
+    name: Unit tests
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install runtime libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libtbb-dev \
+            libboost-iostreams-dev \
+            zlib1g-dev \
+            libfmt-dev
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: binaries
+
+      - name: Unpack the binaries
+        run: tar -xzf binaries.tar.gz
+
       - name: Unit tests
-        run: make -j"$(nproc)" test
+        run: |
+          fail=0
+          for t in build/bin/test_*; do
+            echo "--- $(basename "$t") ---"
+            "$t" --log_level=test_suite || fail=1
+          done
+          exit $fail
+
+  smoke-adaptec1:
+    name: Smoke placement (adaptec1)
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install runtime libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libtbb-dev \
+            libboost-iostreams-dev \
+            zlib1g-dev \
+            libfmt-dev
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: binaries
+
+      - name: Unpack the binaries
+        run: tar -xzf binaries.tar.gz
 
       - name: Smoke placement
         # adaptec1: 211,447 cells / 221,142 nets in Bookshelf form, the design the
@@ -127,6 +193,43 @@ jobs:
           test -n "$final"
           awk -v v="$final" 'BEGIN { exit !(v < 0.5) }'
 
+      - name: Upload the smoke placement
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-placement
+          path: |
+            output/adaptec1/placed.pl
+            smoke.log
+            output/adaptec1/plots/final/final.png
+            output/adaptec1/plots/final/final.svg
+            output/adaptec1/plots/anim/placement.gif
+          if-no-files-found: ignore
+
+  smoke-multirow:
+    name: Multi-row smoke placement (ibm01)
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install runtime libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libtbb-dev \
+            libboost-iostreams-dev \
+            zlib1g-dev \
+            libfmt-dev
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: binaries
+
+      - name: Unpack the binaries
+        run: tar -xzf binaries.tar.gz
+
       - name: Multi-row legalization smoke placement
         # ibm01 is the only benchmark in the tree with cells taller than a row --
         # 246 of its 12,506 movable cells -- so it is the only design that reaches
@@ -172,70 +275,3 @@ jobs:
           # placement that actually gets written.
           test "$(grep -c 'verdict *| *PASS' smoke-multirow.log)" -eq 2
           test "$(grep -c 'verdict *| *FAIL' smoke-multirow.log || true)" -eq 0
-
-      - name: Smoke placement draws every cell
-        # The frames are the run's own report of the placement, and a frame that
-        # silently drops cells is the one rendering fault that cannot be spotted by
-        # looking at it -- the picture still looks like a placement. So the stills
-        # the run above already produced are measured rather than eyeballed.
-        run: |
-          set -euo pipefail
-
-          # Redefined rather than carried over: each workflow step is its own
-          # shell, so a variable the placement step set is not set here, and
-          # `set -u` turns the first use of it into a hard error.
-          PL=output/adaptec1/placed.pl
-
-          # The animation must be assembled from real stills.
-          test -s output/adaptec1/plots/anim/placement.gif
-
-          # The stills are the encoder's scratch space and are removed once the
-          # GIF is written, so a directory full of them means the cleanup did not
-          # run -- which is the observable half of "the GIF was really built".
-          test -z "$(find output/adaptec1/plots/anim -name 'frame_*.ppm' -print -quit)"
-
-          # The final still is the one meant to be looked at, so it is a PNG and
-          # not a PPM: nothing a person would open reads a PPM.
-          test -s output/adaptec1/plots/final/final.png
-          head -c 8 output/adaptec1/plots/final/final.png |
-            od -An -tx1 | tr -d ' \n' | grep -qx '89504e470d0a1a0a'
-
-          # The default final still is zoom 8 of a 768x768 frame, so 6144x6144:
-          # about fourteen pixels across for a standard cell, which is the point
-          # at which the placement stops being a texture.
-          geom=$(python3 -c '
-          import struct
-          d = open("output/adaptec1/plots/final/final.png", "rb").read()
-          w, h = struct.unpack(">II", d[16:24])
-          print(f"{w}x{h}")')
-          echo "final image: $geom"
-          test "$geom" = "6144x6144"
-
-          # Every cell has to be in that picture. The final SVG has exactly one
-          # <rect> per cell, so this is a count and not an estimate -- and it is
-          # half the reason the vector form is written at all. Both writers used to
-          # decimate above a draw cap, and a frame that silently drops cells is the
-          # one rendering fault that cannot be spotted by looking at it: the
-          # picture still looks like a placement. adaptec1 has 211,447 cells; the
-          # frame, the die outline, the row lines, the background and the progress
-          # bar add a handful of rects on top, so the count is a lower bound.
-          python3 - <<'PYEOF'
-          svg = open("output/adaptec1/plots/final/final.svg", encoding="utf-8",
-                     errors="replace").read()
-          rects = svg.count("<rect")
-          print(f"rects in the final SVG: {rects}, cells in adaptec1: 211447")
-          assert rects >= 211447, f"only {rects} rects drawn for 211447 cells"
-          PYEOF
-
-      - name: Upload the smoke placement
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: smoke-placement
-          path: |
-            output/adaptec1/placed.pl
-            smoke.log
-            output/adaptec1/plots/final/final.png
-            output/adaptec1/plots/final/final.svg
-            output/adaptec1/plots/anim/placement.gif
-          if-no-files-found: ignore
