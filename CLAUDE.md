@@ -14,7 +14,7 @@ make format-check          # what CI checks; it fails on any unformatted file
 make compile-commands      # compile_commands.json for clangd
 make hooks                 # pre-commit: staged-file format check plus unit tests
                            #   (KTPLACE_SKIP_HOOKS=1 bypasses it; KTPLACE_HOOK_TESTS=0 skips the tests)
-python3 scripts/coverage_report.py --clean --build --min 80   # gcov line coverage, the CI gate
+python3 scripts/coverage_report.py --clean --build --min 80   # gcov line coverage (local only, not in CI)
 ```
 
 Each component has its own test binary: `test_datamodel`, `test_adaptor`, `test_flow`, `test_util`, `test_constraint`, `test_option`, `test_viz`, `test_detail`, `test_ntuplace1`, `test_abacus`, `test_tcl` and `test_simpl`. To run one suite or one case, build the tests and then call Boost.Test directly:
@@ -27,7 +27,7 @@ build/bin/test_abacus --run_test=ktplace_abacus/<case>   # --list_content lists 
 
 A new test binary needs a `TEST_<name>` variable, a `TEST_BINS` entry and a link rule in `src/Master.make`. A new source file must be added to `SRCS` in its directory's `Master.make`. The build does not glob.
 
-CI (`.github/workflows/ci.yml`) runs, in order: format check, build, unit tests, the coverage gate, then smoke placements of the vendored `benchmark/ISPD_2005/adaptec1` and `benchmark/ICCAD04/ibm01`, each configured by a small `-tcl` script. The smoke step checks the exact netlist counts in the log and the line count of `placed.pl`. Do not change those log strings by accident.
+CI (`.github/workflows/ci.yml`) runs, in order: format check, build, unit tests, then smoke placements of the vendored `benchmark/ISPD_2005/adaptec1` and `benchmark/ICCAD04/ibm01`, each configured by a small `-tcl` script. The smoke step checks the exact netlist counts in the log and the line count of `placed.pl`. Do not change those log strings by accident.
 
 ## Running
 

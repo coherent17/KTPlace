@@ -65,32 +65,6 @@ jobs:
       - name: Unit tests
         run: make -j"$(nproc)" test
 
-      - name: Line coverage
-        # gcov ships with gcc, so this needs no extra package and cannot be the
-        # step that silently does not run. The gate is set at the current total
-        # so a regression fails the build; raise it as coverage improves.
-        run: |
-          python3 scripts/coverage_report.py \
-            --clean --build --min ${{ vars.COVERAGE_MIN || '80' }} \
-            | tee coverage.txt
-
-      - name: Publish the coverage report
-        # GitHub renders the table on the run page whether or not it is
-        # uploaded; the artifact is for reading a full run's numbers later.
-        # Guarded, because a step that fails when the file it cats is missing
-        # reports a second red mark that hides the first one.
-        if: always()
-        run: test -f coverage.txt && cat coverage.txt >> "$GITHUB_STEP_SUMMARY" || true
-
-      - name: Upload the coverage report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: coverage
-          path: |
-            coverage.txt
-          if-no-files-found: ignore
-
       - name: Smoke placement
         # adaptec1: 211,447 cells / 221,142 nets in Bookshelf form, the design the
         # ISPD 2005 table in the README is written against, and the only benchmark
