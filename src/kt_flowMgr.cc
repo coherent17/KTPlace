@@ -21,6 +21,7 @@
 #include "tcl/kt_tclMgr.h"
 #include "util/kt_log.h"
 #include "util/kt_scopedTimer.h"
+#include "visualization/kt_snapshots.h"
 #include "visualization/kt_visualizer.h"
 
 #include <filesystem>
@@ -35,31 +36,33 @@ namespace ktplace {
 
 namespace {
 
-bool drawStage(auto &dm, const ktDM &db, StageVisual stage) {
-    Visualizer &viz = Visualizer::instance();
-    if (!viz.enabled()) {
+std::string snapshotFile(const std::string &plotDir) {
+    return (std::filesystem::path(plotDir) / "snapshots.ktsnap").string();
+}
+
+bool recordStage(auto &dm, SnapshotWriter *snapshots, const StageVisual &stage) {
+    if (snapshots == nullptr) {
         return false;
     }
-    viz.beginStage(std::move(stage));
-    dm.setFrameHook(
-        [&viz, netlist = &db.getGraph(), fences = &db.constraints(), die = dm.design().die](
-            const std::vector<float> &xs, const std::vector<float> &ys, const auto &info) {
-            viz.frame(*netlist, xs, ys, die, fences,
-                      VisualFrame{info.series, info.step, info.numSteps, info.note, info.hpwl,
-                                  info.hpwlInitial, info.overflow, info.mandatory});
-        });
+    snapshots->beginStage(stage);
+    dm.setFrameHook([snapshots, die = dm.design().die](const std::vector<float> &xs,
+                                                       const std::vector<float> &ys,
+                                                       const auto &info) {
+        snapshots->frame(xs, ys, die, true,
+                         VisualFrame{info.series, info.step, info.numSteps, info.note, info.hpwl,
+                                     info.hpwlInitial, info.overflow, info.mandatory});
+    });
     return true;
 }
 
-void drawSimplBounds(simpl::simplDM &dm) {
-    Visualizer &viz = Visualizer::instance();
-    dm.setBoundsHook([&viz](std::span<const simpl::BoundsPoint> curve) {
+void recordSimplBounds(simpl::simplDM &dm, SnapshotWriter &snapshots) {
+    dm.setBoundsHook([&snapshots](std::span<const simpl::BoundsPoint> curve) {
         std::vector<BoundsSample> samples;
         samples.reserve(curve.size());
         for (const simpl::BoundsPoint &point : curve) {
             samples.push_back({point.upper, point.lower});
         }
-        viz.boundsCurve("simpl_bounds", "SimPL: HPWL of the lower and upper bounds", samples);
+        snapshots.boundsCurve("simpl_bounds", "SimPL: HPWL of the lower and upper bounds", samples);
     });
 }
 
@@ -72,6 +75,7 @@ public:
 private:
     std::unique_ptr<ktDM> db;
     PlotOptions plot;
+    std::unique_ptr<SnapshotWriter> snapshots;
 
     void parseTcl(const kt_option &options);
     void loadDesign(const std::string &dirPath);
@@ -80,7 +84,7 @@ private:
     void writeDesign(const std::string &outputPath);
     void legalizeDesign();
     void detailPlaceDesign();
-    void renderFinalImage();
+    void drawPictures();
     void finishAnimation();
 };
 
@@ -105,9 +109,8 @@ void FlowMgr::Impl::run(const kt_option &options) {
     placeDesign();
     legalizeDesign();
     detailPlaceDesign();
-    renderFinalImage();
-    finishAnimation();
     writeDesign(options.getOutputPath());
+    drawPictures();
     TimerRegistry::instance().report();
 }
 
@@ -167,18 +170,20 @@ void FlowMgr::Impl::placeDesign() {
     // Configured here rather than inside a stage, so the legalizer and the
     // detailed placer add to the same GIF.
     Visualizer::instance().configure(plot.dir, plot);
-
-    // Global placement is by far the most frame-hungry stage, so it does not get
-    // to spend the whole budget: two fifths are held back for legalization and
-    // detailed placement, the stages that turn a legal-looking placement into a
-    // real one.
-    Visualizer::instance().holdBack(Visualizer::instance().options().frameBudget * 2 / 5);
+    if (plot.enabled()) {
+        snapshots = std::make_unique<SnapshotWriter>(snapshotFile(plot.dir));
+        // Global placement is by far the most frame-hungry stage, so it does not
+        // get to spend the whole budget: two fifths are held back for legalization
+        // and detailed placement, the stages that turn a legal-looking placement
+        // into a real one.
+        snapshots->holdBack(plot.frameBudget * 2 / 5);
+    }
 
     if (algorithm == "simpl") {
         ktlog.echo("Running SimPL global placement (B2B net model + look-ahead legalization)...");
         simpl::simplDM simplDB = simpl::buildSimplDM(*db);
-        if (drawStage(simplDB, *db, {"simpl", "simpl", 0})) {
-            drawSimplBounds(simplDB);
+        if (recordStage(simplDB, snapshots.get(), {"simpl", "simpl", 0})) {
+            recordSimplBounds(simplDB, *snapshots);
         }
         if (!simplDB.options().fences) {
             ktlog.echo("SimPL: fence enforcement disabled by 'add_option simpl fences 0'");
@@ -203,12 +208,14 @@ void FlowMgr::Impl::placeDesign() {
 void FlowMgr::Impl::legalizeDesign() {
     // Whatever the placer reserved is released, so the later stages get the whole
     // remaining budget.
-    Visualizer::instance().holdBack(0);
+    if (snapshots) {
+        snapshots->holdBack(0);
+    }
 
     if (const std::size_t tall = db->multiRowCells(); tall > 0) {
         ktlog.echo("Running multi-row legalization ({} cell(s) taller than a row)...", tall);
         multirow::multirowDM multiDB = multirow::buildMultiRowDM(*db);
-        drawStage(multiDB, *db, {"legalize_multi", "", 0});
+        recordStage(multiDB, snapshots.get(), {"legalize_multi", "", 0});
         multirow::flowMgr flow(multiDB);
         db->setMultiRowSolution(flow.runLegalizer());
         return;
@@ -216,7 +223,7 @@ void FlowMgr::Impl::legalizeDesign() {
 
     ktlog.echo("Running Abacus legalization...");
     abacus::abacusDM abacusDB = abacus::buildAbacusDM(*db);
-    drawStage(abacusDB, *db, {"legalize", "", 0});
+    recordStage(abacusDB, snapshots.get(), {"legalize", "", 0});
     abacus::flowMgr flow(abacusDB);
     db->setLegalizationSolution(flow.runLegalizer());
 }
@@ -225,14 +232,29 @@ void FlowMgr::Impl::legalizeDesign() {
 void FlowMgr::Impl::detailPlaceDesign() {
     ktlog.echo("Running FastDP detailed placement...");
     fastdp::fastdpDM dpDB = fastdp::buildFastdpDM(*db);
-    drawStage(dpDB, *db, {"detailplace", "", 0});
+    recordStage(dpDB, snapshots.get(), {"detailplace", "", 0});
     fastdp::flowMgr flow(dpDB);
     db->setDetailedPlaceSolution(flow.runDetailedPlacer());
 }
 
 
-void FlowMgr::Impl::renderFinalImage() {
+void FlowMgr::Impl::drawPictures() {
+    if (!snapshots) {
+        return;
+    }
+    ScopedTimer timer("draw");
+    snapshots->close();
+    ktlog.echo("Drawing {} recorded snapshot(s)...", snapshots->frameCount());
+    (void)replaySnapshots(snapshots->path(), Visualizer::instance(), db->getGraph(),
+                          &db->constraints());
     Visualizer::instance().finalImage(db->getGraph(), &db->constraints(), db->hpwl());
+    finishAnimation();
+    if (plot.keepSnapshots) {
+        ktlog.echo("Kept the recorded snapshots: {}", snapshots->path());
+        return;
+    }
+    std::error_code ec;
+    std::filesystem::remove(snapshots->path(), ec);
 }
 
 void FlowMgr::Impl::finishAnimation() {

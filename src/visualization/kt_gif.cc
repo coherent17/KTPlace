@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cstring>
 #include <fstream>
+#include <oneapi/tbb/parallel_for.h>
 
 namespace ktplace {
 
@@ -437,8 +438,13 @@ bool writeGif(const std::string &path, const std::vector<Canvas> &frames, int de
         f.push_back(0x00);
     }
 
+    std::vector<std::vector<std::uint8_t>> bodies(frames.size());
+    tbb::parallel_for(std::size_t{0}, frames.size(), [&](std::size_t i) {
+        bodies[i] = gifCompress(frames[i].pixels(), bitsPerPixel);
+    });
+
     const std::uint32_t delay = delayCs > 0 ? static_cast<std::uint32_t>(delayCs) : 0u;
-    for (const Canvas &c : frames) {
+    for (std::size_t i = 0; i < frames.size(); ++i) {
         f.push_back(0x21);  // graphic control extension
         f.push_back(0xF9);
         f.push_back(0x04);
@@ -459,8 +465,7 @@ bool writeGif(const std::string &path, const std::vector<Canvas> &frames, int de
         f.push_back(0x00);  // no local colour table, not interlaced
 
         f.push_back(static_cast<std::uint8_t>(bitsPerPixel));
-        const std::vector<std::uint8_t> body = gifCompress(c.pixels(), bitsPerPixel);
-        f.insert(f.end(), body.begin(), body.end());
+        f.insert(f.end(), bodies[i].begin(), bodies[i].end());
     }
     f.push_back(0x3B);  // trailer
 

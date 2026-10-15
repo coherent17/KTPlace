@@ -18,6 +18,7 @@ struct VisualizerOptions {
     double finalZoom = 8.0;
     bool finalPpm = false;
     int animBlend = 3;
+    bool keepSnapshots = false;
 
     static void fields(auto &self, auto &&visit) {
         visit("anim", self.anim);
@@ -26,6 +27,7 @@ struct VisualizerOptions {
         visit("final_zoom", self.finalZoom);
         visit("final_ppm", self.finalPpm);
         visit("anim_blend", self.animBlend);
+        visit("keep_snapshots", self.keepSnapshots);
     }
 };
 
