@@ -40,7 +40,7 @@ ktplace benchmark/ICCAD04/ibm01 -w output/ibm01 [-tcl run.tcl] [--no-plots] [-v]
 
 ## Configuration: Tcl option store
 
-Run configuration goes through a Tcl script passed with `-tcl` (the README's *Configuration* section lists every key). The web console (`webui/server.py`) still launches runs with `-a` and `KTPLACE_*` overrides, which the engine no longer accepts:
+Run configuration goes through a Tcl script passed with `-tcl` (the README's *Configuration* section lists every key). The web console (`webui/server.py`) writes one per run (`config.tcl`), and `--script` and the GUI console accept the same `add_option` lines:
 
 ```tcl
 add_option flow algorithm ntuplace1   # simpl is the default
