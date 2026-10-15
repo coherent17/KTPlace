@@ -440,7 +440,9 @@ bool BookshelfInputAdapter::parseNetsFile(const std::string &filePath) {
         }
         for (const PinRec &pin : netPins[i]) {
             try {
-                (void)db->addPin(pin.cellName, netName, pin.offsetX, pin.offsetY, pin.isInput);
+                const Vertex &cell = db->getGraph().getCell(db->getCellId(pin.cellName));
+                (void)db->addPin(pin.cellName, netName, pin.offsetX + 0.5 * cell.width,
+                                 pin.offsetY + 0.5 * cell.height, pin.isInput);
             } catch (const std::exception &e) {
                 ktlog.warning("cannot add pin: {}", e.what());
             }
@@ -491,13 +493,6 @@ bool BookshelfInputAdapter::parsePlacementLine(const std::string &line) {
     double y = std::stod(tokens[2]);
 
     bool fixed = false;
-    if (tokens.size() >= 5 && tokens[3] == ":") {
-        std::string orient = tokens[4];
-        // Check if fixed (starts with 'F')
-        fixed = (orient.size() > 0 && orient[0] == 'F');
-    }
-    // Bookshelf also spells immobility as a trailing "/FIXED" marker, which is
-    // how most published .pl files mark the die pads.
     for (const std::string &token : tokens) {
         if (token == "/FIXED") {
             fixed = true;

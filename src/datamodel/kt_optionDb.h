@@ -25,7 +25,7 @@ using OptionMap = std::unordered_map<std::string, OptionValue>;
 // reject a component that no run knows about, and so a caller can never ask the
 // store for options of a phantom component.
 namespace components {
-enum class Id : std::uint8_t { Simpl, NtuPlace1, Abacus, FastDp, Visualizer, Flow };
+enum class Id : std::uint8_t { Simpl, NtuPlace1, Abacus, MultiRow, FastDp, Visualizer, Flow };
 
 [[nodiscard]] constexpr std::string_view toString(Id id) noexcept {
     switch (id) {
@@ -35,6 +35,8 @@ enum class Id : std::uint8_t { Simpl, NtuPlace1, Abacus, FastDp, Visualizer, Flo
             return "ntuplace1";
         case Id::Abacus:
             return "abacus";
+        case Id::MultiRow:
+            return "multirow";
         case Id::FastDp:
             return "fastdp";
         case Id::Visualizer:

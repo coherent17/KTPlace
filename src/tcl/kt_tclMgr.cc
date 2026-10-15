@@ -52,7 +52,7 @@ void TclMgr::installCommands() {
             if (!components::known(component)) {
                 throw tcl::Error(std::string("add_option: '") + component +
                                  "' is not a known component (try one of: simpl, ntuplace1, "
-                                 "abacus, fastdp, visualizer, flow)");
+                                 "abacus, multirow, fastdp, visualizer, flow)");
             }
             const Value value = args[3].literal ? Value::string(args[3].text)
                                                 : parseLiteral(self.substitute(args[3].text));

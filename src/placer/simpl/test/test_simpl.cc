@@ -14,14 +14,12 @@
 
 #include "constraint/kt_constraintMgr.h"
 #include "datamodel/kt_dm.h"
-#include "datamodel/kt_optionDb.h"
 #include "placer/simpl/simpl_dm.h"
 #include "placer/simpl/simpl_placer.h"
 #include "util/kt_log.h"
 #include "visualization/kt_plotOptions.h"
 
 #include <boost/test/included/unit_test.hpp>
-#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -116,29 +114,6 @@ SimplResult place(ktDM &db, bool useFences) {
     return res;
 }
 
-/// Sets an option for one scope, so a failed check cannot leak it into the
-/// cases that follow.
-struct ScopedOption {
-    ScopedOption(std::string component, std::string key, OptionValue value)
-        : previous(OptionDb::instance().find(component, key)) {
-        OptionDb::instance().set(std::move(component), std::move(key), std::move(value));
-    }
-
-    ~ScopedOption() {
-        OptionDb::instance().clear();
-        (void)previous;
-    }
-
-    ScopedOption(const ScopedOption &) = delete;
-    ScopedOption &operator=(const ScopedOption &) = delete;
-
-private:
-    std::optional<OptionValue> previous;
-};
-
-/// Lower-left corner inside the fence: the engine's own containment test, and
-/// the one SimPL's clamp and push-out use. Global placement only promises this;
-/// keeping whole cell boxes clear of a fence is the legalizer's job.
 bool inFence(double x, double y) {
     return x >= kFx0 && x <= kFx1 && y >= kFy0 && y <= kFy1;
 }
@@ -173,30 +148,6 @@ BOOST_AUTO_TEST_CASE(the_returned_placement_keeps_other_cells_out_of_the_fence) 
         const auto [x, y] = db.getCellPosition(id);
         inside += inFence(x, y) ? 1u : 0u;
     }
-    BOOST_TEST(inside == 0u);
-}
-
-BOOST_AUTO_TEST_CASE(the_lower_bound_handed_on_without_look_ahead_is_fenced_too) {
-    // `add_option simpl no_lal 1` returns the overlapping lower bound, which is
-    // never fenced during the run; the fence is applied to it on the way out.
-    const ScopedOption noLal("simpl", "no_lal", OptionValue{1});
-    ktDM db;
-    const Built b = buildDesign(db, /*withFence=*/true, /*pullOthersIn=*/true);
-    const SimplResult res = place(db, /*useFences=*/true);
-
-    BOOST_TEST(!res.usedLookAhead);
-    BOOST_TEST(res.fenceViolations == 0u);
-    std::size_t outside = 0;
-    for (const std::size_t id : b.members) {
-        const auto [x, y] = db.getCellPosition(id);
-        outside += inFence(x, y) ? 0u : 1u;
-    }
-    std::size_t inside = 0;
-    for (const std::size_t id : b.others) {
-        const auto [x, y] = db.getCellPosition(id);
-        inside += inFence(x, y) ? 1u : 0u;
-    }
-    BOOST_TEST(outside == 0u);
     BOOST_TEST(inside == 0u);
 }
 

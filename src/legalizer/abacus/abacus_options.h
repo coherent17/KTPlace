@@ -19,7 +19,7 @@ namespace ktplace {
 struct AbacusOptions {
     // How far a cell may be dragged along its row to make it fit. Unlimited would
     // legalize at the cost of a wirelength nobody asked for.
-    std::size_t maxRowDistance = 16;
+    std::size_t maxRowDistance = 0;
 
     // Empty subrows shorter than this are not worth placing into, because the
     // search cost is not repaid by the few cells they hold.

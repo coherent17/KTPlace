@@ -7,7 +7,7 @@ namespace ktplace {
 
 namespace {
 
-const Option<std::size_t> kMaxRowDist{"abacus", "max_row_dist", 16};
+const Option<std::size_t> kMaxRowDist{"abacus", "max_row_dist", 0};
 const Option<std::size_t> kMinSubrowSites{"abacus", "min_subrow_sites", 1};
 const Option<std::size_t> kClusterGap{"abacus", "cluster_gap", 0};
 

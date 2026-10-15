@@ -148,19 +148,10 @@ void FlowMgr::Impl::placeDesign() {
 
     if (algorithm == "simpl") {
         ktlog.echo("Running SimPL global placement (B2B net model + look-ahead legalization)...");
-        // Fences come from the LEF/DEF reader; Bookshelf carries none, so an empty
-        // set is a correctly unconstrained design. Ignoring fences scatters fenced
-        // cells across the die and draws no regions. `add_option simpl fences 0`
-        // shows the placement without them, which is the only way to see what the
-        // constraint costs.
-        if (!simpl::buildSimplDM(*db, plot).useFences()) {
+        simpl::simplDM simplDB = simpl::buildSimplDM(*db, plot);
+        if (!simplDB.useFences()) {
             ktlog.echo("SimPL: fence enforcement disabled by 'add_option simpl fences 0'");
         }
-
-        // Build SimPL's own database from ours, run it there, commit the answer.
-        // SimPL has no way to reach ktDM, so this is the one write, and SimPL
-        // assembles its own parameters from the options it was given.
-        simpl::simplDM simplDB = simpl::buildSimplDM(*db, plot);
         const simpl::SimplParams params = simplDB.params();
         simpl::flowMgr flow(simplDB);
         db->setGPSolution(flow.runGlobalPlacer(params, simplDB.useFences()));
@@ -185,19 +176,11 @@ void FlowMgr::Impl::legalizeDesign() {
     // remaining budget.
     Visualizer::instance().holdBack(0);
 
-    // Abacus places into a single row, so a cell taller than one has nowhere to
-    // go and is left overlapping. When the design has such cells, the row-slicing
-    // legalizer runs instead: it cuts cells out of every row they span, so a tall
-    // cell occupies a real well and the cells around it place normally.
-    if (db->multiRowCells() > 0) {
-        ktlog.echo("Running multi-row legalization ({} cell(s) taller than a row)...",
-                   db->multiRowCells());
-        // The pass's own cadence; the sink handles the rest.
-        MultiRowLegalizeParams params;
-        params.frameEvery = plot.legalFrameEvery;
+    if (const std::size_t tall = db->multiRowCells(); tall > 0) {
+        ktlog.echo("Running multi-row legalization ({} cell(s) taller than a row)...", tall);
         multirow::multirowDM multiDB = multirow::buildMultiRowDM(*db);
         multirow::flowMgr flow(multiDB);
-        db->setMultiRowSolution(flow.runLegalizer(params));
+        db->setMultiRowSolution(flow.runLegalizer({}));
         return;
     }
 

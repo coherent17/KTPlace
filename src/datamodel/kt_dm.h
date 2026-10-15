@@ -119,6 +119,7 @@ public:
     // a subrow. These are what a single-row legalizer cannot place, so the count is
     // what says whether the design needs a multi-height legalizer at all.
     [[nodiscard]] std::size_t multiRowCells() const;
+    [[nodiscard]] double macroHeight() const;
 
     [[nodiscard]] const std::vector<std::size_t> &getNetPins(std::size_t netId) const;
     [[nodiscard]] const std::vector<std::size_t> &getCellPins(std::size_t cellId) const;

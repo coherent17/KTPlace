@@ -107,11 +107,19 @@ simplDM buildSimplDM(const ktDM &db, const PlotOptions &plot) {
     // SimPL's own parameters, from the options it was given and the cadence the
     // visualizer was configured with. Built here so the flow has nothing to
     // assemble and nowhere to get a second list wrong.
+    const SimplOptions options = SimplOptions::load();
     simplDM out(std::move(design));
+    out.par.binsPerAxis = static_cast<std::size_t>(std::max(options.grid, 0));
+    out.par.cgTol = options.cgTol;
+    out.par.initMaxIters = options.initIters;
+    out.par.maxIters = options.iters;
+    out.par.seed = options.seed;
+    out.par.densityLimit = options.density;
+    out.par.alphaBase = options.alphaBase;
     out.par.traceEvery = plot.traceEvery;
     out.par.cgEvery = plot.cgFrameEvery;
     out.par.densityMaps = plot.densityMaps;
-    out.useFences_ = SimplOptions().fences;
+    out.useFences_ = options.fences;
     return out;
 }
 

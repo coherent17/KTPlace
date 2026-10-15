@@ -2,6 +2,8 @@
 
 #include "datamodel/kt_die.h"
 #include "datamodel/kt_dm.h"
+#include "datamodel/kt_optionDb.h"
+#include "util/kt_log.h"
 #include "util/kt_reportTable.h"
 #include "util/kt_scopedTimer.h"
 #include "visualization/kt_visualizer.h"
@@ -108,25 +110,31 @@ multirowDM buildMultiRowDM(const ktDM &db) {
 
 namespace {
 
+const Option<std::size_t> kMacroRows{"multirow", "macro_rows", 8};
+
 /// The pass's own summary, emitted from the run that produced the numbers rather
 /// than by the caller. Nothing outside this pass can act on these, so they are
 /// printed here and not returned.
 void reportRun(const MultiRowLegalizeResult &res) {
-    ktReportTable table("Multi-row legalization results");
+    ktReportTable table("Legalization (multi-row)");
     table.setHeaders({"metric", "value"});
     table.addRow({"movable cells", fmt::format("{}", res.movable)});
-    table.addRow({"placed", fmt::format("{}", res.placed)});
-    table.addRow({"unplaced", fmt::format("{}", res.unplaced)});
-    table.addRow({"taller than a row", fmt::format("{}", res.multiRow)});
-    table.addRow({"taller, placed", fmt::format("{}", res.multiRowPlaced)});
+    table.addRow({"cells placed", fmt::format("{}", res.placed)});
+    table.addRow({"cells unplaced", fmt::format("{}", res.unplaced)});
+    table.addRow({"cells taller than a row", fmt::format("{}", res.multiRow)});
+    table.addRow({"of those, placed", fmt::format("{}", res.multiRowPlaced)});
+    table.addRow({"macros legalized first", fmt::format("{}", res.macros)});
+    table.addRow({"macros placed", fmt::format("{}", res.macrosPlaced)});
+    table.addRow({"total displacement", fmt::format("{:.6e}", res.displacement)});
+    table.addRow({"max displacement", fmt::format("{:.1f}", res.maxDisplacement)});
     table.addRow({"HPWL before", fmt::format("{:.6e}", res.hpwlBefore)});
     table.addRow({"HPWL after", fmt::format("{:.6e}", res.hpwlAfter)});
-    table.addRow({"overlapping pairs", fmt::format("{}", res.overlappingPairs)});
-    table.addRow({"off row", fmt::format("{}", res.offRow)});
-    table.addRow({"off site", fmt::format("{}", res.offSite)});
-    table.addRow({"over fixed", fmt::format("{}", res.overFixed)});
     table.addRow({"seconds", fmt::format("{:.3f}", res.seconds)});
     table.emit();
+    if (res.unplaced > 0) {
+        ktlog.warning("{} cell(s) found no legal position and kept their global placement",
+                      res.unplaced);
+    }
 }
 
 }  // namespace
@@ -136,8 +144,10 @@ multirowDM::multirowDM(Design design) : d(std::move(design)) {}
 multiRowSolution multirowDM::run(const MultiRowLegalizeParams &params) {
     ScopedTimer timer("legalize");
 
+    MultiRowLegalizeParams resolved = params;
+    resolved.macroRows = kMacroRows.value();
     MultiRowLegalizer legalizer(d);
-    const MultiRowLegalizeResult result = legalizer.legalize(params);
+    const MultiRowLegalizeResult result = legalizer.legalize(resolved);
     reportRun(result);
 
     // Only the placement crosses the boundary. The statistics are printed above

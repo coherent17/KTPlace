@@ -15,8 +15,9 @@ namespace ktplace {
 namespace components {
 bool known(std::string_view name) noexcept {
     return name == toString(Id::Simpl) || name == toString(Id::NtuPlace1) ||
-           name == toString(Id::Abacus) || name == toString(Id::FastDp) ||
-           name == toString(Id::Visualizer) || name == toString(Id::Flow);
+           name == toString(Id::Abacus) || name == toString(Id::MultiRow) ||
+           name == toString(Id::FastDp) || name == toString(Id::Visualizer) ||
+           name == toString(Id::Flow);
 }
 }  // namespace components
 
