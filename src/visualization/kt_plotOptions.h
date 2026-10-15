@@ -11,9 +11,9 @@ namespace ktplace {
 // Everything about a run's pictures, in one place.
 //
 // The command line only decides whether a run draws at all. The settings below
-// are the defaults, and fromEnvironment() lets the environment override them, so
-// tuning a run's pictures does not mean inventing a flag for each one and
-// threading it through the flow.
+// are the defaults, and fromOptions() lets a Tcl script override them, so tuning a
+// run's pictures does not mean inventing a flag for each one and threading it
+// through the flow.
 struct PlotOptions {
     // Root directory for everything drawn. Empty means draw nothing.
     std::string dir;
@@ -42,8 +42,8 @@ struct PlotOptions {
     /// where the default lives, so a reader has one place to look.
     std::size_t legalFrameEvery = 20000;
 
-    // The defaults, with the environment applied over them.
-    [[nodiscard]] static PlotOptions fromEnvironment();
+    // The defaults, with the run's visualizer options applied over them.
+    [[nodiscard]] static PlotOptions fromOptions();
 
     [[nodiscard]] bool enabled() const {
         return !dir.empty();

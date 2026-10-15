@@ -32,6 +32,7 @@
 
 #include "constraint/kt_constraintMgr.h"
 #include "datamodel/kt_dm.h"
+#include "placer/ntuplace1/ntuplace1_options.h"
 
 #include <array>
 #include <cstddef>
@@ -73,6 +74,10 @@ struct RatioPlaceResult {
     // Look-ahead retries per accepted cut. A run that needed many is one whose
     // balance was fighting the design, and that is worth seeing.
     double meanImbalance = 0.0;
+    // Fence regions in the design, and fenced cells the returned placement still
+    // has outside their region (0 unless a region cannot hold its members).
+    std::size_t fenceRegions = 0;
+    std::size_t fenceViolations = 0;
 };
 
 // The partitioner's own summary, emitted from the component that produced it.
@@ -88,12 +93,22 @@ public:
     RatioPlacer(RatioPlacer &&) noexcept;
     RatioPlacer &operator=(RatioPlacer &&) noexcept;
 
+    // NTUPlace1's options, read from the run's option store, and the parameters
+    // they configure. Assembled here so the flow has nothing to collect.
+    [[nodiscard]] Ntuplace1Options options() const;
+    [[nodiscard]] RatioPlaceParams params() const noexcept {
+        return par;
+    }
+
     // Run global placement and write the result into the database. The placement
     // handed back is deliberately overfull: the paper's global placement is, and
     // the legalizer is a separate step in both this paper and in this flow.
     RatioPlaceResult place(const RatioPlaceParams &params = {});
 
+    friend RatioPlaceParams params(const RatioPlacer &);
+
 private:
+    RatioPlaceParams par;
     class Impl;
     std::unique_ptr<Impl> pImpl;
 };

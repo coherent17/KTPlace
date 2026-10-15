@@ -8,7 +8,6 @@
 #include "datamodel/kt_graph.h"
 #include "datamodel/kt_solutionMgr.h"
 
-#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <string>
@@ -37,6 +36,12 @@ public:
 
     [[nodiscard]] std::vector<Defect> verify() const;
 
+    // Checks the placement as it now stands and reports it. Called where a stage
+    // commits its solution, so whoever hands a placement on is the one that says
+    // whether it is legal, and each stage's own self-check has something
+    // independent to disagree with.
+    void isLegalizePlacement() const;
+
     [[nodiscard]] double hpwl() const;
 
     void setConstraints(constraintMgr fences);
@@ -51,6 +56,10 @@ public:
     /// stage's solution covers every cell; anything it left out keeps the
     /// position it already had.
     void setGPSolution(const simplSolution &solution);
+
+    // The other global placer's answer, which is a complete placement rather than
+    // SimPL's move list.
+    void setGPSolution(const ntuplace1Solution &solution);
 
     /// The same, for a legalization stage. Kept as its own name so a reader can
     /// tell which stage produced the placement.
@@ -105,6 +114,11 @@ public:
         const;
 
     [[nodiscard]] std::array<double, 4> placementDieBox() const;
+
+    // Movable cells too tall for any single row, against the shortest row that has
+    // a subrow. These are what a single-row legalizer cannot place, so the count is
+    // what says whether the design needs a multi-height legalizer at all.
+    [[nodiscard]] std::size_t multiRowCells() const;
 
     [[nodiscard]] const std::vector<std::size_t> &getNetPins(std::size_t netId) const;
     [[nodiscard]] const std::vector<std::size_t> &getCellPins(std::size_t cellId) const;

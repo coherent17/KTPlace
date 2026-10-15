@@ -4,8 +4,8 @@
 
 #include "placer/simpl/simpl_placer.h"
 
+#include "placer/simpl/simpl_options.h"
 #include "util/kt_log.h"
-#include "util/kt_reportTable.h"
 #include "util/kt_scopedTimer.h"
 #include "visualization/kt_visualizer.h"
 
@@ -578,11 +578,8 @@ void simplPlacer::Impl::buildGrid(const SimplParams &P) {
         double t =
             std::clamp(std::sqrt(static_cast<double>(std::max<std::size_t>(numMovable_, 1)) / 51.0),
                        16.0, 256.0);
-        if (const char *e = std::getenv("KTPLACE_SIMPL_GRID")) {
-            const long v = std::strtol(e, nullptr, 10);
-            if (v >= 8 && v <= 1024) {
-                t = static_cast<double>(v);
-            }
+        if (const long v = SimplOptions().setInt("grid").value_or(0); v >= 8 && v <= 1024) {
+            t = static_cast<double>(v);
         }
         nbx = static_cast<std::size_t>(t);
         nby = static_cast<std::size_t>(t);
@@ -1169,11 +1166,8 @@ void simplPlacer::Impl::solve(const std::string &tag, bool allowFrames, std::siz
         // cgTol = 1e-3 is below what Jacobi preconditioning reaches and the cap is
         // the only thing stopping it. That makes cgMaxIter, not the tolerance, the
         // real stopping rule, and it is why a 100-iteration run costs 20 minutes.
-        if (const char *e = std::getenv("KTPLACE_SIMPL_CG_TOL")) {
-            const double v = std::atof(e);
-            if (v > 0.0) {
-                par_.cgTol = v;
-            }
+        if (const double v = SimplOptions().setDouble("cg_tol").value_or(0.0); v > 0.0) {
+            par_.cgTol = v;
         }
         const bool liveX = ax.active && ax.resid > par_.cgTol;
         const bool liveY = ay.active && ay.resid > par_.cgTol;
@@ -2243,15 +2237,37 @@ void simplPlacer::Impl::enforceFences(std::vector<double> &px, std::vector<doubl
     if (fences_ == nullptr || fences_->numRegions() == 0) {
         return;
     }
-    // A hard fence, applied after the solve rather than as a term in it.
+    // A hard fence, applied to the upper bound after look-ahead legalization --
+    // never to the lower bound, and never as a term in the solve.
     //
-    // The alternative is a penalty in the quadratic, which is how a soft fence is
-    // normally done, and it is the wrong tool here: the solve is a linear system
-    // with no room for a one-sided inequality, and a cell pushed back by a penalty
-    // is only pushed back in proportion to how badly it wants to leave. A fence is
-    // a promise about where a cell may be, so it is enforced as one: the cell is
-    // put where it is allowed to be. The wirelength consequence is real and is the
-    // cost of the constraint, not a bug in it.
+    // The paper has no region constraints, but it says where constraints go. The
+    // only ones it handles, fixed obstacles, are an input to rough legalization
+    // (Algorithm 1: "Floorplan with obstacles"), and the upper-bound placement
+    // carries them to the solve through the anchors: "upper-bound placements
+    // perform an area look-ahead that is instrumental in the handling of layout
+    // obstacles" (Section VII). The linear solve stays the relaxed side of the
+    // pair: legalization is "imposing a no-overlap constraint while relaxing the
+    // linear constraints" (Section VII). A penalty term is rejected for the same
+    // reason the paper rejects them for obstacles: "they also add imprecisions to
+    // modeling".
+    //
+    // Projecting the lower bound as well was tried, and it is what this code did
+    // before: after every solve the members outside a fence collapsed onto its
+    // boundary and everyone else was pushed onto a fence edge, so look-ahead
+    // legalization spread a distorted placement and the anchors pulled the next
+    // solve towards it. On the seven fenced ISPD 2015 designs (strict Abacus and
+    // FastDP downstream) the final HPWL cost of the fences was +18.7% geomean
+    // that way, +13.7% projecting both bounds, and +8.1% projecting only the
+    // upper bound; des_perf_b went from +71% to -0.1%.
+    //
+    // Departure: the paper's place for a constraint is inside rough
+    // legalization, which here would mean each fence as its own floorplan in
+    // Algorithm 1 -- members spread within it, everyone else spread around it as
+    // an obstacle. This projection runs after look-ahead legalization instead,
+    // so a projected upper bound can pile cells on a fence edge and is no longer
+    // density-legal there. It is the interim step until lookAheadLegalize knows
+    // about fences; it then stays only as a safety net for the returned
+    // placement.
     //
     // Assigned cells are clamped into their own region, and only their own --
     // clampToRegion is a no-op for a cell already inside. Unassigned cells are held
@@ -2534,94 +2550,75 @@ SimplResult simplPlacer::Impl::run(const SimplParams &P, bool useFences) {
     fences_ = useFences ? fences : nullptr;
     fenceClamps_ = 0;
     fencePushes_ = 0;
-    // Debugging cap: the legalizer is the expensive part, so a short run is
-    // needed to iterate on it. Unset in normal use.
-    if (const char *e = std::getenv("KTPLACE_SIMPL_STRIPE_SCALE")) {
-        const std::string v(e);
-        if (v == "tight") {
+    // Options come from the run's option store, which simplDM reads and reports
+    // before this runs. Each is applied only when a script actually set it: an
+    // unset option leaves the component's own default alone rather than overwriting
+    // it with a second copy of the same number. Two need interpreting rather than
+    // assigning -- the stripe scale names a mode, and the pseudonet law is a word.
+    const SimplOptions options = SimplOptions::load();
+    if (const auto mode = options.setString("stripe_scale"); mode) {
+        if (*mode == "tight") {
             par_.stripeScaleMode = SimplParams::StripeScale::Tight;
-        } else if (v == "both") {
+        } else if (*mode == "both") {
             par_.stripeScaleMode = SimplParams::StripeScale::Both;
-        } else if (v == "none") {
+        } else if (*mode == "none") {
             par_.stripeScaleMode = SimplParams::StripeScale::None;
-        } else if (v == "fill") {
+        } else if (*mode == "fill") {
             par_.stripeScaleMode = SimplParams::StripeScale::Fill;
         } else {
-            ktlog.warning("unknown stripe scale mode '{}', keeping tight", v);
+            ktlog.warning("unknown stripe scale mode '{}', keeping the default", *mode);
         }
     }
-    if (const char *e = std::getenv("KTPLACE_SIMPL_INIT_NET")) {
-        par_.initNetModel = netModelFor(e, par_.initNetModel);
+    if (const auto model = options.setString("init_net"); model) {
+        par_.initNetModel = netModelFor(model->c_str(), par_.initNetModel);
     }
-    if (const char *e = std::getenv("KTPLACE_SIMPL_LSS_NET")) {
-        par_.lssNetModel = netModelFor(e, par_.lssNetModel);
+    if (const auto model = options.setString("lss_net"); model) {
+        par_.lssNetModel = netModelFor(model->c_str(), par_.lssNetModel);
     }
-    if (const char *e = std::getenv("KTPLACE_SIMPL_INIT_ITERS")) {
-        par_.initMaxIters = static_cast<std::size_t>(std::atoll(e));
+    if (const auto iters = options.setInt("init_iters"); iters && *iters > 0) {
+        par_.initMaxIters = static_cast<std::size_t>(*iters);
     }
-    if (const char *e = std::getenv("KTPLACE_SIMPL_ITERS")) {
-        par_.maxIters = static_cast<std::size_t>(std::max(std::atoi(e), 1));
+    if (const auto iters = options.setInt("iters"); iters && *iters > 0) {
+        par_.maxIters = static_cast<std::size_t>(*iters);
     }
-    if (const char *e = std::getenv("KTPLACE_SIMPL_SEED")) {
-        par_.seed = static_cast<std::uint64_t>(std::atoll(e));
+    if (const auto seed = options.setInt("seed"); seed && *seed > 0) {
+        par_.seed = static_cast<std::uint64_t>(*seed);
     }
-    // The paper requires 0 < g < 1 (Section 4.2). At g = 1 every stripe is filled
-    // to 100% of its available area, so look-ahead legalization's only solution
-    // is to spread cells uniformly over the whole die -- a maximum-entropy
-    // spread that destroys the density variation wirelength optimisation wants,
-    // and the reason legalization looked so pessimistic. Expose it for sweeps.
-    if (const char *e = std::getenv("KTPLACE_SIMPL_DENSITY")) {
-        par_.densityLimit = std::atof(e);
+    if (const auto limit = options.setDouble("density"); limit) {
+        par_.densityLimit = *limit;
     }
-    if (const char *e = std::getenv("KTPLACE_SIMPL_GLOBAL_CLUSTER")) {
-        par_.globalClusterFrac = std::atof(e);
+    if (const auto frac = options.setDouble("global_cluster"); frac) {
+        par_.globalClusterFrac = *frac;
     }
-    if (const char *e = std::getenv("KTPLACE_SIMPL_PSEUDONET")) {
-        const std::string v = e;
-        if (v == "inv") {
-            par_.pseudonetLaw = SimplParams::PseudonetLaw::InverseLength;
-        } else if (v == "const") {
-            par_.pseudonetLaw = SimplParams::PseudonetLaw::ConstantStiffness;
-        } else {
-            ktlog.fatal("KTPLACE_SIMPL_PSEUDONET must be 'inv' or 'const' (got '{}')", v);
-        }
+    if (const auto law = options.setString("pseudonet"); law) {
+        par_.pseudonetLaw = *law == "constant" ? SimplParams::PseudonetLaw::ConstantStiffness
+                                               : SimplParams::PseudonetLaw::InverseLength;
     }
-    if (const char *e = std::getenv("KTPLACE_SIMPL_START")) {
-        const std::string v = e;
-        if (v == "input") {
+    if (const auto start = options.setString("start"); start) {
+        if (*start == "input") {
             par_.start = SimplParams::StartPlacement::Input;
-        } else if (v == "auto") {
-            par_.start = SimplParams::StartPlacement::Auto;
-        } else if (v == "uniform") {
+        } else if (*start == "uniform") {
             par_.start = SimplParams::StartPlacement::Uniform;
+        } else if (*start == "auto") {
+            par_.start = SimplParams::StartPlacement::Auto;
         } else {
-            ktlog.fatal("KTPLACE_SIMPL_START must be one of: input, auto, uniform (got '{}')", v);
+            ktlog.fatal("simpl start must be one of: input, auto, uniform (got '{}')", *start);
         }
     }
-    // Frame cadence comes from SimplParams, which the flow fills from
-    // PlotOptions. Nothing to read here: a stage's drawing cadence is a default
-    // like any other, and an environment override on top of it is a debugging
-    // tool, not part of the interface.
     // The pseudonet weight schedule is the only spreading force in the solve --
     // there is no density term -- so its base is the knob that decides whether the
-    // run converges to a wirelength optimum or to a frozen spread state. Exposed
-    // because it is worth sweeping per design, not because the default is wrong.
-    if (const char *e = std::getenv("KTPLACE_SIMPL_PSEUDONET")) {
-        par_.pseudonetLaw = (std::string(e) == "constant")
-                                ? SimplParams::PseudonetLaw::ConstantStiffness
-                                : SimplParams::PseudonetLaw::InverseLength;
+    // run converges to a wirelength optimum or to a frozen spread state.
+    if (const auto base = options.setDouble("alpha_base"); base) {
+        par_.alphaBase = *base;
     }
-    if (const char *e = std::getenv("KTPLACE_SIMPL_ALPHA_BASE")) {
-        par_.alphaBase = std::atof(e);
+    if (const auto decay = options.setDouble("alpha_decay"); decay) {
+        par_.alphaDecay = *decay;
     }
-    if (const char *e = std::getenv("KTPLACE_SIMPL_ALPHA_DECAY")) {
-        par_.alphaDecay = std::atof(e);
+    if (const auto below = options.setDouble("alpha_decay_below"); below) {
+        par_.alphaDecayBelow = *below;
     }
-    if (const char *e = std::getenv("KTPLACE_SIMPL_ALPHA_DECAY_BELOW")) {
-        par_.alphaDecayBelow = std::atof(e);
-    }
-    if (const char *e = std::getenv("KTPLACE_SIMPL_NO_LAL")) {
-        par_.lookAhead = std::atoi(e) == 0;
+    if (const auto off = options.setBool("no_lal"); off) {
+        par_.lookAhead = !*off;
     }
     g_ = std::clamp(par_.densityLimit, 0.05, 1.0);
 
@@ -2776,7 +2773,8 @@ SimplResult simplPlacer::Impl::run(const SimplParams &P, bool useFences) {
             solve("init" + frameStep(it), /*allowFrames=*/animEnabled_, par_.cgEveryInit);
             lower = solX_;
             lowerY = solY_;
-            enforceFences(lower, lowerY);
+            // No fence here: the lower bound is the unconstrained solve, and the
+            // fences reach it through the anchors (see enforceFences).
             res_.initIters = it + 1;
             const double h = hpwl(lower, lowerY);
             // Convergence on the wirelength, not on a round count. The improvement
@@ -2837,8 +2835,9 @@ SimplResult simplPlacer::Impl::run(const SimplParams &P, bool useFences) {
     // the same symptom -- "the legalizer cannot spread" versus "the loop never
     // accumulates" -- by holding the input fixed and asking whether repeated
     // projection alone converges.
-    if (const char *envRounds = std::getenv("KTPLACE_SIMPL_LAL_ONLY")) {
-        const int rounds = std::max(std::atoi(envRounds), 1);
+    if (const auto configured = SimplOptions().setInt("lal_only_rounds");
+        configured && *configured > 0) {
+        const int rounds = *configured;
         std::vector<double> lx = lower;
         std::vector<double> ly = lowerY;
         double prev = std::numeric_limits<double>::max();
@@ -3017,6 +3016,11 @@ SimplResult simplPlacer::Impl::run(const SimplParams &P, bool useFences) {
             lookAheadLegalize();
             upper = pinX_;
             upperY = pinY_;
+            // Look-ahead legalization spreads by density and knows nothing of
+            // fences, so the fence is applied to what it produces. The upper bound
+            // is both the next iteration's anchors -- which is how the solve learns
+            // of the fences -- and, at the end, the placement handed on.
+            enforceFences(upper, upperY);
             pinX_ = keepX;
             pinY_ = keepY;
             binCells(upper, upperY);
@@ -3225,7 +3229,7 @@ SimplResult simplPlacer::Impl::run(const SimplParams &P, bool useFences) {
         solve("g" + frameStep(it), /*allowFrames=*/true);
         lower = solX_;
         lowerY = solY_;
-        enforceFences(lower, lowerY);
+        // Unconstrained, as above: the anchors carry the fences into the solve.
         solveAcc += sTimer.elapsedSeconds();
         sTimer.lap();
     }
@@ -3263,6 +3267,10 @@ SimplResult simplPlacer::Impl::run(const SimplParams &P, bool useFences) {
         lowerY = bestLowerY;
         res_.bestIter = bestIter;
     }
+    // The placement handed on honours the fences on every path. After a normal
+    // run this changes nothing -- each upper bound was fenced when it was made --
+    // but the fallback above and KTPLACE_SIMPL_NO_LAL return a lower bound.
+    enforceFences(upper, upperY);
     res_.hpwlFinal = hpwl(upper, upperY);
     res_.hpwlLower = hpwl(lower, lowerY);
     res_.gap = res_.hpwlFinal - res_.hpwlLower;

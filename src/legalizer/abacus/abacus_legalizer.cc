@@ -5,6 +5,7 @@
 #include "legalizer/abacus/abacus_legalizer.h"
 
 #include "legalizer/abacus/abacus_design.h"
+#include "legalizer/abacus/abacus_options.h"
 #include "legalizer/kt_rowFence.h"
 #include "util/kt_log.h"
 #include "util/kt_reportTable.h"
@@ -54,8 +55,7 @@ struct FixedBox {
 /// cell can never hold it, and keeping them only makes the row search walk
 /// candidates that cannot win.
 double minSubrowSites() {
-    const char *e = std::getenv("KTPLACE_ABACUS_MIN_SUBROW_SITES");
-    return e ? std::atof(e) : 1.0;
+    return static_cast<double>(AbacusOptions::load().minSubrowSites);
 }
 
 /// Cost of a candidate that does not fit; no real cost reaches this.
@@ -65,8 +65,7 @@ constexpr double kInfeasible = std::numeric_limits<double>::infinity();
 /// be merged into one cluster. Abacus uses a small constant gap here; clustering
 /// is what stops a row's cells from being dragged apart one at a time.
 double clusterGapSites() {
-    const char *e = std::getenv("KTPLACE_ABACUS_CLUSTER_GAP");
-    return e ? std::atof(e) : 0.0;
+    return static_cast<double>(AbacusOptions::load().clusterGap);
 }
 
 /// A run of adjacent cells treated as one placeable item.

@@ -9,12 +9,9 @@
 
 #include "datamodel/kt_solutionMgr.h"
 #include "placer/simpl/simpl_design.h"
+#include "placer/simpl/simpl_options.h"
 #include "placer/simpl/simpl_placer.h"
-
-#include <cstddef>
-#include <memory>
-#include <string>
-#include <vector>
+#include "visualization/kt_plotOptions.h"
 
 namespace ktplace {
 
@@ -27,6 +24,19 @@ class simplDM {
 public:
     /// Takes ownership of the design the adaptor built.
     explicit simplDM(Design design);
+
+    // SimPL's options, read from the run's option store, and the parameters they
+    // configure. Built and reported here rather than by the flow, which does not
+    // know what SimPL has options.
+    [[nodiscard]] SimplOptions options() const;
+    [[nodiscard]] SimplParams params() const noexcept {
+        return par;
+    }
+
+    // Whether placement regions are honoured. False means `add_option simpl fences 0`.
+    [[nodiscard]] bool useFences() const noexcept {
+        return useFences_;
+    }
 
     [[nodiscard]] const Design &design() const noexcept {
         return d;
@@ -46,8 +56,12 @@ public:
     /// object.
     simplSolution run(const SimplParams &params, bool useFences);
 
+    friend simplDM buildSimplDM(const ktDM &db, const PlotOptions &plot);
+
 private:
     Design d;
+    SimplParams par;
+    bool useFences_ = true;
 };
 
 /// ktDM -> SimPL's own database.
@@ -58,7 +72,7 @@ private:
 ///
 /// `plotDir` is where the host should write snapshots when SimPL asks for one.
 /// SimPL itself never draws; it hands the positions to the sink installed here.
-[[nodiscard]] simplDM buildSimplDM(const ktDM &db, const std::string &plotDir);
+[[nodiscard]] simplDM buildSimplDM(const ktDM &db, const PlotOptions &plot);
 
 }  // namespace simpl
 }  // namespace ktplace

@@ -5,6 +5,7 @@
 #include "detailPlacer/fastdp/fastdp_placer.h"
 
 #include "detailPlacer/fastdp/fastdp_design.h"
+#include "detailPlacer/fastdp/fastdp_options.h"
 #include "util/kt_log.h"
 #include "util/kt_reportTable.h"
 #include "util/kt_scopedTimer.h"
@@ -1362,11 +1363,8 @@ DetailPlaceResult FastDetailedPlacer::Impl::place(const DetailPlaceParams &param
     // the price of re-ordering. Measured on adaptec1: k=8 costs about 36 of 52
     // seconds for a few tenths of a percent. Overridable so the curve can be
     // walked without a rebuild.
-    if (const char *e = std::getenv("KTPLACE_DP_WINDOW")) {
-        const long v = std::strtol(e, nullptr, 10);
-        if (v >= 2 && v <= 14) {
-            localWindow_ = static_cast<std::size_t>(v);
-        }
+    if (const long v = static_cast<long>(FastdpOptions().window); v >= 2 && v <= 14) {
+        localWindow_ = static_cast<std::size_t>(v);
     }
 
 
@@ -1509,7 +1507,7 @@ DetailPlaceResult FastDetailedPlacer::Impl::place(const DetailPlaceParams &param
 
     sweep("global", params.globalSwapPasses, res.globalSwaps, &Impl::globalSwap);
     sweep("vertical", params.verticalSwapPasses, res.verticalSwaps, &Impl::verticalSwap);
-    if (std::getenv("KTPLACE_DP_NO_MEDIAN") == nullptr) {
+    if (!FastdpOptions().noMedian) {
         sweep("median", params.localReorderPasses, res.medianMoves, &Impl::medianReorder);
     }
     sweep("reorder", params.localReorderPasses, res.reorderMoves, &Impl::localReorder);

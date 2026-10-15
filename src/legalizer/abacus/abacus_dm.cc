@@ -103,7 +103,9 @@ abacusDM buildAbacusDM(const ktDM &db) {
                          VisualFrame{info.series, info.step, info.numSteps, info.note, info.hpwl,
                                      info.hpwlInitial, info.overflow, info.mandatory});
     };
-    return abacusDM(std::move(design));
+    abacusDM result(std::move(design));
+    result.par.maxRowDistance = result.options().maxRowDistance;
+    return result;
 }
 
 namespace {
@@ -132,7 +134,12 @@ void reportRun(const LegalizeResult &res) {
 
 abacusDM::abacusDM(Design design) : d(std::move(design)) {}
 
+AbacusOptions abacusDM::options() const {
+    return AbacusOptions::load();
+}
+
 abacusSolution abacusDM::run(const LegalizeParams &params) {
+    options().report();
     ScopedTimer timer("legalize");
 
     AbacusLegalizer legalizer(d);

@@ -1,6 +1,5 @@
 #include "placer/simpl/simpl_dm.h"
 
-#include "datamodel/kt_die.h"
 #include "datamodel/kt_dm.h"
 #include "util/kt_reportTable.h"
 #include "util/kt_scopedTimer.h"
@@ -69,7 +68,8 @@ void copyFences(const ktplace::constraintMgr &mgr, Fences &out) {
 
 }  // namespace
 
-simplDM buildSimplDM(const ktDM &db, const std::string &plotDir) {
+simplDM buildSimplDM(const ktDM &db, const PlotOptions &plot) {
+    const std::string &plotDir = plot.dir;
     Design design;
     copyNetlist(db.getGraph(), design.graph);
     copyRows(db.getRows(), design.rows);
@@ -103,7 +103,16 @@ simplDM buildSimplDM(const ktDM &db, const std::string &plotDir) {
         visualizer.writeSvg(series, step, body);
     };
     design.artifactDir = plotDir;
-    return simplDM(std::move(design));
+
+    // SimPL's own parameters, from the options it was given and the cadence the
+    // visualizer was configured with. Built here so the flow has nothing to
+    // assemble and nowhere to get a second list wrong.
+    simplDM out(std::move(design));
+    out.par.traceEvery = plot.traceEvery;
+    out.par.cgEvery = plot.cgFrameEvery;
+    out.par.densityMaps = plot.densityMaps;
+    out.useFences_ = SimplOptions().fences;
+    return out;
 }
 
 namespace {
@@ -142,8 +151,13 @@ void reportRun(const SimplResult &res) {
 
 simplDM::simplDM(Design design) : d(std::move(design)) {}
 
+SimplOptions simplDM::options() const {
+    return SimplOptions::load();
+}
+
 simplSolution simplDM::run(const SimplParams &params, bool useFences) {
     ScopedTimer timer("simpl");
+    options().report();
 
     simplPlacer placer(d);
     const SimplResult result = placer.place(params, useFences);
