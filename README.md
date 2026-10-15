@@ -105,6 +105,7 @@ add_option visualizer anim 0
 | `visualizer` | `final_ppm` | also write the lossless PPM beside the PNG (`0`) |
 | `simpl` | `trace_every` | SVG frame every N global iterations; `0` turns them off (`1`) |
 | `simpl` | `cg_every` | SVG frame every N conjugate-gradient iterates; `0` turns them off (`0`) |
+| `simpl` | `init_net` | initial placement net model: `star` (placement-independent star model), `b2b` (the paper's Bound2Bound), or `star_b2b` (`star`) |
 | `simpl` | `grid`, `cg_tol`, `init_iters`, `iters`, `seed`, `fences`, `density`, `alpha_base` | solver settings |
 | `ntuplace1` | `leaf_cells`, `max_levels`, `retries`, `verbose` | partitioner settings |
 | `abacus` | `max_row_dist`, `min_subrow_sites` | legalizer settings |
