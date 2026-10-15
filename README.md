@@ -110,7 +110,7 @@ add_option visualizer anim 0
 | `abacus` | `max_row_dist`, `min_subrow_sites` | legalizer settings |
 | `abacus` | `frame_every` | SVG frame every N cells placed; `0` keeps only the first and last (`0`) |
 | `multirow` | `macro_rows` | cells spanning more rows than this are legalized first as macros (`8`) |
-| `fastdp` | `window`, `no_median` | detailed placer settings |
+| `fastdp` | `window`, `wt1`, `wt2`, `max_iterations`, `min_improvement` | detailed placer: local re-ordering window (`3`), overlap penalty weights (`0.1`, `1`), iteration limit and stop threshold |
 
 Each component's keys and defaults are listed in its `*_options.h`. An unknown
 component is an error; a value of the wrong type is reported and the default is
