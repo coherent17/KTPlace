@@ -75,7 +75,8 @@ Rules a stage follows:
    needs it.
 4. Writes `placed.pl`.
 5. `drawPictures()`: closes the snapshot file, replays it into the `Visualizer`, draws the final still
-   and closes the animation from the committed placement, then deletes the snapshot file. The `draw`
+   and closes the animation from the committed placement, then deletes the snapshot file
+   unless `add_option visualizer keep_snapshots 1` asks to keep it. The `draw`
    row of the timing table is this step.
 
 ## The snapshot file

@@ -103,6 +103,7 @@ add_option visualizer anim 0
 | `visualizer` | `anim_blend` | GIF frames per placement step: the snapshot plus N-1 frames interpolated from the previous one; `1` turns blending off (`3`) |
 | `visualizer` | `final_zoom` | final still scale, vs 768x768 (`8`) |
 | `visualizer` | `final_ppm` | also write the lossless PPM beside the PNG (`0`) |
+| `visualizer` | `keep_snapshots` | keep `plots/snapshots.ktsnap` after the pictures are drawn (`0`) |
 | `simpl` | `trace_every` | SVG frame every N global iterations; `0` turns them off (`1`) |
 | `simpl` | `cg_every` | SVG frame every N conjugate-gradient iterates; `0` turns them off (`0`) |
 | `simpl` | `init_net` | initial placement net model: `star` (placement-independent star model), `b2b` (the paper's Bound2Bound), or `star_b2b` (`star`) |
@@ -123,7 +124,7 @@ placement matters, set `simpl trace_every 0` (the HPWL is the same), or pass
 
 The stages do not draw while they run. They record their snapshots to
 `plots/snapshots.ktsnap`, and the flow draws the pictures from it once `placed.pl`
-is written, then deletes it. On adaptec1 that takes global placement from 26 s
+is written, then deletes it (`visualizer keep_snapshots 1` keeps it). On adaptec1 that takes global placement from 26 s
 to 10 s. [docs/visualization.md](docs/visualization.md) covers how stages, the
 flow and the visualizer fit together, and the snapshot file format.
 

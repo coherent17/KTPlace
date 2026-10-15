@@ -21,6 +21,7 @@ PlotOptions PlotOptions::fromOptions() {
     out.finalZoom = opts.finalZoom;
     out.writePpm = opts.finalPpm;
     out.blendFrames = opts.animBlend;
+    out.keepSnapshots = opts.keepSnapshots;
     reportOptions(opts);
     return out;
 }

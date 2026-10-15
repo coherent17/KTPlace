@@ -249,6 +249,10 @@ void FlowMgr::Impl::drawPictures() {
                           &db->constraints());
     Visualizer::instance().finalImage(db->getGraph(), &db->constraints(), db->hpwl());
     finishAnimation();
+    if (plot.keepSnapshots) {
+        ktlog.echo("Kept the recorded snapshots: {}", snapshots->path());
+        return;
+    }
     std::error_code ec;
     std::filesystem::remove(snapshots->path(), ec);
 }
