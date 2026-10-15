@@ -84,7 +84,6 @@ void reportRun(const DetailPlaceResult &res) {
     table.setHeaders({"metric", "value"});
     table.addRow({"global swaps", fmt::format("{}", res.globalSwaps)});
     table.addRow({"vertical swaps", fmt::format("{}", res.verticalSwaps)});
-    table.addRow({"median moves", fmt::format("{}", res.medianMoves)});
     table.addRow({"reorder moves", fmt::format("{}", res.reorderMoves)});
     table.addRow({"cluster moves", fmt::format("{}", res.clusterMoves)});
     table.addRow({"HPWL before", fmt::format("{:.6e}", res.hpwlBefore)});
