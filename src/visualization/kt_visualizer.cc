@@ -12,7 +12,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
-#include <fmt/format.h>
+#include <format>
 #include <fstream>
 #include <iomanip>
 #include <iterator>
@@ -179,155 +179,20 @@ void Visualizer::frame(const Graph &graph, const std::vector<float> &x, const st
     }
 }
 
-void Visualizer::densityMap(const DensityField &f) {
+void Visualizer::writeSvg(const std::string &series, const std::string &step,
+                          const std::string &body) {
     if (!drawingNow) {
         return;
     }
+    // A stage that numbers its own diagnostics passes the number as text; one
+    // that does not leaves it empty and the name stands on its own.
     VisualFrame shot;
-    shot.series = f.series;
-    shot.step = f.step;
-
-    std::ostringstream svg;
-    // One rectangle per bin, coloured by occ/avail. This is the view that answers
-    // "is the lower bound actually spreading": a cell scatter plot of 210k cells
-    // still looks like a blob at this scale, whereas the density field is
-    // readable bin by bin.
-    constexpr int W = 900, H = 620, PAD = 52;
-    svg << "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"" << W << "\" height=\"" << H
-        << "\">\n<rect width=\"100%\" height=\"100%\" fill=\"#101418\"/>\n";
-    svg << "<title>" << f.note << "</title>\n";
-    const double dieW = std::max(f.die[2] - f.die[0], 1e-9);
-    const double dieH = std::max(f.die[3] - f.die[1], 1e-9);
-    const double sx = (W - 2 * PAD) / dieW;
-    const double sy = (H - 2 * PAD) / dieH;
-    const auto toX = [&](double x) {
-        return PAD + (x - f.die[0]) * sx;
-    };
-    const auto toY = [&](double y) {
-        return H - PAD - (y - f.die[1]) * sy;
-    };
-    const double bw = std::max(1.0, f.dx * sx);
-    const double bh = std::max(1.0, f.dy * sy);
-
-    for (std::size_t iy = 0; iy < f.nby; ++iy) {
-        for (std::size_t ix = 0; ix < f.nbx; ++ix) {
-            const std::size_t k = iy * f.nbx + ix;
-            if (!(f.avail[k] > 0.0)) {
-                continue;  // no sites at all: not part of the density problem
-            }
-            const double u = f.occ[k] / f.avail[k];
-            // Blue (empty) -> green (at capacity) -> red (overfull). Piecewise
-            // linear in u, so the eye reads a fill level directly.
-            int r, g, b;
-            if (u > 1.0) {
-                const double t = std::min((u - 1.0) / 2.0, 1.0);
-                r = 255;
-                g = static_cast<int>(90.0 * (1.0 - t));
-                b = static_cast<int>(90.0 * (1.0 - t));
-            } else {
-                r = static_cast<int>(40.0 + 90.0 * u);
-                g = static_cast<int>(90.0 + 150.0 * u);
-                b = static_cast<int>(190.0 * (1.0 - u));
-            }
-            const double binLoX = f.x0 + static_cast<double>(ix) * f.dx;
-            const double binLoY = f.y0 + static_cast<double>(iy) * f.dy;
-            svg << "<rect x=\"" << toX(binLoX) << "\" y=\"" << toY(binLoY + f.dy) << "\" width=\""
-                << bw << "\" height=\"" << bh << "\" fill=\"rgb(" << r << ',' << g << ',' << b
-                << ")\"/>\n";
-        }
-    }
-    // Fixed macros, outlined, so blockage is distinguishable from legal space.
-    for (const std::array<double, 4> &m : f.blockages) {
-        if (!(m[2] > 0.0) || !(m[3] > 0.0)) {
-            continue;
-        }
-        svg << "<rect x=\"" << toX(m[0]) << "\" y=\"" << toY(m[1] + m[3]) << "\" width=\""
-            << (m[2] * sx) << "\" height=\"" << (m[3] * sy)
-            << "\" fill=\"#bdbdbd\" fill-opacity=\"0.45\" stroke=\"#bdbdbd\" "
-               "stroke-width=\"0.5\"/>\n";
-    }
-    svg << "<text x=\"" << PAD
-        << "\" y=\"24\" fill=\"#e0e0e0\" font-family=\"monospace\" "
-           "font-size=\"14\">bin density "
-        << f.note << "  ovf " << fmt::format("{:.4f}", f.overflow) << "</text>\n";
-    // Legend.
-    constexpr int kLegend = 12, kLegendW = 46;
-    const int lx0 = PAD, ly0 = H - PAD + 10;
-    for (int i = 0; i < kLegend; ++i) {
-        const double u = 2.0 * static_cast<double>(i) / (kLegend - 1);  // 0 .. 2
-        int r, g, b;
-        if (u > 1.0) {
-            const double t = std::min((u - 1.0) / 2.0, 1.0);
-            r = 255;
-            g = static_cast<int>(90.0 * (1.0 - t));
-            b = static_cast<int>(90.0 * (1.0 - t));
-        } else {
-            r = static_cast<int>(40.0 + 90.0 * u);
-            g = static_cast<int>(90.0 + 150.0 * u);
-            b = static_cast<int>(190.0 * (1.0 - u));
-        }
-        svg << "<rect x=\"" << (lx0 + i * kLegendW) << "\" y=\"" << ly0 << "\" width=\"" << kLegendW
-            << "\" height=\"9\" fill=\"rgb(" << r << ',' << g << ',' << b << ")\"/>\n";
-    }
-    svg << "<text x=\"" << lx0 << "\" y=\"" << (ly0 + 22)
-        << "\" fill=\"#9e9e9e\" "
-           "font-family=\"monospace\" font-size=\"10\">utilisation 0 -> 1 -> 2 (red = "
-           "overfull)</text>\n";
-    svg << "</svg>\n";
-
+    shot.series = series;
+    shot.step = step.empty() ? 0 : static_cast<std::size_t>(std::stoull(step));
     std::ofstream out(framePath(shot));
     if (out.is_open()) {
-        out << svg.str();
+        out << body;
     }
-}
-
-void Visualizer::boundsCurve(const std::string &name, const std::string &title,
-                             const std::vector<BoundsSample> &curve) {
-    if (!enabled()) {
-        return;
-    }
-    std::ofstream csv(dir + "/" + name + ".csv");
-    csv << "iter,hpwl_upper,hpwl_lower,gap\n";
-    for (std::size_t i = 0; i < curve.size(); ++i) {
-        csv << i << ',' << curve[i].upper << ',' << curve[i].lower << ','
-            << (curve[i].upper - curve[i].lower) << '\n';
-    }
-    // Lower and upper HPWL against iteration: the two bounds meeting is the
-    // whole convergence story, so it is worth a picture.
-    double mx = 0.0;
-    for (const BoundsSample &p : curve) {
-        mx = std::max({mx, p.upper, p.lower});
-    }
-    const int W = 780, H = 340, PAD = 60;
-    std::ofstream svg(dir + "/" + name + ".svg");
-    svg << "<svg xmlns='http://www.w3.org/2000/svg' width='" << W << "' height='" << H
-        << "'>\n<rect width='100%' height='100%' fill='white'/>\n"
-        << "<text x='" << PAD << "' y='24' font-family='monospace' font-size='14'>" << title
-        << "</text>\n";
-    const auto px = [&](std::size_t i) {
-        return PAD + (W - 2 * PAD) * (curve.size() < 2 ? 0.0
-                                                       : static_cast<double>(i) /
-                                                             static_cast<double>(curve.size() - 1));
-    };
-    const auto py = [&](double v) {
-        return H - PAD - (H - 2 * PAD) * std::clamp(v / std::max(mx, 1e-12), 0.0, 1.0);
-    };
-    svg << "<line x1='" << PAD << "' y1='" << (H - PAD) << "' x2='" << (W - PAD) << "' y2='"
-        << (H - PAD) << "' stroke='#333'/>\n<line x1='" << PAD << "' y1='" << PAD << "' x2='" << PAD
-        << "' y2='" << (H - PAD) << "' stroke='#333'/>\n";
-    svg << "<polyline fill='none' stroke='#2471a3' stroke-width='2' points='";
-    for (std::size_t i = 0; i < curve.size(); ++i) {
-        svg << px(i) << ',' << py(curve[i].lower) << ' ';
-    }
-    svg << "'/><polyline fill='none' stroke='#c0392b' stroke-width='2' points='";
-    for (std::size_t i = 0; i < curve.size(); ++i) {
-        svg << px(i) << ',' << py(curve[i].upper) << ' ';
-    }
-    svg << "'/>\n<text x='" << (W - PAD - 130) << "' y='" << (PAD + 12)
-        << "' font-family='monospace' font-size='12' fill='#2471a3'>lower bound</text>\n"
-        << "<text x='" << (W - PAD - 130) << "' y='" << (PAD + 28)
-        << "' font-family='monospace' font-size='12' fill='#c0392b'>upper "
-           "bound</text>\n</svg>\n";
 }
 
 void Visualizer::finalImage(const Graph &graph, const constraintMgr *fences, double hpwl) {
@@ -498,13 +363,12 @@ constexpr double kImageH = 768.0;
 /// Filename stem of the per-iteration stills that writeAnimatedGif() collects.
 constexpr const char *kFramePrefix = "frame_";
 
-// fmt::format rather than an ostringstream: a frame calls this four times per
+// std::format rather than an ostringstream: a frame calls this four times per
 // cell, and constructing a stream per number was most of the cost of writing one.
 // "{:.Nf}" is the same correctly rounded fixed notation as std::fixed with
-// setprecision(N), so the text is unchanged. Qualified, because inside this
-// namespace `fmt` names this function rather than the library.
+// setprecision(N), so the text is unchanged.
 std::string fmt(double v, int prec = 1) {
-    return ::fmt::format("{:.{}f}", v, prec);
+    return std::format("{:.{}f}", v, prec);
 }
 
 std::string sci(double v) {
@@ -1666,11 +1530,10 @@ void writeFrameSvg(const std::string &path, const Graph &g, const std::vector<fl
                 // is never drawn wider than it is.
                 const double w = std::max(0.75, vert.width * vp.sx);
                 const double h = std::max(0.75, vert.height * vp.sy);
-                ::fmt::format_to(std::back_inserter(text),
-                                 "<rect x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\"/>\n",
-                                 fmt(toPxX(vp, x[v]), prec),
-                                 fmt(toPxY(vp, y[v] + vert.height), prec), fmt(w, prec),
-                                 fmt(h, prec));
+                std::format_to(std::back_inserter(text),
+                               "<rect x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\"/>\n",
+                               fmt(toPxX(vp, x[v]), prec), fmt(toPxY(vp, y[v] + vert.height), prec),
+                               fmt(w, prec), fmt(h, prec));
             }
         });
         for (const std::string &text : chunks) {

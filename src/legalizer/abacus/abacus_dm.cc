@@ -4,6 +4,7 @@
 #include "datamodel/kt_dm.h"
 #include "util/kt_reportTable.h"
 #include "util/kt_scopedTimer.h"
+#include "visualization/kt_visualizer.h"
 
 namespace ktplace::abacus {
 
@@ -42,16 +43,19 @@ void copyNets(const ktplace::Graph &graph, std::vector<Pin> &pins, std::vector<N
     }
 }
 
-void copyRows(const std::vector<ktplace::RowInfo> &rows, std::vector<RowInfo> &out) {
+void copyRows(const std::vector<ktplace::RowInfo> &rows,
+              const std::vector<std::vector<ktplace::RowPiece>> &pieces,
+              std::vector<RowInfo> &out) {
     out.reserve(rows.size());
-    for (const ktplace::RowInfo &r : rows) {
+    for (std::size_t i = 0; i < rows.size(); ++i) {
+        const ktplace::RowInfo &r = rows[i];
         RowInfo info;
         info.coordinate = r.coordinate;
         info.height = r.height;
         info.sitePitch = r.pitch();
-        info.subrows.reserve(r.subrows.size());
-        for (const ktplace::SubrowInfo &s : r.subrows) {
-            info.subrows.push_back(Subrow{s.xlo(), s.xhi(r.pitch())});
+        info.subrows.reserve(pieces[i].size());
+        for (const ktplace::RowPiece &p : pieces[i]) {
+            info.subrows.push_back(Subrow{p.xlo, p.xhi, p.region});
         }
         out.push_back(std::move(info));
     }
@@ -79,16 +83,31 @@ abacusDM buildAbacusDM(const ktDM &db) {
     Design design;
     copyCells(db.getGraph(), design.cells);
     copyNets(db.getGraph(), design.pins, design.nets);
-    copyRows(db.getRows(), design.rows);
+    copyRows(db.getRows(), db.fencedSubrows(), design.rows);
     copyFences(db.constraints(), design.fences);
     design.die = placementDieBox(db.die(), db.getGraph());
 
-    // No frame hook: what a run draws is the flow's to decide, so it installs
-    // one on the result.
+    // The stage decides when a snapshot matters; the visualizer decides where it
+    // lands and what it is called, because it is the one that holds the shared
+    // netlist and the output settings.
+    // The stage decides when a snapshot matters; the visualizer decides where it
+    // lands and what it is called, because it is the one that holds the output
+    // settings. It is a singleton, and the netlist and fences belong to the
+    // caller, so everything the hook needs outlives the design it is stored in.
+    Visualizer &visualizer = Visualizer::instance();
+    visualizer.beginStage({"legalize", "", 0});
+    const Graph *netlist = &db.getGraph();
+    const constraintMgr *fences = &db.constraints();
+    const std::array<double, 4> dieBox = design.die;
+    design.onFrame = [&visualizer, netlist, fences, dieBox](const std::vector<float> &xs,
+                                                            const std::vector<float> &ys,
+                                                            const abacus::FrameInfo &info) {
+        visualizer.frame(*netlist, xs, ys, dieBox, fences,
+                         VisualFrame{info.series, info.step, info.numSteps, info.note, info.hpwl,
+                                     info.hpwlInitial, info.overflow, info.mandatory});
+    };
     abacusDM result(std::move(design));
-    const AbacusOptions options = result.options();
-    result.par.maxRowDistance = options.maxRowDistance;
-    result.par.frameEvery = options.frameEvery;
+    result.opts = loadOptions<AbacusOptions>();
     return result;
 }
 
@@ -118,16 +137,12 @@ void reportRun(const LegalizeResult &res) {
 
 abacusDM::abacusDM(Design design) : d(std::move(design)) {}
 
-AbacusOptions abacusDM::options() const {
-    return AbacusOptions::load();
-}
-
-abacusSolution abacusDM::run(const LegalizeParams &params) {
-    options().report();
+abacusSolution abacusDM::run() {
+    reportOptions(opts);
     ScopedTimer timer("legalize");
 
     AbacusLegalizer legalizer(d);
-    const LegalizeResult result = legalizer.legalize(params);
+    const LegalizeResult result = legalizer.legalize(opts);
     reportRun(result);
 
     // Only the placement crosses the boundary. The statistics are printed above

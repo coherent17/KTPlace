@@ -11,16 +11,16 @@
 // every other cell out of it.
 
 #define BOOST_TEST_MODULE ktplace_simpl
+#define BOOST_TEST_DYN_LINK
 
 #include "constraint/kt_constraintMgr.h"
 #include "datamodel/kt_dm.h"
-#include "datamodel/kt_optionDb.h"
 #include "placer/simpl/simpl_dm.h"
 #include "placer/simpl/simpl_placer.h"
 #include "util/kt_log.h"
+#include "visualization/kt_plotOptions.h"
 
-#include <boost/test/included/unit_test.hpp>
-#include <optional>
+#include <boost/test/unit_test.hpp>
 #include <string>
 #include <utility>
 #include <vector>
@@ -106,72 +106,18 @@ Built buildDesign(ktDM &db, bool withFence, bool pullOthersIn = false) {
 /// Run SimPL and commit its answer.
 SimplResult place(ktDM &db, bool useFences) {
     // No plots: this checks the solver, not what it draws.
-    simpl::simplDM dm = simpl::buildSimplDM(db);
+    simpl::simplDM dm = simpl::buildSimplDM(db, PlotOptions{});
     simplPlacer placer(dm.design());
-    SimplParams params;
-    params.maxIters = 30;
-    const SimplResult res = placer.place(params, useFences);
+    SimplOptions options;
+    options.maxIters = 30;
+    options.fences = useFences;
+    const SimplResult res = placer.place(options);
     db.setGPSolution(placer.solution());
     return res;
 }
 
-/// Sets an option for one scope, so a failed check cannot leak it into the
-/// cases that follow.
-struct ScopedOption {
-    ScopedOption(std::string component, std::string key, OptionValue value)
-        : previous(OptionDb::instance().find(component, key)) {
-        OptionDb::instance().set(std::move(component), std::move(key), std::move(value));
-    }
-
-    ~ScopedOption() {
-        OptionDb::instance().clear();
-        (void)previous;
-    }
-
-    ScopedOption(const ScopedOption &) = delete;
-    ScopedOption &operator=(const ScopedOption &) = delete;
-
-private:
-    std::optional<OptionValue> previous;
-};
-
-/// Lower-left corner inside the fence: the engine's own containment test, and
-/// the one SimPL's clamp and push-out use. Global placement only promises this;
-/// keeping whole cell boxes clear of a fence is the legalizer's job.
 bool inFence(double x, double y) {
     return x >= kFx0 && x <= kFx1 && y >= kFy0 && y <= kFy1;
-}
-
-/// What SimPL offered its host over one run, with every hook installed.
-struct Offered {
-    std::size_t lss = 0;
-    std::size_t cgInit = 0;
-    std::size_t density = 0;
-    std::size_t bounds = 0;
-};
-
-Offered offered(std::size_t cgEveryInit = 1) {
-    ktDM db;
-    (void)buildDesign(db, /*withFence=*/false);
-    simpl::simplDM dm = simpl::buildSimplDM(db);
-    Offered n;
-    dm.setFrameHook(
-        [&n](const std::vector<float> &, const std::vector<float> &, const simpl::FrameInfo &info) {
-            n.lss += info.series == "LSS" ? 1u : 0u;
-            n.cgInit += info.series.starts_with("cg_init") ? 1u : 0u;
-        });
-    dm.setDensityHook([&n](const simpl::DensityInfo &) {
-        ++n.density;
-    });
-    dm.setBoundsHook([&n](const std::vector<simpl::BoundsPoint> &curve) {
-        n.bounds = curve.size();
-    });
-    simplPlacer placer(dm.design());
-    SimplParams params;
-    params.maxIters = 30;
-    params.cgEveryInit = cgEveryInit;
-    (void)placer.place(params, /*useFences=*/false);
-    return n;
 }
 
 }  // namespace
@@ -207,30 +153,6 @@ BOOST_AUTO_TEST_CASE(the_returned_placement_keeps_other_cells_out_of_the_fence) 
     BOOST_TEST(inside == 0u);
 }
 
-BOOST_AUTO_TEST_CASE(the_lower_bound_handed_on_without_look_ahead_is_fenced_too) {
-    // `add_option simpl no_lal 1` returns the overlapping lower bound, which is
-    // never fenced during the run; the fence is applied to it on the way out.
-    const ScopedOption noLal("simpl", "no_lal", OptionValue{1});
-    ktDM db;
-    const Built b = buildDesign(db, /*withFence=*/true, /*pullOthersIn=*/true);
-    const SimplResult res = place(db, /*useFences=*/true);
-
-    BOOST_TEST(!res.usedLookAhead);
-    BOOST_TEST(res.fenceViolations == 0u);
-    std::size_t outside = 0;
-    for (const std::size_t id : b.members) {
-        const auto [x, y] = db.getCellPosition(id);
-        outside += inFence(x, y) ? 0u : 1u;
-    }
-    std::size_t inside = 0;
-    for (const std::size_t id : b.others) {
-        const auto [x, y] = db.getCellPosition(id);
-        inside += inFence(x, y) ? 1u : 0u;
-    }
-    BOOST_TEST(outside == 0u);
-    BOOST_TEST(inside == 0u);
-}
-
 BOOST_AUTO_TEST_CASE(the_wirelength_solve_is_not_fenced) {
     // The lower bound is the unconstrained solve; fences reach it only through
     // the anchors, which the warm-up does not have. So the warm-up must come out
@@ -263,35 +185,6 @@ BOOST_AUTO_TEST_CASE(fences_can_still_be_turned_off_to_measure_their_cost) {
         outside += inFence(x, y) ? 0u : 1u;
     }
     BOOST_TEST(outside > 0u);
-}
-
-BOOST_AUTO_TEST_CASE(snapshot_cadence_is_simpls_own_option) {
-    const Offered byDefault = offered();
-    BOOST_TEST(byDefault.lss > 0u);
-    BOOST_TEST(byDefault.density > 0u);
-    BOOST_TEST(byDefault.bounds > 0u);
-    {
-        const ScopedOption off("simpl", "trace_every", OptionValue{0});
-        const Offered n = offered();
-        BOOST_TEST(n.lss == 0u);
-        // The bounds are a record of the solve, not a snapshot cadence.
-        BOOST_TEST(n.bounds == byDefault.bounds);
-    }
-    {
-        const ScopedOption off("simpl", "density_maps", OptionValue{0});
-        const Offered n = offered();
-        BOOST_TEST(n.density == 0u);
-        BOOST_TEST(n.lss == byDefault.lss);
-    }
-}
-
-BOOST_AUTO_TEST_CASE(a_set_warm_up_cadence_overrides_the_one_simpl_was_given) {
-    // The flow hands SimPL cg_every_init = 0 when the run is not animating; a
-    // script that asks for the frames anyway gets them.
-    BOOST_TEST(offered(/*cgEveryInit=*/0).cgInit == 0u);
-    BOOST_TEST(offered(/*cgEveryInit=*/1).cgInit > 0u);
-    const ScopedOption on("simpl", "cg_every_init", OptionValue{1});
-    BOOST_TEST(offered(/*cgEveryInit=*/0).cgInit > 0u);
 }
 
 BOOST_AUTO_TEST_SUITE_END()

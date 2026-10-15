@@ -57,12 +57,9 @@ constexpr double kBalanceSlack = 0.02;
 
 class RatioPlacer::Impl {
 public:
-    explicit Impl(ktDM &db) : db_(db), graph_(db.getGraph()) {}
+    explicit Impl(ntuplace1::Design &design) : design_(design) {}
 
-    // Installed by the host; see RatioPlacer::setFrameHook.
-    RatioFrameHook onFrame_;
-
-    RatioPlaceResult place(const RatioPlaceParams &params);
+    RatioPlaceResult place(const Ntuplace1Options &params);
 
 private:
     void build();
@@ -88,8 +85,7 @@ private:
     void setRegionCentre(const RatioRegion &r);
     void writeFrame(std::size_t depth, const char *note) const;
 
-    ktDM &db_;
-    const Graph &graph_;
+    ntuplace1::Design &design_;
     std::vector<std::uint32_t> mov_;  // movable, non-terminal vertex ids
     std::vector<double> area_;        // area of each movable
     // Fence of each movable, or constraintMgr::kNoRegion. Fences are exclusive
@@ -111,7 +107,7 @@ private:
     // refined as the recursion descends. Pins outside a region are read from here
     // when a cut decides which side they pull towards.
     std::vector<double> posX_, posY_;
-    RatioPlaceParams params_;
+    Ntuplace1Options params_;
     const constraintMgr *fences_ = nullptr;
     RatioPlaceResult res_;
 
@@ -126,9 +122,9 @@ private:
 };
 
 void RatioPlacer::Impl::build() {
-    const std::size_t nv = graph_.getNumCells();
+    const std::size_t nv = design_.cells.size();
     for (std::size_t v = 0; v < nv; ++v) {
-        const Vertex &vert = graph_.getCell(v);
+        const ntuplace1::Cell &vert = design_.cells[v];
         if (vert.isFixed || vert.isTerminal) {
             // Bookshelf marks fixed macros as terminals (every one of adaptec1's 543
             // is), so a "fixed and not terminal" test finds no obstacles at all.
@@ -139,7 +135,7 @@ void RatioPlacer::Impl::build() {
         }
         mov_.push_back(static_cast<std::uint32_t>(v));
         area_.push_back(vert.width * vert.height);
-        region_.push_back(vert.regionId);
+        region_.push_back(vert.region);
     }
     res_.numMovable = mov_.size();
     res_.numFixed = fixedRects_.size();
@@ -154,11 +150,11 @@ void RatioPlacer::Impl::build() {
     // A block with two pins on one net is still one block of that net; counted
     // twice, its side count never drops to 1 and FM never sees it un-cut the net.
     std::vector<std::size_t> lastNet(mov_.size(), std::numeric_limits<std::size_t>::max());
-    for (std::size_t v = 0; v < graph_.getNumNets(); ++v) {
+    for (std::size_t v = 0; v < design_.nets.size(); ++v) {
         HyperNet n;
-        for (const std::size_t pinId : graph_.getNetPins(v)) {
-            const Pin &e = graph_.getPin(pinId);
-            const Vertex &pin = graph_.getCell(e.cellId);
+        for (const std::size_t pinId : design_.nets[v].pins) {
+            const ntuplace1::Pin &e = design_.pins[pinId];
+            const ntuplace1::Cell &pin = design_.cells[e.cellId];
             if (indexOf[e.cellId] != kNoIndex) {
                 const std::uint32_t c = indexOf[e.cellId];
                 if (lastNet[c] != v) {
@@ -167,9 +163,8 @@ void RatioPlacer::Impl::build() {
                 }
                 continue;
             }
-            // Bookshelf pin offsets are from the cell's centre.
-            const double px = pin.x + 0.5 * pin.width + e.offsetX;
-            const double py = pin.y + 0.5 * pin.height + e.offsetY;
+            const double px = pin.x + e.offsetX;
+            const double py = pin.y + e.offsetY;
             if (n.fixedPins == 0) {
                 n.fx0 = n.fx1 = px;
                 n.fy0 = n.fy1 = py;
@@ -203,9 +198,9 @@ void RatioPlacer::Impl::build() {
 
     box_ = {std::numeric_limits<double>::max(), std::numeric_limits<double>::max(),
             -std::numeric_limits<double>::max(), -std::numeric_limits<double>::max()};
-    for (const RowInfo &r : db_.getRows()) {
-        for (const auto &sr : r.subrows) {
-            const AreaRect rr{sr.xlo(), r.coordinate, sr.xhi(r.pitch()), r.coordinate + r.height};
+    for (const ntuplace1::RowInfo &r : design_.rows) {
+        for (const ntuplace1::Subrow &sr : r.subrows) {
+            const AreaRect rr{sr.xlo, r.coordinate, sr.xhi, r.coordinate + r.height};
             if (rr.x1 <= rr.x0) {
                 continue;
             }
@@ -217,7 +212,7 @@ void RatioPlacer::Impl::build() {
         }
     }
     if (rowRects_.empty()) {
-        box_ = db_.placementDieBox();  // no rows: the die is all there is
+        box_ = design_.die;
     }
     // Sorted by y so freeAreaIn only visits the rows a region spans, not all of
     // them on every cut.
@@ -516,22 +511,21 @@ void RatioPlacer::Impl::placeLeaf(const RatioRegion &r) {
 }
 
 void RatioPlacer::Impl::writeFrame(std::size_t depth, const char *note) const {
-    // The host draws; with no hook there is nothing to build the arrays for.
-    if (!onFrame_) {
+    if (!design_.onFrame || (design_.wantsFrame && !design_.wantsFrame())) {
         return;
     }
-    std::vector<float> xs(graph_.getNumCells(), 0.0f);
-    std::vector<float> ys(graph_.getNumCells(), 0.0f);
-    for (std::size_t v = 0; v < graph_.getNumCells(); ++v) {
-        xs[v] = static_cast<float>(graph_.getCell(v).x);
-        ys[v] = static_cast<float>(graph_.getCell(v).y);
+    std::vector<float> xs(design_.cells.size(), 0.0f);
+    std::vector<float> ys(design_.cells.size(), 0.0f);
+    for (std::size_t v = 0; v < design_.cells.size(); ++v) {
+        xs[v] = static_cast<float>(design_.cells[v].x);
+        ys[v] = static_cast<float>(design_.cells[v].y);
     }
     for (std::size_t i = 0; i < mov_.size(); ++i) {
-        const Vertex &v = graph_.getCell(mov_[i]);
+        const ntuplace1::Cell &v = design_.cells[mov_[i]];
         xs[mov_[i]] = static_cast<float>(posX_[i] - 0.5 * v.width);
         ys[mov_[i]] = static_cast<float>(posY_[i] - 0.5 * v.height);
     }
-    onFrame_(xs, ys, RatioFrameInfo{note, depth, params_.maxLevels});
+    design_.onFrame(xs, ys, ntuplace1::FrameInfo{note, depth, params_.maxLevels});
 }
 
 int RatioPlacer::Impl::forcedSide(int region, const RatioRegion &r0, const RatioRegion &r1) const {
@@ -569,14 +563,14 @@ std::size_t RatioPlacer::Impl::applyFences() {
     // legalizer then keeps whole cells on the right side.
     std::size_t outside = 0;
     for (std::size_t i = 0; i < mov_.size(); ++i) {
-        auto [x, y] = db_.getCellPosition(mov_[i]);
+        double &x = design_.cells[mov_[i]].x;
+        double &y = design_.cells[mov_[i]].y;
         if (region_[i] != constraintMgr::kNoRegion) {
             fences_->clampToRegion(region_[i], x, y);
             outside += fences_->contains(region_[i], x, y) ? 0u : 1u;
         } else {
             (void)fences_->pushOutOfRegions(x, y, box_[0], box_[1], box_[2], box_[3]);
         }
-        db_.setCellPosition(mov_[i], x, y);
     }
     return outside;
 }
@@ -692,16 +686,9 @@ void RatioPlacer::Impl::divide(RatioRegion r) {
     divide(std::move(r1));
 }
 
-Ntuplace1Options RatioPlacer::options() const {
-    const Ntuplace1Options out = Ntuplace1Options::load();
-    out.report();
-    return out;
-}
-
-
-RatioPlaceResult RatioPlacer::Impl::place(const RatioPlaceParams &params) {
+RatioPlaceResult RatioPlacer::Impl::place(const Ntuplace1Options &params) {
     params_ = params;
-    fences_ = &db_.constraints();
+    fences_ = &design_.fences;
     build();
     if (mov_.empty()) {
         return res_;
@@ -724,12 +711,9 @@ RatioPlaceResult RatioPlacer::Impl::place(const RatioPlaceParams &params) {
     // posX_/posY_ are centres; the database holds lower-left corners, kept inside
     // the placement area.
     for (std::size_t i = 0; i < mov_.size(); ++i) {
-        const Vertex &v = graph_.getCell(mov_[i]);
-        const double x =
-            std::clamp(posX_[i] - 0.5 * v.width, box_[0], std::max(box_[0], box_[2] - v.width));
-        const double y =
-            std::clamp(posY_[i] - 0.5 * v.height, box_[1], std::max(box_[1], box_[3] - v.height));
-        db_.setCellPosition(mov_[i], x, y);
+        ntuplace1::Cell &v = design_.cells[mov_[i]];
+        v.x = std::clamp(posX_[i] - 0.5 * v.width, box_[0], std::max(box_[0], box_[2] - v.width));
+        v.y = std::clamp(posY_[i] - 0.5 * v.height, box_[1], std::max(box_[1], box_[3] - v.height));
     }
     res_.fenceRegions = fences_ != nullptr ? fences_->numRegions() : 0;
     res_.fenceViolations = applyFences();
@@ -763,17 +747,13 @@ RatioPlaceResult RatioPlacer::Impl::place(const RatioPlaceParams &params) {
     return res_;
 }
 
-RatioPlacer::RatioPlacer(ktDM &db) : pImpl(new Impl(db)) {}
+RatioPlacer::RatioPlacer(ntuplace1::Design &design) : pImpl(new Impl(design)) {}
 RatioPlacer::~RatioPlacer() = default;
 RatioPlacer::RatioPlacer(RatioPlacer &&) noexcept = default;
 RatioPlacer &RatioPlacer::operator=(RatioPlacer &&) noexcept = default;
 
-RatioPlaceResult RatioPlacer::place(const RatioPlaceParams &params) {
-    return pImpl->place(params);
-}
-
-void RatioPlacer::setFrameHook(RatioFrameHook hook) {
-    pImpl->onFrame_ = std::move(hook);
+RatioPlaceResult RatioPlacer::place(const Ntuplace1Options &options) {
+    return pImpl->place(options);
 }
 
 void reportNtuPlace1(const RatioPlaceResult &r) {

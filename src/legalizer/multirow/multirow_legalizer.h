@@ -5,6 +5,7 @@
 
 #include "datamodel/kt_solutionMgr.h"
 #include "legalizer/multirow/multirow_design.h"
+#include "legalizer/multirow/multirow_options.h"
 
 #include <memory>
 #include <string>
@@ -13,26 +14,16 @@ namespace ktplace {
 
 class constraintMgr;
 
-struct MultiRowLegalizeParams {
-    /// Snapshot this many cells apart while the pass runs. The pass's own
-    /// cadence: it knows how many tall cells it has to fit, and a sink is not in
-    /// a position to judge one.
-    std::size_t frameEvery = 0;
-};
-
 struct MultiRowLegalizeResult {
     std::size_t movable = 0;
     std::size_t placed = 0;
     std::size_t unplaced = 0;
-    /// Cells taller than one row, and how many of those got a position.
     std::size_t multiRow = 0;
     std::size_t multiRowPlaced = 0;
-
-    std::size_t overlappingPairs = 0;
-    std::size_t offRow = 0;
-    std::size_t offSite = 0;
-    std::size_t overFixed = 0;
-
+    std::size_t macros = 0;
+    std::size_t macrosPlaced = 0;
+    double displacement = 0.0;
+    double maxDisplacement = 0.0;
     double hpwlBefore = 0.0;
     double hpwlAfter = 0.0;
     double seconds = 0.0;
@@ -58,7 +49,7 @@ public:
     MultiRowLegalizer(MultiRowLegalizer &&) noexcept;
     MultiRowLegalizer &operator=(MultiRowLegalizer &&) noexcept;
 
-    MultiRowLegalizeResult legalize(const MultiRowLegalizeParams &params = {});
+    MultiRowLegalizeResult legalize(const MultiRowOptions &options = {});
 
     /// Where the last run put every cell. Nothing is written anywhere else: the
     /// caller commits this through ktDM.

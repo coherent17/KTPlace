@@ -28,10 +28,12 @@ struct PlotOptions {
     std::size_t finalHold = 8;           // extra frames the finished placement is held
     bool writePpm = false;               // also write the lossless raster, 113 MB at 8x
 
-    // How often a stage offers a snapshot is not set here: each stage knows how
-    // long its own loops are, so it is that stage's option (`add_option simpl
-    // trace_every`, `add_option abacus frame_every`, ...). These settings only
-    // decide what an offered snapshot becomes.
+    /// Write a bin-density heat map beside each placement frame.
+    bool densityMaps = true;
+    /// How many cells a legalizer places between snapshots. The legalizers own
+    /// their own cadence, since they know how much work a run is; this is only
+    /// where the default lives, so a reader has one place to look.
+    std::size_t legalFrameEvery = 20000;
 
     // The defaults, with the run's visualizer options applied over them.
     [[nodiscard]] static PlotOptions fromOptions();

@@ -2,8 +2,8 @@
 
 namespace ktplace::simpl {
 
-simplSolution flowMgr::runGlobalPlacer(const SimplParams &params, bool useFences) {
-    return dm.run(params, useFences);
+simplSolution flowMgr::runGlobalPlacer() {
+    return dm.run();
 }
 
 }  // namespace ktplace::simpl

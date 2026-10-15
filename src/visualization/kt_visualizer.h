@@ -121,31 +121,6 @@ struct VisualFrame {
     bool mandatory = false;
 };
 
-/// A bin-density field, for the heat map drawn beside a placement frame. Plain
-/// numbers: the stage that measured them does not say how they are drawn.
-struct DensityField {
-    std::string series;
-    std::size_t step = 0;
-    std::string note;
-    double overflow = 0.0;
-    std::array<double, 4> die{};
-    /// Grid origin and bin size; bin (ix, iy) starts at (x0 + ix dx, y0 + iy dy).
-    double x0 = 0.0, y0 = 0.0, dx = 1.0, dy = 1.0;
-    std::size_t nbx = 0, nby = 0;
-    /// Cell area and available area per bin, row-major (iy * nbx + ix).
-    std::vector<double> occ;
-    std::vector<double> avail;
-    /// Fixed blockages, as x, y, width, height.
-    std::vector<std::array<double, 4>> blockages;
-};
-
-/// HPWL of the upper and the lower bound after one iteration of a placer that
-/// keeps both.
-struct BoundsSample {
-    double upper = 0.0;
-    double lower = 0.0;
-};
-
 /// What a whole stage draws with: its name, and where under the output directory
 /// its frames land. Set once when the stage starts.
 struct StageVisual {
@@ -194,15 +169,10 @@ public:
                const std::array<double, 4> &die, const constraintMgr *fences,
                const VisualFrame &what);
 
-    /// Draw a bin-density field as a heat map, under the same naming scheme as
-    /// the current stage's frames.
-    void densityMap(const DensityField &field);
-
-    /// Record the two bounds of every iteration as `<name>.csv`, and plot them as
-    /// `<name>.svg` under `title`, at the top of the output directory. The bounds
-    /// meeting is the whole convergence story of a placer that keeps both.
-    void boundsCurve(const std::string &name, const std::string &title,
-                     const std::vector<BoundsSample> &curve);
+    /// Write a diagnostic the stage drew itself, as SVG text, under the same
+    /// naming scheme. For output that is not a picture of a placement -- a
+    /// bin-density map, say -- so that a stage never has to open a file.
+    void writeSvg(const std::string &series, const std::string &step, const std::string &body);
 
     /// The finished placement, at the run's final resolution: a PNG, the vector
     /// form, and on request the raw raster.

@@ -1,32 +1,22 @@
 // @file multirow_options.h
-// Multi-row legalization options, and where they came from
+// Multi-row legalization options
 
 #pragma once
 
 #include "datamodel/kt_optionDb.h"
 
 #include <cstddef>
-#include <vector>
 
 namespace ktplace {
 
-// Every option the multi-row legalizer reads:
-//
-//     add_option multirow frame_every 5000
-struct MultirowOptions {
-    // Snapshot every N cells placed. Zero offers none. The default is coarse
-    // because the pass places every movable cell, not only the tall ones.
-    std::size_t frameEvery = 20000;
+struct MultiRowOptions {
+    static constexpr Component kComponent = Component::MultiRow;
 
-    [[nodiscard]] static MultirowOptions load();
-    void report() const;
+    std::size_t macroRows = 8;
 
-    [[nodiscard]] const std::vector<ResolvedOption> &resolved() const noexcept {
-        return rows;
+    static void fields(auto &self, auto &&visit) {
+        visit("macro_rows", self.macroRows);
     }
-
-private:
-    std::vector<ResolvedOption> rows;
 };
 
 }  // namespace ktplace

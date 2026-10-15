@@ -3,6 +3,7 @@
 #include "datamodel/kt_dm.h"
 #include "util/kt_reportTable.h"
 #include "util/kt_scopedTimer.h"
+#include "visualization/kt_visualizer.h"
 
 #include <algorithm>
 
@@ -67,15 +68,45 @@ void copyFences(const ktplace::constraintMgr &mgr, Fences &out) {
 
 }  // namespace
 
-simplDM buildSimplDM(const ktDM &db) {
+simplDM buildSimplDM(const ktDM &db, const PlotOptions &plot) {
+    const std::string &plotDir = plot.dir;
     Design design;
     copyNetlist(db.getGraph(), design.graph);
     copyRows(db.getRows(), design.rows);
     copyFences(db.constraints(), design.fences);
     design.die = placementDieBox(db.die(), db.getGraph());
 
+    // The stage decides when a snapshot matters; the visualizer decides where it
+    // lands and what it is called, because it is the one that holds the shared
+    // netlist and the output settings.
+    // The stage decides when a snapshot matters; the visualizer decides where it
+    // lands and what it is called, because it is the one that holds the output
+    // settings. It is a singleton, and the netlist and fences belong to the
+    // caller, so everything the hook needs outlives the design it is stored in.
+    Visualizer &visualizer = Visualizer::instance();
+    visualizer.beginStage({"simpl", "simpl", 0});
+    const ktplace::Graph *netlist = &db.getGraph();
+    const ktplace::constraintMgr *fences = &db.constraints();
+    const std::array<double, 4> dieBox = design.die;
+    design.onFrame = [&visualizer, netlist, fences, dieBox](const std::vector<float> &xs,
+                                                            const std::vector<float> &ys,
+                                                            const simpl::FrameInfo &info) {
+        visualizer.frame(*netlist, xs, ys, dieBox, fences,
+                         VisualFrame{info.series, info.step, info.numSteps, info.note, info.hpwl,
+                                     info.hpwlInitial, info.overflow, info.mandatory});
+    };
+    // SimPL also draws diagnostics of its own -- bin-density maps -- which are
+    // SVG text rather than pictures of a placement, so they take the
+    // visualizer's raw-write path instead of the cell-frame one.
+    design.onSvg = [&visualizer](const std::string &series, const std::string &step,
+                                 const std::string &body) {
+        visualizer.writeSvg(series, step, body);
+    };
+    design.artifactDir = plotDir;
+
     simplDM out(std::move(design));
-    out.useFences_ = SimplOptions().fences;
+    out.opts = loadOptions<SimplOptions>();
+    out.opts.densityMaps = plot.densityMaps;
     return out;
 }
 
@@ -115,16 +146,12 @@ void reportRun(const SimplResult &res) {
 
 simplDM::simplDM(Design design) : d(std::move(design)) {}
 
-SimplOptions simplDM::options() const {
-    return SimplOptions::load();
-}
-
-simplSolution simplDM::run(const SimplParams &params, bool useFences) {
+simplSolution simplDM::run() {
     ScopedTimer timer("simpl");
-    options().report();
+    reportOptions(opts);
 
     simplPlacer placer(d);
-    const SimplResult result = placer.place(params, useFences);
+    const SimplResult result = placer.place(opts);
     reportRun(result);
 
     // Only the placement crosses the boundary. The statistics are printed above

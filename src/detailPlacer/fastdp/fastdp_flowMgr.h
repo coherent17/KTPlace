@@ -19,7 +19,7 @@ public:
     /// Place, and return where every cell ended up. Reports the pass's statistics
     /// from inside the run and returns only the placement, so the flow has one
     /// thing to do with the result: commit it.
-    fastdpSolution runDetailedPlacer(const DetailPlaceParams &params);
+    fastdpSolution runDetailedPlacer();
 
 private:
     fastdpDM &dm;
