@@ -256,4 +256,34 @@ BOOST_AUTO_TEST_CASE(fenced_cells_are_placed_in_their_region_and_others_kept_out
     }
 }
 
+BOOST_AUTO_TEST_CASE(frame_hook_sees_every_cut_and_does_not_change_the_placement) {
+    ktDM db;
+    addRows(db);
+    (void)addCells(db, "c", 40);
+    for (int i = 0; i + 1 < 40; ++i) {
+        addNet(db, "n" + std::to_string(i), {"c" + std::to_string(i), "c" + std::to_string(i + 1)});
+    }
+    const Placed plain = place(db, smallLeaves());
+
+    ntuplace1::ntuplace1DM dm = ntuplace1::buildNtuplace1DM(db);
+    std::size_t frames = 0;
+    bool wholeDesign = true;
+    bool depthInRange = true;
+    dm.design().onFrame = [&](const std::vector<float> &xs, const std::vector<float> &ys,
+                              const ntuplace1::FrameInfo &info) {
+        ++frames;
+        wholeDesign =
+            wholeDesign && xs.size() == db.getGraph().getNumCells() && ys.size() == xs.size();
+        depthInRange = depthInRange && info.step <= info.numSteps && !info.note.empty();
+    };
+    RatioPlacer placer(dm.design());
+    const RatioPlaceResult res = placer.place(smallLeaves());
+
+    BOOST_TEST(frames == res.cuts);
+    BOOST_TEST(wholeDesign);
+    BOOST_TEST(depthInRange);
+    BOOST_TEST(dm.solution().xs == plain.solution.xs);
+    BOOST_TEST(dm.solution().ys == plain.solution.ys);
+}
+
 BOOST_AUTO_TEST_SUITE_END()

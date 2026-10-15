@@ -1119,3 +1119,47 @@ BOOST_AUTO_TEST_CASE(the_singleton_is_one_object_for_the_whole_process) {
     // this is a singleton; they must therefore see the same instance.
     BOOST_TEST(&Visualizer::instance() == &Visualizer::instance());
 }
+
+namespace {
+
+std::size_t countOf(const std::string &hay, const std::string &needle) {
+    std::size_t n = 0;
+    for (std::size_t at = hay.find(needle); at != std::string::npos;
+         at = hay.find(needle, at + needle.size())) {
+        ++n;
+    }
+    return n;
+}
+
+PlotOptions stillsOnly() {
+    PlotOptions opts;
+    opts.animate = false;
+    return opts;
+}
+
+}  // namespace
+
+BOOST_AUTO_TEST_CASE(bounds_curve_records_every_iteration_and_plots_both_bounds) {
+    const ScratchDir dir("bounds");
+    freshAnimator();
+    Visualizer::instance().configure(dir.str(), stillsOnly());
+    const std::vector<BoundsSample> curve{{3.0, 1.0}, {2.0, 1.5}};
+    Visualizer::instance().boundsCurve("b", "the title", curve);
+
+    BOOST_TEST(readAll(dir.file("b.csv")) ==
+               "iter,hpwl_upper,hpwl_lower,gap\n0,3,1,2\n1,2,1.5,0.5\n");
+    const std::string svg = readAll(dir.file("b.svg"));
+    BOOST_TEST(contains(svg, ">the title</text>"));
+    BOOST_TEST(countOf(svg, "<polyline") == 2u);
+    freshAnimator();
+}
+
+BOOST_AUTO_TEST_CASE(bounds_curve_with_drawing_off_writes_nothing) {
+    freshAnimator();
+    Visualizer::instance().configure("", stillsOnly());
+    BOOST_TEST(!Visualizer::instance().enabled());
+    const std::vector<BoundsSample> curve{{1.0, 0.5}};
+    BOOST_CHECK_NO_THROW(Visualizer::instance().boundsCurve("b", "t", curve));
+    BOOST_TEST(!std::filesystem::exists("/b.csv"));
+    freshAnimator();
+}

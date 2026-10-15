@@ -63,7 +63,6 @@ struct Design {
     DieBox die{};
     constraintMgr fences;
     FrameHook onFrame;
-    std::function<bool()> wantsFrame;
 };
 
 }  // namespace ktplace::ntuplace1

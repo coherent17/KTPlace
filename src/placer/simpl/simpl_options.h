@@ -30,7 +30,6 @@ struct SimplOptions {
     std::size_t cgMaxIter = 60;
     std::size_t traceEvery = 1;
     std::size_t cgEvery = 0;
-    bool densityMaps = true;
 
     static void fields(auto &self, auto &&visit) {
         visit("grid", self.binsPerAxis);
