@@ -10,7 +10,6 @@
 #include <array>
 #include <cmath>
 #include <cstdint>
-#include <fstream>
 #include <limits>
 #include <numeric>
 #include <oneapi/tbb/blocked_range.h>
@@ -19,7 +18,6 @@
 #include <oneapi/tbb/parallel_sort.h>
 #include <optional>
 #include <random>
-#include <sstream>
 #include <string>
 #include <utility>
 #include <vector>
@@ -330,9 +328,7 @@ private:
     void writeFrame(const std::string &series, const std::vector<double> &x,
                     const std::vector<double> &y, const std::string &note, std::size_t step,
                     std::size_t total);
-    void writeDensityMap(const std::string &series, std::size_t step, const std::vector<double> &x,
-                         const std::vector<double> &y, const std::string &note) const;
-    void writeBounds(const std::vector<std::pair<double, double>> &bounds) const;
+    void writeBounds(std::span<const BoundsPoint> bounds) const;
 
     const Design &design;
     const Graph &graph;
@@ -1036,102 +1032,10 @@ void simplPlacer::Impl::writeFrame(const std::string &series, const std::vector<
     design.onFrame(fx, fy, info);
 }
 
-void simplPlacer::Impl::writeDensityMap(const std::string &series, std::size_t step,
-                                        const std::vector<double> &x, const std::vector<double> &y,
-                                        const std::string &note) const {
-    if (!par.densityMaps || !design.onSvg) {
-        return;
+void simplPlacer::Impl::writeBounds(std::span<const BoundsPoint> bounds) const {
+    if (design.onBounds) {
+        design.onBounds(bounds);
     }
-    const std::vector<double> occ = occupancy(x, y);
-    constexpr double kW = 900.0;
-    constexpr double kH = 620.0;
-    constexpr double kPad = 52.0;
-    const double sx = (kW - 2 * kPad) / std::max(die[2] - die[0], 1e-9);
-    const double sy = (kH - 2 * kPad) / std::max(die[3] - die[1], 1e-9);
-    const auto colour = [](double u) {
-        if (u > 1.0) {
-            const int fade = static_cast<int>(90.0 * (1.0 - std::min((u - 1.0) / 2.0, 1.0)));
-            return fmt::format("rgb(255,{},{})", fade, fade);
-        }
-        return fmt::format("rgb({},{},{})", static_cast<int>(40.0 + 90.0 * u),
-                           static_cast<int>(90.0 + 150.0 * u), static_cast<int>(190.0 * (1.0 - u)));
-    };
-    const auto rect = [&](std::ostringstream &svg, const Box &b, const std::string &fill) {
-        svg << "<rect x=\"" << kPad + (b.x0 - die[0]) * sx << "\" y=\""
-            << kH - kPad - (b.y1 - die[1]) * sy << "\" width=\"" << (b.x1 - b.x0) * sx
-            << "\" height=\"" << (b.y1 - b.y0) * sy << "\" fill=\"" << fill << "\"/>\n";
-    };
-
-    std::ostringstream svg;
-    svg << "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"" << kW << "\" height=\"" << kH
-        << "\">\n<rect width=\"100%\" height=\"100%\" fill=\"#101418\"/>\n";
-    for (std::size_t iy = 0; iy < grid.ny; ++iy) {
-        for (std::size_t ix = 0; ix < grid.nx; ++ix) {
-            const std::size_t k = grid.at(ix, iy);
-            if (grid.avail[k] > 0.0) {
-                rect(svg, grid.box({ix, ix, iy, iy}), colour(occ[k] / grid.avail[k]));
-            }
-        }
-    }
-    for (const Box &o : obstacles) {
-        rect(svg, o, "#bdbdbd");
-    }
-    svg << "<text x=\"" << kPad
-        << "\" y=\"24\" fill=\"#e0e0e0\" font-family=\"monospace\" font-size=\"14\">"
-        << "bin density " << note << "  ovf " << fmt::format("{:.4f}", overflow(occ))
-        << "</text>\n</svg>\n";
-    design.onSvg(series, std::to_string(step), svg.str());
-}
-
-void simplPlacer::Impl::writeBounds(const std::vector<std::pair<double, double>> &bounds) const {
-    if (design.artifactDir.empty()) {
-        return;
-    }
-    std::ofstream csv(design.artifactDir + "/simpl_bounds.csv");
-    csv << "iter,hpwl_upper,hpwl_lower,gap\n";
-    for (std::size_t i = 0; i < bounds.size(); ++i) {
-        csv << i << ',' << bounds[i].first << ',' << bounds[i].second << ','
-            << bounds[i].first - bounds[i].second << '\n';
-    }
-
-    double top = 1e-12;
-    for (const auto &[upper, lower] : bounds) {
-        top = std::max({top, upper, lower});
-    }
-    constexpr double kW = 780.0;
-    constexpr double kH = 340.0;
-    constexpr double kPad = 60.0;
-    const auto px = [&](std::size_t i) {
-        return kPad + (kW - 2 * kPad) *
-                          (bounds.size() < 2
-                               ? 0.0
-                               : static_cast<double>(i) / static_cast<double>(bounds.size() - 1));
-    };
-    const auto py = [&](double v) {
-        return kH - kPad - (kH - 2 * kPad) * std::clamp(v / top, 0.0, 1.0);
-    };
-    const auto line = [&](bool upper, const char *colour) {
-        std::ostringstream s;
-        s << "<polyline fill='none' stroke='" << colour << "' stroke-width='2' points='";
-        for (std::size_t i = 0; i < bounds.size(); ++i) {
-            s << px(i) << ',' << py(upper ? bounds[i].first : bounds[i].second) << ' ';
-        }
-        s << "'/>\n";
-        return s.str();
-    };
-    std::ofstream svg(design.artifactDir + "/simpl_bounds.svg");
-    svg << "<svg xmlns='http://www.w3.org/2000/svg' width='" << kW << "' height='" << kH << "'>\n"
-        << "<rect width='100%' height='100%' fill='white'/>\n"
-        << "<text x='" << kPad << "' y='24' font-family='monospace' font-size='14'>"
-        << "SimPL: HPWL of the lower and upper bounds</text>\n"
-        << "<line x1='" << kPad << "' y1='" << kH - kPad << "' x2='" << kW - kPad << "' y2='"
-        << kH - kPad << "' stroke='#333'/>\n"
-        << "<line x1='" << kPad << "' y1='" << kPad << "' x2='" << kPad << "' y2='" << kH - kPad
-        << "' stroke='#333'/>\n"
-        << line(false, "#2471a3") << line(true, "#c0392b") << "<text x='" << kW - kPad - 130
-        << "' y='" << kPad + 12 << "' font-family='monospace' font-size='12' fill='#2471a3'>"
-        << "lower bound</text>\n<text x='" << kW - kPad - 130 << "' y='" << kPad + 28
-        << "' font-family='monospace' font-size='12' fill='#c0392b'>upper bound</text>\n</svg>\n";
 }
 
 SimplResult simplPlacer::Impl::run(const SimplOptions &params) {
@@ -1195,11 +1099,10 @@ SimplResult simplPlacer::Impl::run(const SimplOptions &params) {
         writeFrame("LSS_init", lower, lowerY, fmt::format("initial placement round {}", accepted),
                    accepted, par.initMaxIters);
     }
-    writeDensityMap("density_init", res.initIters, lower, lowerY, "initial placement");
 
     std::vector<double> upper;
     std::vector<double> upperY;
-    std::vector<std::pair<double, double>> bounds;
+    std::vector<BoundsPoint> bounds;
     double gapReference = 0.0;
     double previousUpper = std::numeric_limits<double>::max();
     for (std::size_t it = 0; it < par.maxIters; ++it) {
@@ -1216,7 +1119,7 @@ SimplResult simplPlacer::Impl::run(const SimplOptions &params) {
         const double upperHpwl = hpwl(upper, upperY);
         const double lowerHpwl = hpwl(lower, lowerY);
         const double gap = upperHpwl - lowerHpwl;
-        bounds.emplace_back(upperHpwl, lowerHpwl);
+        bounds.push_back({upperHpwl, lowerHpwl});
         ktlog.trace("iter {:3d}: lower {:.6e} upper {:.6e} gap {:.4e} overflow {:.4f} -> {:.4f}",
                     it, lowerHpwl, upperHpwl, gap, overflow(occupancy(lower, lowerY)),
                     overflow(occupancy(upper, upperY)));
@@ -1227,8 +1130,6 @@ SimplResult simplPlacer::Impl::run(const SimplOptions &params) {
             writeFrame("LAL", upper, upperY,
                        fmt::format("LAL (look-ahead legalized) - iteration {}", it), it,
                        par.maxIters);
-            writeDensityMap("density_LSS", it, lower, lowerY, fmt::format("LSS iteration {}", it));
-            writeDensityMap("density_LAL", it, upper, upperY, fmt::format("LAL iteration {}", it));
         }
 
         const std::size_t iteration = it + 1;
@@ -1287,7 +1188,6 @@ SimplResult simplPlacer::Impl::run(const SimplOptions &params) {
     writeBounds(bounds);
     writeFrame("FINAL_LAL", upper, upperY, "FINAL = last LAL (look-ahead legalized) placement",
                res.globalIters, std::max<std::size_t>(res.globalIters, 1));
-    writeDensityMap("density_FINAL", res.globalIters, upper, upperY, "FINAL LAL");
     return res;
 }
 

@@ -6,7 +6,6 @@
 #include "util/kt_log.h"
 #include "util/kt_reportTable.h"
 #include "util/kt_scopedTimer.h"
-#include "visualization/kt_visualizer.h"
 
 namespace ktplace::multirow {
 
@@ -89,25 +88,6 @@ multirowDM buildMultiRowDM(const ktDM &db) {
     copyFences(db.constraints(), design.fences);
     design.die = placementDieBox(db.die(), db.getGraph());
 
-    // The stage decides when a snapshot matters; the visualizer decides where it
-    // lands and what it is called, because it is the one that holds the shared
-    // netlist and the output settings.
-    // The stage decides when a snapshot matters; the visualizer decides where it
-    // lands and what it is called, because it is the one that holds the output
-    // settings. It is a singleton, and the netlist and fences belong to the
-    // caller, so everything the hook needs outlives the design it is stored in.
-    Visualizer &visualizer = Visualizer::instance();
-    visualizer.beginStage({"legalize_multi", "", 0});
-    const Graph *netlist = &db.getGraph();
-    const constraintMgr *fences = &db.constraints();
-    const std::array<double, 4> dieBox = design.die;
-    design.onFrame = [&visualizer, netlist, fences, dieBox](const std::vector<float> &xs,
-                                                            const std::vector<float> &ys,
-                                                            const multirow::FrameInfo &info) {
-        visualizer.frame(*netlist, xs, ys, dieBox, fences,
-                         VisualFrame{info.series, info.step, info.numSteps, info.note, info.hpwl,
-                                     info.hpwlInitial, info.overflow, info.mandatory});
-    };
     multirowDM result(std::move(design));
     result.opts = loadOptions<MultiRowOptions>();
     return result;

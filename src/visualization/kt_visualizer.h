@@ -24,7 +24,9 @@
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
+#include <span>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace ktplace {
@@ -133,6 +135,11 @@ struct StageVisual {
     std::size_t cadence = 0;
 };
 
+struct BoundsSample {
+    double upper = 0.0;
+    double lower = 0.0;
+};
+
 class Visualizer {
 public:
     static Visualizer &instance() noexcept;
@@ -169,10 +176,8 @@ public:
                const std::array<double, 4> &die, const constraintMgr *fences,
                const VisualFrame &what);
 
-    /// Write a diagnostic the stage drew itself, as SVG text, under the same
-    /// naming scheme. For output that is not a picture of a placement -- a
-    /// bin-density map, say -- so that a stage never has to open a file.
-    void writeSvg(const std::string &series, const std::string &step, const std::string &body);
+    void boundsCurve(std::string_view name, std::string_view title,
+                     std::span<const BoundsSample> curve);
 
     /// The finished placement, at the run's final resolution: a PNG, the vector
     /// form, and on request the raw raster.

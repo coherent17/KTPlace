@@ -108,6 +108,7 @@ add_option visualizer anim 0
 | `simpl` | `grid`, `cg_tol`, `init_iters`, `iters`, `seed`, `fences`, `density`, `alpha_base` | solver settings |
 | `ntuplace1` | `leaf_cells`, `max_levels`, `retries`, `verbose` | partitioner settings |
 | `abacus` | `max_row_dist`, `min_subrow_sites` | legalizer settings |
+| `abacus` | `frame_every` | SVG frame every N cells placed; `0` keeps only the first and last (`0`) |
 | `multirow` | `macro_rows` | cells spanning more rows than this are legalized first as macros (`8`) |
 | `fastdp` | `window`, `no_median` | detailed placer settings |
 

@@ -74,7 +74,7 @@ load → report → global place → legalize → detailed place → final image
   - `legalizer/abacus`: single-row legalizer, fence-aware.
   - `legalizer/multirow`: used instead of Abacus when the design has cells taller than one row.
   - `detailPlacer/fastdp`: detailed placement.
-- **Visualization** (`visualization/`): `Visualizer::instance()` is a singleton shared by every stage, so all stages add to one GIF with one frame budget. Global placement may use at most 3/5 of the frames (`holdBack`). Everything is rendered in C++ (SVG, plus PNG/GIF through CImg), with no external tools.
+- **Visualization** (`visualization/`): stages never include it. A stage reports snapshots through plain-data hooks on its own `Design` (`onFrame`; SimPL also `onBounds`), and `FlowMgr` installs them (`drawStage` in `kt_flowMgr.cc`) only when plots are on. How often a stage offers a snapshot is that stage's own option (`simpl trace_every`, `abacus frame_every`, ...). `Visualizer::instance()` is the singleton the flow draws through, so all stages add to one GIF with one frame budget. Global placement may use at most 3/5 of the frames (`holdBack`). Everything is rendered in C++ (SVG, plus PNG/GIF through CImg), with no external tools.
 - `util/`: logging, `KT_ASSERT`, `ScopedTimer`/`TimerRegistry`, report tables.
 
 ## Conventions

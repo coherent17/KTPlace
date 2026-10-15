@@ -5,7 +5,6 @@
 
 #include "datamodel/kt_die.h"
 #include "datamodel/kt_dm.h"
-#include "visualization/kt_visualizer.h"
 
 namespace ktplace::ntuplace1 {
 
@@ -67,20 +66,6 @@ ntuplace1DM buildNtuplace1DM(const ktDM &db) {
     design.die = placementDieBox(db.die(), db.getGraph());
     design.fences = db.constraints();
 
-    Visualizer &visualizer = Visualizer::instance();
-    const Graph *netlist = &db.getGraph();
-    const constraintMgr *fences = &db.constraints();
-    const DieBox dieBox = design.die;
-    design.wantsFrame = [&visualizer] {
-        return visualizer.enabled() && !visualizer.capped();
-    };
-    design.onFrame = [&visualizer, netlist, fences, dieBox](const std::vector<float> &xs,
-                                                            const std::vector<float> &ys,
-                                                            const FrameInfo &info) {
-        visualizer.frame(
-            *netlist, xs, ys, dieBox, fences,
-            VisualFrame{"", info.step, info.numSteps, info.note, 0.0, 0.0, 0.0, false});
-    };
     ntuplace1DM result(std::move(design));
     result.opts = loadOptions<Ntuplace1Options>();
     return result;

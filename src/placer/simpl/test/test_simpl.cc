@@ -15,12 +15,13 @@
 
 #include "constraint/kt_constraintMgr.h"
 #include "datamodel/kt_dm.h"
+#include "datamodel/kt_optionDb.h"
 #include "placer/simpl/simpl_dm.h"
 #include "placer/simpl/simpl_placer.h"
 #include "util/kt_log.h"
-#include "visualization/kt_plotOptions.h"
 
 #include <boost/test/unit_test.hpp>
+#include <span>
 #include <string>
 #include <utility>
 #include <vector>
@@ -106,7 +107,7 @@ Built buildDesign(ktDM &db, bool withFence, bool pullOthersIn = false) {
 /// Run SimPL and commit its answer.
 SimplResult place(ktDM &db, bool useFences) {
     // No plots: this checks the solver, not what it draws.
-    simpl::simplDM dm = simpl::buildSimplDM(db, PlotOptions{});
+    simpl::simplDM dm = simpl::buildSimplDM(db);
     simplPlacer placer(dm.design());
     SimplOptions options;
     options.maxIters = 30;
@@ -121,6 +122,41 @@ bool inFence(double x, double y) {
 }
 
 }  // namespace
+
+struct ScopedOption {
+    ScopedOption(Component component, std::string key, OptionValue value) {
+        OptionDb::instance().set(component, std::move(key), std::move(value));
+    }
+    ~ScopedOption() {
+        OptionDb::instance().clear();
+    }
+    ScopedOption(const ScopedOption &) = delete;
+    ScopedOption &operator=(const ScopedOption &) = delete;
+};
+
+struct Offered {
+    std::size_t lss = 0;
+    std::size_t bounds = 0;
+};
+
+Offered offered() {
+    ktDM db;
+    (void)buildDesign(db, /*withFence=*/false);
+    simpl::simplDM dm = simpl::buildSimplDM(db);
+    Offered n;
+    dm.setFrameHook(
+        [&n](const std::vector<float> &, const std::vector<float> &, const simpl::FrameInfo &info) {
+            n.lss += info.series == "LSS" ? 1u : 0u;
+        });
+    dm.setBoundsHook([&n](std::span<const simpl::BoundsPoint> curve) {
+        n.bounds = curve.size();
+    });
+    SimplOptions options = dm.options();
+    options.maxIters = 30;
+    simplPlacer placer(dm.design());
+    (void)placer.place(options);
+    return n;
+}
 
 BOOST_AUTO_TEST_SUITE(ktplace_simpl)
 
@@ -185,6 +221,18 @@ BOOST_AUTO_TEST_CASE(fences_can_still_be_turned_off_to_measure_their_cost) {
         outside += inFence(x, y) ? 0u : 1u;
     }
     BOOST_TEST(outside > 0u);
+}
+
+BOOST_AUTO_TEST_CASE(snapshot_cadence_is_simpls_own_option) {
+    const Offered byDefault = offered();
+    BOOST_TEST(byDefault.lss > 0u);
+    BOOST_TEST(byDefault.bounds > 0u);
+    {
+        const ScopedOption off(Component::Simpl, "trace_every", OptionValue{0});
+        const Offered n = offered();
+        BOOST_TEST(n.lss == 0u);
+        BOOST_TEST(n.bounds == byDefault.bounds);
+    }
 }
 
 BOOST_AUTO_TEST_SUITE_END()

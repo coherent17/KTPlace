@@ -511,7 +511,7 @@ void RatioPlacer::Impl::placeLeaf(const RatioRegion &r) {
 }
 
 void RatioPlacer::Impl::writeFrame(std::size_t depth, const char *note) const {
-    if (!design_.onFrame || (design_.wantsFrame && !design_.wantsFrame())) {
+    if (!design_.onFrame) {
         return;
     }
     std::vector<float> xs(design_.cells.size(), 0.0f);

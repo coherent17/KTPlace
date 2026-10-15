@@ -27,10 +27,43 @@
 #include <fstream>
 #include <iomanip>
 #include <memory>
+#include <span>
 #include <string>
 #include <vector>
 
 namespace ktplace {
+
+namespace {
+
+bool drawStage(auto &dm, const ktDM &db, StageVisual stage) {
+    Visualizer &viz = Visualizer::instance();
+    if (!viz.enabled()) {
+        return false;
+    }
+    viz.beginStage(std::move(stage));
+    dm.setFrameHook(
+        [&viz, netlist = &db.getGraph(), fences = &db.constraints(), die = dm.design().die](
+            const std::vector<float> &xs, const std::vector<float> &ys, const auto &info) {
+            viz.frame(*netlist, xs, ys, die, fences,
+                      VisualFrame{info.series, info.step, info.numSteps, info.note, info.hpwl,
+                                  info.hpwlInitial, info.overflow, info.mandatory});
+        });
+    return true;
+}
+
+void drawSimplBounds(simpl::simplDM &dm) {
+    Visualizer &viz = Visualizer::instance();
+    dm.setBoundsHook([&viz](std::span<const simpl::BoundsPoint> curve) {
+        std::vector<BoundsSample> samples;
+        samples.reserve(curve.size());
+        for (const simpl::BoundsPoint &point : curve) {
+            samples.push_back({point.upper, point.lower});
+        }
+        viz.boundsCurve("simpl_bounds", "SimPL: HPWL of the lower and upper bounds", samples);
+    });
+}
+
+}  // namespace
 
 class FlowMgr::Impl {
 public:
@@ -143,7 +176,10 @@ void FlowMgr::Impl::placeDesign() {
 
     if (algorithm == "simpl") {
         ktlog.echo("Running SimPL global placement (B2B net model + look-ahead legalization)...");
-        simpl::simplDM simplDB = simpl::buildSimplDM(*db, plot);
+        simpl::simplDM simplDB = simpl::buildSimplDM(*db);
+        if (drawStage(simplDB, *db, {"simpl", "simpl", 0})) {
+            drawSimplBounds(simplDB);
+        }
         if (!simplDB.options().fences) {
             ktlog.echo("SimPL: fence enforcement disabled by 'add_option simpl fences 0'");
         }
@@ -172,6 +208,7 @@ void FlowMgr::Impl::legalizeDesign() {
     if (const std::size_t tall = db->multiRowCells(); tall > 0) {
         ktlog.echo("Running multi-row legalization ({} cell(s) taller than a row)...", tall);
         multirow::multirowDM multiDB = multirow::buildMultiRowDM(*db);
+        drawStage(multiDB, *db, {"legalize_multi", "", 0});
         multirow::flowMgr flow(multiDB);
         db->setMultiRowSolution(flow.runLegalizer());
         return;
@@ -179,6 +216,7 @@ void FlowMgr::Impl::legalizeDesign() {
 
     ktlog.echo("Running Abacus legalization...");
     abacus::abacusDM abacusDB = abacus::buildAbacusDM(*db);
+    drawStage(abacusDB, *db, {"legalize", "", 0});
     abacus::flowMgr flow(abacusDB);
     db->setLegalizationSolution(flow.runLegalizer());
 }
@@ -187,6 +225,7 @@ void FlowMgr::Impl::legalizeDesign() {
 void FlowMgr::Impl::detailPlaceDesign() {
     ktlog.echo("Running FastDP detailed placement...");
     fastdp::fastdpDM dpDB = fastdp::buildFastdpDM(*db);
+    drawStage(dpDB, *db, {"detailplace", "", 0});
     fastdp::flowMgr flow(dpDB);
     db->setDetailedPlaceSolution(flow.runDetailedPlacer());
 }

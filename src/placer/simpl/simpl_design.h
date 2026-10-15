@@ -14,6 +14,7 @@
 #include <array>
 #include <cstddef>
 #include <functional>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -62,11 +63,12 @@ struct FrameInfo {
 using FrameHook = std::function<void(const std::vector<float> &xs, const std::vector<float> &ys,
                                      const FrameInfo &info)>;
 
-/// Host hook for a diagnostic the solver draws itself, as SVG text. Null disables
-/// it. A separate hook because it is not a picture of a placement, and forcing it
-/// through the cell-frame path would make every stage carry a file writer.
-using SvgHook = std::function<void(const std::string &series, const std::string &step,
-                                   const std::string &body)>;
+struct BoundsPoint {
+    double upper = 0.0;
+    double lower = 0.0;
+};
+
+using BoundsHook = std::function<void(std::span<const BoundsPoint> curve)>;
 
 /// A whole design as SimPL sees it.
 struct Design {
@@ -78,11 +80,7 @@ struct Design {
     Fences fences;
     /// Installed by the host. SimPL itself never draws.
     FrameHook onFrame;
-    SvgHook onSvg;
-    /// Where the solver's own artifacts go: the bounds curve it plots against,
-    /// which is a record of the solve rather than a picture of a placement. Set
-    /// by the host alongside the sink. Empty means the run records nothing.
-    std::string artifactDir;
+    BoundsHook onBounds;
 };
 
 }  // namespace ktplace::simpl

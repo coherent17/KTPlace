@@ -14,6 +14,7 @@
 
 #include "constraint/kt_constraintMgr.h"
 #include "datamodel/kt_dm.h"
+#include "datamodel/kt_optionDb.h"
 #include "legalizer/abacus/abacus_dm.h"
 #include "legalizer/abacus/abacus_legalizer.h"
 #include "util/kt_log.h"
@@ -77,6 +78,17 @@ bool overlapsBox(const ktDM &db, std::size_t id, double x0, double y0, double x1
 
 }  // namespace
 
+struct ScopedOption {
+    ScopedOption(Component component, std::string key, OptionValue value) {
+        OptionDb::instance().set(component, std::move(key), std::move(value));
+    }
+    ~ScopedOption() {
+        OptionDb::instance().clear();
+    }
+    ScopedOption(const ScopedOption &) = delete;
+    ScopedOption &operator=(const ScopedOption &) = delete;
+};
+
 BOOST_AUTO_TEST_SUITE(ktplace_abacus)
 
 BOOST_AUTO_TEST_CASE(members_far_outside_are_brought_into_their_fence) {
@@ -136,6 +148,25 @@ BOOST_AUTO_TEST_CASE(an_unfenced_design_is_legalized_as_before) {
     BOOST_TEST(res.unplaced == 0u);
     BOOST_TEST(res.overlappingPairs == 0u);
     (void)cells;
+}
+
+BOOST_AUTO_TEST_CASE(frame_cadence_is_abacus_own_option) {
+    const auto framesOffered = [] {
+        ktDM db;
+        addRows(db);
+        (void)addCells(db, "c", 30, 30.0, 30.0);
+        abacus::abacusDM dm = abacus::buildAbacusDM(db);
+        std::size_t frames = 0;
+        dm.setFrameHook([&frames](const std::vector<float> &, const std::vector<float> &,
+                                  const abacus::FrameInfo &) {
+            ++frames;
+        });
+        (void)dm.run();
+        return frames;
+    };
+    const std::size_t byDefault = framesOffered();
+    const ScopedOption every(Component::Abacus, "frame_every", OptionValue{10});
+    BOOST_TEST(framesOffered() == byDefault + 3u);
 }
 
 BOOST_AUTO_TEST_SUITE_END()
