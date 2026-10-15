@@ -116,9 +116,15 @@ Each component's keys and defaults are listed in its `*_options.h`. An unknown
 component is an error; a value of the wrong type is reported and the default is
 used.
 
-On a large design the frames are most of global placement's time. When only the
+On a large design drawing the frames takes longer than placing. When only the
 placement matters, set `simpl trace_every 0` (the HPWL is the same), or pass
 `--no-plots` to skip every picture.
+
+The stages do not draw while they run. They record their snapshots to
+`plots/trace.ktrace`, and the flow draws the pictures from it once `placed.pl`
+is written, then deletes it. On adaptec1 that takes global placement from 26 s
+to 10 s. [docs/visualization.md](docs/visualization.md) covers how stages, the
+flow and the visualizer fit together, and the trace format.
 
 Timing is measured with `ScopedTimer` (`src/util/kt_scopedTimer.h`), which
 records wall and processor time per named phase and reports the table once at

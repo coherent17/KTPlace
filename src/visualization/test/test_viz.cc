@@ -6,6 +6,7 @@
 #define BOOST_TEST_DYN_LINK
 
 #include "visualization/kt_gif.h"
+#include "visualization/kt_trace.h"
 #include "visualization/kt_visualizer.h"
 
 #include <algorithm>
@@ -13,6 +14,9 @@
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <functional>
+#include <map>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -1161,5 +1165,104 @@ BOOST_AUTO_TEST_CASE(bounds_curve_with_drawing_off_writes_nothing) {
     const std::vector<BoundsSample> curve{{1.0, 0.5}};
     BOOST_CHECK_NO_THROW(Visualizer::instance().boundsCurve("b", "t", curve));
     BOOST_TEST(!std::filesystem::exists("/b.csv"));
+    freshAnimator();
+}
+
+// Traces: a run records its snapshots and draws them at the end. Drawing a
+// trace must give the files drawing the same calls directly would.
+
+namespace {
+
+/// Every file under `root`, by relative path, with its bytes.
+std::map<std::string, std::string> filesUnder(const std::filesystem::path &root) {
+    std::map<std::string, std::string> files;
+    for (const auto &e : std::filesystem::recursive_directory_iterator(root)) {
+        if (e.is_regular_file() && e.path().extension() != ".ktrace") {
+            files[std::filesystem::relative(e.path(), root).string()] = readAll(e.path());
+        }
+    }
+    return files;
+}
+
+/// One short run's snapshots, made on either a Visualizer or a TraceWriter.
+template <class Sink>
+void sampleRun(Sink &&frameTo, const std::function<void(StageVisual)> &beginStage,
+               const std::function<void(std::size_t)> &holdBack,
+               const std::function<void(std::span<const BoundsSample>)> &bounds) {
+    const Graph g = sampleGraph();
+    std::vector<float> x = sampleX(g);
+    const std::vector<float> y = sampleY(g);
+    holdBack(2);
+    beginStage({"simpl", "simpl", 0});
+    frameTo(x, y, VisualFrame{"LSS", 0, 3, "first", 3.0, 3.0, 0.5, true});
+    x[4] += 30.0F;
+    frameTo(x, y, VisualFrame{"LAL", 1, 3, "second", 2.0, 3.0, 0.25, false});
+    bounds(std::vector<BoundsSample>{{3.0, 1.0}, {2.0, 1.5}});
+    holdBack(0);
+    beginStage({"legalize", "", 0});
+    x[5] -= 10.0F;
+    frameTo(x, y, VisualFrame{"", 2, 3, "third", 1.5, 3.0, 0.0, true});
+}
+
+}  // namespace
+
+BOOST_AUTO_TEST_CASE(a_replayed_trace_draws_the_files_drawing_directly_does) {
+    const Graph g = sampleGraph();
+    const std::array<double, 4> die = fixedCellBBox(g);
+    const PlotOptions opts = animOptions(10, 5, 1);
+    Visualizer &viz = Visualizer::instance();
+
+    freshAnimator();
+    const ScratchDir direct("tracedirect");
+    viz.configure(direct.str(), opts);
+    sampleRun(
+        [&](const auto &x, const auto &y, const VisualFrame &f) {
+            viz.frame(g, x, y, die, nullptr, f);
+        },
+        [&](StageVisual s) {
+            viz.beginStage(std::move(s));
+        },
+        [&](std::size_t n) {
+            viz.holdBack(n);
+        },
+        [&](std::span<const BoundsSample> c) {
+            viz.boundsCurve("simpl_bounds", "t", c);
+        });
+    BOOST_TEST(viz.finish(g, sampleX(g), sampleY(g), die, nullptr, 1.0));
+
+    freshAnimator();
+    const ScratchDir replayed("tracereplayed");
+    viz.configure(replayed.str(), opts);
+    const std::string path = replayed.file("trace.ktrace").string();
+    {
+        TraceWriter trace(path);
+        sampleRun(
+            [&](const auto &x, const auto &y, const VisualFrame &f) {
+                trace.frame(x, y, die, false, f);
+            },
+            [&](StageVisual s) {
+                trace.beginStage(s);
+            },
+            [&](std::size_t n) {
+                trace.holdBack(n);
+            },
+            [&](std::span<const BoundsSample> c) {
+                trace.boundsCurve("simpl_bounds", "t", c);
+            });
+        BOOST_TEST(trace.frameCount() == 3u);
+        trace.close();
+    }
+    BOOST_TEST(filesUnder(replayed.str()).empty());
+    BOOST_TEST(replayTrace(path, viz, g, nullptr) == 3u);
+    BOOST_TEST(viz.finish(g, sampleX(g), sampleY(g), die, nullptr, 1.0));
+
+    const auto expected = filesUnder(direct.str());
+    const auto got = filesUnder(replayed.str());
+    BOOST_TEST(expected.size() >= 5u);
+    BOOST_TEST(got.size() == expected.size());
+    for (const auto &[name, bytes] : expected) {
+        const auto found = got.find(name);
+        BOOST_TEST((found != got.end() && found->second == bytes), name << " differs");
+    }
     freshAnimator();
 }
