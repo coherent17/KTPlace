@@ -22,13 +22,16 @@
 #include <sstream>
 #include <stdexcept>
 #include <system_error>
+#include <thread>
 #include <unordered_map>
+#include <unordered_set>
 #include <zlib.h>
 
 // CImg is a header-only library, so it is confined to this translation unit.
 // Drawing is done in RGB and then mapped onto a small fixed palette, which is
 // what GIF requires and what keeps every frame of an animation colour-identical.
 #define cimg_display 0
+#define cimg_use_pthread 1
 #define cimg_verbosity 0
 #include "visualization/CImg.h"
 
@@ -72,7 +75,24 @@ bool Visualizer::ensureDir(const std::string &where) const {
     return true;
 }
 
+void Visualizer::render(std::function<void()> job) {
+    if (pending.load() >=
+        2 * static_cast<std::size_t>(std::max(1u, std::thread::hardware_concurrency()))) {
+        flush();
+    }
+    ++pending;
+    renders.run([this, job = std::move(job)] {
+        job();
+        --pending;
+    });
+}
+
+void Visualizer::flush() {
+    renders.wait();
+}
+
 void Visualizer::reset() {
+    flush();
     animOn = false;
     framesKept = offered = held = 0;
     stride = 1;
@@ -84,6 +104,7 @@ void Visualizer::reset() {
 }
 
 void Visualizer::configure(const std::string &outDir, const PlotOptions &options) {
+    flush();
     this->dir = outDir;
     this->opts = options;
     // The directory the run was pointed at wins over whatever the options
@@ -125,6 +146,7 @@ void Visualizer::configure(const std::string &outDir, const PlotOptions &options
 }
 
 void Visualizer::beginStage(StageVisual s) {
+    flush();
     stage = std::move(s);
     drawingNow = false;
     if (!enabled() || stage.stage.empty()) {
@@ -168,14 +190,16 @@ void Visualizer::frame(const Graph &graph, const std::vector<float> &x, const st
 
     // Every framesKept of a sequence is drawn at the same die-relative scale, so step
     // 7 and step 8 are comparable instead of being auto-zoomed apart.
-    writeFrameSvg(framePath(what), graph, x, y, dieBox, what.step, what.numSteps, what.hpwl,
-                  what.hpwlInitial, what.overflow, what.note, fences, /*fixedView=*/true);
+    render([path = framePath(what), &graph, x, y, dieBox, what, fences] {
+        writeFrameSvg(path, graph, x, y, dieBox, what.step, what.numSteps, what.hpwl,
+                      what.hpwlInitial, what.overflow, what.note, fences, /*fixedView=*/true);
+    });
 
     // And into the run's animation, so the GIF shows what this stage did rather
     // than cutting straight from the stage before to the stage after.
     if (animOn) {
-        recordFrame(graph, x, y, dieBox, what.step, what.numSteps, what.hpwl, what.hpwlInitial,
-                    what.overflow, what.note, fences, what.mandatory);
+        record(graph, x, y, dieBox, what.step, what.numSteps, what.hpwl, what.hpwlInitial,
+               what.overflow, what.note, fences, what.mandatory, true);
     }
 }
 
@@ -237,6 +261,7 @@ void Visualizer::finalImage(const Graph &graph, const constraintMgr *fences, dou
     if (!enabled()) {
         return;
     }
+    flush();
     const double zoom = std::max(1.0, opts.finalZoom);
     ScopedTimer timer("final-image");
 
@@ -264,6 +289,7 @@ void Visualizer::finalImage(const Graph &graph, const constraintMgr *fences, dou
 bool Visualizer::finish(const Graph &graph, const std::vector<float> &x,
                         const std::vector<float> &y, const std::array<double, 4> &die,
                         const constraintMgr *fences, double hpwl) {
+    flush();
     if (!animOn || framesKept < 2) {
         // One still is not an animation, and a two-frame GIF is a flicker; both
         // are more likely to be a mistake in the run than something worth
@@ -297,6 +323,14 @@ void Visualizer::recordFrame(const Graph &g, const std::vector<float> &x,
                              std::size_t step, std::size_t total, double hpwl, double hpwlInitial,
                              double resid, const std::string &note,
                              const constraintMgr *constraints, bool mandatory) {
+    record(g, x, y, die, step, total, hpwl, hpwlInitial, resid, note, constraints, mandatory,
+           false);
+}
+
+void Visualizer::record(const Graph &g, const std::vector<float> &x, const std::vector<float> &y,
+                        const std::array<double, 4> &die, std::size_t step, std::size_t total,
+                        double hpwl, double hpwlInitial, double resid, const std::string &note,
+                        const constraintMgr *constraints, bool mandatory, bool inBackground) {
     const std::size_t limit = held < maxFrames ? maxFrames - held : maxFrames;
     // A mandatory frame is one per global-placement iteration, or the legalizer's
     // and the detail placer's own: sparse by construction. It is exempt from both
@@ -349,8 +383,16 @@ void Visualizer::recordFrame(const Graph &g, const std::vector<float> &x,
         // the per-iteration SVGs and then dropped them from the GIF, so the one
         // picture that gets looked at was missing the regions the placement was
         // required to respect.
-        writeFrameRaster(path, g, ix, iy, die, step, total, hpwl, hpwlInitial, resid, note,
-                         constraints, /*fixedView=*/true, frameZoom);
+        if (inBackground) {
+            render([path, &g, ix, iy, die, step, total, hpwl, hpwlInitial, resid, note, constraints,
+                    zoom = frameZoom] {
+                writeFrameRaster(path, g, ix, iy, die, step, total, hpwl, hpwlInitial, resid, note,
+                                 constraints, /*fixedView=*/true, zoom);
+            });
+        } else {
+            writeFrameRaster(path, g, ix, iy, die, step, total, hpwl, hpwlInitial, resid, note,
+                             constraints, /*fixedView=*/true, frameZoom);
+        }
         ++framesKept;
         return framesKept < limit;
     };
@@ -1771,35 +1813,56 @@ bool writeAnimatedGif(const std::string &dir, const std::string &gifName, int de
     constexpr std::size_t kSampleStride = 5;
     constexpr std::size_t kFrameStride = 3;
 
-    std::map<std::uint32_t, std::uint32_t> histogram;  // packed rgb -> occurrences
     struct Frame {
         int w = 0, h = 0;
+        bool ok = false;
         std::vector<std::uint8_t> idx;
         std::vector<std::uint8_t> rgb;
+        std::map<std::uint32_t, std::uint32_t> histogram;
+        std::vector<std::uint32_t> firstSeen;
     };
-    std::vector<Frame> loaded;
-    loaded.reserve(frames.size());
-    for (std::size_t fi = 0; fi < frames.size(); ++fi) {
-        Frame f;
-        std::vector<std::uint8_t> rgb;
+    std::vector<Frame> loaded(frames.size());
+    tbb::parallel_for(std::size_t{0}, frames.size(), [&](std::size_t fi) {
+        Frame &f = loaded[fi];
         try {
-            loadPpm6(frames[fi], f.w, f.h, rgb);
+            loadPpm6(frames[fi], f.w, f.h, f.rgb);
         } catch (const std::exception &) {
-            continue;  // unreadable or truncated still; skip it
+            return;
         }
-        f.rgb = rgb;
+        f.ok = true;
+        const std::size_t np = f.rgb.size() / 3;
         if (fi % kFrameStride == 0) {
-            const std::size_t np = rgb.size() / 3;
             for (std::size_t i = 0; i < np; i += kSampleStride) {
-                ++histogram[packRgb(rgb[3 * i], rgb[3 * i + 1], rgb[3 * i + 2])];
+                ++f.histogram[packRgb(f.rgb[3 * i], f.rgb[3 * i + 1], f.rgb[3 * i + 2])];
             }
         }
-        loaded.push_back(std::move(f));
-    }
+        std::unordered_set<std::uint32_t> seen;
+        for (std::size_t i = 0; i < np; ++i) {
+            const std::uint32_t key = packRgb(f.rgb[3 * i], f.rgb[3 * i + 1], f.rgb[3 * i + 2]);
+            if (seen.insert(key).second) {
+                f.firstSeen.push_back(key);
+            }
+        }
+    });
+    std::erase_if(loaded, [](const Frame &f) {
+        return !f.ok;
+    });
     if (loaded.empty()) {
         return false;
     }
 
+    std::map<std::uint32_t, std::uint32_t> histogram;
+    for (const Frame &f : loaded) {
+        for (const auto &[key, count] : f.histogram) {
+            histogram[key] += count;
+        }
+    }
+
+    const auto unpack = [](std::uint32_t key) {
+        return Rgb24{static_cast<std::uint8_t>((key >> 16) & 0xff),
+                     static_cast<std::uint8_t>((key >> 8) & 0xff),
+                     static_cast<std::uint8_t>(key & 0xff)};
+    };
     GifPalette pal;
     for (const Rgb24 &c : medianCutPalette(histogram, kMaxPalette)) {
         pal.index(c);
@@ -1810,27 +1873,33 @@ bool writeAnimatedGif(const std::string &dir, const std::string &gifName, int de
     if (pal.colors().size() < kMaxPalette) {
         for (const auto &[key, count] : histogram) {
             (void)count;
-            pal.index(Rgb24{static_cast<std::uint8_t>((key >> 16) & 0xff),
-                            static_cast<std::uint8_t>((key >> 8) & 0xff),
-                            static_cast<std::uint8_t>(key & 0xff)});
+            pal.index(unpack(key));
             if (pal.colors().size() >= kMaxPalette) {
                 break;
             }
         }
     }
 
-    std::vector<Frame> quantised;
-    quantised.reserve(loaded.size());
-    for (Frame &f : loaded) {
+    std::unordered_map<std::uint32_t, std::uint8_t> indexOf;
+    for (const Frame &f : loaded) {
+        for (const std::uint32_t key : f.firstSeen) {
+            if (!indexOf.contains(key)) {
+                indexOf.emplace(key, pal.index(unpack(key)));
+            }
+        }
+    }
+
+    tbb::parallel_for(std::size_t{0}, loaded.size(), [&](std::size_t fi) {
+        Frame &f = loaded[fi];
         const std::size_t np = f.rgb.size() / 3;
         f.idx.resize(np);
         for (std::size_t i = 0; i < np; ++i) {
-            f.idx[i] = pal.index(Rgb24{f.rgb[3 * i], f.rgb[3 * i + 1], f.rgb[3 * i + 2]});
+            f.idx[i] = indexOf.at(packRgb(f.rgb[3 * i], f.rgb[3 * i + 1], f.rgb[3 * i + 2]));
         }
         f.rgb.clear();
         f.rgb.shrink_to_fit();
-        quantised.push_back(std::move(f));
-    }
+    });
+    std::vector<Frame> &quantised = loaded;
 
     std::vector<Rgb> palRgb;
     palRgb.reserve(pal.colors().size());

@@ -21,9 +21,12 @@
 #include "visualization/kt_plotOptions.h"
 
 #include <array>
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
+#include <functional>
+#include <oneapi/tbb/task_group.h>
 #include <span>
 #include <string>
 #include <string_view>
@@ -218,6 +221,9 @@ public:
     /// Forget the current run. Frames already written are left on disk.
     void reset();
 
+    /// Wait until every frame handed to the background renderer is on disk.
+    void flush();
+
     /// True once configure() has armed this run for an animation.
     [[nodiscard]] bool animating() const noexcept {
         return animOn;
@@ -231,7 +237,14 @@ private:
     /// so a directory listing sorts in run order, not alphabetically.
     [[nodiscard]] std::string framePath(const VisualFrame &frame) const;
     [[nodiscard]] bool ensureDir(const std::string &where) const;
+    void render(std::function<void()> job);
+    void record(const Graph &graph, const std::vector<float> &x, const std::vector<float> &y,
+                const std::array<double, 4> &die, std::size_t step, std::size_t total, double hpwl,
+                double hpwlInitial, double resid, const std::string &note,
+                const constraintMgr *fences, bool mandatory, bool inBackground);
 
+    tbb::task_group renders;
+    std::atomic<std::size_t> pending{0};
     std::string dir;
     PlotOptions opts;
     StageVisual stage;
