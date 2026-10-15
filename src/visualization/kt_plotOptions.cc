@@ -1,5 +1,5 @@
 // @file kt_plotOptions.cc
-// Plot settings, from defaults and the environment
+// Plot settings, from defaults and the run's visualizer options
 
 #include "visualization/kt_plotOptions.h"
 

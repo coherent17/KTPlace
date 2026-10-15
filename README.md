@@ -69,9 +69,8 @@ else is loaded as Bookshelf.
 
 | option | meaning |
 | --- | --- |
-| `-a, --algorithm <name>` | `simpl` (default) or `ntuplace1` |
-| `-c, --config <script>` | configure the run: a script of `add_option` lines, run first (repeatable) |
-| `-t, --tcl <script>` | run a Tcl script instead of the fixed flow (see below) |
+| `-tcl, --tcl <file>` | configure the run: a script of `add_option` lines, the placer included (`add_option flow algorithm ntuplace1`; simpl by default) |
+| `-s, --script <file>` | run a Tcl flow script instead of the fixed flow (see below) |
 | `--gui` | open the design in the Qt window instead; the other options go to it |
 | `-w, --work-dir <dir>` | where everything is written (default: cwd) |
 | `--no-plots` | draw nothing |
@@ -88,7 +87,7 @@ and stderr, so redirecting stdout stays clean.
 
 ### Tcl scripts
 
-`ktplace -t <script.tcl> [input_dir] [options]` runs a script instead of the
+`ktplace --script <flow.tcl> [input_dir] [options]` runs a script instead of the
 fixed load / place / legalize / detail-place / write sequence. Each stage is a
 command, so a script can reorder stages, run one alone, or change options
 between them:
@@ -135,7 +134,8 @@ image library beyond the vendored CImg, no external tools.
 
 Every stage setting is an option of its component, set with
 `add_option <component> <option> <value>` in a configuration script given with
-`-c` (or in a `-t` script, or the GUI's console). Nothing is read from the
+`-tcl` (or in a `--script` script, or the GUI's console). The placer is one too:
+`add_option flow algorithm ntuplace1` (SimPL by default). Nothing is read from the
 environment, so what configured a run is in its script and in its log: each
 stage prints its full option table when it runs, with what set each value.
 
@@ -145,7 +145,7 @@ add_option simpl iters 50
 add_option simpl seed 7
 add_option visualizer anim 0
 EOF
-ktplace benchmark/ISPD_2005/adaptec1 -c tuning.tcl -w output/adaptec1-50it
+ktplace benchmark/ISPD_2005/adaptec1 -tcl tuning.tcl -w output/adaptec1-50it
 ```
 
 The components and their options are declared, with defaults, in

@@ -178,10 +178,16 @@ BOOST_AUTO_TEST_CASE(an_uncreatable_work_dir_is_reported) {
     BOOST_CHECK_THROW(parse({"ktplace", kDesign, "-w", blocker + "/under"}), std::runtime_error);
 }
 
-BOOST_AUTO_TEST_CASE(algorithm_and_format_have_defaults) {
-    const kt_option opt = parse({"ktplace", kDesign});
-    BOOST_TEST(opt.algorithm == "simpl");
-    BOOST_TEST(!opt.verbose);
+BOOST_AUTO_TEST_CASE(verbose_is_off_by_default) {
+    BOOST_TEST(!parse({"ktplace", kDesign}).verbose);
+}
+
+BOOST_AUTO_TEST_CASE(the_placer_is_not_a_command_line_option) {
+    // Choosing the placer belongs to the flow, which knows what placers exist, and
+    // to the script. A flag here would put a component's vocabulary in the parser.
+    const ParseOutcome run = parseCapturing({"ktplace", kDesign, "-a", "ntuplace1"});
+    BOOST_TEST(run.fatal);
+    BOOST_TEST(run.fatalMessage == "Unknown command-line option: -a");
 }
 
 BOOST_AUTO_TEST_CASE(every_flag_is_accepted_in_both_its_short_and_long_form) {
@@ -194,7 +200,7 @@ BOOST_AUTO_TEST_CASE(every_flag_is_accepted_in_both_its_short_and_long_form) {
         const char *shortForm;
         const char *longForm;
         const char *value;
-    } forms[] = {{"-a", "--algorithm", "ntuplace1"}, {"-w", "--work-dir", work.c_str()}};
+    } forms[] = {{"-w", "--work-dir", work.c_str()}, {"-tcl", "--tcl", "run.tcl"}};
 
     for (const auto &f : forms) {
         BOOST_TEST_CONTEXT(f.shortForm) {
@@ -205,8 +211,8 @@ BOOST_AUTO_TEST_CASE(every_flag_is_accepted_in_both_its_short_and_long_form) {
 }
 
 BOOST_AUTO_TEST_CASE(flag_values_are_stored) {
-    const kt_option opt = parse({"ktplace", kDesign, "-a", "ntuplace1", "-v"});
-    BOOST_TEST(opt.algorithm == "ntuplace1");
+    const kt_option opt = parse({"ktplace", kDesign, "-tcl", "run.tcl", "-v"});
+    BOOST_TEST(opt.tclFile == "run.tcl");
     BOOST_TEST(opt.verbose);
 }
 
@@ -217,11 +223,20 @@ BOOST_AUTO_TEST_CASE(verbose_has_a_long_form_too) {
 BOOST_AUTO_TEST_CASE(a_flag_at_the_end_without_a_value_is_rejected) {
     // Silently keeping the default would turn a typo into a run that writes the
     // wrong thing, so each of these has to throw.
-    for (const char *flag : {"-a", "--algorithm", "-w", "--work-dir"}) {
+    for (const char *flag : {"-w", "--work-dir", "-tcl", "--tcl"}) {
         BOOST_TEST_CONTEXT(flag) {
             BOOST_CHECK_THROW(parse({"ktplace", kDesign, flag}), std::runtime_error);
         }
     }
+}
+
+BOOST_AUTO_TEST_CASE(a_tcl_script_is_kept_as_given) {
+    // The script is loaded by the run, not by the parser, so parsing only has to
+    // carry the path: resolving it here would create directories for a file that
+    // may not exist.
+    const kt_option opt = parse({"ktplace", kDesign, "-tcl", "cfg/run.tcl"});
+    BOOST_TEST(opt.tclFile == "cfg/run.tcl");
+    BOOST_TEST(parse({"ktplace", kDesign}).tclFile.empty());
 }
 
 BOOST_AUTO_TEST_CASE(an_unknown_flag_is_reported_and_stops_the_run) {
@@ -281,31 +296,31 @@ BOOST_AUTO_TEST_CASE(parsing_twice_uses_the_second_command_line) {
     std::vector<char *> fargv = argvOf(first);
     BOOST_TEST(opt.parse(static_cast<int>(fargv.size()), fargv.data()));
 
-    std::vector<std::string> second{"ktplace", kDesign, "-v", "-a", "ntuplace1"};
+    std::vector<std::string> second{"ktplace", kDesign, "-v", "-tcl", "run.tcl"};
     std::vector<char *> sargv = argvOf(second);
     BOOST_TEST(opt.parse(static_cast<int>(sargv.size()), sargv.data()));
     BOOST_TEST(opt.verbose);
-    BOOST_TEST(opt.algorithm == "ntuplace1");
+    BOOST_TEST(opt.tclFile == "run.tcl");
 }
 
-BOOST_AUTO_TEST_CASE(a_tcl_script_makes_the_input_directory_optional) {
-    for (const char *flag : {"-t", "--tcl"}) {
+BOOST_AUTO_TEST_CASE(a_flow_script_makes_the_input_directory_optional) {
+    for (const char *flag : {"-s", "--script"}) {
         BOOST_TEST_CONTEXT(flag) {
             const ParseOutcome run = parseCapturing({"ktplace", flag, "flow.tcl"});
             BOOST_TEST(!run.fatal);
             BOOST_TEST(run.ready);
         }
     }
-    const kt_option opt = parse({"ktplace", "-t", "flow.tcl", kDesign, "-v"});
-    BOOST_TEST(opt.tclScript == "flow.tcl");
+    const kt_option opt = parse({"ktplace", "--script", "flow.tcl", kDesign, "-v"});
+    BOOST_TEST(opt.script == "flow.tcl");
     BOOST_TEST(opt.inputPath == kDesign);
     BOOST_TEST(opt.verbose);
 }
 
 BOOST_AUTO_TEST_CASE(the_input_directory_may_follow_the_flags) {
-    const kt_option opt = parse({"ktplace", "-a", "ntuplace1", kDesign});
+    const kt_option opt = parse({"ktplace", "-tcl", "run.tcl", kDesign});
     BOOST_TEST(opt.inputPath == kDesign);
-    BOOST_TEST(opt.algorithm == "ntuplace1");
+    BOOST_TEST(opt.tclFile == "run.tcl");
 }
 
 BOOST_AUTO_TEST_CASE(a_second_positional_is_rejected) {
@@ -316,23 +331,24 @@ BOOST_AUTO_TEST_CASE(a_second_positional_is_rejected) {
 
 BOOST_AUTO_TEST_CASE(a_second_parse_forgets_the_first_script) {
     kt_option opt;
-    std::vector<std::string> first{"ktplace", "-t", "flow.tcl"};
+    std::vector<std::string> first{"ktplace", "--script", "flow.tcl", "-tcl", "run.tcl"};
     std::vector<char *> fargv = argvOf(first);
     BOOST_TEST(opt.parse(static_cast<int>(fargv.size()), fargv.data()));
 
     std::vector<std::string> second{"ktplace", kDesign};
     std::vector<char *> sargv = argvOf(second);
     BOOST_TEST(opt.parse(static_cast<int>(sargv.size()), sargv.data()));
-    BOOST_TEST(opt.tclScript.empty());
+    BOOST_TEST(opt.script.empty());
+    BOOST_TEST(opt.tclFile.empty());
     BOOST_TEST(opt.inputPath == kDesign);
 }
 
 BOOST_AUTO_TEST_CASE(gui_hands_every_other_argument_to_the_window) {
-    std::vector<std::string> args{"ktplace", kDesign, "--gui", "-w", "out", "-t", "flow.tcl"};
+    std::vector<std::string> args{"ktplace", kDesign, "--gui", "-w", "out", "--script", "flow.tcl"};
     std::vector<char *> argv = argvOf(args);
     const auto gui = kt_option::guiArguments(static_cast<int>(argv.size()), argv.data());
     BOOST_REQUIRE(gui.has_value());
-    const std::vector<std::string> expected{kDesign, "-w", "out", "-t", "flow.tcl"};
+    const std::vector<std::string> expected{kDesign, "-w", "out", "--script", "flow.tcl"};
     BOOST_TEST(*gui == expected, boost::test_tools::per_element());
 
     // Alone, it opens an empty window.
@@ -363,13 +379,4 @@ BOOST_AUTO_TEST_CASE(the_gui_binary_is_looked_for_beside_the_running_one) {
     if (!ec) {
         BOOST_TEST(gui.parent_path() == self.parent_path());
     }
-}
-
-BOOST_AUTO_TEST_CASE(configuration_scripts_are_kept_in_order) {
-    const kt_option opt = parse({"ktplace", kDesign, "-c", "a.tcl", "--config", "b.tcl"});
-    const std::vector<std::string> expected{"a.tcl", "b.tcl"};
-    BOOST_TEST(opt.configScripts == expected, boost::test_tools::per_element());
-    BOOST_TEST(opt.inputPath == kDesign);
-    BOOST_TEST(parse({"ktplace", kDesign}).configScripts.empty());
-    BOOST_CHECK_THROW(parse({"ktplace", kDesign, "-c"}), std::runtime_error);
 }

@@ -42,7 +42,7 @@ struct PlotOptions {
     /// where the default lives, so a reader has one place to look.
     std::size_t legalFrameEvery = 20000;
 
-    // The defaults, with the environment applied over them.
+    // The defaults, with the run's visualizer options applied over them.
     [[nodiscard]] static PlotOptions fromOptions();
 
     [[nodiscard]] bool enabled() const {

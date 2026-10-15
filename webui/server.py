@@ -22,7 +22,7 @@ Endpoints
   GET    /api/runs               run history with headline metrics
   POST   /api/runs               start a run: {"benchmark","algorithm","verbose","options"}
                                   options: [[component, option, value], ...], run as
-                                  add_option lines through `ktplace -c`
+                                  add_option lines through `ktplace -tcl`
   GET    /api/runs/<id>          status, progress, result summary, artifact links
   POST   /api/runs/<id>/label    rename a run: {"label"}
   DELETE /api/runs/<id>          stop a run (if live) and delete its directory
@@ -448,8 +448,8 @@ def clean_options(raw) -> list:
 
 
 def config_script(options: list) -> str:
-    """The -c script for a run: one add_option per entry, words already checked."""
-    lines = ["# Written by the web console for this run; given to ktplace -c."]
+    """The -tcl script for a run: one add_option per entry, words already checked."""
+    lines = ["# Written by the web console for this run; given to ktplace -tcl."]
     lines += [f"add_option {c} {k} {v}" for c, k, v in options]
     return "\n".join(lines) + "\n"
 
@@ -467,22 +467,21 @@ def launch(benchmark: str, target: str, algorithm: str, verbose: bool,
     rid = new_id()
     work = RUN_ROOT / rid
     work.mkdir(parents=True, exist_ok=True)
+    # The placer is an option like any other (`add_option flow algorithm`), so
+    # every run has a configuration script, even one with no other options.
     config = work / "config.tcl"
-    extra = []
-    if options:
-        config.write_text(config_script(options))
-        extra = ["-c", str(config)]
+    config.write_text(config_script([["flow", "algorithm", algorithm]] + options))
     # cmd lives in meta, not only in the file, so a later rewrite of
     # request.json (a rename) carries it along.
     meta = {"benchmark": benchmark, "algorithm": algorithm, "verbose": verbose,
             "options": options, "started": time.time(), "cmd": " ".join(
-                [binary, benchmark, "-a", algorithm, "-w", str(work)] + extra
+                [binary, benchmark, "-w", str(work), "-tcl", str(config)]
                 + (["-v"] if verbose else []))}
     try:
         (work / "request.json").write_text(json_dumps({**meta, "id": rid}))
     except OSError:
         pass
-    args = [binary, target, "-a", algorithm, "-w", str(work)] + extra
+    args = [binary, target, "-w", str(work), "-tcl", str(config)]
     if verbose:
         args.append("-v")
     # The engine logs to ktplace.log, which it flushes after every record; that

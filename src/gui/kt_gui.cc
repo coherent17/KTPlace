@@ -4,15 +4,17 @@
 //   ktplace-gui [input_dir] [ktplace options] [-b bench_root] [Qt options]
 //
 // The options are ktplace's (kt_option), so `ktplace --gui` passes its own
-// command line on unchanged; all are optional here. Configuration scripts (-c)
-// are sourced first, then the design is read and the -t script sourced; -w is
+// command line on unchanged; all are optional here. The --tcl configuration is
+// loaded first, then the design is read and the --script script sourced; -w is
 // where the log, the pictures and the run history (runs.json) go. -b is where
 // the Runs panel finds designs (default ./benchmark, when there is one). Qt's
 // own options (-platform, -style, ...) are taken first. Unlike ktplace, nothing
 // else runs: the window waits for commands.
 
+#include "kt_flowMgr.h"
 #include "kt_option.h"
 
+#include "datamodel/kt_optionDb.h"
 #include "gui/kt_engine.h"
 #include "gui/kt_mainWindow.h"
 #include "gui/kt_tclConsole.h"
@@ -40,6 +42,9 @@ int main(int argc, char *argv[]) {
         if (!options.parse(argc, argv, /*inputOptional=*/true)) {
             return EXIT_SUCCESS;  // --help or --version
         }
+        // The configuration (--tcl) before anything reads an option, as for
+        // ktplace: it may choose the placer that ktplace(algorithm) names.
+        FlowMgr::configure(options);
     } catch (const FatalError &) {
         return EXIT_FAILURE;  // already reported
     } catch (const std::exception &e) {
@@ -61,7 +66,10 @@ int main(int argc, char *argv[]) {
         engine.setGlobal("input_dir", QString::fromStdString(options.inputPath));
         engine.setGlobal("output", QString::fromStdString((work / "placed.pl").string()));
         engine.setGlobal("plot_dir", QString::fromStdString((work / "plots").string()));
-        engine.setGlobal("algorithm", QString::fromStdString(options.algorithm));
+        engine.setGlobal("algorithm",
+                         QString::fromStdString(
+                             getComponentOption<components::Id::Flow, std::string>("algorithm")
+                                 .value_or("simpl")));
 
         MainWindow window(engine);
         window.setHistoryFile(QString::fromStdString((work / "runs.json").string()));
@@ -71,17 +79,13 @@ int main(int argc, char *argv[]) {
         // Once the event loop runs, so the commands appear in the console as
         // they execute. One script, so the read is finished before sourcing.
         QString startup;
-        // Configuration first, so the stages read what it set.
-        for (const std::string &config : options.configScripts) {
-            startup += "source " + MainWindow::tclQuote(QString::fromStdString(config)) + "\n";
-        }
         if (!options.inputPath.empty()) {
             startup += "read_design " +
                        MainWindow::tclQuote(QString::fromStdString(options.inputPath)) + "\n";
         }
-        if (!options.tclScript.empty()) {
+        if (!options.script.empty()) {
             startup +=
-                "source " + MainWindow::tclQuote(QString::fromStdString(options.tclScript)) + "\n";
+                "source " + MainWindow::tclQuote(QString::fromStdString(options.script)) + "\n";
         }
         if (!startup.isEmpty()) {
             QTimer::singleShot(0, &window, [&window, startup] {

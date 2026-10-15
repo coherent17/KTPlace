@@ -15,6 +15,8 @@
 #include "legalizer/multirow/multirow_flowMgr.h"
 #include "legalizer/multirow/multirow_legalizer.h"
 #include "placer/ntuplace1/kt_ntuplace1.h"
+#include "placer/ntuplace1/ntuplace1_dm.h"
+#include "placer/ntuplace1/ntuplace1_flowMgr.h"
 #include "placer/simpl/simpl_dm.h"
 #include "placer/simpl/simpl_flowMgr.h"
 #include "placer/simpl/simpl_placer.h"
@@ -175,11 +177,10 @@ void ktSession::globalPlace(const std::string &algorithm) {
         return;
 
     } else if (algorithm == "ntuplace1") {
-        ktlog.echo("Running NTUPlace1 global placement (ratio partitioning)...");
-        RatioPlacer placer(d);
-        const RatioPlaceParams params = placer.params();
-        const RatioPlaceResult res = placer.place(params);
-        reportNtuPlace1(res);
+        ntuplace1::ntuplace1DM placeDB = ntuplace1::buildNtuplace1DM(d);
+        const RatioPlaceParams params = placeDB.params();
+        ntuplace1::flowMgr flow(placeDB);
+        d.setGPSolution(flow.runGlobalPlacer(params));
         record("global_place", algorithm, started);
         return;
 
@@ -227,30 +228,7 @@ void ktSession::legalize() {
 }
 
 std::size_t ktSession::multiRowCells() const {
-    if (!db) {
-        return 0;
-    }
-    // The shortest row sets the bar: a cell taller than every row has no single
-    // row to go in, and that is the case the row slicer exists for.
-    double minHeight = std::numeric_limits<double>::max();
-    for (const RowInfo &ri : db->getRows()) {
-        if (ri.height > 0.0 && !ri.subrows.empty()) {
-            minHeight = std::min(minHeight, ri.height);
-        }
-    }
-    if (minHeight == std::numeric_limits<double>::max()) {
-        return 0;
-    }
-    const double tall = minHeight * 1.5;
-    const Graph &g = db->getGraph();
-    std::size_t n = 0;
-    for (std::size_t v = 0; v < g.getNumCells(); ++v) {
-        const Vertex &vert = g.getCell(v);
-        if (!vert.isFixed && !vert.isTerminal && vert.height > tall) {
-            ++n;
-        }
-    }
-    return n;
+    return db ? db->multiRowCells() : 0;
 }
 
 void ktSession::detailPlace() {

@@ -124,7 +124,7 @@ pre { background: #0d1216; border: 1px solid var(--line); border-radius: 6px; pa
       <div class="node"><div class="t"><span class="n">3</span>Start the run</div>
         <div class="d">The engine runs in the console container, in its own directory
           <code>runs/&lt;id&gt;/</code>.</div>
-        <div class="m">CLI: <code>ktplace benchmark/ISPD_2005/adaptec1 -a simpl -w output/adaptec1</code></div></div>
+        <div class="m">CLI: <code>ktplace benchmark/ISPD_2005/adaptec1 -w output/adaptec1 -tcl run.tcl</code></div></div>
       <div class="arrow"></div>
       <div class="node"><div class="t"><span class="n">4</span>Watch it work</div>
         <div class="d">The phase bar follows the pipeline below; the heartbeat (frames/s, CPU,
@@ -166,7 +166,7 @@ pre { background: #0d1216; border: 1px solid var(--line); border-radius: 6px; pa
       <div class="node io"><div class="t">Report the design</div>
         <div class="d">Cell, net and row counts, and utilisation — said before placing, because an
           over-full design cannot be placed legally whatever the placer does.</div></div>
-      <div class="arrow" data-label="-a simpl | -a ntuplace1"></div>
+      <div class="arrow" data-label="add_option flow algorithm simpl | ntuplace1"></div>
       <div class="split">
         <div><div class="lbl">default</div>
           <div class="node"><div class="t">SimPL global placement</div>
@@ -258,7 +258,7 @@ pre { background: #0d1216; border: 1px solid var(--line); border-radius: 6px; pa
         <tr><td><code>plots/final/final.png</code></td><td>High-resolution still of the finished placement.</td></tr>
         <tr><td><code>plots/anim/placement.gif</code></td><td>The animated run (unless <code>visualizer anim 0</code>).</td></tr>
         <tr><td><code>request.json</code></td><td>Console runs only: design, algorithm, options and the exact command.</td></tr>
-        <tr><td><code>config.tcl</code></td><td>Console runs with options: the <code>add_option</code> lines the run was given with <code>-c</code>.</td></tr>
+        <tr><td><code>config.tcl</code></td><td>Console runs with options: the <code>add_option</code> lines the run was given with <code>-tcl</code>.</td></tr>
       </tbody>
     </table></div>
     <p>Pass <code>--no-plots</code> to skip every frame and picture; a full ISPD 2005 run
@@ -271,7 +271,7 @@ pre { background: #0d1216; border: 1px solid var(--line); border-radius: 6px; pa
     <p class="lede">Every stage setting is an option, set with
       <code>add_option &lt;component&gt; &lt;option&gt; &lt;value&gt;</code>. In the console, put
       the three words per line in <i>Options</i>; on the command line, write the lines into a
-      script and pass it with <code>-c</code>.</p>
+      script and pass it with <code>-tcl</code>.</p>
     <div class="tablewrap"><table>
       <thead><tr><th scope="col">Option</th><th scope="col">Stage</th><th scope="col">Effect</th></tr></thead>
       <tbody>
@@ -288,7 +288,7 @@ pre { background: #0d1216; border: 1px solid var(--line); border-radius: 6px; pa
       </tbody>
     </table></div>
     <pre>printf 'add_option simpl iters 25\nadd_option simpl seed 1\n' &gt; tuning.tcl
-ktplace benchmark/ISPD_2005/adaptec1 -c tuning.tcl -w output/adaptec1-25it</pre>
+ktplace benchmark/ISPD_2005/adaptec1 -tcl tuning.tcl -w output/adaptec1-25it</pre>
     <p>Each stage logs the full table of its options when it runs, with what set each
       value; <code>report_options</code> in a Tcl session shows what has been set so far.</p>
   </section>

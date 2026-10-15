@@ -20,8 +20,8 @@ namespace ktplace {
 //     add_option simpl grid 64
 //     add_option simpl cg_tol 1e-6
 //
-// Set with `add_option simpl <option> <value>`; an option no script sets has
-// the default below. The environment is not consulted.
+// Each was a KTPLACE_SIMPL_* environment variable. The environment is no longer
+// read: an option the script did not set takes the default below.
 struct SimplOptions {
     // Grid resolution. Zero means "derive from the cell count", which is what the
     // placer does when this is not set: sqrt(movable / 51) clamped to [16, 256].

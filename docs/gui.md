@@ -105,7 +105,7 @@ The CLI uses none of this: it installs no log sink and no progress observer, so
 1. **Give the engine the capability**: a method on `ktSession` if it is a stage
    or a query, an option (`add_option`) if it is a setting.
 2. **Give it a Tcl command** in `kt_tclShell.cc`, so a script and the batch mode
-   (`ktplace -t`) can use it too, and a Tcl test covers it without a display.
+   (`ktplace --script`) can use it too, and a Tcl test covers it without a display.
 3. **Give it a menu action** that runs that command through the console
    (`MainWindow::engineAction`). It is then echoed in the console and the log,
    disabled while the engine is busy, and replayable as a script.

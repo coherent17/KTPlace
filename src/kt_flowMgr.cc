@@ -5,11 +5,16 @@
 
 #include "kt_option.h"
 
+#include "datamodel/kt_optionDb.h"
 #include "session/kt_session.h"
+#include "tcl/kt_tcl.h"
+#include "tcl/kt_tclMgr.h"
+#include "util/kt_log.h"
 #include "util/kt_scopedTimer.h"
 #include "visualization/kt_plotOptions.h"
 
 #include <memory>
+#include <string>
 
 namespace ktplace {
 
@@ -31,8 +36,20 @@ void FlowMgr::run(const kt_option &options) {
     pImpl->run(options);
 }
 
+void FlowMgr::configure(const kt_option &options) {
+    if (options.tclFile.empty()) {
+        return;
+    }
+    try {
+        tcl::TclMgr::instance().loadScript(options.tclFile);
+    } catch (const tcl::Error &error) {
+        ktlog.fatal("{}: {}", options.tclFile, error.what());
+    }
+}
+
 
 void FlowMgr::Impl::run(const kt_option &options) {
+    configure(options);
     PlotOptions plot = options.plot ? PlotOptions::fromOptions() : PlotOptions{};
     plot.dir = options.getPlotDir();
     session.setPlotOptions(plot);
@@ -41,13 +58,18 @@ void FlowMgr::Impl::run(const kt_option &options) {
     session.reportDesign();
     // The placer holds back part of the animation's frame budget for the stages
     // after it, and legalize() releases it; see ktSession.
-    session.globalPlace(options.algorithm);
+    // Which placer runs is the script's choice (`add_option flow algorithm
+    // ntuplace1`); SimPL when nothing says otherwise.
+    const std::string algorithm =
+        getComponentOption<components::Id::Flow, std::string>("algorithm").value_or("simpl");
+    if (algorithm != "simpl" && algorithm != "ntuplace1") {
+        ktlog.fatal("unknown placer '{}'; expected simpl or ntuplace1", algorithm);
+    }
+    session.globalPlace(algorithm);
+    // Each stage's result is checked as it is committed (ktDM), so the log says
+    // which stage broke the placement, if one did.
     session.legalize();
-    // Checked after each stage that should leave the placement legal, so the log
-    // says which stage broke it.
-    (void)session.reportPlacementCheck("after legalization");
     session.detailPlace();
-    (void)session.reportPlacementCheck("after detail placement");
     // The still and the animation come after the last stage, so both show the
     // placement that is written.
     session.renderFinalImage();

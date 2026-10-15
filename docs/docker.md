@@ -62,7 +62,8 @@ You land in `/workspace` (the repository) with `ktplace` on `PATH`:
 ```sh
 make -j"$(nproc)" && make test
 ktplace benchmark/ISPD_2005/adaptec1 -w output/adaptec1
-ktplace benchmark/ISPD_2005/adaptec1 -w output/adaptec1-ntu -a ntuplace1 -v
+echo 'add_option flow algorithm ntuplace1' > output/ntu.tcl
+ktplace benchmark/ISPD_2005/adaptec1 -w output/adaptec1-ntu -tcl output/ntu.tcl -v
 ```
 
 Anything written under `output/` appears on the host straight away.
@@ -85,9 +86,10 @@ too.
 
 ```
 ktplace <input_dir> [options]
-ktplace -t <script.tcl> [input_dir] [options]
-  -a, --algorithm <name>   simpl (default) or ntuplace1
-  -t, --tcl <script>       run a Tcl script instead of the fixed flow
+ktplace --script <flow.tcl> [input_dir] [options]
+  -tcl, --tcl <file>       configure the run: add_option lines, the placer
+                           included (add_option flow algorithm ntuplace1)
+  -s, --script <file>      run a Tcl flow script instead of the fixed flow
                            (scripts/flow.tcl is the fixed flow as a script)
       --gui                open the design in the Qt window instead (see 5.)
   -w, --work-dir <dir>     where placed.pl, plots/ and ktplace.log go
@@ -97,11 +99,11 @@ ktplace -t <script.tcl> [input_dir] [options]
 ```
 
 Tuning is through options, not flags or environment variables: a script of
-`add_option <component> <option> <value>` lines, given with `-c`:
+`add_option <component> <option> <value>` lines, given with `-tcl`:
 
 ```sh
 printf 'add_option simpl iters 25\nadd_option simpl seed 1\n' > output/tuning.tcl
-ktplace benchmark/ISPD_2005/adaptec1 -c output/tuning.tcl -w output/adaptec1-25it
+ktplace benchmark/ISPD_2005/adaptec1 -tcl output/tuning.tcl -w output/adaptec1-25it
 ```
 
 Common ones: `simpl iters`, `simpl seed`, `simpl grid`, `simpl density`,
@@ -115,7 +117,8 @@ Open http://127.0.0.1:8080.
 
 - **Start a run**: pick a design (every suite under `benchmark/` is mounted),
   an algorithm, optionally *verbose*, and `component option value` lines in
-  *Options* (written into the run's `config.tcl` and given to `ktplace -c`).
+  *Options* (written into the run's `config.tcl` with the algorithm, and given to
+  `ktplace -tcl`).
   The transcript streams live with a phase bar and a heartbeat (frames, CPU,
   memory), so a long solve is visibly alive.
 - **Review**: the *Run* tab has the stats, links and logs; the *Animated
@@ -136,8 +139,8 @@ streams its output. Use it for quick checks next to your runs:
 ```sh
 ls runs/                                            # every run directory
 tail -n 30 runs/<id>/ktplace.log
-build/bin/ktplace benchmark/ISPD_2005/adaptec1 -w runs/manual-1 -a simpl
-build/bin/ktplace benchmark/ISPD_2005/adaptec1 -c runs/<id>/config.tcl -w runs/again
+build/bin/ktplace benchmark/ISPD_2005/adaptec1 -w runs/manual-1
+build/bin/ktplace benchmark/ISPD_2005/adaptec1 -tcl runs/<id>/config.tcl -w runs/again
 ```
 
 Know its limits:
@@ -160,7 +163,7 @@ Remove that line to switch it off.
 
 `ktplace-gui` is the native Qt window ([how it embeds the engine](gui.md)): the layout view on top, a Properties
 panel on the right, and a tabbed dock underneath with the live log and a Tcl
-console (the commands of `ktplace -t`; type `help`). Every menu action runs as a
+console (the commands of `ktplace --script`; type `help`). Every menu action runs as a
 Tcl command in that console, so a session reads back as a script, and the
 layout view shows the placement as each command leaves it.
 
@@ -175,14 +178,14 @@ Open it from the host, or from any shell inside the dev container:
 
 ```sh
 scripts/devenv.sh gui benchmark/ICCAD04/ibm01          # host: build, open, start the viewer
-scripts/devenv.sh gui benchmark/ICCAD04/ibm01 -t scripts/flow.tcl
+scripts/devenv.sh gui benchmark/ICCAD04/ibm01 --script scripts/flow.tcl
 
 ktplace --gui benchmark/ICCAD04/ibm01 -w output/gui    # inside: like any ktplace run
-ktplace --gui -t scripts/flow.tcl benchmark/ICCAD04/ibm01
+ktplace --gui --script scripts/flow.tcl benchmark/ICCAD04/ibm01
 ```
 
-`ktplace --gui` takes ktplace's own arguments (`input_dir`, `-w`, `-t`, `-a`,
-`-v`) and opens the window instead of running the fixed flow; `make gui` builds
+`ktplace --gui` takes ktplace's own arguments (`input_dir`, `-w`, `-tcl`,
+`--script`, `-v`) and opens the window instead of running the fixed flow; `make gui` builds
 it (`scripts/devenv.sh gui` does that for you). From the host, `gui` defaults the
 work directory to `output/gui` and replaces a window that is already open.
 

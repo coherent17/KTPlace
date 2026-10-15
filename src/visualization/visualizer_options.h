@@ -16,7 +16,8 @@ namespace ktplace {
 //     add_option visualizer anim 0
 //     add_option visualizer anim_zoom 2
 //
-// Set with `add_option visualizer <option> <value>`; the defaults are below.
+// Each was a KTPLACE_ANIM_* environment variable. The environment is no longer
+// read; a script is the only way to set them.
 struct VisualizerOptions {
     // Record frames and assemble the GIF. Off means nothing is drawn.
     bool anim = true;

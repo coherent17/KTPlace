@@ -13,15 +13,12 @@ inline constexpr std::string_view VERSION = "0.1.0";
 class kt_option {
 public:
     std::string inputPath;
-    /// A Tcl script to run instead of the fixed flow; see tcl/kt_tclShell.h.
-    /// With one, the input directory is optional: the script reads its design.
-    std::string tclScript;
-    /// Configuration scripts (-c), run in order before the flow or the -t
-    /// script: add_option lines that set the stages' options.
-    std::vector<std::string> configScripts;
+    /// A flow script to run instead of the fixed flow (--script); see
+    /// tcl/kt_tclShell.h. With one, the input directory is optional: the script
+    /// reads its design.
+    std::string script;
     /// ktplace-gui only (-b): where its Runs panel looks for designs.
     std::string benchRoot;
-    std::string algorithm = "simpl";
     bool verbose = false;
     std::string workDir = std::filesystem::current_path().string();
 
@@ -37,9 +34,10 @@ public:
         return (std::filesystem::path(workDir) / "ktplace.log").string();
     }
 
-    // Whether to draw at all. The picture settings themselves are defaults that
-    // the environment can override; see PlotOptions.
     bool plot = true;
+    /// The run's configuration script (--tcl): add_option lines, loaded before
+    /// the flow or the --script script (see FlowMgr::configure).
+    std::string tclFile;
 
     /// @p inputOptional: ktplace-gui's case, where a window may open with no
     /// design and no script.

@@ -1,9 +1,8 @@
 #include "kt_flowMgr.h"
 #include "kt_option.h"
 
+#include "datamodel/kt_optionDb.h"
 #include "session/kt_session.h"
-#include "tcl/kt_tcl.h"
-#include "tcl/kt_tclMgr.h"
 #include "tcl/kt_tclShell.h"
 #include "util/kt_log.h"
 #include "visualization/kt_plotOptions.h"
@@ -22,7 +21,7 @@ using namespace ktplace;
 
 namespace {
 
-// `ktplace -t script.tcl`: the script in place of FlowMgr's fixed sequence. The
+// `ktplace --script flow.tcl`: the script in place of FlowMgr's fixed sequence. The
 // session starts drawing where the fixed flow would (-w, --no-plots and the
 // visualizer options apply), and the script can change that with
 // set_plot_dir. A failing command fails the run with Tcl's own trace, which
@@ -38,10 +37,12 @@ int runScript(const kt_option &options) {
     shell.setGlobal("work_dir", options.workDir);
     shell.setGlobal("output", options.getOutputPath());
     shell.setGlobal("plot_dir", options.getPlotDir());
-    shell.setGlobal("algorithm", options.algorithm);
+    shell.setGlobal(
+        "algorithm",
+        getComponentOption<components::Id::Flow, std::string>("algorithm").value_or("simpl"));
 
-    ktlog.echo("Running Tcl script {}...", options.tclScript);
-    const TclShell::Result result = shell.evalFile(options.tclScript);
+    ktlog.echo("Running Tcl script {}...", options.script);
+    const TclShell::Result result = shell.evalFile(options.script);
     if (!result.ok) {
         ktlog.fatal("Tcl script failed: {}", result.trace);
     }
@@ -102,17 +103,10 @@ int run(int argc, char *argv[]) {
         ktlog.echo("========================================");
         options.report();
 
-        // The configuration first, so every stage below reads what it set.
-        for (const std::string &script : options.configScripts) {
-            ktlog.echo("Configuring from {}...", script);
-            try {
-                tcl::TclMgr::instance().loadScript(script);
-            } catch (const tcl::Error &e) {
-                ktlog.fatal("configuration script {} failed: {}", script, e.what());
-            }
-        }
-
-        if (!options.tclScript.empty()) {
+        if (!options.script.empty()) {
+            // The configuration first, as FlowMgr::run does, so the script's
+            // stages read what it set.
+            FlowMgr::configure(options);
             return runScript(options);
         }
 

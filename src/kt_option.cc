@@ -31,8 +31,8 @@ bool kt_option::parse(int argc, char *argv[], bool inputOptional) {
 
     // Cleared, so a second parse describes only the second command line.
     inputPath.clear();
-    tclScript.clear();
-    configScripts.clear();
+    script.clear();
+    tclFile.clear();
 
     for (int i = 1; i < argc; ++i) {
         const std::string arg = argv[i];
@@ -44,16 +44,14 @@ bool kt_option::parse(int argc, char *argv[], bool inputOptional) {
             return argv[++i];
         };
 
-        if (arg == "-a" || arg == "--algorithm") {
-            algorithm = value();
-        } else if (arg == "-w" || arg == "--work-dir") {
+        if (arg == "-w" || arg == "--work-dir") {
             workDir = value();
-        } else if (arg == "-t" || arg == "--tcl") {
-            tclScript = value();
+        } else if (arg == "-tcl" || arg == "--tcl") {
+            tclFile = value();
+        } else if (arg == "-s" || arg == "--script") {
+            script = value();
         } else if (arg == "-b" || arg == "--bench-root") {
             benchRoot = value();
-        } else if (arg == "-c" || arg == "--config") {
-            configScripts.push_back(value());
         } else if (arg == "-v" || arg == "--verbose") {
             verbose = true;
         } else if (arg == "--no-plots") {
@@ -67,7 +65,7 @@ bool kt_option::parse(int argc, char *argv[], bool inputOptional) {
         }
     }
 
-    if (inputPath.empty() && tclScript.empty() && !inputOptional) {
+    if (inputPath.empty() && script.empty() && !inputOptional) {
         ktlog.echo("");
         printUsage();
         ktlog.fatal("Insufficient command-line arguments");
@@ -86,17 +84,16 @@ void kt_option::report() const {
     ktReportTable config("Configuration");
     config.add("input directory",
                inputPath.empty() ? std::string("(read by the script)") : inputPath);
-    if (!tclScript.empty()) {
-        config.add("tcl script", tclScript);
+    if (!tclFile.empty()) {
+        config.add("tcl configuration", tclFile);
     }
-    for (const std::string &script : configScripts) {
-        config.add("config script", script);
+    if (!script.empty()) {
+        config.add("flow script", script);
     }
     config.add("work directory", workDir);
     config.add("output path", getOutputPath());
     config.add("plot directory", getPlotDir());
     config.add("log file", getLogFile());
-    config.add("algorithm", algorithm);
     if (verbose) {
         config.add("trace file", Logger::tracePathFor(getLogFile()));
     }
@@ -114,23 +111,22 @@ Arguments:
                    its own design (`read_design $ktplace(input_dir)`)
 
 Options:
-  -a, --algorithm <name>    Placement algorithm (default: simpl)
-  -c, --config <script>     Configure the run: a Tcl script of add_option lines
-                            (add_option simpl iters 50), run before the flow
-                            or the -t script. May be given more than once
-  -t, --tcl <script>        Run a Tcl script instead of the fixed flow. The
-                            script sees ktplace(input_dir), ktplace(work_dir),
-                            ktplace(output), ktplace(plot_dir) and
-                            ktplace(algorithm); `help` lists the commands
   -w, --work-dir <dir>      Where to write everything; created if missing
                             (default: the current directory)
   --no-plots                Draw nothing; skip every frame and picture
+  -tcl, --tcl <file>        Tcl script configuring the run, through
+                            add_option <component> <key> <value>
+  -s, --script <file>       Run a Tcl flow script instead of the fixed flow,
+                            after the --tcl configuration. The script sees
+                            ktplace(input_dir), ktplace(work_dir),
+                            ktplace(output), ktplace(plot_dir) and
+                            ktplace(algorithm); `help` lists the commands
   -b, --bench-root <dir>    With --gui: where the Runs panel finds designs
   --gui                     Open the design in ktplace-gui, the Qt window,
                             instead of running the flow. The other arguments
-                            go to it (input_dir, -w, -c, -t, -a, -v); `make gui`
-                            builds it. Needs a display: in the dev container
-                            that is the VNC one (see docs/docker.md)
+                            go to it (input_dir, -w, --tcl, --script, -v);
+                            `make gui` builds it. Needs a display: in the dev
+                            container that is the VNC one (see docs/docker.md)
   -v, --verbose             Also send trace diagnostics to the console.
                             <log>_trace.log is always written either way
 
@@ -141,17 +137,18 @@ Options:
 Everything a run writes goes under the work directory: placed.pl, plots/, and
 ktplace.log. Logging goes to that file and stderr; stdout is never written to.
 
-Every stage setting is an option, set by a configuration script rather than a
-flag each: `add_option <component> <option> <value>`, for the components simpl,
-ntuplace1, abacus, fastdp and visualizer. Each stage logs its full option table
-when it runs, with what set each value.
+Everything a run is made of is chosen in that script, including the placer:
+`add_option flow algorithm ntuplace1`, where simpl is the default. The picture
+settings -- animation on or off, frame budget, zoom levels -- are options too, so
+tuning a run does not need a flag each; `add_option visualizer anim 0` is the
+-tcl spelling of --no-plots. Each stage logs its full option table when it runs,
+with what set each value.
 
 Examples:
   ktplace benchmark/ISPD_2005/adaptec1
   ktplace benchmark/ISPD_2005/adaptec1 -w output
-  ktplace benchmark/ISPD_2005/adaptec1 -w output -a simpl
-  ktplace benchmark/ISPD_2005/adaptec1 -w output -c tuning.tcl
-  ktplace -t scripts/flow.tcl benchmark/ISPD_2005/adaptec1 -w output
+  ktplace benchmark/ISPD_2005/adaptec1 -w output -tcl run.tcl
+  ktplace --script scripts/flow.tcl benchmark/ISPD_2005/adaptec1 -w output
   ktplace --gui benchmark/ISPD_2005/adaptec1 -w output
 )";
     ktlog.echo(fmt::format(kUsage, VERSION));

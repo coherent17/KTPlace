@@ -214,11 +214,44 @@ BOOST_AUTO_TEST_CASE(flow_fails_on_an_unknown_algorithm) {
     expectFatal(
         [&] {
             FlowMgr flow;
-            kt_option opt = optionsFor(dir, designDir(dir).string());
-            opt.algorithm = "no_such_algo";
+            OptionDb::instance().set("flow", "algorithm", OptionValue{std::string("no_such_algo")});
+            const kt_option opt = optionsFor(dir, designDir(dir).string());
             flow.run(opt);
         },
-        "Unknown placement algorithm");
+        "unknown placer");
+    OptionDb::instance().clear();  // the option outlives the run in-process
+}
+
+BOOST_AUTO_TEST_CASE(flow_reads_the_placer_from_its_tcl_script) {
+    const ScratchDir dir("tclalgo");
+    writeBookshelfDesign(dir);
+    const fs::path script = fs::path(dir.str()) / "run.tcl";
+    std::ofstream(script) << "add_option flow algorithm no_such_algo\n";
+    expectFatal(
+        [&] {
+            FlowMgr flow;
+            kt_option opt = optionsFor(dir, designDir(dir).string());
+            opt.tclFile = script.string();
+            flow.run(opt);
+        },
+        "unknown placer 'no_such_algo'");
+    OptionDb::instance().clear();  // the option outlives the run in-process
+}
+
+BOOST_AUTO_TEST_CASE(flow_fails_on_a_broken_tcl_script) {
+    const ScratchDir dir("badtcl");
+    writeBookshelfDesign(dir);
+    const fs::path script = fs::path(dir.str()) / "run.tcl";
+    std::ofstream(script) << "add_option nonesuch grid 64\n";
+    expectFatal(
+        [&] {
+            FlowMgr flow;
+            kt_option opt = optionsFor(dir, designDir(dir).string());
+            opt.tclFile = script.string();
+            flow.run(opt);
+        },
+        "is not a known component");
+    OptionDb::instance().clear();  // the option outlives the run in-process
 }
 
 BOOST_AUTO_TEST_CASE(flow_fails_when_the_input_directory_is_missing) {
