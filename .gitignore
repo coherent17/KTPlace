@@ -70,6 +70,7 @@ docs/*
 !docs/simpl.md
 !docs/docker.md
 !docs/visualization.md
+!docs/images/
 ref/
 *.whl
 
