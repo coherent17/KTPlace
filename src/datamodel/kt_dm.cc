@@ -13,6 +13,7 @@
 #include <algorithm>
 #include <cmath>
 #include <fmt/format.h>
+#include <iterator>
 #include <limits>
 #include <map>
 #include <stdexcept>
@@ -504,6 +505,33 @@ double ktDM::macroHeight() const {
         }
     }
     return minHeight == std::numeric_limits<double>::max() ? minHeight : 1.5 * minHeight;
+}
+
+std::vector<std::vector<RowPiece>> ktDM::fencedSubrows() const {
+    std::vector<FenceRect> rects;
+    const constraintMgr &mgr = constraints();
+    for (int id = 0; id < static_cast<int>(mgr.numRegions()); ++id) {
+        for (const Rect &rc : mgr.region(id)->rects) {
+            rects.push_back(FenceRect{rc.lo.x, rc.lo.y, rc.hi.x, rc.hi.y, id});
+        }
+    }
+    std::vector<std::vector<RowPiece>> out;
+    out.reserve(getRows().size());
+    for (const RowInfo &row : getRows()) {
+        const double grid = row.pitch() > 0.0 ? row.pitch() : 1.0;
+        std::vector<RowPiece> &pieces = out.emplace_back();
+        for (const SubrowInfo &s : row.subrows) {
+            const double xlo = s.xlo();
+            const double xhi = s.xhi(row.pitch());
+            if (!(xhi > xlo)) {
+                continue;
+            }
+            std::ranges::copy(splitRowByFences(xlo, xhi, row.coordinate,
+                                               row.coordinate + row.height, grid, rects),
+                              std::back_inserter(pieces));
+        }
+    }
+    return out;
 }
 
 std::size_t ktDM::multiRowCells() const {

@@ -43,16 +43,19 @@ void copyNets(const ktplace::Graph &graph, std::vector<Pin> &pins, std::vector<N
     }
 }
 
-void copyRows(const std::vector<ktplace::RowInfo> &rows, std::vector<RowInfo> &out) {
+void copyRows(const std::vector<ktplace::RowInfo> &rows,
+              const std::vector<std::vector<ktplace::RowPiece>> &pieces,
+              std::vector<RowInfo> &out) {
     out.reserve(rows.size());
-    for (const ktplace::RowInfo &r : rows) {
+    for (std::size_t i = 0; i < rows.size(); ++i) {
+        const ktplace::RowInfo &r = rows[i];
         RowInfo info;
         info.coordinate = r.coordinate;
         info.height = r.height;
         info.sitePitch = r.pitch();
-        info.subrows.reserve(r.subrows.size());
-        for (const ktplace::SubrowInfo &s : r.subrows) {
-            info.subrows.push_back(Subrow{s.xlo(), s.xhi(r.pitch())});
+        info.subrows.reserve(pieces[i].size());
+        for (const ktplace::RowPiece &p : pieces[i]) {
+            info.subrows.push_back(Subrow{p.xlo, p.xhi, p.region});
         }
         out.push_back(std::move(info));
     }
@@ -80,7 +83,7 @@ abacusDM buildAbacusDM(const ktDM &db) {
     Design design;
     copyCells(db.getGraph(), design.cells);
     copyNets(db.getGraph(), design.pins, design.nets);
-    copyRows(db.getRows(), design.rows);
+    copyRows(db.getRows(), db.fencedSubrows(), design.rows);
     copyFences(db.constraints(), design.fences);
     design.die = placementDieBox(db.die(), db.getGraph());
 

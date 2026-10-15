@@ -7,7 +7,6 @@
 #include "legalizer/abacus/abacus_design.h"
 #include "util/kt_log.h"
 #include "util/kt_reportTable.h"
-#include "util/kt_rowFence.h"
 #include "util/kt_scopedTimer.h"
 
 #include <algorithm>
@@ -127,8 +126,6 @@ private:
         double movement = 0.0;
     };
     [[nodiscard]] Pass legalizePass(const AbacusOptions &params, bool mirrored);
-    /// Split each row's pieces at the fence boundaries and tag them by region.
-    void splitByFences();
     [[nodiscard]] Trial trial(const Subrow &sr, double grid, std::size_t i) const;
     void commit(Subrow &sr, std::size_t i, const Trial &t);
     [[nodiscard]] double hpwlOf(const std::vector<double> &x, const std::vector<double> &y) const;
@@ -180,6 +177,7 @@ void AbacusLegalizer::Impl::buildRows(bool mirrored) {
             Subrow sr;
             sr.xlo = si.xlo;
             sr.xhi = si.xhi;
+            sr.region = si.region;
             sr.used = sr.xlo;
             r.subrows.push_back(sr);
         }
@@ -233,7 +231,6 @@ void AbacusLegalizer::Impl::buildRows(bool mirrored) {
         }
         r.subrows = std::move(pieces);
     }
-    splitByFences();
     if (mirrored) {
         for (RowTrack &r : rows_) {
             for (Subrow &sr : r.subrows) {
@@ -255,34 +252,6 @@ void AbacusLegalizer::Impl::buildRows(bool mirrored) {
             }
         }
         r.subrows = std::move(kept);
-    }
-}
-
-void AbacusLegalizer::Impl::splitByFences() {
-    const abacus::Fences &fences = design.fences;
-    if (fences.numRegions() == 0) {
-        return;
-    }
-    std::vector<FenceRect> rects;
-    for (int id = 0; id < static_cast<int>(fences.numRegions()); ++id) {
-        for (const abacus::Rect &rc : fences.region(id).rects) {
-            rects.push_back(FenceRect{rc.xlo, rc.ylo, rc.xhi, rc.yhi, id});
-        }
-    }
-    for (RowTrack &r : rows_) {
-        std::vector<Subrow> out;
-        for (const Subrow &sr : r.subrows) {
-            for (const RowPiece &rp :
-                 splitRowByFences(sr.xlo, sr.xhi, r.y, r.y + r.height, r.siteWidth, rects)) {
-                Subrow piece = sr;
-                piece.xlo = rp.xlo;
-                piece.xhi = rp.xhi;
-                piece.used = rp.xlo;
-                piece.region = rp.region;
-                out.push_back(piece);
-            }
-        }
-        r.subrows = std::move(out);
     }
 }
 

@@ -53,9 +53,12 @@ struct Net {
 
 /// One placement region of a row. Coordinates are absolute and already resolved
 /// from site units by the adaptor, so the pass never needs the pitch to read one.
+inline constexpr int kNoRegion = -1;
+
 struct Subrow {
     double xlo = 0.0;
     double xhi = 0.0;
+    int region = kNoRegion;
 };
 
 /// One placement row: its band and its site pitch.
@@ -114,7 +117,7 @@ struct Region {
 /// are a self-check, not a constraint this pass solves against.
 class Fences {
 public:
-    static constexpr int kNoRegion = -1;
+    static constexpr int kNoRegion = multirow::kNoRegion;
 
     [[nodiscard]] std::size_t numRegions() const noexcept {
         return regions.size();

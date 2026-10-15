@@ -39,9 +39,9 @@ struct Span {
     /// pitch is 12) made every pair look non-adjacent and the technique never ran.
     double pitch = 1.0;
     std::size_t row = 0;  ///< index of the row this span belongs to
-    /// The fence this span lies in, or kOpenSpace. Only cells of the same region
+    /// The fence this span lies in, or fastdp::kNoRegion. Only cells of the same region
     /// may sit in it, which is how a move keeps every cell on its side of a fence.
-    int region = kOpenSpace;
+    int region = fastdp::kNoRegion;
     std::vector<std::size_t> cells;  ///< ascending x
 
     [[nodiscard]] bool contains(double px, double pw) const {
@@ -161,7 +161,7 @@ public:
 
 private:
     std::vector<double> w_, h_;        ///< per movable slot
-    std::vector<int> region_;          ///< fence of each movable slot, or kOpenSpace
+    std::vector<int> region_;          ///< fence of each movable slot, or fastdp::kNoRegion
     std::vector<std::size_t> spanOf_;  ///< span index per movable slot
     std::vector<Span> spans_;
     std::vector<std::vector<NetPin>> netPins_;
@@ -230,22 +230,17 @@ void FastDetailedPlacer::Impl::buildSpans() {
                     }
                     hi = std::min(hi, o.first);
                 }
-                // Cut at the fences and label each piece with its region.
                 if (hi > lo + 1e-9) {
-                    for (const RowPiece &rp :
-                         splitRowByFences(lo, hi, ri.coordinate, ri.coordinate + ri.height, site,
-                                          design.fences)) {
-                        Span sp;
-                        sp.row = r;
-                        sp.ylo = ri.coordinate;
-                        sp.yhi = ri.coordinate + ri.height;
-                        sp.xlo = rp.xlo;
-                        sp.xhi = rp.xhi;
-                        sp.site = site;
-                        sp.pitch = ri.height > 0.0 ? ri.height : 1.0;
-                        sp.region = rp.region;
-                        spans_.push_back(std::move(sp));
-                    }
+                    Span sp;
+                    sp.row = r;
+                    sp.ylo = ri.coordinate;
+                    sp.yhi = ri.coordinate + ri.height;
+                    sp.xlo = lo;
+                    sp.xhi = hi;
+                    sp.site = site;
+                    sp.pitch = ri.height > 0.0 ? ri.height : 1.0;
+                    sp.region = si.region;
+                    spans_.push_back(std::move(sp));
                 }
                 // Resume at the obstacle that cut the run short, so the rest of the
                 // row is still visited.

@@ -61,7 +61,7 @@ add_option visualizer anim 0
 load → report → global place → legalize → detailed place → final image, GIF → write `.pl`
 
 - **Input** (`adaptor/`): `makeInputReader` auto-detects the format. A `.def`/`.def.gz` goes to the LEF/DEF adaptor and anything else goes to Bookshelf. Both build the shared `ktDM`.
-- **Shared database** (`datamodel/`): `ktDM` owns the `Graph`, where cells and nets share one vertex-id space, along with the die and rows, the constraints (fences, from `constraint/`) and design-level queries such as `multiRowCells()`, `hpwl()` and the placement check.
+- **Shared database** (`datamodel/`): `ktDM` owns the `Graph`, where cells and nets share one vertex-id space, along with the die and rows, the constraints (fences, from `constraint/`) and design-level queries such as `multiRowCells()`, `hpwl()`, the placement check and `fencedSubrows()`: the rows cut at fence boundaries, each piece labelled with its region (`datamodel/kt_rowFence.h`). The row-based stages get those labelled subrows from their DM builder and never split rows by fences themselves.
 - **Stage shape.** Every stage follows the same pattern:
   1. `build<Stage>DM(ktDM)` copies what the stage needs into its own `<stage>::Design` / `<stage>DM`. A stage never reads or writes `ktDM`.
   2. `<stage>::flowMgr` runs the algorithm on that DM and returns a `solutionMgr`, a value type holding positions indexed by vertex id.
@@ -75,7 +75,7 @@ load → report → global place → legalize → detailed place → final image
   - `legalizer/multirow`: used instead of Abacus when the design has cells taller than one row.
   - `detailPlacer/fastdp`: detailed placement.
 - **Visualization** (`visualization/`): `Visualizer::instance()` is a singleton shared by every stage, so all stages add to one GIF with one frame budget. Global placement may use at most 3/5 of the frames (`holdBack`). Everything is rendered in C++ (SVG, plus PNG/GIF through CImg), with no external tools.
-- `util/`: logging, `KT_ASSERT`, `ScopedTimer`/`TimerRegistry`, report tables, row-fence labelling.
+- `util/`: logging, `KT_ASSERT`, `ScopedTimer`/`TimerRegistry`, report tables.
 
 ## Conventions
 
