@@ -104,7 +104,7 @@ abacusDM buildAbacusDM(const ktDM &db) {
                                      info.hpwlInitial, info.overflow, info.mandatory});
     };
     abacusDM result(std::move(design));
-    result.par.maxRowDistance = result.options().maxRowDistance;
+    result.opts = loadOptions<AbacusOptions>();
     return result;
 }
 
@@ -134,16 +134,12 @@ void reportRun(const LegalizeResult &res) {
 
 abacusDM::abacusDM(Design design) : d(std::move(design)) {}
 
-AbacusOptions abacusDM::options() const {
-    return AbacusOptions::load();
-}
-
-abacusSolution abacusDM::run(const LegalizeParams &params) {
-    options().report();
+abacusSolution abacusDM::run() {
+    reportOptions(opts);
     ScopedTimer timer("legalize");
 
     AbacusLegalizer legalizer(d);
-    const LegalizeResult result = legalizer.legalize(params);
+    const LegalizeResult result = legalizer.legalize(opts);
     reportRun(result);
 
     // Only the placement crosses the boundary. The statistics are printed above

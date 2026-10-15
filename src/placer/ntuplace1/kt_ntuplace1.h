@@ -30,8 +30,7 @@
 
 #pragma once
 
-#include "constraint/kt_constraintMgr.h"
-#include "datamodel/kt_dm.h"
+#include "placer/ntuplace1/ntuplace1_design.h"
 #include "placer/ntuplace1/ntuplace1_options.h"
 
 #include <array>
@@ -41,23 +40,6 @@
 #include <vector>
 
 namespace ktplace {
-
-struct RatioPlaceParams {
-    // Recursion stops when a region holds no more than this many blocks. The paper
-    // leaves it as "a threshold"; small enough that the leaves are genuinely small,
-    // large enough that the cut count stays sane.
-    std::size_t targetLeafCells = 32;
-    // Backstop on depth. A region is halved on its longer side each level, so
-    // depth is bounded by log2 of the die extent in bins; this only bites if the
-    // ratio constraint drives a cut to a sliver, which the look-ahead check is
-    // meant to prevent but which a pathological design can still provoke.
-    std::size_t maxLevels = 40;
-    // How many times a cut may be redone when the look-ahead check finds a side
-    // fuller than it can hold. Each retry halves the balance window.
-    std::size_t maxRatioRetries = 24;
-    // Set to log per-region decisions.
-    bool verbose = false;
-};
 
 struct RatioPlaceResult {
     std::size_t numMovable = 0;
@@ -85,7 +67,7 @@ void reportNtuPlace1(const RatioPlaceResult &res);
 
 class RatioPlacer {
 public:
-    explicit RatioPlacer(ktDM &db);
+    explicit RatioPlacer(ntuplace1::Design &design);
     ~RatioPlacer();
 
     RatioPlacer(const RatioPlacer &) = delete;
@@ -93,22 +75,12 @@ public:
     RatioPlacer(RatioPlacer &&) noexcept;
     RatioPlacer &operator=(RatioPlacer &&) noexcept;
 
-    // NTUPlace1's options, read from the run's option store, and the parameters
-    // they configure. Assembled here so the flow has nothing to collect.
-    [[nodiscard]] Ntuplace1Options options() const;
-    [[nodiscard]] RatioPlaceParams params() const noexcept {
-        return par;
-    }
-
-    // Run global placement and write the result into the database. The placement
+    // Run global placement and write the result into the design. The placement
     // handed back is deliberately overfull: the paper's global placement is, and
     // the legalizer is a separate step in both this paper and in this flow.
-    RatioPlaceResult place(const RatioPlaceParams &params = {});
-
-    friend RatioPlaceParams params(const RatioPlacer &);
+    RatioPlaceResult place(const Ntuplace1Options &options = {});
 
 private:
-    RatioPlaceParams par;
     class Impl;
     std::unique_ptr<Impl> pImpl;
 };

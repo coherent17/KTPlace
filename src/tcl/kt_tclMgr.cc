@@ -5,6 +5,10 @@
 
 #include "datamodel/kt_optionDb.h"
 
+#include <fmt/format.h>
+#include <fmt/ranges.h>
+#include <optional>
+
 namespace ktplace::tcl {
 
 namespace {
@@ -49,14 +53,15 @@ void TclMgr::installCommands() {
             if (component.empty() || key.empty()) {
                 throw tcl::Error("add_option: the component and the key must not be empty");
             }
-            if (!components::known(component)) {
-                throw tcl::Error(std::string("add_option: '") + component +
-                                 "' is not a known component (try one of: simpl, ntuplace1, "
-                                 "abacus, multirow, fastdp, visualizer, flow)");
+            const std::optional<Component> id = componentFromName(component);
+            if (!id) {
+                throw tcl::Error(
+                    fmt::format("add_option: '{}' is not a known component (try one of: {})",
+                                component, fmt::join(kComponentNames, ", ")));
             }
             const Value value = args[3].literal ? Value::string(args[3].text)
                                                 : parseLiteral(self.substitute(args[3].text));
-            OptionDb::instance().set(component, key, toOptionValue(value), OptionOrigin::Script);
+            OptionDb::instance().set(*id, key, toOptionValue(value));
             return 0;
         });
 }
@@ -71,10 +76,6 @@ void TclMgr::registerCommand(const std::string &name, tcl::Command command) {
 void TclMgr::loadScript(const std::string &path) {
     interpreter.evalFile(path);
     OptionDb::instance().report();
-}
-
-std::optional<OptionMap> TclMgr::optionsFor(const std::string &component) const {
-    return OptionDb::instance().optionsFor(component);
 }
 
 }  // namespace ktplace::tcl

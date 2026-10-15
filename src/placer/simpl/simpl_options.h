@@ -6,26 +6,44 @@
 #include "datamodel/kt_optionDb.h"
 
 #include <cstddef>
-#include <vector>
 
 namespace ktplace {
 
 struct SimplOptions {
-    int grid = 0;
+    static constexpr Component kComponent = Component::Simpl;
+
+    std::size_t binsPerAxis = 0;
     double cgTol = 1e-4;
-    std::size_t initIters = 15;
-    std::size_t iters = 100;
+    std::size_t initMaxIters = 15;
+    std::size_t maxIters = 100;
     std::size_t seed = 20240607;
     bool fences = true;
-    double density = 1.0;
+    double densityLimit = 1.0;
     double alphaBase = 0.01;
 
-    [[nodiscard]] static SimplOptions load();
+    std::size_t maxLevel = 10;
+    std::size_t minCellsToSplit = 4;
+    double stripeAreaFraction = 0.1;
+    std::size_t gapReferenceIter = 10;
+    double gapRelaxedFrac = 0.25;
+    double gapTightFrac = 0.10;
+    std::size_t cgMaxIter = 60;
+    std::size_t traceEvery = 1;
+    std::size_t cgEvery = 0;
+    bool densityMaps = true;
 
-    void report() const;
-
-private:
-    std::vector<ResolvedOption> rows;
+    static void fields(auto &self, auto &&visit) {
+        visit("grid", self.binsPerAxis);
+        visit("cg_tol", self.cgTol);
+        visit("init_iters", self.initMaxIters);
+        visit("iters", self.maxIters);
+        visit("seed", self.seed);
+        visit("fences", self.fences);
+        visit("density", self.densityLimit);
+        visit("alpha_base", self.alphaBase);
+        visit("trace_every", self.traceEvery);
+        visit("cg_every", self.cgEvery);
+    }
 };
 
 }  // namespace ktplace

@@ -82,25 +82,25 @@ too.
 
 ```
 ktplace <input_dir> [options]
-  -a, --algorithm <name>   simpl (default) or ntuplace1
   -w, --work-dir <dir>     where placed.pl, plots/ and ktplace.log go
+  -tcl, --tcl <file>       Tcl script that configures the run
       --no-plots           draw nothing -- no frames, gallery or GIF (much less disk)
   -v, --verbose            also print trace diagnostics (ktplace_trace.log is always written)
   -h, --help / -V, --version
 ```
 
-Tuning is through `KTPLACE_*` environment variables, not flags. Set them on
-the command:
+Tuning is through a Tcl script passed with `-tcl`; environment variables are
+not read:
 
 ```sh
-KTPLACE_SIMPL_ITERS=25 KTPLACE_SIMPL_SEED=1 \
-    ktplace benchmark/ISPD_2005/adaptec1 -w output/adaptec1-25it
+cat > run.tcl <<'TCL'
+add_option simpl iters 25
+add_option simpl seed 1
+TCL
+ktplace benchmark/ISPD_2005/adaptec1 -w output/adaptec1-25it -tcl run.tcl
 ```
 
-Common ones: `KTPLACE_SIMPL_ITERS`, `KTPLACE_SIMPL_SEED`, `KTPLACE_SIMPL_GRID`,
-`KTPLACE_SIMPL_DENSITY`, `KTPLACE_DP_WINDOW`, `KTPLACE_ANIM` (animated GIF),
-`KTPLACE_FINAL_ZOOM`. `grep -rhoE 'KTPLACE_[A-Z0-9_]+' src | sort -u` lists
-them all.
+The README's *Configuration* section lists every component and key.
 
 ### 4. From the browser: the web console
 
@@ -129,8 +129,8 @@ streams its output. Use it for quick checks next to your runs:
 ```sh
 ls runs/                                            # every run directory
 tail -n 30 runs/<id>/ktplace.log
-build/bin/ktplace benchmark/ISPD_2005/adaptec1 -w runs/manual-1 -a simpl
-KTPLACE_SIMPL_SEED=7 build/bin/ktplace benchmark/ISPD_2005/adaptec1 -w runs/seed7
+build/bin/ktplace benchmark/ISPD_2005/adaptec1 -w runs/manual-1
+echo 'add_option simpl seed 7' > seed7.tcl && build/bin/ktplace benchmark/ISPD_2005/adaptec1 -w runs/seed7 -tcl seed7.tcl
 ```
 
 Know its limits:

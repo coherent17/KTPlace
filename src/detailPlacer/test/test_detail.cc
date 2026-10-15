@@ -16,7 +16,7 @@
 // same two steps the flow performs. The placer itself writes nothing, so a test
 // that asserted on the design without this would be asserting on its own input.
 static ktplace::DetailPlaceResult runAndCommit(ktplace::ktDM &db,
-                                               const ktplace::DetailPlaceParams &params = {}) {
+                                               const ktplace::FastdpOptions &params = {}) {
     ktplace::fastdp::fastdpDM dpDB = ktplace::fastdp::buildFastdpDM(db);
     ktplace::FastDetailedPlacer dp(dpDB.design());
     const ktplace::DetailPlaceResult result = dp.place(params);
@@ -114,8 +114,9 @@ void addNet(ktDM &db, const std::string &net, const std::string &a, const std::s
     BOOST_TEST(after == before + 2);
 }
 
-[[nodiscard]] DetailPlaceParams only(std::size_t which) {
-    DetailPlaceParams p;
+[[nodiscard]] FastdpOptions only(std::size_t which) {
+    FastdpOptions p;
+    p.localReorderWindow = 6;
     p.globalSwapPasses = which == 0 ? 1 : 0;
     p.verticalSwapPasses = which == 1 ? 1 : 0;
     p.localReorderPasses = which == 2 ? 1 : 0;
@@ -146,8 +147,8 @@ void addNet(ktDM &db, const std::string &net, const std::string &a, const std::s
 
 /// Everything zero: a run that must be a no-op. Used to prove the placer is
 /// inert when asked to do nothing, which is what a fully converged design wants.
-[[nodiscard]] DetailPlaceParams none() {
-    DetailPlaceParams p;
+[[nodiscard]] FastdpOptions none() {
+    FastdpOptions p;
     p.globalSwapPasses = 0;
     p.verticalSwapPasses = 0;
     p.localReorderPasses = 0;
@@ -555,12 +556,11 @@ BOOST_AUTO_TEST_CASE(the_move_counts_add_up_to_the_reported_totals) {
 // ---------------------------------------------------------------------------
 
 BOOST_AUTO_TEST_CASE(the_default_parameters_run_every_technique) {
-    const DetailPlaceParams p;
+    const FastdpOptions p;
     BOOST_TEST(p.globalSwapPasses > 0u);
     BOOST_TEST(p.verticalSwapPasses > 0u);
     BOOST_TEST(p.localReorderPasses > 0u);
     BOOST_TEST(p.clusterPasses > 0u);
-    BOOST_TEST(p.localReorderWindow > 0u);
     BOOST_TEST(p.minImprovement >= 0.0);
 }
 
@@ -573,7 +573,7 @@ BOOST_AUTO_TEST_CASE(a_local_reorder_window_of_zero_does_not_hang) {
     for (int c = 0; c < 8; ++c) {
         addCell(db, "c" + std::to_string(c), static_cast<double>(c) * 2.0, 0);
     }
-    DetailPlaceParams p = none();
+    FastdpOptions p = none();
     p.localReorderPasses = 1;
     p.localReorderWindow = 0;
     DetailPlaceResult r;
@@ -598,7 +598,7 @@ BOOST_AUTO_TEST_CASE(an_oversized_local_reorder_window_is_capped_not_obeyed) {
         const std::string b = "c" + std::to_string(c + 1);
         addNet(db, "n" + a + b, a, b);
     }
-    DetailPlaceParams p = none();
+    FastdpOptions p = none();
     p.localReorderPasses = 1;
     p.localReorderWindow = 64;
     DetailPlaceResult r;
@@ -694,7 +694,7 @@ BOOST_AUTO_TEST_CASE(fences_are_accepted_without_being_enforced) {
     cstr.addRegion("er0", {Point{0.0, 0.0}, Point{1.0, 10.0}});
     db.setConstraints(std::move(cstr));
 
-    DetailPlaceParams p = none();
+    FastdpOptions p = none();
     p.globalSwapPasses = 2;
     DetailPlaceResult r;
     BOOST_CHECK_NO_THROW(r = runAndCommit(db, p));

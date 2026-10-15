@@ -3,41 +3,87 @@
 
 #include "placer/ntuplace1/ntuplace1_dm.h"
 
+#include "datamodel/kt_die.h"
+#include "datamodel/kt_dm.h"
+#include "visualization/kt_visualizer.h"
+
 namespace ktplace::ntuplace1 {
 
-ntuplace1DM::ntuplace1DM(ktDM &shared) : shared(shared) {}
+namespace {
 
-Ntuplace1Options ntuplace1DM::options() const {
-    const Ntuplace1Options out = Ntuplace1Options::load();
-    out.report();
-    return out;
+void copyCells(const ktplace::Graph &graph, std::vector<Cell> &out) {
+    out.resize(graph.getNumCells());
+    for (std::size_t v = 0; v < graph.getNumCells(); ++v) {
+        const ktplace::Vertex &cell = graph.getCell(v);
+        out[v] = Cell{cell.x,       cell.y,          cell.width,   cell.height,
+                      cell.isFixed, cell.isTerminal, cell.regionId};
+    }
 }
 
-RatioPlaceParams ntuplace1DM::params() const {
-    const Ntuplace1Options opts = Ntuplace1Options::load();
-    RatioPlaceParams out;
-    out.targetLeafCells = opts.leafCells;
-    out.maxLevels = opts.maxLevels;
-    out.maxRatioRetries = opts.retries;
-    out.verbose = opts.verbose;
-    return out;
+void copyNets(const ktplace::Graph &graph, std::vector<Pin> &pins, std::vector<Net> &nets) {
+    pins.resize(graph.getNumPins());
+    for (std::size_t p = 0; p < graph.getNumPins(); ++p) {
+        const ktplace::Pin &pin = graph.getPin(p);
+        pins[p] = Pin{pin.cellId, pin.offsetX, pin.offsetY};
+    }
+    nets.resize(graph.getNumNets());
+    for (std::size_t n = 0; n < graph.getNumNets(); ++n) {
+        nets[n].pins = graph.getNetPins(n);
+    }
 }
+
+void copyRows(const std::vector<ktplace::RowInfo> &rows, std::vector<RowInfo> &out) {
+    out.reserve(rows.size());
+    for (const ktplace::RowInfo &r : rows) {
+        RowInfo info{r.coordinate, r.height, {}};
+        info.subrows.reserve(r.subrows.size());
+        for (const ktplace::SubrowInfo &s : r.subrows) {
+            info.subrows.push_back(Subrow{s.xlo(), s.xhi(r.pitch())});
+        }
+        out.push_back(std::move(info));
+    }
+}
+
+}  // namespace
+
+ntuplace1DM::ntuplace1DM(Design design) : d(std::move(design)) {}
 
 ntuplace1Solution ntuplace1DM::solution() const {
     ntuplace1Solution out;
-    const Graph &g = shared.getGraph();
-    out.xs.resize(g.getNumCells());
-    out.ys.resize(g.getNumCells());
-    for (std::size_t v = 0; v < g.getNumCells(); ++v) {
-        const Vertex &cell = g.getCell(v);
-        out.xs[v] = cell.x;
-        out.ys[v] = cell.y;
+    out.xs.reserve(d.cells.size());
+    out.ys.reserve(d.cells.size());
+    for (const Cell &cell : d.cells) {
+        out.xs.push_back(cell.x);
+        out.ys.push_back(cell.y);
     }
     return out;
 }
 
-ntuplace1DM buildNtuplace1DM(ktDM &shared) {
-    return ntuplace1DM(shared);
+ntuplace1DM buildNtuplace1DM(const ktDM &db) {
+    Design design;
+    copyCells(db.getGraph(), design.cells);
+    copyNets(db.getGraph(), design.pins, design.nets);
+    copyRows(db.getRows(), design.rows);
+    design.die = placementDieBox(db.die(), db.getGraph());
+    design.fences = db.constraints();
+
+    Visualizer &visualizer = Visualizer::instance();
+    const Graph *netlist = &db.getGraph();
+    const constraintMgr *fences = &db.constraints();
+    const DieBox dieBox = design.die;
+    design.wantsFrame = [&visualizer] {
+        return visualizer.enabled() && !visualizer.capped();
+    };
+    design.onFrame = [&visualizer, netlist, fences, dieBox](const std::vector<float> &xs,
+                                                            const std::vector<float> &ys,
+                                                            const FrameInfo &info) {
+        visualizer.frame(
+            *netlist, xs, ys, dieBox, fences,
+            VisualFrame{"", info.step, info.numSteps, info.note, 0.0, 0.0, 0.0, false});
+    };
+    ntuplace1DM result(std::move(design));
+    result.opts = loadOptions<Ntuplace1Options>();
+    return result;
 }
 
 }  // namespace ktplace::ntuplace1

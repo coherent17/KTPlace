@@ -31,6 +31,10 @@ public:
         return d;
     }
 
+    [[nodiscard]] const MultiRowOptions &options() const noexcept {
+        return opts;
+    }
+
     /// Install the host's frame hook. This pass never draws on its own.
     void setFrameHook(FrameHook hook) {
         d.onFrame = std::move(hook);
@@ -39,7 +43,9 @@ public:
     /// Legalize, and return where every cell ended up. The pass's statistics are
     /// reported from inside the run; they are not returned, because nothing
     /// outside this pass can act on them.
-    multiRowSolution run(const MultiRowLegalizeParams &params);
+    multiRowSolution run();
+
+    MultiRowOptions opts;
 
 private:
     Design d;

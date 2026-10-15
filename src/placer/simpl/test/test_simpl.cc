@@ -107,9 +107,10 @@ SimplResult place(ktDM &db, bool useFences) {
     // No plots: this checks the solver, not what it draws.
     simpl::simplDM dm = simpl::buildSimplDM(db, PlotOptions{});
     simplPlacer placer(dm.design());
-    SimplParams params;
-    params.maxIters = 30;
-    const SimplResult res = placer.place(params, useFences);
+    SimplOptions options;
+    options.maxIters = 30;
+    options.fences = useFences;
+    const SimplResult res = placer.place(options);
     db.setGPSolution(placer.solution());
     return res;
 }

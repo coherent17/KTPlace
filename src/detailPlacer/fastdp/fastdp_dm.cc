@@ -95,7 +95,7 @@ fastdpDM buildFastdpDM(const ktDM &db) {
                                      info.hpwlInitial, info.overflow, info.mandatory});
     };
     fastdpDM result(std::move(design));
-    result.par.localReorderWindow = static_cast<std::size_t>(result.options().window);
+    result.opts = loadOptions<FastdpOptions>();
     return result;
 }
 
@@ -126,16 +126,12 @@ void reportRun(const DetailPlaceResult &res) {
 
 fastdpDM::fastdpDM(Design design) : d(std::move(design)) {}
 
-FastdpOptions fastdpDM::options() const {
-    return FastdpOptions::load();
-}
-
-fastdpSolution fastdpDM::run(const DetailPlaceParams &params) {
-    options().report();
+fastdpSolution fastdpDM::run() {
+    reportOptions(opts);
     ScopedTimer timer("detailplace");
 
     FastDetailedPlacer placer(d);
-    const DetailPlaceResult result = placer.place(params);
+    const DetailPlaceResult result = placer.place(opts);
     reportRun(result);
 
     // Only the placement crosses the boundary. The statistics are printed above

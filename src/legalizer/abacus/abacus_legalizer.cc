@@ -5,7 +5,6 @@
 #include "legalizer/abacus/abacus_legalizer.h"
 
 #include "legalizer/abacus/abacus_design.h"
-#include "legalizer/abacus/abacus_options.h"
 #include "util/kt_log.h"
 #include "util/kt_reportTable.h"
 #include "util/kt_rowFence.h"
@@ -28,13 +27,6 @@ namespace {
 struct FixedBox {
     double y0, y1, x0, x1;
 };
-
-/// Subrows narrower than this many sites are dropped. A sliver narrower than a
-/// cell can never hold it, and keeping them only makes the row search walk
-/// candidates that cannot win.
-double minSubrowSites() {
-    return static_cast<double>(AbacusOptions::load().minSubrowSites);
-}
 
 /// Cost of a candidate that does not fit; no real cost reaches this.
 constexpr double kInfeasible = std::numeric_limits<double>::infinity();
@@ -124,7 +116,7 @@ class AbacusLegalizer::Impl {
 public:
     explicit Impl(const abacus::Design &d) : design(d) {}
 
-    LegalizeResult run(const LegalizeParams &params);
+    LegalizeResult run(const AbacusOptions &params);
 
 private:
     void buildRows(bool mirrored);
@@ -134,7 +126,7 @@ private:
         std::size_t placed = 0;
         double movement = 0.0;
     };
-    [[nodiscard]] Pass legalizePass(const LegalizeParams &params, bool mirrored);
+    [[nodiscard]] Pass legalizePass(const AbacusOptions &params, bool mirrored);
     /// Split each row's pieces at the fence boundaries and tag them by region.
     void splitByFences();
     [[nodiscard]] Trial trial(const Subrow &sr, double grid, std::size_t i) const;
@@ -158,6 +150,7 @@ private:
     std::unordered_map<std::size_t, std::size_t> slotOf_;
     std::vector<FixedBox> fixed_;
     abacus::DieBox die_ = {0.0, 0.0, 0.0, 0.0};
+    double minSubrowSites_ = 1.0;
 
 public:
     /// What legalize() reads to build the placement it hands back. The pass never
@@ -257,7 +250,7 @@ void AbacusLegalizer::Impl::buildRows(bool mirrored) {
         // cannot fit into only makes the search slower and can never be chosen.
         std::vector<Subrow> kept;
         for (Subrow &piece : r.subrows) {
-            if (piece.width() >= r.siteWidth * minSubrowSites()) {
+            if (piece.width() >= r.siteWidth * minSubrowSites_) {
                 kept.push_back(std::move(piece));
             }
         }
@@ -484,8 +477,9 @@ void AbacusLegalizer::Impl::selfCheck(LegalizeResult &res) const {
     }
 }
 
-LegalizeResult AbacusLegalizer::Impl::run(const LegalizeParams &params) {
+LegalizeResult AbacusLegalizer::Impl::run(const AbacusOptions &params) {
     LegalizeResult res;
+    minSubrowSites_ = static_cast<double>(params.minSubrowSites);
     // ScopedTimer both times the phase and records it into the shared registry,
     // so legalization appears in the flow's Timings table next to load, place
     // and write instead of reporting a private duration.
@@ -584,7 +578,7 @@ LegalizeResult AbacusLegalizer::Impl::run(const LegalizeParams &params) {
     return res;
 }
 
-AbacusLegalizer::Impl::Pass AbacusLegalizer::Impl::legalizePass(const LegalizeParams &params,
+AbacusLegalizer::Impl::Pass AbacusLegalizer::Impl::legalizePass(const AbacusOptions &params,
                                                                 bool mirrored) {
     buildRows(mirrored);
     tx_.resize(mov_.size());
@@ -750,8 +744,8 @@ void report(const LegalizeResult &r) {
 
 }  // namespace
 
-LegalizeResult AbacusLegalizer::legalize(const LegalizeParams &params) {
-    LegalizeResult result = pImpl->run(params);
+LegalizeResult AbacusLegalizer::legalize(const AbacusOptions &options) {
+    LegalizeResult result = pImpl->run(options);
     report(result);
     return result;
 }

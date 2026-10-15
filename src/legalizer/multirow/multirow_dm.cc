@@ -105,12 +105,12 @@ multirowDM buildMultiRowDM(const ktDM &db) {
                          VisualFrame{info.series, info.step, info.numSteps, info.note, info.hpwl,
                                      info.hpwlInitial, info.overflow, info.mandatory});
     };
-    return multirowDM(std::move(design));
+    multirowDM result(std::move(design));
+    result.opts = loadOptions<MultiRowOptions>();
+    return result;
 }
 
 namespace {
-
-const Option<std::size_t> kMacroRows{"multirow", "macro_rows", 8};
 
 /// The pass's own summary, emitted from the run that produced the numbers rather
 /// than by the caller. Nothing outside this pass can act on these, so they are
@@ -141,13 +141,12 @@ void reportRun(const MultiRowLegalizeResult &res) {
 
 multirowDM::multirowDM(Design design) : d(std::move(design)) {}
 
-multiRowSolution multirowDM::run(const MultiRowLegalizeParams &params) {
+multiRowSolution multirowDM::run() {
     ScopedTimer timer("legalize");
 
-    MultiRowLegalizeParams resolved = params;
-    resolved.macroRows = kMacroRows.value();
+    reportOptions(opts);
     MultiRowLegalizer legalizer(d);
-    const MultiRowLegalizeResult result = legalizer.legalize(resolved);
+    const MultiRowLegalizeResult result = legalizer.legalize(opts);
     reportRun(result);
 
     // Only the placement crosses the boundary. The statistics are printed above

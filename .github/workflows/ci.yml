@@ -114,6 +114,7 @@ jobs:
           cat > smoke.tcl <<'TCL'
           add_option visualizer anim 1
           add_option visualizer anim_max_frames 40
+          add_option visualizer anim_blend 1
           TCL
 
           ktplace ./benchmark/ISPD_2005/adaptec1 \
