@@ -1,9 +1,9 @@
-// @file kt_trace.h
+// @file kt_snapshots.h
 // Recording a run's snapshots while it places, and drawing them once it is done
 //
-// The flow hands every snapshot to a TraceWriter, which appends it to one
+// The flow hands every snapshot to a SnapshotWriter, which appends it to one
 // compressed file, so the placer's loops pay for a copy of the positions and
-// nothing else. At the end of the flow replayTrace() makes the same Visualizer
+// nothing else. At the end of the flow replaySnapshots() makes the same Visualizer
 // calls, in the same order, with the same values, so the pictures are the ones
 // drawing during the run would have made.
 //
@@ -30,15 +30,15 @@
 
 namespace ktplace {
 
-class TraceWriter {
+class SnapshotWriter {
 public:
     /// A file that cannot be opened is fatal: a run that silently drew nothing
     /// would be worse than one that stops.
-    explicit TraceWriter(const std::string &path);
-    ~TraceWriter();
+    explicit SnapshotWriter(const std::string &path);
+    ~SnapshotWriter();
 
-    TraceWriter(const TraceWriter &) = delete;
-    TraceWriter &operator=(const TraceWriter &) = delete;
+    SnapshotWriter(const SnapshotWriter &) = delete;
+    SnapshotWriter &operator=(const SnapshotWriter &) = delete;
 
     void beginStage(const StageVisual &stage);
     void frame(const std::vector<float> &x, const std::vector<float> &y,
@@ -64,10 +64,10 @@ private:
     std::size_t frames = 0;
 };
 
-/// Draw the closed trace at `path` through `viz`, which the caller has
+/// Draw the closed snapshot file at `path` through `viz`, which the caller has
 /// configured. `graph` and `fences` are the netlist the frames were taken of.
 /// Returns the number of frames drawn. A record cut short is fatal.
-std::size_t replayTrace(const std::string &path, Visualizer &viz, const Graph &graph,
-                        const constraintMgr *fences);
+std::size_t replaySnapshots(const std::string &path, Visualizer &viz, const Graph &graph,
+                            const constraintMgr *fences);
 
 }  // namespace ktplace

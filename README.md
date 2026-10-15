@@ -122,10 +122,10 @@ placement matters, set `simpl trace_every 0` (the HPWL is the same), or pass
 `--no-plots` to skip every picture.
 
 The stages do not draw while they run. They record their snapshots to
-`plots/trace.ktrace`, and the flow draws the pictures from it once `placed.pl`
+`plots/snapshots.ktsnap`, and the flow draws the pictures from it once `placed.pl`
 is written, then deletes it. On adaptec1 that takes global placement from 26 s
 to 10 s. [docs/visualization.md](docs/visualization.md) covers how stages, the
-flow and the visualizer fit together, and the trace format.
+flow and the visualizer fit together, and the snapshot file format.
 
 Timing is measured with `ScopedTimer` (`src/util/kt_scopedTimer.h`), which
 records wall and processor time per named phase and reports the table once at

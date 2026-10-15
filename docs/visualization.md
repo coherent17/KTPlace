@@ -27,10 +27,10 @@ the visualizer draws, and it draws after the placement is finished.
   ─────────────────────────       ──────────────────────────────           ───────────────
   says *when* a snapshot    ──▶   while placing: begins each stage
   matters, hands over the         and appends every snapshot to a
-  numbers through a hook          TraceWriter (plots/trace.ktrace)
+  numbers through a hook          SnapshotWriter (plots/snapshots.ktsnap)
   (onFrame, onBounds)
                                   after placed.pl is written:        ──▶   SVG frames,
-  knows nothing of files,         replayTrace() into the Visualizer,       bounds curve,
+  knows nothing of files,         replaySnapshots() into the Visualizer,   bounds curve,
   formats or the visualizer       then the final still and the GIF         final still, GIF
 ```
 
@@ -63,24 +63,24 @@ Rules a stage follows:
 
 `FlowMgr` (`src/kt_flowMgr.cc`):
 
-1. When plots are on, configures the `Visualizer` and opens a `TraceWriter` on
-   `<work-dir>/plots/trace.ktrace`. With `--no-plots` neither happens and no hook is installed,
+1. When plots are on, configures the `Visualizer` and opens a `SnapshotWriter` on
+   `<work-dir>/plots/snapshots.ktsnap`. With `--no-plots` neither happens and no hook is installed,
    so no snapshot is built.
 2. Before each stage, records `beginStage` (`simpl`, `legalize`, `legalize_multi`,
    `detailplace`) and installs the stage's frame hook through `recordStage()`, which converts
-   the stage's `FrameInfo` into a `VisualFrame` and appends it to the trace. Every stage's
+   the stage's `FrameInfo` into a `VisualFrame` and appends it to the snapshot file. Every stage's
    `FrameInfo` has the same fields; the duplication is deliberate, so no stage includes a
    visualization header.
 3. Records the frame reservation for the later stages (`holdBack`) in the order the drawing
    needs it.
 4. Writes `placed.pl`.
-5. `drawPictures()`: closes the trace, replays it into the `Visualizer`, draws the final still
-   and closes the animation from the committed placement, then deletes the trace. The `draw`
+5. `drawPictures()`: closes the snapshot file, replays it into the `Visualizer`, draws the final still
+   and closes the animation from the committed placement, then deletes the snapshot file. The `draw`
    row of the timing table is this step.
 
-## The trace
+## The snapshot file
 
-`visualization/kt_trace.{h,cc}`. gzip at level 1 (the solver waits on it, and coordinates gain
+`visualization/kt_snapshots.{h,cc}`. gzip at level 1 (the solver waits on it, and coordinates gain
 little from more), holding:
 
 ```
@@ -100,9 +100,9 @@ A replay makes the visualizer the same calls, in the same order, with the same v
 are stored as their raw bytes, not printed), so the pictures are **byte-identical** to the ones
 drawing during the run made. This is checked by:
 
-- `test_viz` `a_replayed_trace_draws_the_files_drawing_directly_does`, which makes the same
-  calls on the `Visualizer` directly and through a trace, and compares every file;
-- `test_flow` `a_run_draws_its_recorded_pictures_and_removes_the_trace`;
+- `test_viz` `replayed_snapshots_draw_the_files_drawing_directly_does`, which makes the same
+  calls on the `Visualizer` directly and through a snapshot file, and compares every file;
+- `test_flow` `a_run_draws_its_recorded_pictures_and_removes_the_snapshot_file`;
 - by hand, before merging, against `main`: ibm01 with SimPL (155 files) and NTUPlace1 (13), and
   adaptec1 (116), all with the animation on, all byte-identical including the GIF and
   `final.png`.
@@ -124,20 +124,20 @@ instead of inside the solver.
 1. Give the stage's design struct a hook: a `FrameInfo` with the fields above, and
    `std::function<void(xs, ys, info)>`. Call it only when it is set.
 2. Make the cadence an option of the stage's own (`<stage>_options.h`).
-3. In `FlowMgr`, call `recordStage(dm, trace.get(), {...})`.
+3. In `FlowMgr`, call `recordStage(dm, snapshots.get(), {...})`.
 4. Do not include anything from `visualization/` in the stage.
 
-A new kind of picture (not a placement frame) gets a `Visualizer` call, a record in the trace (a
-new tag) and its case in `replayTrace()`.
+A new kind of picture (not a placement frame) gets a `Visualizer` call, a record in the snapshot file (a
+new tag) and its case in `replaySnapshots()`.
 
 ## Known gaps
 
 - **A run that stops early draws nothing.** A fatal error exits without reaching
-  `drawPictures()`, and the trace is left behind with no reader for it.
+  `drawPictures()`, and the snapshot file is left behind with no reader for it.
 - **NTUPlace1's frames are not drawn.** Its hook exists, but the flow does not install it, as
   before the refactor. Drawing them adds about one frame per cut and changes the GIF, so it is
   left as its own decision.
-- **The trace stores every cell, in full precision.** Fixed cells repeat in every frame.
-  Dropping them would shrink the trace several times.
+- **The snapshot file stores every cell, in full precision.** Fixed cells repeat in every frame.
+  Dropping them would shrink the snapshot file several times.
 - **The web console's liveness check counts SVG frames** (`webui/server.py`). Frames now appear
   only at the end of the run, so during placement the console has only CPU use to go on.

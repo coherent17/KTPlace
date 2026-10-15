@@ -397,7 +397,7 @@ BOOST_AUTO_TEST_CASE(flow_exits_when_the_design_files_are_missing) {
         "no input format recognises");
 }
 
-BOOST_AUTO_TEST_CASE(a_run_draws_its_recorded_pictures_and_removes_the_trace) {
+BOOST_AUTO_TEST_CASE(a_run_draws_its_recorded_pictures_and_removes_the_snapshot_file) {
     const ScratchDir dir("drawn");
     writeBookshelfDesign(dir);
     const kt_option options = optionsFor(dir, designDir(dir).string());
@@ -408,5 +408,5 @@ BOOST_AUTO_TEST_CASE(a_run_draws_its_recorded_pictures_and_removes_the_trace) {
     const fs::path plots = options.getPlotDir();
     BOOST_TEST(fs::exists(plots / "final" / "final.png"));
     BOOST_TEST(!fs::is_empty(plots / "simpl"));
-    BOOST_TEST(!fs::exists(plots / "trace.ktrace"));
+    BOOST_TEST(!fs::exists(plots / "snapshots.ktsnap"));
 }

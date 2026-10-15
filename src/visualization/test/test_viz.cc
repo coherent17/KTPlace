@@ -6,7 +6,7 @@
 #define BOOST_TEST_DYN_LINK
 
 #include "visualization/kt_gif.h"
-#include "visualization/kt_trace.h"
+#include "visualization/kt_snapshots.h"
 #include "visualization/kt_visualizer.h"
 
 #include <algorithm>
@@ -1168,8 +1168,8 @@ BOOST_AUTO_TEST_CASE(bounds_curve_with_drawing_off_writes_nothing) {
     freshAnimator();
 }
 
-// Traces: a run records its snapshots and draws them at the end. Drawing a
-// trace must give the files drawing the same calls directly would.
+// Snapshots: a run records its snapshots and draws them at the end. Drawing a
+// snapshot file must give the files drawing the same calls directly would.
 
 namespace {
 
@@ -1177,14 +1177,14 @@ namespace {
 std::map<std::string, std::string> filesUnder(const std::filesystem::path &root) {
     std::map<std::string, std::string> files;
     for (const auto &e : std::filesystem::recursive_directory_iterator(root)) {
-        if (e.is_regular_file() && e.path().extension() != ".ktrace") {
+        if (e.is_regular_file() && e.path().extension() != ".ktsnap") {
             files[std::filesystem::relative(e.path(), root).string()] = readAll(e.path());
         }
     }
     return files;
 }
 
-/// One short run's snapshots, made on either a Visualizer or a TraceWriter.
+/// One short run's snapshots, made on either a Visualizer or a SnapshotWriter.
 template <class Sink>
 void sampleRun(Sink &&frameTo, const std::function<void(StageVisual)> &beginStage,
                const std::function<void(std::size_t)> &holdBack,
@@ -1206,14 +1206,14 @@ void sampleRun(Sink &&frameTo, const std::function<void(StageVisual)> &beginStag
 
 }  // namespace
 
-BOOST_AUTO_TEST_CASE(a_replayed_trace_draws_the_files_drawing_directly_does) {
+BOOST_AUTO_TEST_CASE(replayed_snapshots_draw_the_files_drawing_directly_does) {
     const Graph g = sampleGraph();
     const std::array<double, 4> die = fixedCellBBox(g);
     const PlotOptions opts = animOptions(10, 5, 1);
     Visualizer &viz = Visualizer::instance();
 
     freshAnimator();
-    const ScratchDir direct("tracedirect");
+    const ScratchDir direct("snapdirect");
     viz.configure(direct.str(), opts);
     sampleRun(
         [&](const auto &x, const auto &y, const VisualFrame &f) {
@@ -1231,29 +1231,29 @@ BOOST_AUTO_TEST_CASE(a_replayed_trace_draws_the_files_drawing_directly_does) {
     BOOST_TEST(viz.finish(g, sampleX(g), sampleY(g), die, nullptr, 1.0));
 
     freshAnimator();
-    const ScratchDir replayed("tracereplayed");
+    const ScratchDir replayed("snapreplayed");
     viz.configure(replayed.str(), opts);
-    const std::string path = replayed.file("trace.ktrace").string();
+    const std::string path = replayed.file("snapshots.ktsnap").string();
     {
-        TraceWriter trace(path);
+        SnapshotWriter snapshots(path);
         sampleRun(
             [&](const auto &x, const auto &y, const VisualFrame &f) {
-                trace.frame(x, y, die, false, f);
+                snapshots.frame(x, y, die, false, f);
             },
             [&](StageVisual s) {
-                trace.beginStage(s);
+                snapshots.beginStage(s);
             },
             [&](std::size_t n) {
-                trace.holdBack(n);
+                snapshots.holdBack(n);
             },
             [&](std::span<const BoundsSample> c) {
-                trace.boundsCurve("simpl_bounds", "t", c);
+                snapshots.boundsCurve("simpl_bounds", "t", c);
             });
-        BOOST_TEST(trace.frameCount() == 3u);
-        trace.close();
+        BOOST_TEST(snapshots.frameCount() == 3u);
+        snapshots.close();
     }
     BOOST_TEST(filesUnder(replayed.str()).empty());
-    BOOST_TEST(replayTrace(path, viz, g, nullptr) == 3u);
+    BOOST_TEST(replaySnapshots(path, viz, g, nullptr) == 3u);
     BOOST_TEST(viz.finish(g, sampleX(g), sampleY(g), die, nullptr, 1.0));
 
     const auto expected = filesUnder(direct.str());

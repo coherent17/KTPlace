@@ -1,7 +1,7 @@
-// @file kt_trace.cc
-// The trace file: writing it during a run, replaying it into a Visualizer
+// @file kt_snapshots.cc
+// The snapshot file: writing it during a run, replaying it into a Visualizer
 
-#include "visualization/kt_trace.h"
+#include "visualization/kt_snapshots.h"
 
 #include "util/kt_log.h"
 
@@ -27,7 +27,7 @@ class In {
 public:
     explicit In(const std::string &path) : file(path), f(gzopen(path.c_str(), "rb")) {
         if (f == nullptr) {
-            ktlog.fatal("cannot open trace {}", path);
+            ktlog.fatal("cannot open snapshot file {}", path);
         }
         (void)gzbuffer(f, 1u << 20);
     }
@@ -54,7 +54,7 @@ public:
             const auto want = static_cast<unsigned>(std::min(n, kChunk));
             const int got = gzread(f, bytes, want);
             if (got <= 0) {
-                ktlog.fatal("trace {} stops part-way through a record", file);
+                ktlog.fatal("snapshot file {} stops part-way through a record", file);
             }
             bytes += got;
             n -= static_cast<std::size_t>(got);
@@ -94,12 +94,12 @@ private:
 
 }  // namespace
 
-class TraceWriter::Out {
+class SnapshotWriter::Out {
 public:
     // Level 1: the solver waits on this, and coordinates gain little from more.
     explicit Out(const std::string &path) : file(path), f(gzopen(path.c_str(), "wb1")) {
         if (f == nullptr) {
-            ktlog.fatal("cannot open trace {} for writing", path);
+            ktlog.fatal("cannot open snapshot file {} for writing", path);
         }
         (void)gzbuffer(f, 1u << 20);
     }
@@ -111,7 +111,7 @@ public:
 
     void close() {
         if (f != nullptr && gzclose(f) != Z_OK) {
-            ktlog.fatal("cannot finish writing trace {}", file);
+            ktlog.fatal("cannot finish writing snapshot file {}", file);
         }
         f = nullptr;
     }
@@ -121,7 +121,7 @@ public:
         while (n > 0) {
             const auto len = static_cast<unsigned>(std::min(n, kChunk));
             if (gzwrite(f, bytes, len) != static_cast<int>(len)) {
-                ktlog.fatal("cannot write trace {}", file);
+                ktlog.fatal("cannot write snapshot file {}", file);
             }
             bytes += len;
             n -= len;
@@ -154,24 +154,25 @@ private:
     gzFile f;
 };
 
-TraceWriter::TraceWriter(const std::string &path) : out(std::make_unique<Out>(path)), file(path) {}
+SnapshotWriter::SnapshotWriter(const std::string &path)
+    : out(std::make_unique<Out>(path)), file(path) {}
 
-TraceWriter::~TraceWriter() = default;
+SnapshotWriter::~SnapshotWriter() = default;
 
-void TraceWriter::close() {
+void SnapshotWriter::close() {
     out.reset();
 }
 
-void TraceWriter::beginStage(const StageVisual &stage) {
+void SnapshotWriter::beginStage(const StageVisual &stage) {
     out->put<std::uint8_t>(kStage);
     out->str(stage.stage);
     out->str(stage.subdir);
     out->size(stage.cadence);
 }
 
-void TraceWriter::frame(const std::vector<float> &x, const std::vector<float> &y,
-                        const std::array<double, 4> &die, bool withFences,
-                        const VisualFrame &what) {
+void SnapshotWriter::frame(const std::vector<float> &x, const std::vector<float> &y,
+                           const std::array<double, 4> &die, bool withFences,
+                           const VisualFrame &what) {
     out->put<std::uint8_t>(kFrame);
     out->put<std::uint8_t>(withFences ? 1 : 0);
     out->vec<double>(die);
@@ -188,8 +189,8 @@ void TraceWriter::frame(const std::vector<float> &x, const std::vector<float> &y
     ++frames;
 }
 
-void TraceWriter::boundsCurve(std::string_view name, std::string_view title,
-                              std::span<const BoundsSample> curve) {
+void SnapshotWriter::boundsCurve(std::string_view name, std::string_view title,
+                                 std::span<const BoundsSample> curve) {
     static_assert(sizeof(BoundsSample) == 2 * sizeof(double));
     out->put<std::uint8_t>(kBounds);
     out->str(name);
@@ -197,13 +198,13 @@ void TraceWriter::boundsCurve(std::string_view name, std::string_view title,
     out->vec(curve);
 }
 
-void TraceWriter::holdBack(std::size_t n) {
+void SnapshotWriter::holdBack(std::size_t n) {
     out->put<std::uint8_t>(kHoldBack);
     out->size(n);
 }
 
-std::size_t replayTrace(const std::string &path, Visualizer &viz, const Graph &graph,
-                        const constraintMgr *fences) {
+std::size_t replaySnapshots(const std::string &path, Visualizer &viz, const Graph &graph,
+                            const constraintMgr *fences) {
     In in(path);
     std::size_t frames = 0;
     std::uint8_t t = 0;
@@ -221,7 +222,7 @@ std::size_t replayTrace(const std::string &path, Visualizer &viz, const Graph &g
                 const bool withFences = in.get<std::uint8_t>() != 0;
                 const std::vector<double> die = in.vec<double>();
                 if (die.size() != 4) {
-                    ktlog.fatal("trace {}: a frame's die is not a box", path);
+                    ktlog.fatal("snapshot file {}: a frame's die is not a box", path);
                 }
                 VisualFrame what;
                 what.series = in.str();
@@ -249,7 +250,7 @@ std::size_t replayTrace(const std::string &path, Visualizer &viz, const Graph &g
                 viz.holdBack(in.size());
                 break;
             default:
-                ktlog.fatal("trace {}: unknown record '{}'", path, static_cast<char>(t));
+                ktlog.fatal("snapshot file {}: unknown record '{}'", path, static_cast<char>(t));
         }
     }
     return frames;
