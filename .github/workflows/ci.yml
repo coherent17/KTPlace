@@ -276,3 +276,49 @@ jobs:
           # placement that actually gets written.
           test "$(grep -c 'verdict *| *PASS' smoke-multirow.log)" -eq 2
           test "$(grep -c 'verdict *| *FAIL' smoke-multirow.log || true)" -eq 0
+
+  determinism:
+    name: Determinism (ibm01 and adaptec1 run twice)
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install runtime libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libtbb-dev \
+            libboost-iostreams-dev \
+            zlib1g-dev \
+            libfmt-dev
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: binaries
+
+      - name: Unpack the binaries
+        run: tar -xzf binaries.tar.gz
+
+      - name: Two runs of one design write the same files
+        run: |
+          set -euo pipefail
+
+          source ktplace.sh
+
+          cat > anim.tcl <<'TCL'
+          add_option visualizer anim_zoom 1
+          add_option visualizer final_zoom 1
+          TCL
+
+          for run in a b; do
+            ktplace ./benchmark/ICCAD04/ibm01 -w "det/ibm01-$run" -tcl anim.tcl \
+              > /dev/null 2>&1
+            ktplace ./benchmark/ISPD_2005/adaptec1 -w "det/adaptec1-$run" --no-plots \
+              > /dev/null 2>&1
+          done
+
+          cmp det/ibm01-a/placed.pl det/ibm01-b/placed.pl
+          diff -r det/ibm01-a/plots det/ibm01-b/plots
+          cmp det/adaptec1-a/placed.pl det/adaptec1-b/placed.pl
