@@ -936,7 +936,7 @@ traceEl.addEventListener("scroll", () => {
 $("runbtn").onclick = submitRun;
 $("benchfilter").addEventListener("input", renderBenchOptions);
 $("presetfast").onclick = () => {
-  $("opts").value = "simpl iters 25\nvisualizer anim_trace_every 0\nvisualizer anim_cg_every 0\n";
+  $("opts").value = "simpl iters 25\nsimpl trace_every 0\nsimpl cg_every 0\n";
 };
 $("presetclear").onclick = () => { $("opts").value = ""; };
 $("execrun").onclick = runCommand;

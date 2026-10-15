@@ -16,8 +16,10 @@
 
 #include <algorithm>
 #include <exception>
+#include <fmt/format.h>
 #include <functional>
 #include <mutex>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <tcl.h>
@@ -56,6 +58,18 @@ void expectWords(const Command &cmd, const Words &words, std::size_t min, std::s
     if (words.size() < min || words.size() > max) {
         throw UsageError("wrong # args: should be \"" + cmd.synopsis + "\"");
     }
+}
+
+Component componentNamed(std::string_view name) {
+    if (const std::optional<Component> id = componentFromName(name)) {
+        return *id;
+    }
+    std::string known;
+    for (const std::string_view n : kComponentNames) {
+        known += known.empty() ? "" : ", ";
+        known += n;
+    }
+    throw UsageError(fmt::format("unknown component '{}'; expected one of {}", name, known));
 }
 
 std::string_view trimTrailing(std::string_view s) {
@@ -370,12 +384,13 @@ void TclShell::Impl::registerCommands() {
     // typing, so one configuration script runs in either: 64 is an int, 1e-6 a
     // double, true/false a bool, anything else a string.
     add("add_option", "add_option <component> <key> <value>",
-        "set an option for a stage (simpl, ntuplace1, abacus, fastdp, visualizer)",
+        "set an option for a stage (simpl, ntuplace1, abacus, multirow, fastdp, visualizer, flow)",
         [](const Command &c, const Words &w) -> Tcl_Obj * {
             expectWords(c, w, 3, 3);
-            if (w[0].empty() || w[1].empty()) {
-                throw UsageError("add_option: the component and the key must not be empty");
+            if (w[1].empty()) {
+                throw UsageError("add_option: the key must not be empty");
             }
+            const Component component = componentNamed(w[0]);
             const tcl::Value v = tcl::parseLiteral(w[2]);
             OptionValue value = v.asString();
             if (v.isInt()) {
@@ -385,14 +400,15 @@ void TclShell::Impl::registerCommands() {
             } else if (v.isBool()) {
                 value = v.asBool();
             }
-            OptionDb::instance().set(w[0], w[1], std::move(value), OptionOrigin::Script);
+            OptionDb::instance().set(component, w[1], std::move(value));
             return nullptr;
         });
     add("get_option", "get_option <component> <key>",
         "return an option's value as a stage will read it, or \"\" when nothing sets it",
         [](const Command &c, const Words &w) -> Tcl_Obj * {
             expectWords(c, w, 2, 2);
-            const auto value = OptionDb::instance().find(w[0], w[1]);
+            const auto value =
+                OptionDb::instance().getComponentOption(componentNamed(w[0])).find(w[1]);
             if (!value) {
                 return newString("");
             }

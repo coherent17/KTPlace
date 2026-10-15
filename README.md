@@ -69,10 +69,10 @@ else is loaded as Bookshelf.
 
 | option | meaning |
 | --- | --- |
-| `-tcl, --tcl <file>` | configure the run: a script of `add_option` lines, the placer included (`add_option flow algorithm ntuplace1`; simpl by default) |
 | `-s, --script <file>` | run a Tcl flow script instead of the fixed flow (see below) |
 | `--gui` | open the design in the Qt window instead; the other options go to it |
 | `-w, --work-dir <dir>` | where everything is written (default: cwd) |
+| `-tcl, --tcl <file>` | Tcl script that configures the run (see below) |
 | `--no-plots` | draw nothing |
 | `-v, --verbose` | also echo the trace log to the console |
 
@@ -126,51 +126,47 @@ to the log like everything else.
 Under `<work-dir>/plots/`: SVG frames for the placement stages (`simpl/`, and
 `legalize/` for the Abacus path), the detail placer (`detailplace/`), the density
 bound trace (`simpl_bounds.csv`/`.svg`), the animation (`anim/placement.gif`,
-unless `visualizer anim` is 0), and a high-resolution still of the finished
+unless `visualizer anim` is `0`), and a high-resolution still of the finished
 placement (`final/final.png`, 6144x6144 by default). All generated in C++ — no
 image library beyond the vendored CImg, no external tools.
 
-### Options
+## Configuration
 
-Every stage setting is an option of its component, set with
-`add_option <component> <option> <value>` in a configuration script given with
-`-tcl` (or in a `--script` script, or the GUI's console). The placer is one too:
-`add_option flow algorithm ntuplace1` (SimPL by default). Nothing is read from the
-environment, so what configured a run is in its script and in its log: each
-stage prints its full option table when it runs, with what set each value.
+A run is configured by a Tcl script passed with `-tcl` (or a `--script` script,
+or the GUI's console). Environment variables are not read. `add_option <component> <key> <value>` sets one option; anything not set
+keeps the component's default:
 
-```sh
-cat > tuning.tcl <<'EOF'
-add_option simpl iters 50
-add_option simpl seed 7
+```tcl
+add_option flow algorithm ntuplace1   # simpl is the default
+add_option simpl grid 64
 add_option visualizer anim 0
-EOF
-ktplace benchmark/ISPD_2005/adaptec1 -tcl tuning.tcl -w output/adaptec1-50it
 ```
 
-The components and their options are declared, with defaults, in
-`src/placer/simpl/simpl_options.cc`, `src/placer/ntuplace1/ntuplace1_options.cc`,
-`src/legalizer/abacus/abacus_options.cc`, `src/detailPlacer/fastdp/fastdp_options.cc`
-and `src/visualization/visualizer_options.cc`. The drawing ones:
+| component | key | effect (default) |
+| --- | --- | --- |
+| `flow` | `algorithm` | global placer: `simpl` or `ntuplace1` (`simpl`) |
+| `visualizer` | `anim` | record frames and assemble the GIF (`1`) |
+| `visualizer` | `anim_max_frames` | frame budget for the run (`1200`) |
+| `visualizer` | `anim_zoom` | frame scale, vs 768x768 (`2`) |
+| `visualizer` | `anim_blend` | GIF frames per placement step: the snapshot plus N-1 frames interpolated from the previous one; `1` turns blending off (`3`) |
+| `visualizer` | `final_zoom` | final still scale, vs 768x768 (`8`) |
+| `visualizer` | `final_ppm` | also write the lossless PPM beside the PNG (`0`) |
+| `simpl` | `trace_every` | SVG frame every N global iterations; `0` turns them off (`1`) |
+| `simpl` | `cg_every` | SVG frame every N conjugate-gradient iterates; `0` turns them off (`0`) |
+| `simpl` | `grid`, `cg_tol`, `init_iters`, `iters`, `seed`, `fences`, `density`, `alpha_base` | solver settings |
+| `ntuplace1` | `leaf_cells`, `max_levels`, `retries`, `verbose` | partitioner settings |
+| `abacus` | `max_row_dist`, `min_subrow_sites` | legalizer settings |
+| `abacus` | `frame_every` | SVG frame every N cells placed; `0` keeps only the first and last (`0`) |
+| `multirow` | `macro_rows` | cells spanning more rows than this are legalized first as macros (`8`) |
+| `fastdp` | `window`, `no_median` | detailed placer settings |
 
-| `visualizer` option | effect |
-| --- | --- |
-| `anim` | record frames and assemble the GIF (default 1; `0` turns it off) |
-| `anim_max_frames` | frame budget for the run (default 1200) |
-| `anim_max_bytes` | size cap of the GIF, in bytes (default 96 MB) |
-| `anim_zoom` | frame scale, vs 768x768 (default 2) |
-| `anim_blend` | in-between frames per placement (default 3) |
-| `anim_delay_cs` | GIF frame delay, in hundredths of a second (default 12) |
-| `anim_final_hold` | extra frames the finished placement is held (default 8) |
-| `anim_density_maps` | bin-density heat map beside each placement frame (default 1) |
-| `anim_trace_every` | global-placement frame every N iterations (default 1; `0` keeps only the final one) |
-| `anim_cg_every` | frame every N conjugate-gradient iterates (default 0, off) |
-| `final_zoom` | final still scale, vs 768x768 (default 8) |
-| `final_ppm` | also write the lossless PPM beside the PNG (default 0, off) |
+Each component's keys and defaults are listed in its `*_options.h`. An unknown
+component is an error; a value of the wrong type is reported and the default is
+used.
 
 On a large design the frames are most of global placement's time. When only the
-placement matters, set `visualizer anim 0` and `visualizer anim_trace_every 0`
-(the HPWL is the same), or pass `--no-plots` to skip every picture.
+placement matters, set `simpl trace_every 0` (the HPWL is the same), or pass
+`--no-plots` to skip every picture.
 
 Timing is measured with `ScopedTimer` (`src/util/kt_scopedTimer.h`), which
 records wall and processor time per named phase and reports the table once at

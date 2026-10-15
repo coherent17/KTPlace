@@ -47,10 +47,10 @@ kt_option optionsFor(const ScratchDir &dir, const std::string &inputPath) {
 struct SmallPictures {
     SmallPictures() {
         auto &db = OptionDb::instance();
-        db.set("visualizer", "anim", true);
-        db.set("visualizer", "anim_max_frames", 40);
-        db.set("visualizer", "anim_zoom", 1.0);
-        db.set("visualizer", "final_zoom", 1.0);
+        db.set(Component::Visualizer, "anim", true);
+        db.set(Component::Visualizer, "anim_max_frames", 40);
+        db.set(Component::Visualizer, "anim_zoom", 1.0);
+        db.set(Component::Visualizer, "final_zoom", 1.0);
     }
     ~SmallPictures() {
         OptionDb::instance().clear();
@@ -214,7 +214,7 @@ BOOST_AUTO_TEST_CASE(flow_fails_on_an_unknown_algorithm) {
     expectFatal(
         [&] {
             FlowMgr flow;
-            OptionDb::instance().set("flow", "algorithm", OptionValue{std::string("no_such_algo")});
+            OptionDb::instance().set(Component::Flow, "algorithm", std::string("no_such_algo"));
             const kt_option opt = optionsFor(dir, designDir(dir).string());
             flow.run(opt);
         },

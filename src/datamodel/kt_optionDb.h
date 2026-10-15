@@ -3,304 +3,177 @@
 
 #pragma once
 
+#include <array>
+#include <concepts>
+#include <cstddef>
 #include <cstdint>
+#include <functional>
+#include <map>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <type_traits>
-#include <unordered_map>
+#include <utility>
 #include <variant>
 #include <vector>
 
 namespace ktplace {
 
-// An option's value. The variant is the whole point: a script that writes 64, a
-// script that writes 1e-6 and a script that writes a path stay distinguishable
-// after parsing, so a component can ask for the type it expects and be told.
-using OptionValue = std::variant<int, bool, double, std::string>;
-
-// One component's configured options.
-using OptionMap = std::unordered_map<std::string, OptionValue>;
-
-// The components that may own options. Centralized here so `add_option` can
-// reject a component that no run knows about, and so a caller can never ask the
-// store for options of a phantom component.
-namespace components {
-enum class Id : std::uint8_t { Simpl, NtuPlace1, Abacus, FastDp, Visualizer, Flow };
-
-[[nodiscard]] constexpr std::string_view toString(Id id) noexcept {
-    switch (id) {
-        case Id::Simpl:
-            return "simpl";
-        case Id::NtuPlace1:
-            return "ntuplace1";
-        case Id::Abacus:
-            return "abacus";
-        case Id::FastDp:
-            return "fastdp";
-        case Id::Visualizer:
-            return "visualizer";
-        case Id::Flow:
-            return "flow";
-    }
-    return "unknown";
-}
-
-// Returns an empty view when the string names no component.
-[[nodiscard]] bool known(std::string_view name) noexcept;
-}  // namespace components
-
-
-// Where a value came from, so a report can say why an option is what it is.
-enum class OptionOrigin {
-    Default,  // never set: the option's own default stands
-    Script,   // an add_option in the Tcl file
-    Env,      // an environment variable; nothing reads the environment today
+enum class Component : std::uint8_t {
+    Simpl,
+    NtuPlace1,
+    Abacus,
+    MultiRow,
+    FastDp,
+    Visualizer,
+    Flow
 };
 
-[[nodiscard]] const char *toString(OptionOrigin origin);
+inline constexpr std::array<std::string_view, 7> kComponentNames{
+    "simpl", "ntuplace1", "abacus", "multirow", "fastdp", "visualizer", "flow"};
 
-// Every option a run has been given.
-//
-// What a script set (add_option) is the value; an option no script set has its
-// own default. Nothing is read from the environment: a run is configured by the
-// script it is given, so what configured it is in the script and in the log.
-//
-// A process-wide instance because a run configures one thing and every component
-// asks the same question; passing it around would be plumbing with no gain.
+static_assert(kComponentNames.size() == std::to_underlying(Component::Flow) + 1);
+
+[[nodiscard]] constexpr std::string_view toString(Component component) noexcept {
+    return kComponentNames[std::to_underlying(component)];
+}
+
+[[nodiscard]] std::optional<Component> componentFromName(std::string_view name) noexcept;
+
+using OptionValue = std::variant<int, bool, double, std::string>;
+using OptionMap = std::map<std::string, OptionValue, std::less<>>;
+
+template <typename T>
+concept OptionType = std::same_as<T, int> || std::same_as<T, bool> || std::same_as<T, double> ||
+                     std::same_as<T, std::size_t> || std::same_as<T, std::string>;
+
+template <OptionType T>
+[[nodiscard]] std::optional<T> convertOption(const OptionValue &value) {
+    return std::visit(
+        [](const auto &held) -> std::optional<T> {
+            using Held = std::decay_t<decltype(held)>;
+            if constexpr (std::same_as<T, Held>) {
+                return held;
+            } else if constexpr (std::same_as<T, std::string> || std::same_as<Held, std::string>) {
+                return std::nullopt;
+            } else if constexpr (std::same_as<T, bool>) {
+                return held != Held{};
+            } else if constexpr (std::same_as<Held, bool>) {
+                return std::nullopt;
+            } else if constexpr (std::same_as<T, std::size_t>) {
+                return held < 0 ? std::nullopt : std::optional<T>(static_cast<T>(held));
+            } else {
+                return static_cast<T>(held);
+            }
+        },
+        value);
+}
+
+template <OptionType T>
+[[nodiscard]] OptionValue toOptionValue(T value) {
+    if constexpr (std::same_as<T, std::size_t>) {
+        return static_cast<int>(value);
+    } else {
+        return value;
+    }
+}
+
+template <OptionType T>
+[[nodiscard]] constexpr std::string_view optionTypeName() noexcept {
+    if constexpr (std::same_as<T, int>) {
+        return "int";
+    } else if constexpr (std::same_as<T, bool>) {
+        return "bool";
+    } else if constexpr (std::same_as<T, double>) {
+        return "double";
+    } else if constexpr (std::same_as<T, std::size_t>) {
+        return "non-negative int";
+    } else {
+        return "string";
+    }
+}
+
+class ComponentOptions {
+public:
+    explicit ComponentOptions(Component component, OptionMap configured = {});
+
+    [[nodiscard]] Component component() const noexcept {
+        return id;
+    }
+    [[nodiscard]] bool empty() const noexcept {
+        return values.empty();
+    }
+    [[nodiscard]] std::size_t size() const noexcept {
+        return values.size();
+    }
+    [[nodiscard]] bool contains(std::string_view key) const {
+        return values.contains(key);
+    }
+    [[nodiscard]] std::optional<OptionValue> find(std::string_view key) const;
+
+    template <OptionType T>
+    [[nodiscard]] std::optional<T> get(std::string_view key) const {
+        const auto found = values.find(key);
+        if (found == values.end()) {
+            return std::nullopt;
+        }
+        std::optional<T> typed = convertOption<T>(found->second);
+        if (!typed) {
+            warnWrongType(key, found->second, optionTypeName<T>());
+        }
+        return typed;
+    }
+
+private:
+    void warnWrongType(std::string_view key, const OptionValue &value,
+                       std::string_view expected) const;
+
+    Component id;
+    OptionMap values;
+};
+
 class OptionDb {
 public:
     static OptionDb &instance();
 
-    void set(const std::string &component, const std::string &key, OptionValue value,
-             OptionOrigin origin = OptionOrigin::Script);
-    void clear();
+    void set(Component component, std::string key, OptionValue value);
+    void clear() noexcept;
 
-    // Null when the component was never mentioned, which is how a component tells
-    // "not configured" from "configured to a blank string".
-    [[nodiscard]] std::optional<OptionMap> optionsFor(const std::string &component) const;
+    [[nodiscard]] ComponentOptions getComponentOption(Component component) const;
+    [[nodiscard]] std::size_t size() const noexcept;
 
-    [[nodiscard]] std::optional<OptionValue> find(const std::string &component,
-                                                  const std::string &key) const;
-    [[nodiscard]] std::optional<OptionOrigin> originOf(const std::string &component,
-                                                       const std::string &key) const;
-
-    // Type-erased access for code that knows the key at run time. Returns
-    // std::nullopt when the option is unset or the value has another type.
-    template <typename T>
-    [[nodiscard]] std::optional<T> get(std::string_view component, std::string_view key) const;
-
-    [[nodiscard]] std::vector<std::string> components() const;
-    [[nodiscard]] std::size_t size() const noexcept {
-        return total;
-    }
-
-    // A one-line-per-option report, printed once at startup: an option that
-    // silently did not apply is the failure this exists to make visible.
     void report() const;
 
 private:
-    struct Entry {
-        OptionValue value;
-        OptionOrigin origin = OptionOrigin::Script;
-    };
-
-    std::unordered_map<std::string, std::unordered_map<std::string, Entry>> byComponent;
-    std::size_t total = 0;
+    std::array<OptionMap, kComponentNames.size()> byComponent;
 };
 
-// A component's knowledge of one option: which component, which key, what type,
-// and what it falls back to.
-//
-// Declaring these as typed constants gives a component compile-time knowledge of
-// its own options, and keeps the key, the type and the default together where a
-// reader can see them, instead of a getenv call with a default three lines away.
-//
-//     static constexpr Option<int> kGrid{"simpl", "grid", 64};
-//     const int grid = kGrid.value();
-//
-// A value of the wrong type is reported rather than converted: a script that says
-// `add_option simpl grid sixty-four` should not silently place a 0 in the grid.
 template <typename T>
-class Option {
-public:
-    Option(std::string componentName, std::string optionKey, T defaultValue)
-        : component(std::move(componentName)),
-          key(std::move(optionKey)),
-          fallback(std::move(defaultValue)) {}
-
-    [[nodiscard]] const std::string &componentName() const noexcept {
-        return component;
-    }
-    [[nodiscard]] const std::string &optionKey() const noexcept {
-        return key;
-    }
-    [[nodiscard]] const T &defaultValue() const noexcept {
-        return fallback;
-    }
-
-    // Null when nothing set it, which is how a component tells an unconfigured
-    // option from one configured to its default.
-    [[nodiscard]] std::optional<T> tryGet() const;
-
-    [[nodiscard]] T value() const {
-        return tryGet().value_or(fallback);
-    }
-
-    [[nodiscard]] bool isSet() const {
-        return tryGet().has_value();
-    }
-
-    [[nodiscard]] OptionOrigin origin() const {
-        return OptionDb::instance().originOf(component, key).value_or(OptionOrigin::Default);
-    }
-
-private:
-    std::string component;
-    std::string key;
-    T fallback;
+concept ComponentOptionSet = requires {
+    { T::kComponent } -> std::convertible_to<Component>;
 };
 
-// One option as the run will actually use it, beside the default it would have
-// had. This is what a component's report prints, so a run's configuration can be
-// read without holding the script and the source side by side.
-struct ResolvedOption {
-    std::string key;
-    OptionValue value;     // what the run uses
-    OptionValue fallback;  // the default, used when nothing set it
-    OptionOrigin origin = OptionOrigin::Default;
-};
-
-// The per-component table: every option, its value, where that came from, and the
-// default it falls back to.
-void reportOptions(const std::string &component, const std::vector<ResolvedOption> &options);
-
-// A typed read by component and key. std::nullopt when unset or wrongly typed, so a
-// component never has to fall back silently.
-template <components::Id Component, typename T>
-[[nodiscard]] std::optional<T> getComponentOption(std::string_view key) {
-    return OptionDb::instance().get<T>(components::toString(Component), key);
+template <ComponentOptionSet Options>
+[[nodiscard]] Options loadOptions() {
+    const ComponentOptions configured =
+        OptionDb::instance().getComponentOption(Options::kComponent);
+    Options out;
+    Options::fields(out, [&configured](std::string_view key, auto &field) {
+        field = configured.get<std::remove_cvref_t<decltype(field)>>(key).value_or(field);
+    });
+    return out;
 }
 
-// How T is spelled in the variant, and how to read a variant as T. Specialised
-// per supported type; anything else is a compile error rather than a silent
-// fallback.
-template <typename T>
-struct OptionTraits;
+void reportOptionTable(Component component,
+                       const std::vector<std::pair<std::string_view, OptionValue>> &rows);
 
-template <>
-struct OptionTraits<int> {
-    static OptionValue toValue(int value) {
-        return value;
-    }
-    static std::optional<int> fromValue(const OptionValue &value) {
-        if (const int *typed = std::get_if<int>(&value)) {
-            return *typed;
-        }
-        // A double that is exactly an integer is still an integer to the caller:
-        // Tcl has one number type and a script may reasonably write 64.0.
-        if (const double *wide = std::get_if<double>(&value)) {
-            return static_cast<int>(*wide);
-        }
-        return std::nullopt;
-    }
-};
-
-template <>
-struct OptionTraits<bool> {
-    static OptionValue toValue(bool value) {
-        return value;
-    }
-    static std::optional<bool> fromValue(const OptionValue &value) {
-        if (const bool *typed = std::get_if<bool>(&value)) {
-            return *typed;
-        }
-        // Tcl has one number type, so a script that writes 0 for a flag means
-        // false and 1 means true. Reading it any other way would make the most
-        // natural spelling of a flag do nothing at all.
-        if (const int *narrow = std::get_if<int>(&value)) {
-            return *narrow != 0;
-        }
-        if (const double *wide = std::get_if<double>(&value)) {
-            return *wide != 0.0;
-        }
-        return std::nullopt;
-    }
-};
-
-// Counts are stored as an int, the largest integer a Tcl script can write, and
-// widened here: a script has no unsigned type, and a negative count is a mistake
-// worth reporting at the point of use rather than wrapping silently.
-
-template <>
-struct OptionTraits<std::size_t> {
-    static OptionValue toValue(std::size_t value) {
-        return static_cast<int>(value);
-    }
-    static std::optional<std::size_t> fromValue(const OptionValue &value) {
-        const auto narrow = OptionTraits<int>::fromValue(value);
-        if (!narrow || *narrow < 0) {
-            return std::nullopt;
-        }
-        return static_cast<std::size_t>(*narrow);
-    }
-};
-
-
-template <>
-struct OptionTraits<double> {
-    static OptionValue toValue(double value) {
-        return value;
-    }
-    static std::optional<double> fromValue(const OptionValue &value) {
-        if (const double *typed = std::get_if<double>(&value)) {
-            return *typed;
-        }
-        if (const int *narrow = std::get_if<int>(&value)) {
-            return static_cast<double>(*narrow);
-        }
-        return std::nullopt;
-    }
-};
-
-template <>
-struct OptionTraits<std::string> {
-    static OptionValue toValue(std::string value) {
-        return value;
-    }
-    static std::optional<std::string> fromValue(const OptionValue &value) {
-        if (const std::string *typed = std::get_if<std::string>(&value)) {
-            return *typed;
-        }
-        return std::nullopt;
-    }
-};
-
-template <typename T>
-std::optional<T> Option<T>::tryGet() const {
-    const auto found = OptionDb::instance().find(component, key);
-    if (!found) {
-        return std::nullopt;
-    }
-    return OptionTraits<T>::fromValue(*found);
-}
-
-// Implementation of OptionDb::get, defined after OptionTraits so the type
-// conversions specialisations are visible.
-template <typename T>
-std::optional<T> OptionDb::get(std::string_view component, std::string_view key) const {
-    const auto found = find(std::string(component), std::string(key));
-    if (!found)
-        return std::nullopt;
-    return OptionTraits<T>::fromValue(*found);
-}
-
-// Reads a declared option and records both what it resolved to and its default,
-// so a component builds its report by declaring its options rather than by
-// remembering to write them up twice.
-template <typename T>
-[[nodiscard]] ResolvedOption resolve(const Option<T> &option) {
-    return ResolvedOption{option.optionKey(), OptionTraits<T>::toValue(option.value()),
-                          OptionTraits<T>::toValue(option.defaultValue()), option.origin()};
+template <ComponentOptionSet Options>
+void reportOptions(const Options &options) {
+    std::vector<std::pair<std::string_view, OptionValue>> rows;
+    Options::fields(options, [&rows](std::string_view key, const auto &field) {
+        rows.emplace_back(key, toOptionValue(field));
+    });
+    reportOptionTable(Options::kComponent, rows);
 }
 
 }  // namespace ktplace

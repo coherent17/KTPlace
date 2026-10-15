@@ -2,8 +2,8 @@
 
 namespace ktplace::multirow {
 
-multiRowSolution flowMgr::runLegalizer(const MultiRowLegalizeParams &params) {
-    return dm.run(params);
+multiRowSolution flowMgr::runLegalizer() {
+    return dm.run();
 }
 
 }  // namespace ktplace::multirow

@@ -11,7 +11,6 @@
 #include "placer/simpl/simpl_design.h"
 #include "placer/simpl/simpl_options.h"
 #include "placer/simpl/simpl_placer.h"
-#include "visualization/kt_plotOptions.h"
 
 namespace ktplace {
 
@@ -25,19 +24,9 @@ public:
     /// Takes ownership of the design the adaptor built.
     explicit simplDM(Design design);
 
-    // SimPL's options, read from the run's option store, and the parameters they
-    // configure. Built and reported here rather than by the flow, which does not
-    // know what SimPL has options.
-    [[nodiscard]] SimplOptions options() const;
-    [[nodiscard]] SimplParams params() const noexcept {
-        return par;
+    [[nodiscard]] const SimplOptions &options() const noexcept {
+        return opts;
     }
-
-    // Whether placement regions are honoured. False means `add_option simpl fences 0`.
-    [[nodiscard]] bool useFences() const noexcept {
-        return useFences_;
-    }
-
     [[nodiscard]] const Design &design() const noexcept {
         return d;
     }
@@ -49,19 +38,28 @@ public:
     void setFrameHook(FrameHook hook) {
         d.onFrame = std::move(hook);
     }
+    void setBoundsHook(BoundsHook hook) {
+        d.onBounds = std::move(hook);
+    }
+    void setProgressHook(ProgressHook hook, bool withPositions) {
+        d.onProgress = std::move(hook);
+        d.progressPositions = withPositions;
+    }
+    void setStopRequest(std::function<bool()> stop) {
+        d.stopRequested = std::move(stop);
+    }
 
     /// Run global placement and return where every cell ended up. The solver's
     /// statistics are reported from inside the run; they are not returned, because
     /// nothing outside the solver can act on them. Nothing is written outside this
     /// object.
-    simplSolution run(const SimplParams &params, bool useFences);
+    simplSolution run();
 
-    friend simplDM buildSimplDM(const ktDM &db, const PlotOptions &plot);
+    friend simplDM buildSimplDM(const ktDM &db);
 
 private:
     Design d;
-    SimplParams par;
-    bool useFences_ = true;
+    SimplOptions opts;
 };
 
 /// ktDM -> SimPL's own database.
@@ -69,10 +67,7 @@ private:
 /// The whole of SimPL's contact with the shared database, in one place. It
 /// returns a plain value: SimPL keeps no reference back to ktDM, so a stale
 /// design cannot be mistaken for a current one.
-///
-/// `plotDir` is where the host should write snapshots when SimPL asks for one.
-/// SimPL itself never draws; it hands the positions to the sink installed here.
-[[nodiscard]] simplDM buildSimplDM(const ktDM &db, const PlotOptions &plot);
+[[nodiscard]] simplDM buildSimplDM(const ktDM &db);
 
 }  // namespace simpl
 }  // namespace ktplace

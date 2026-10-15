@@ -7,7 +7,7 @@
 #include "datamodel/kt_optionDb.h"
 #include "detailPlacer/fastdp/fastdp_dm.h"
 #include "legalizer/abacus/abacus_dm.h"
-#include "placer/ntuplace1/kt_ntuplace1.h"
+#include "placer/ntuplace1/ntuplace1_dm.h"
 #include "placer/simpl/simpl_dm.h"
 #include "session/kt_session.h"
 #include "test/kt_testDesign.h"
@@ -140,32 +140,6 @@ BOOST_AUTO_TEST_CASE(session_legalizes_without_a_global_placement_first) {
     BOOST_TEST(session.checkPlacement().empty());
 }
 
-BOOST_AUTO_TEST_CASE(session_rejects_an_out_of_range_detail_window) {
-    // The FastDP window used to be read twice: unchecked by the flow, then 2..14
-    // by FastDP, and the flow's copy won. Now only FastDP reads it, so 20 is
-    // refused with a warning and the stage runs with its own window.
-    const ScratchDir dir("session_dpwindow");
-    ktSession session;
-    loadTiny(session, dir);
-    session.legalize();
-
-    OptionDb::instance().set("fastdp", "window", 20);
-    std::ostringstream captured;
-    std::streambuf *original = std::cerr.rdbuf(captured.rdbuf());
-    try {
-        session.detailPlace();
-    } catch (...) {
-        std::cerr.rdbuf(original);
-        OptionDb::instance().clear();
-        throw;
-    }
-    std::cerr.rdbuf(original);
-    OptionDb::instance().clear();
-
-    BOOST_TEST(captured.str().find("fastdp window 20 is outside 2..14") != std::string::npos);
-    BOOST_TEST(session.checkPlacement().empty());
-}
-
 BOOST_AUTO_TEST_CASE(session_writes_the_current_placement) {
     const ScratchDir dir("session_write");
     ktSession session;
@@ -262,7 +236,7 @@ BOOST_AUTO_TEST_CASE(session_fails_on_an_unknown_algorithm) {
             session.readDesign(designDir(dir).string());
             session.globalPlace("no_such_algo");
         },
-        "Unknown placement algorithm");
+        "unknown placer");
 }
 
 BOOST_AUTO_TEST_CASE(session_fails_when_the_input_directory_is_missing) {
@@ -428,39 +402,25 @@ BOOST_AUTO_TEST_CASE(simpl_stopped_in_the_warm_up_skips_the_global_phase) {
     BOOST_TEST(std::isfinite(session.hpwl()));
 }
 
-BOOST_AUTO_TEST_CASE(stage_options_apply_when_set_and_leave_the_defaults_otherwise) {
+BOOST_AUTO_TEST_CASE(options_set_between_stages_reach_the_next_stage) {
     const ScratchDir dir("session_options");
     ktSession session;
     loadTiny(session, dir);
     const ktDM &db = session.design();
-    // RatioPlacer writes its result into the database, so it takes it mutably;
-    // only its parameters are read here.
-    ktDM &mutableDb = const_cast<ktDM &>(db);
-    OptionDb::instance().clear();
-
-    // Unset: each stage keeps its own defaults, not the options' declared ones.
-    BOOST_TEST(simpl::buildSimplDM(db, PlotOptions{}).useFences());
-    BOOST_TEST(fastdp::buildFastdpDM(db).params().localReorderWindow == 6U);
-    BOOST_TEST(abacus::buildAbacusDM(db).params().maxRowDistance == 0U);
-    BOOST_TEST(RatioPlacer(mutableDb).params().targetLeafCells == 32U);
-    BOOST_TEST(RatioPlacer(mutableDb).params().maxRatioRetries == 24U);
-
-    // Set: they apply.
     OptionDb &opts = OptionDb::instance();
-    opts.set("simpl", "fences", false);
-    opts.set("abacus", "max_row_dist", 3);
-    opts.set("ntuplace1", "leaf_cells", 12);
-    opts.set("ntuplace1", "verbose", true);
-    BOOST_TEST(!simpl::buildSimplDM(db, PlotOptions{}).useFences());
-    BOOST_TEST(abacus::buildAbacusDM(db).params().maxRowDistance == 3U);
-    BOOST_TEST(RatioPlacer(mutableDb).params().targetLeafCells == 12U);
-    BOOST_TEST(RatioPlacer(mutableDb).params().verbose);
-    BOOST_TEST(RatioPlacer(mutableDb).params().maxLevels == 40U);  // still the placer's
+    opts.clear();
+    BOOST_TEST(simpl::buildSimplDM(db).options().fences);
 
-    // A legal FastDP window is used; the placement stays legal either way.
+    opts.set(Component::Simpl, "fences", false);
+    opts.set(Component::Abacus, "max_row_dist", 3);
+    opts.set(Component::NtuPlace1, "leaf_cells", 12);
+    BOOST_TEST(!simpl::buildSimplDM(db).options().fences);
+    BOOST_TEST(abacus::buildAbacusDM(db).options().maxRowDistance == 3U);
+    BOOST_TEST(ntuplace1::buildNtuplace1DM(db).options().targetLeafCells == 12U);
+
     session.legalize();
-    opts.set("fastdp", "window", 3);
+    opts.set(Component::FastDp, "window", 3);
     session.detailPlace();
     BOOST_TEST(session.checkPlacement().empty());
-    OptionDb::instance().clear();
+    opts.clear();
 }

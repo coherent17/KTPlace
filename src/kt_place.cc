@@ -37,9 +37,10 @@ int runScript(const kt_option &options) {
     shell.setGlobal("work_dir", options.workDir);
     shell.setGlobal("output", options.getOutputPath());
     shell.setGlobal("plot_dir", options.getPlotDir());
-    shell.setGlobal(
-        "algorithm",
-        getComponentOption<components::Id::Flow, std::string>("algorithm").value_or("simpl"));
+    shell.setGlobal("algorithm", OptionDb::instance()
+                                     .getComponentOption(Component::Flow)
+                                     .get<std::string>("algorithm")
+                                     .value_or("simpl"));
 
     ktlog.echo("Running Tcl script {}...", options.script);
     const TclShell::Result result = shell.evalFile(options.script);

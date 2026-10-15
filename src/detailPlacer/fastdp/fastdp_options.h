@@ -1,39 +1,30 @@
 // @file fastdp_options.h
-// FastDP detailed placement options, and where they came from
+// FastDP detailed placement options
 
 #pragma once
 
 #include "datamodel/kt_optionDb.h"
 
 #include <cstddef>
-#include <vector>
 
 namespace ktplace {
 
-// Every option the detailed placer reads:
-//
-//     add_option fastdp window 2
-//
-// Each was a KTPLACE_DP_* environment variable. The environment is no longer
-// read; a script is the only way to set them.
 struct FastdpOptions {
-    // How many neighbouring cells a local reorder may swap across. Zero leaves
-    // reordering off, which is the setting that makes the placer a no-op.
-    std::size_t window = 0;
+    static constexpr Component kComponent = Component::FastDp;
 
-    // The median pass. It is what removes the overlaps Abacus leaves behind, so
-    // turning it off trades legality for speed.
+    std::size_t localReorderWindow = 0;
     bool noMedian = false;
 
-    [[nodiscard]] static FastdpOptions load();
-    void report() const;
+    std::size_t globalSwapPasses = 4;
+    std::size_t verticalSwapPasses = 2;
+    std::size_t localReorderPasses = 2;
+    std::size_t clusterPasses = 2;
+    double minImprovement = 1e-4;
 
-    [[nodiscard]] const std::vector<ResolvedOption> &resolved() const noexcept {
-        return rows;
+    static void fields(auto &self, auto &&visit) {
+        visit("window", self.localReorderWindow);
+        visit("no_median", self.noMedian);
     }
-
-private:
-    std::vector<ResolvedOption> rows;
 };
 
 }  // namespace ktplace

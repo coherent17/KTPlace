@@ -319,19 +319,18 @@ BOOST_AUTO_TEST_CASE(options_come_from_scripts_and_never_from_the_environment) {
 
     // Nothing sets it: the stage's own default applies.
     BOOST_TEST(ok(f.shell, "get_option simpl grid").empty());
-    BOOST_TEST(!OptionDb::instance().optionsFor("simpl").has_value());
+    BOOST_TEST(OptionDb::instance().getComponentOption(Component::Simpl).empty());
 
     // The environment is not a source of options, under any spelling.
     ::setenv("KTPLACE_SIMPL_GRID", "48", 1);
     ::setenv("SIMPL_GRID", "48", 1);
     BOOST_TEST(ok(f.shell, "get_option simpl grid").empty());
-    BOOST_TEST(!OptionDb::instance().originOf("simpl", "grid").has_value());
+    BOOST_TEST(!OptionDb::instance().getComponentOption(Component::Simpl).contains("grid"));
     ::unsetenv("KTPLACE_SIMPL_GRID");
     ::unsetenv("SIMPL_GRID");
 
     ok(f.shell, "add_option simpl grid 128");
     BOOST_TEST(ok(f.shell, "get_option simpl grid") == "128");
-    BOOST_TEST((OptionDb::instance().originOf("simpl", "grid") == OptionOrigin::Script));
     // A later add_option replaces the value.
     ok(f.shell, "add_option simpl grid 96");
     BOOST_TEST(ok(f.shell, "get_option simpl grid") == "96");
@@ -340,11 +339,15 @@ BOOST_AUTO_TEST_CASE(options_come_from_scripts_and_never_from_the_environment) {
     ok(f.shell,
        "add_option simpl cg_tol 1e-6; add_option simpl fences false; "
        "add_option simpl start input");
-    BOOST_TEST((std::holds_alternative<double>(*OptionDb::instance().find("simpl", "cg_tol"))));
-    BOOST_TEST((std::holds_alternative<bool>(*OptionDb::instance().find("simpl", "fences"))));
+    const ComponentOptions simpl = OptionDb::instance().getComponentOption(Component::Simpl);
+    BOOST_TEST((std::holds_alternative<double>(*simpl.find("cg_tol"))));
+    BOOST_TEST((std::holds_alternative<bool>(*simpl.find("fences"))));
     BOOST_TEST(ok(f.shell, "get_option simpl start") == "input");
     BOOST_TEST(!f.shell.eval("add_option simpl grid").ok);
     BOOST_TEST(!f.shell.eval("add_option {} grid 1").ok);
+    const TclShell::Result unknown = f.shell.eval("add_option nosuch grid 1");
+    BOOST_TEST(!unknown.ok);
+    BOOST_TEST(unknown.text.find("unknown component 'nosuch'") != std::string::npos);
     {
         Capture err(std::cerr);
         ok(f.shell, "report_options");

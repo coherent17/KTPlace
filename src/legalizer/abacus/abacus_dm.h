@@ -26,13 +26,8 @@ public:
     /// Takes ownership of the design the adaptor built.
     explicit abacusDM(Design design);
 
-    // Abacus options, read from the run's option store where the component's
-    // own configuration is assembled.
-    [[nodiscard]] AbacusOptions options() const;
-
-    // The parameters those options configure, assembled here.
-    [[nodiscard]] LegalizeParams params() const noexcept {
-        return par;
+    [[nodiscard]] const AbacusOptions &options() const noexcept {
+        return opts;
     }
 
     [[nodiscard]] const Design &design() const noexcept {
@@ -50,9 +45,9 @@ public:
     /// Legalize, and return where every cell ended up. The pass's statistics
     /// are reported from inside the run; they are not returned, because nothing
     /// outside Abacus can act on them.
-    abacusSolution run(const LegalizeParams &params);
+    abacusSolution run();
 
-    LegalizeParams par;
+    AbacusOptions opts;
 
 private:
     Design d;

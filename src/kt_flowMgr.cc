@@ -60,8 +60,10 @@ void FlowMgr::Impl::run(const kt_option &options) {
     // after it, and legalize() releases it; see ktSession.
     // Which placer runs is the script's choice (`add_option flow algorithm
     // ntuplace1`); SimPL when nothing says otherwise.
-    const std::string algorithm =
-        getComponentOption<components::Id::Flow, std::string>("algorithm").value_or("simpl");
+    const std::string algorithm = OptionDb::instance()
+                                      .getComponentOption(Component::Flow)
+                                      .get<std::string>("algorithm")
+                                      .value_or("simpl");
     if (algorithm != "simpl" && algorithm != "ntuplace1") {
         ktlog.fatal("unknown placer '{}'; expected simpl or ntuplace1", algorithm);
     }

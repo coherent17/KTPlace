@@ -14,6 +14,7 @@
 #include <array>
 #include <cstddef>
 #include <functional>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -62,27 +63,25 @@ struct FrameInfo {
 using FrameHook = std::function<void(const std::vector<float> &xs, const std::vector<float> &ys,
                                      const FrameInfo &info)>;
 
-/// Host hook for a diagnostic the solver draws itself, as SVG text. Null disables
-/// it. A separate hook because it is not a picture of a placement, and forcing it
-/// through the cell-frame path would make every stage carry a file writer.
-using SvgHook = std::function<void(const std::string &series, const std::string &step,
-                                   const std::string &body)>;
+struct BoundsPoint {
+    double upper = 0.0;
+    double lower = 0.0;
+};
 
-/// Where an outer iteration has got to, for a host watching the run live.
+using BoundsHook = std::function<void(std::span<const BoundsPoint> curve)>;
+
 struct ProgressInfo {
     /// "init" for the warm-up solves, "global" for the LSS/LAL iterations.
     std::string phase;
     std::size_t iter = 0;
     std::size_t total = 0;
-    /// The placement reported (the upper bound in the global phase) and the
-    /// lower bound; in the warm-up there is only the one.
     double hpwl = 0.0;
     double hpwlLower = 0.0;
     double overflow = 0.0;
 };
 
-/// Host hook: called once per outer iteration. `xs`/`ys` hold every cell's
-/// position when Design::progressPositions is set, and are empty otherwise.
+/// Called once per outer iteration. `xs`/`ys` hold every cell's position when
+/// Design::progressPositions is set, and are empty otherwise.
 using ProgressHook = std::function<void(const std::vector<float> &xs, const std::vector<float> &ys,
                                         const ProgressInfo &info)>;
 
@@ -96,17 +95,11 @@ struct Design {
     Fences fences;
     /// Installed by the host. SimPL itself never draws.
     FrameHook onFrame;
-    SvgHook onSvg;
-    /// Installed by a host that watches the run; null for the command line.
+    BoundsHook onBounds;
     ProgressHook onProgress;
     bool progressPositions = false;
-    /// Asked between outer iterations; true ends the run early with the best
-    /// placement found so far. Null never stops.
+    /// Asked between outer iterations; true ends the run with the placement so far.
     std::function<bool()> stopRequested;
-    /// Where the solver's own artifacts go: the bounds curve it plots against,
-    /// which is a record of the solve rather than a picture of a placement. Set
-    /// by the host alongside the sink. Empty means the run records nothing.
-    std::string artifactDir;
 };
 
 }  // namespace ktplace::simpl

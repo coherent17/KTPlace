@@ -12,7 +12,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
-#include <fmt/format.h>
+#include <format>
 #include <fstream>
 #include <iomanip>
 #include <iterator>
@@ -179,20 +179,58 @@ void Visualizer::frame(const Graph &graph, const std::vector<float> &x, const st
     }
 }
 
-void Visualizer::writeSvg(const std::string &series, const std::string &step,
-                          const std::string &body) {
-    if (!drawingNow) {
+void Visualizer::boundsCurve(std::string_view name, std::string_view title,
+                             std::span<const BoundsSample> curve) {
+    if (!enabled()) {
         return;
     }
-    // A stage that numbers its own diagnostics passes the number as text; one
-    // that does not leaves it empty and the name stands on its own.
-    VisualFrame shot;
-    shot.series = series;
-    shot.step = step.empty() ? 0 : static_cast<std::size_t>(std::stoull(step));
-    std::ofstream out(framePath(shot));
-    if (out.is_open()) {
-        out << body;
+    const std::string base = dir + "/" + std::string(name);
+    std::ofstream csv(base + ".csv");
+    csv << "iter,hpwl_upper,hpwl_lower,gap\n";
+    for (std::size_t i = 0; i < curve.size(); ++i) {
+        csv << i << ',' << curve[i].upper << ',' << curve[i].lower << ','
+            << curve[i].upper - curve[i].lower << '\n';
     }
+
+    double top = 1e-12;
+    for (const BoundsSample &sample : curve) {
+        top = std::max({top, sample.upper, sample.lower});
+    }
+    constexpr double kW = 780.0;
+    constexpr double kH = 340.0;
+    constexpr double kPad = 60.0;
+    const auto px = [&](std::size_t i) {
+        return kPad + (kW - 2 * kPad) *
+                          (curve.size() < 2
+                               ? 0.0
+                               : static_cast<double>(i) / static_cast<double>(curve.size() - 1));
+    };
+    const auto py = [&](double v) {
+        return kH - kPad - (kH - 2 * kPad) * std::clamp(v / top, 0.0, 1.0);
+    };
+    const auto line = [&](double BoundsSample::*bound, std::string_view colour) {
+        std::ostringstream s;
+        s << "<polyline fill='none' stroke='" << colour << "' stroke-width='2' points='";
+        for (std::size_t i = 0; i < curve.size(); ++i) {
+            s << px(i) << ',' << py(curve[i].*bound) << ' ';
+        }
+        s << "'/>\n";
+        return s.str();
+    };
+    std::ofstream svg(base + ".svg");
+    svg << "<svg xmlns='http://www.w3.org/2000/svg' width='" << kW << "' height='" << kH << "'>\n"
+        << "<rect width='100%' height='100%' fill='white'/>\n"
+        << "<text x='" << kPad << "' y='24' font-family='monospace' font-size='14'>" << title
+        << "</text>\n"
+        << "<line x1='" << kPad << "' y1='" << kH - kPad << "' x2='" << kW - kPad << "' y2='"
+        << kH - kPad << "' stroke='#333'/>\n"
+        << "<line x1='" << kPad << "' y1='" << kPad << "' x2='" << kPad << "' y2='" << kH - kPad
+        << "' stroke='#333'/>\n"
+        << line(&BoundsSample::lower, "#2471a3") << line(&BoundsSample::upper, "#c0392b")
+        << "<text x='" << kW - kPad - 130 << "' y='" << kPad + 12
+        << "' font-family='monospace' font-size='12' fill='#2471a3'>"
+        << "lower bound</text>\n<text x='" << kW - kPad - 130 << "' y='" << kPad + 28
+        << "' font-family='monospace' font-size='12' fill='#c0392b'>upper bound</text>\n</svg>\n";
 }
 
 void Visualizer::finalImage(const Graph &graph, const constraintMgr *fences, double hpwl) {
@@ -271,7 +309,7 @@ void Visualizer::recordFrame(const Graph &g, const std::vector<float> &x,
             cappedNow = true;
             ktlog.echo(
                 "animation: this stage used its {} frame allowance; later stages may not be "
-                "represented. Raise visualizer anim_max_frames, or lower visualizer anim_cg_every. "
+                "represented. Raise visualizer anim_max_frames, or lower simpl cg_every. "
                 "The per-iteration SVGs are unaffected.",
                 limit);
         }
@@ -363,13 +401,12 @@ constexpr double kImageH = 768.0;
 /// Filename stem of the per-iteration stills that writeAnimatedGif() collects.
 constexpr const char *kFramePrefix = "frame_";
 
-// fmt::format rather than an ostringstream: a frame calls this four times per
+// std::format rather than an ostringstream: a frame calls this four times per
 // cell, and constructing a stream per number was most of the cost of writing one.
 // "{:.Nf}" is the same correctly rounded fixed notation as std::fixed with
-// setprecision(N), so the text is unchanged. Qualified, because inside this
-// namespace `fmt` names this function rather than the library.
+// setprecision(N), so the text is unchanged.
 std::string fmt(double v, int prec = 1) {
-    return ::fmt::format("{:.{}f}", v, prec);
+    return std::format("{:.{}f}", v, prec);
 }
 
 std::string sci(double v) {
@@ -1531,11 +1568,10 @@ void writeFrameSvg(const std::string &path, const Graph &g, const std::vector<fl
                 // is never drawn wider than it is.
                 const double w = std::max(0.75, vert.width * vp.sx);
                 const double h = std::max(0.75, vert.height * vp.sy);
-                ::fmt::format_to(std::back_inserter(text),
-                                 "<rect x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\"/>\n",
-                                 fmt(toPxX(vp, x[v]), prec),
-                                 fmt(toPxY(vp, y[v] + vert.height), prec), fmt(w, prec),
-                                 fmt(h, prec));
+                std::format_to(std::back_inserter(text),
+                               "<rect x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\"/>\n",
+                               fmt(toPxX(vp, x[v]), prec), fmt(toPxY(vp, y[v] + vert.height), prec),
+                               fmt(w, prec), fmt(h, prec));
             }
         });
         for (const std::string &text : chunks) {

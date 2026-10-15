@@ -6,6 +6,7 @@
 #include "constraint/kt_constraintMgr.h"
 #include "datamodel/kt_die.h"
 #include "datamodel/kt_graph.h"
+#include "datamodel/kt_rowFence.h"
 #include "datamodel/kt_solutionMgr.h"
 
 #include <array>
@@ -119,6 +120,8 @@ public:
     // a subrow. These are what a single-row legalizer cannot place, so the count is
     // what says whether the design needs a multi-height legalizer at all.
     [[nodiscard]] std::size_t multiRowCells() const;
+    [[nodiscard]] double macroHeight() const;
+    [[nodiscard]] std::vector<std::vector<RowPiece>> fencedSubrows() const;
 
     [[nodiscard]] const std::vector<std::size_t> &getNetPins(std::size_t netId) const;
     [[nodiscard]] const std::vector<std::size_t> &getCellPins(std::size_t cellId) const;

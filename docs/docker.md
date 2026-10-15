@@ -87,29 +87,28 @@ too.
 ```
 ktplace <input_dir> [options]
 ktplace --script <flow.tcl> [input_dir] [options]
-  -tcl, --tcl <file>       configure the run: add_option lines, the placer
-                           included (add_option flow algorithm ntuplace1)
   -s, --script <file>      run a Tcl flow script instead of the fixed flow
                            (scripts/flow.tcl is the fixed flow as a script)
       --gui                open the design in the Qt window instead (see 5.)
   -w, --work-dir <dir>     where placed.pl, plots/ and ktplace.log go
+  -tcl, --tcl <file>       Tcl script that configures the run
       --no-plots           draw nothing -- no frames, gallery or GIF (much less disk)
   -v, --verbose            also print trace diagnostics (ktplace_trace.log is always written)
   -h, --help / -V, --version
 ```
 
-Tuning is through options, not flags or environment variables: a script of
-`add_option <component> <option> <value>` lines, given with `-tcl`:
+Tuning is through a Tcl script passed with `-tcl`; environment variables are
+not read:
 
 ```sh
-printf 'add_option simpl iters 25\nadd_option simpl seed 1\n' > output/tuning.tcl
-ktplace benchmark/ISPD_2005/adaptec1 -tcl output/tuning.tcl -w output/adaptec1-25it
+cat > run.tcl <<'TCL'
+add_option simpl iters 25
+add_option simpl seed 1
+TCL
+ktplace benchmark/ISPD_2005/adaptec1 -w output/adaptec1-25it -tcl run.tcl
 ```
 
-Common ones: `simpl iters`, `simpl seed`, `simpl grid`, `simpl density`,
-`fastdp window`, `visualizer anim` (animated GIF), `visualizer final_zoom`. The
-README's [Options](../README.md#options) section lists where each component
-declares its options; every stage logs its full table when it runs.
+The README's *Configuration* section lists every component and key.
 
 ### 4. From the browser: the web console
 

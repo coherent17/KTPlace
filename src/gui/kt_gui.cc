@@ -67,9 +67,10 @@ int main(int argc, char *argv[]) {
         engine.setGlobal("output", QString::fromStdString((work / "placed.pl").string()));
         engine.setGlobal("plot_dir", QString::fromStdString((work / "plots").string()));
         engine.setGlobal("algorithm",
-                         QString::fromStdString(
-                             getComponentOption<components::Id::Flow, std::string>("algorithm")
-                                 .value_or("simpl")));
+                         QString::fromStdString(OptionDb::instance()
+                                                    .getComponentOption(Component::Flow)
+                                                    .get<std::string>("algorithm")
+                                                    .value_or("simpl")));
 
         MainWindow window(engine);
         window.setHistoryFile(QString::fromStdString((work / "runs.json").string()));

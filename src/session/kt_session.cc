@@ -7,19 +7,14 @@
 #include "datamodel/kt_dm.h"
 #include "detailPlacer/fastdp/fastdp_dm.h"
 #include "detailPlacer/fastdp/fastdp_flowMgr.h"
-#include "detailPlacer/fastdp/fastdp_placer.h"
 #include "legalizer/abacus/abacus_dm.h"
 #include "legalizer/abacus/abacus_flowMgr.h"
-#include "legalizer/abacus/abacus_legalizer.h"
 #include "legalizer/multirow/multirow_dm.h"
 #include "legalizer/multirow/multirow_flowMgr.h"
-#include "legalizer/multirow/multirow_legalizer.h"
-#include "placer/ntuplace1/kt_ntuplace1.h"
 #include "placer/ntuplace1/ntuplace1_dm.h"
 #include "placer/ntuplace1/ntuplace1_flowMgr.h"
 #include "placer/simpl/simpl_dm.h"
 #include "placer/simpl/simpl_flowMgr.h"
-#include "placer/simpl/simpl_placer.h"
 #include "util/kt_log.h"
 #include "util/kt_progress.h"
 #include "util/kt_reportTable.h"
@@ -34,6 +29,7 @@
 #include <iomanip>
 #include <limits>
 #include <memory>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -44,6 +40,62 @@ namespace {
 double now() {
     return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch())
         .count();
+}
+
+bool drawStage(auto &dm, const ktDM &db, StageVisual stage) {
+    Visualizer &viz = Visualizer::instance();
+    if (!viz.enabled()) {
+        return false;
+    }
+    viz.beginStage(std::move(stage));
+    dm.setFrameHook(
+        [&viz, netlist = &db.getGraph(), fences = &db.constraints(), die = dm.design().die](
+            const std::vector<float> &xs, const std::vector<float> &ys, const auto &info) {
+            viz.frame(*netlist, xs, ys, die, fences,
+                      VisualFrame{info.series, info.step, info.numSteps, info.note, info.hpwl,
+                                  info.hpwlInitial, info.overflow, info.mandatory});
+        });
+    return true;
+}
+
+void drawSimplBounds(simpl::simplDM &dm) {
+    Visualizer &viz = Visualizer::instance();
+    dm.setBoundsHook([&viz](std::span<const simpl::BoundsPoint> curve) {
+        std::vector<BoundsSample> samples;
+        samples.reserve(curve.size());
+        for (const simpl::BoundsPoint &point : curve) {
+            samples.push_back({point.upper, point.lower});
+        }
+        viz.boundsCurve("simpl_bounds", "SimPL: HPWL of the lower and upper bounds", samples);
+    });
+}
+
+void reportSimplProgress(simpl::simplDM &dm) {
+    Progress &progress = Progress::instance();
+    dm.setStopRequest([&progress] {
+        return progress.stopRequested();
+    });
+    if (!progress.active()) {
+        return;
+    }
+    const std::size_t run = progress.beginRun();
+    dm.setProgressHook(
+        [&progress, run](const std::vector<float> &xs, const std::vector<float> &ys,
+                         const simpl::ProgressInfo &info) {
+            ProgressSample sample;
+            sample.run = run;
+            sample.stage = "simpl";
+            sample.phase = info.phase;
+            sample.iter = info.iter;
+            sample.total = info.total;
+            sample.hpwl = info.hpwl;
+            sample.hpwlLower = info.hpwlLower;
+            sample.overflow = info.overflow;
+            sample.x = xs;
+            sample.y = ys;
+            progress.report(std::move(sample));
+        },
+        progress.wantsPositions());
 }
 
 }  // namespace
@@ -157,36 +209,27 @@ void ktSession::globalPlace(const std::string &algorithm) {
 
     if (algorithm == "simpl") {
         ktlog.echo("Running SimPL global placement (B2B net model + look-ahead legalization)...");
-        // Build SimPL's own database from ours, run it there, commit the answer.
-        // SimPL has no way to reach ktDM, so this is the one write, and SimPL
-        // assembles its own parameters from the options it was given and the
-        // plot cadence.
-        simpl::simplDM simplDB = simpl::buildSimplDM(d, plot);
-        // Fences come from the LEF/DEF reader; Bookshelf carries none, so an empty
-        // set is a correctly unconstrained design. Ignoring fences scatters fenced
-        // cells across the die and draws no regions. `add_option simpl fences 0`
-        // shows the placement without them, which is the only way to see what
-        // the constraint costs.
-        if (!simplDB.useFences()) {
+        simpl::simplDM simplDB = simpl::buildSimplDM(d);
+        if (drawStage(simplDB, d, {"simpl", "simpl", 0})) {
+            drawSimplBounds(simplDB);
+        }
+        reportSimplProgress(simplDB);
+        if (!simplDB.options().fences) {
             ktlog.echo("SimPL: fence enforcement disabled by 'add_option simpl fences 0'");
         }
-        const simpl::SimplParams params = simplDB.params();
         simpl::flowMgr flow(simplDB);
-        d.setGPSolution(flow.runGlobalPlacer(params, simplDB.useFences()));
+        d.setGPSolution(flow.runGlobalPlacer());
         record("global_place", algorithm, started, Progress::instance().stopRequested());
         return;
-
-    } else if (algorithm == "ntuplace1") {
+    }
+    if (algorithm == "ntuplace1") {
         ntuplace1::ntuplace1DM placeDB = ntuplace1::buildNtuplace1DM(d);
-        const RatioPlaceParams params = placeDB.params();
         ntuplace1::flowMgr flow(placeDB);
-        d.setGPSolution(flow.runGlobalPlacer(params));
+        d.setGPSolution(flow.runGlobalPlacer());
         record("global_place", algorithm, started);
         return;
-
-    } else {
-        ktlog.fatal("Unknown placement algorithm: {}", algorithm);
     }
+    ktlog.fatal("unknown placer '{}'; expected simpl or ntuplace1", algorithm);
 }
 
 void ktSession::legalize() {
@@ -202,28 +245,21 @@ void ktSession::legalize() {
     // go and is left overlapping. When the design has such cells, the row-slicing
     // legalizer runs instead: it cuts cells out of every row they span, so a tall
     // cell occupies a real well and the cells around it place normally.
-    if (multiRowCells() > 0) {
-        ktlog.echo("Running multi-row legalization ({} cell(s) taller than a row)...",
-                   multiRowCells());
-        // The pass's own cadence; the sink handles the rest.
-        MultiRowLegalizeParams params;
-        params.frameEvery = plot.legalFrameEvery;
-        // Build this pass's own database, run it there, commit the answer.
+    if (const std::size_t tall = multiRowCells(); tall > 0) {
+        ktlog.echo("Running multi-row legalization ({} cell(s) taller than a row)...", tall);
         multirow::multirowDM multiDB = multirow::buildMultiRowDM(d);
+        drawStage(multiDB, d, {"legalize_multi", "", 0});
         multirow::flowMgr flow(multiDB);
-        d.setMultiRowSolution(flow.runLegalizer(params));
+        d.setMultiRowSolution(flow.runLegalizer());
         record("legalize", "multi-row", started);
         return;
     }
 
     ktlog.echo("Running Abacus legalization...");
-    // Build Abacus's own database, run it there, commit the answer. The
-    // parameters come from Abacus's options; the frame cadence is the plot's.
     abacus::abacusDM abacusDB = abacus::buildAbacusDM(d);
-    LegalizeParams lparams = abacusDB.params();
-    lparams.frameEvery = plot.legalFrameEvery;
+    drawStage(abacusDB, d, {"legalize", "", 0});
     abacus::flowMgr flow(abacusDB);
-    d.setLegalizationSolution(flow.runLegalizer(lparams));
+    d.setLegalizationSolution(flow.runLegalizer());
     record("legalize", "abacus", started);
 }
 
@@ -239,12 +275,10 @@ void ktSession::detailPlace() {
     // Abacus minimises displacement, not wirelength, so legalization usually
     // costs a little HPWL; detailed placement wins it back.
     ktlog.echo("Running FastDP detailed placement...");
-    // Build FastDP's own database, run it there, commit the answer. The
-    // parameters come from FastDP's options.
     fastdp::fastdpDM dpDB = fastdp::buildFastdpDM(d);
-    const DetailPlaceParams dparams = dpDB.params();
+    drawStage(dpDB, d, {"detailplace", "", 0});
     fastdp::flowMgr flow(dpDB);
-    d.setDetailedPlaceSolution(flow.runDetailedPlacer(dparams));
+    d.setDetailedPlaceSolution(flow.runDetailedPlacer());
     record("detail_place", "fastdp", started);
 }
 

@@ -5,8 +5,10 @@
 // must lie inside it, and every other cell outside. A row-based stage (the
 // legalizer, the detail placer) enforces that by giving each stretch of a row a
 // label -- the region it belongs to, or open space -- and only letting a cell
-// use stretches with its own label. This is that labelling, kept free of any
-// stage's data model so each stage can apply it to its own rows.
+// use stretches with its own label. This is that labelling. ktDM::fencedSubrows()
+// applies it once, and every row-based stage receives the labelled pieces through
+// its DM builder, so the legalizers and the detailed placer always agree on what
+// is legal next to a fence.
 
 #pragma once
 

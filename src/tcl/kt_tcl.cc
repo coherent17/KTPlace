@@ -508,12 +508,6 @@ private:
     std::size_t pos_ = 0;
 };
 
-// Renders a value the way expr wants it back: a number when it is one.
-std::string toWord(const Value &v) {
-    return v.kind() == Value::Kind::Int || v.kind() == Value::Kind::Double ? v.asString()
-                                                                           : v.asString();
-}
-
 // A word already split by the parser becomes a Value: a braced word is the string
 // it holds, anything else is substituted and then read as a literal.
 Value wordValue(Interpreter &self, const Word &word) {
