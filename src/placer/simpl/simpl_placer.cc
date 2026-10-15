@@ -124,11 +124,11 @@ struct BinRect {
     std::size_t y0 = 0;
     std::size_t y1 = 0;
 
-    [[nodiscard]] bool overlaps(const BinRect &o) const {
-        return x0 <= o.x1 && o.x0 <= x1 && y0 <= o.y1 && o.y0 <= y1;
-    }
     [[nodiscard]] BinRect merged(const BinRect &o) const {
         return {std::min(x0, o.x0), std::max(x1, o.x1), std::min(y0, o.y0), std::max(y1, o.y1)};
+    }
+    [[nodiscard]] std::size_t bins() const {
+        return (x1 - x0 + 1) * (y1 - y0 + 1);
     }
 };
 
@@ -210,42 +210,6 @@ struct BinGrid {
         }
         return total;
     }
-    [[nodiscard]] AxisProfile profile(const Box &b, bool vertical) const {
-        const double lo = vertical ? b.x0 : b.y0;
-        const double hi = vertical ? b.x1 : b.y1;
-        const std::size_t first = vertical ? column(lo) : row(lo);
-        const std::size_t last = vertical ? column(hi) : row(hi);
-        const std::size_t crossFirst = vertical ? row(b.y0) : column(b.x0);
-        const std::size_t crossLast = vertical ? row(b.y1) : column(b.x1);
-        const double along = vertical ? dx : dy;
-        const double across = vertical ? dy : dx;
-
-        AxisProfile out;
-        out.edges.push_back(lo);
-        out.prefix.push_back(0.0);
-        for (std::size_t t = first; t <= last; ++t) {
-            const double a = std::max(lo, edge(vertical, t));
-            const double z = std::min(hi, edge(vertical, t + 1));
-            if (!(z > a)) {
-                continue;
-            }
-            double room = 0.0;
-            for (std::size_t u = crossFirst; u <= crossLast; ++u) {
-                const double c0 = std::max(vertical ? b.y0 : b.x0, edge(!vertical, u));
-                const double c1 = std::min(vertical ? b.y1 : b.x1, edge(!vertical, u + 1));
-                if (c1 > c0) {
-                    room += avail[vertical ? at(t, u) : at(u, t)] * (c1 - c0) / across;
-                }
-            }
-            out.edges.push_back(z);
-            out.prefix.push_back(out.prefix.back() + room * (z - a) / along);
-        }
-        if (out.edges.size() == 1) {
-            out.edges.push_back(hi);
-            out.prefix.push_back(0.0);
-        }
-        return out;
-    }
     void deposit(const Box &b, double sign) {
         if (!(b.x1 > b.x0) || !(b.y1 > b.y0)) {
             return;
@@ -267,11 +231,115 @@ struct BinGrid {
     }
 };
 
+struct FreeSpace {
+    struct Row {
+        double y0 = 0.0;
+        double y1 = 0.0;
+        std::vector<std::pair<double, double>> spans;
+
+        [[nodiscard]] double length(double a, double b) const {
+            double total = 0.0;
+            for (const auto &[s0, s1] : spans) {
+                total += std::max(0.0, std::min(b, s1) - std::max(a, s0));
+            }
+            return total;
+        }
+    };
+    std::vector<Row> rows;
+
+    void build(std::vector<Row> raw, const std::vector<Box> &obstacles) {
+        rows = std::move(raw);
+        std::sort(rows.begin(), rows.end(), [](const Row &a, const Row &b) {
+            return a.y0 < b.y0;
+        });
+        for (Row &row : rows) {
+            std::vector<std::pair<double, double>> cuts;
+            for (const Box &o : obstacles) {
+                if (o.y1 > row.y0 && o.y0 < row.y1) {
+                    cuts.emplace_back(o.x0, o.x1);
+                }
+            }
+            std::sort(cuts.begin(), cuts.end());
+            std::sort(row.spans.begin(), row.spans.end());
+            std::vector<std::pair<double, double>> open;
+            for (auto [a, b] : row.spans) {
+                for (const auto &[c0, c1] : cuts) {
+                    if (c1 <= a || c0 >= b) {
+                        continue;
+                    }
+                    if (c0 > a) {
+                        open.emplace_back(a, c0);
+                    }
+                    a = std::max(a, c1);
+                }
+                if (b > a) {
+                    open.emplace_back(a, b);
+                }
+            }
+            row.spans = std::move(open);
+        }
+    }
+
+    [[nodiscard]] AxisProfile profile(const Box &b, bool vertical) const {
+        const auto first =
+            std::upper_bound(rows.begin(), rows.end(), b.y0, [](double v, const Row &r) {
+                return v < r.y1;
+            });
+        const double lo = vertical ? b.x0 : b.y0;
+        const double hi = vertical ? b.x1 : b.y1;
+        AxisProfile out;
+        out.edges.push_back(lo);
+        out.prefix.push_back(0.0);
+        const auto extend = [&out](double to, double area) {
+            if (to > out.edges.back()) {
+                out.edges.push_back(to);
+                out.prefix.push_back(out.prefix.back() + area);
+            }
+        };
+        if (vertical) {
+            std::vector<std::pair<double, double>> steps;
+            for (auto r = first; r != rows.end() && r->y0 < b.y1; ++r) {
+                const double h = std::min(b.y1, r->y1) - std::max(b.y0, r->y0);
+                for (const auto &[s0, s1] : r->spans) {
+                    const double a = std::max(s0, lo);
+                    const double z = std::min(s1, hi);
+                    if (h > 0.0 && z > a) {
+                        steps.emplace_back(a, h);
+                        steps.emplace_back(z, -h);
+                    }
+                }
+            }
+            std::sort(steps.begin(), steps.end());
+            double height = 0.0;
+            for (const auto &[at, dh] : steps) {
+                extend(at, height * (at - out.edges.back()));
+                height += dh;
+            }
+        } else {
+            for (auto r = first; r != rows.end() && r->y0 < b.y1; ++r) {
+                const double a = std::max(lo, r->y0);
+                const double z = std::min(hi, r->y1);
+                if (z > a) {
+                    extend(a, 0.0);
+                    extend(z, r->length(b.x0, b.x1) * (z - a));
+                }
+            }
+        }
+        extend(hi, 0.0);
+        if (out.edges.size() == 1) {
+            out.edges.push_back(hi);
+            out.prefix.push_back(0.0);
+        }
+        return out;
+    }
+};
+
 struct Block {
     Box box;
     std::size_t level = 1;
     bool vertical = true;
     std::vector<std::uint32_t> cells;
+    double regionRoom = 0.0;
 };
 
 struct Stripe {
@@ -316,14 +384,16 @@ private:
     [[nodiscard]] double density(const std::vector<double> &occ, const BinRect &r) const;
 
     void lookAheadLegalize(std::vector<double> &x, std::vector<double> &y) const;
-    [[nodiscard]] std::vector<BinRect> overfilledRegions(const std::vector<double> &occ) const;
+    [[nodiscard]] std::vector<BinRect> overfilledClusters(const std::vector<double> &occ) const;
     [[nodiscard]] BinRect grown(BinRect r, const std::vector<double> &occ) const;
     void legalizeBlock(Block &block, std::vector<double> &x, std::vector<double> &y) const;
     [[nodiscard]] std::optional<std::pair<Block, Block>> split(Block &block, std::vector<double> &x,
                                                                std::vector<double> &y) const;
     void nonlinearScale(const std::vector<std::uint32_t> &cells, const Box &box, bool vertical,
-                        double cutline, bool belowCut, std::vector<double> &pos) const;
-    [[nodiscard]] std::vector<Stripe> stripes(const Box &box, bool vertical, double cellArea) const;
+                        double cutline, bool belowCut, std::vector<double> &pos,
+                        double regionRoom) const;
+    [[nodiscard]] std::vector<Stripe> stripes(const Box &box, bool vertical, double cellArea,
+                                              double regionRoom) const;
     void clampToDie(std::vector<double> &x, std::vector<double> &y) const;
 
     void enforceFences(std::vector<double> &x, std::vector<double> &y);
@@ -360,6 +430,7 @@ private:
     double floorY = 1.0;
 
     BinGrid grid;
+    FreeSpace freeSpace;
     std::array<double, 4> die{};
     double g = 1.0;
 };
@@ -472,6 +543,16 @@ void simplPlacer::Impl::buildGrid() {
         a = a < sliver ? 0.0 : a;
     }
     grid.totalAvail = std::accumulate(grid.avail.begin(), grid.avail.end(), 0.0);
+
+    std::vector<FreeSpace::Row> rows;
+    for (const RowInfo &row : design.rows) {
+        FreeSpace::Row r{row.coordinate, row.coordinate + row.height, {}};
+        for (const Subrow &sub : row.subrows) {
+            r.spans.emplace_back(sub.xlo, sub.xhi);
+        }
+        rows.push_back(std::move(r));
+    }
+    freeSpace.build(std::move(rows), obstacles);
     res.binsX = grid.nx;
     res.binsY = grid.ny;
 }
@@ -832,25 +913,44 @@ double simplPlacer::Impl::density(const std::vector<double> &occ, const BinRect 
 
 void simplPlacer::Impl::lookAheadLegalize(std::vector<double> &x, std::vector<double> &y) const {
     std::vector<std::vector<std::uint32_t>> members(grid.size());
+    std::vector<std::uint32_t> binOf(numMovable);
     std::vector<double> occ(grid.size(), 0.0);
     for (std::uint32_t i = 0; i < numMovable; ++i) {
         const std::size_t k = grid.binOf(centre(x, i, true), centre(y, i, false));
+        binOf[i] = static_cast<std::uint32_t>(k);
         members[k].push_back(i);
         occ[k] += area[i];
     }
 
-    const std::vector<BinRect> regions = overfilledRegions(occ);
-    tbb::parallel_for(std::size_t{0}, regions.size(), [&](std::size_t r) {
-        const BinRect &bins = regions[r];
-        Block top{grid.box(bins), 1, true, {}};
+    std::vector<std::uint32_t> taken(numMovable, 0);
+    std::uint32_t turn = 0;
+    for (const BinRect &cluster : overfilledClusters(occ)) {
+        const BinRect bins = grown(cluster, occ);
+        Block top{grid.box(bins), 1, true, {}, grid.sum(grid.avail, bins)};
+        ++turn;
         for (std::size_t iy = bins.y0; iy <= bins.y1; ++iy) {
             for (std::size_t ix = bins.x0; ix <= bins.x1; ++ix) {
-                const std::vector<std::uint32_t> &in = members[grid.at(ix, iy)];
-                top.cells.insert(top.cells.end(), in.begin(), in.end());
+                const std::size_t k = grid.at(ix, iy);
+                for (const std::uint32_t i : members[k]) {
+                    if (binOf[i] == k && taken[i] != turn) {
+                        taken[i] = turn;
+                        top.cells.push_back(i);
+                    }
+                }
             }
         }
+        const std::vector<std::uint32_t> cells = top.cells;
         legalizeBlock(top, x, y);
-    });
+        for (const std::uint32_t i : cells) {
+            const std::size_t k = grid.binOf(centre(x, i, true), centre(y, i, false));
+            if (k != binOf[i]) {
+                occ[binOf[i]] -= area[i];
+                occ[k] += area[i];
+                binOf[i] = static_cast<std::uint32_t>(k);
+                members[k].push_back(i);
+            }
+        }
+    }
     clampToDie(x, y);
 }
 
@@ -869,7 +969,7 @@ void simplPlacer::Impl::legalizeBlock(Block &block, std::vector<double> &x,
         });
 }
 
-std::vector<BinRect> simplPlacer::Impl::overfilledRegions(const std::vector<double> &occ) const {
+std::vector<BinRect> simplPlacer::Impl::overfilledClusters(const std::vector<double> &occ) const {
     std::vector<char> over(grid.size(), 0);
     for (std::size_t k = 0; k < grid.size(); ++k) {
         over[k] = occ[k] > g * grid.avail[k] ? 1 : 0;
@@ -906,36 +1006,34 @@ std::vector<BinRect> simplPlacer::Impl::overfilledRegions(const std::vector<doub
                 }
             }
         }
-        regions.push_back(grown(r, occ));
-    }
-
-    for (bool mergedAny = true; mergedAny;) {
-        mergedAny = false;
-        for (std::size_t a = 0; a < regions.size(); ++a) {
-            for (std::size_t b = a + 1; b < regions.size();) {
-                if (regions[a].overlaps(regions[b])) {
-                    regions[a] = grown(regions[a].merged(regions[b]), occ);
-                    regions.erase(regions.begin() + static_cast<long>(b));
-                    mergedAny = true;
-                } else {
-                    ++b;
-                }
-            }
-        }
+        regions.push_back(r);
     }
     return regions;
 }
 
 BinRect simplPlacer::Impl::grown(BinRect r, const std::vector<double> &occ) const {
     while (density(occ, r) > g) {
-        const BinRect before = r;
-        r.x0 -= r.x0 > 0 ? 1 : 0;
-        r.y0 -= r.y0 > 0 ? 1 : 0;
-        r.x1 += r.x1 + 1 < grid.nx ? 1 : 0;
-        r.y1 += r.y1 + 1 < grid.ny ? 1 : 0;
-        if (r.x0 == before.x0 && r.x1 == before.x1 && r.y0 == before.y0 && r.y1 == before.y1) {
+        const std::array<BinRect, 4> wider{
+            BinRect{r.x0 > 0 ? r.x0 - 1 : r.x0, r.x1, r.y0, r.y1},
+            BinRect{r.x0, r.x1 + 1 < grid.nx ? r.x1 + 1 : r.x1, r.y0, r.y1},
+            BinRect{r.x0, r.x1, r.y0 > 0 ? r.y0 - 1 : r.y0, r.y1},
+            BinRect{r.x0, r.x1, r.y0, r.y1 + 1 < grid.ny ? r.y1 + 1 : r.y1}};
+        const BinRect *best = nullptr;
+        double bestDensity = std::numeric_limits<double>::infinity();
+        for (const BinRect &w : wider) {
+            if (w.bins() == r.bins()) {
+                continue;
+            }
+            const double d = density(occ, w);
+            if (best == nullptr || d < bestDensity) {
+                best = &w;
+                bestDensity = d;
+            }
+        }
+        if (best == nullptr) {
             break;
         }
+        r = *best;
     }
     return r;
 }
@@ -968,7 +1066,7 @@ std::optional<std::pair<Block, Block>> simplPlacer::Impl::split(Block &region,
     const Box &box = region.box;
     const double lo = vertical ? box.x0 : box.y0;
     const double hi = vertical ? box.x1 : box.y1;
-    const AxisProfile room = grid.profile(box, vertical);
+    const AxisProfile room = freeSpace.profile(box, vertical);
     const double share = cellArea > 0.0 ? lowArea / cellArea : 0.5;
     const double cutline =
         room.total() > 0.0 ? room.coordinateAt(share * room.total()) : lo + share * (hi - lo);
@@ -978,18 +1076,19 @@ std::optional<std::pair<Block, Block>> simplPlacer::Impl::split(Block &region,
     (vertical ? lowBox.x1 : lowBox.y1) = cutline;
     (vertical ? highBox.x0 : highBox.y0) = cutline;
 
-    nonlinearScale(low, lowBox, vertical, cutline, true, pos);
-    nonlinearScale(high, highBox, vertical, cutline, false, pos);
+    nonlinearScale(low, lowBox, vertical, cutline, true, pos, region.regionRoom);
+    nonlinearScale(high, highBox, vertical, cutline, false, pos, region.regionRoom);
 
-    return std::pair{Block{lowBox, region.level + 1, !vertical, std::move(low)},
-                     Block{highBox, region.level + 1, !vertical, std::move(high)}};
+    return std::pair{
+        Block{lowBox, region.level + 1, !vertical, std::move(low), region.regionRoom},
+        Block{highBox, region.level + 1, !vertical, std::move(high), region.regionRoom}};
 }
 
-std::vector<Stripe> simplPlacer::Impl::stripes(const Box &box, bool vertical,
-                                               double cellArea) const {
+std::vector<Stripe> simplPlacer::Impl::stripes(const Box &box, bool vertical, double cellArea,
+                                               double regionRoom) const {
     const double lo = vertical ? box.x0 : box.y0;
     const double hi = vertical ? box.x1 : box.y1;
-    const AxisProfile room = grid.profile(box, vertical);
+    const AxisProfile room = freeSpace.profile(box, vertical);
 
     std::vector<double> cuts{lo, hi};
     for (const Box &o : obstacles) {
@@ -1005,7 +1104,7 @@ std::vector<Stripe> simplPlacer::Impl::stripes(const Box &box, bool vertical,
     std::sort(cuts.begin(), cuts.end());
     cuts.erase(std::unique(cuts.begin(), cuts.end()), cuts.end());
 
-    const double limit = par.stripeAreaFraction * room.total();
+    const double limit = par.stripeAreaFraction * (regionRoom > 0.0 ? regionRoom : room.total());
     const double fill = room.total() > 0.0 ? std::min(g, cellArea / room.total()) : g;
     for (std::size_t s = 0; s + 1 < cuts.size();) {
         const double a = cuts[s];
@@ -1028,7 +1127,7 @@ std::vector<Stripe> simplPlacer::Impl::stripes(const Box &box, bool vertical,
 
 void simplPlacer::Impl::nonlinearScale(const std::vector<std::uint32_t> &cells, const Box &box,
                                        bool vertical, double cutline, bool belowCut,
-                                       std::vector<double> &pos) const {
+                                       std::vector<double> &pos, double regionRoom) const {
     if (cells.empty()) {
         return;
     }
@@ -1036,7 +1135,7 @@ void simplPlacer::Impl::nonlinearScale(const std::vector<std::uint32_t> &cells, 
         std::accumulate(cells.begin(), cells.end(), 0.0, [&](double sum, std::uint32_t i) {
             return sum + area[i];
         });
-    std::vector<Stripe> strips = stripes(box, vertical, cellArea);
+    std::vector<Stripe> strips = stripes(box, vertical, cellArea, regionRoom);
     const auto fromCut = [&](double c) {
         return belowCut ? cutline - c : c - cutline;
     };
@@ -1221,7 +1320,8 @@ SimplResult simplPlacer::Impl::run(const SimplOptions &params) {
     std::vector<double> upperY;
     std::vector<BoundsPoint> bounds;
     double gapReference = 0.0;
-    double previousUpper = std::numeric_limits<double>::max();
+    double bestUpper = std::numeric_limits<double>::max();
+    std::size_t stalledFor = 0;
     for (std::size_t it = 0; it < par.maxIters; ++it) {
         res.globalIters = it + 1;
         {
@@ -1253,8 +1353,9 @@ SimplResult simplPlacer::Impl::run(const SimplOptions &params) {
         if (iteration == par.gapReferenceIter) {
             gapReference = gap;
         }
-        const bool upperStalled = upperHpwl >= previousUpper;
-        previousUpper = upperHpwl;
+        stalledFor = upperHpwl < bestUpper ? 0 : stalledFor + 1;
+        bestUpper = std::min(bestUpper, upperHpwl);
+        const bool upperStalled = stalledFor >= par.stallIters;
         if (iteration > par.gapReferenceIter && gapReference > 0.0 &&
             (gap < par.gapTightFrac * gapReference ||
              (gap <= par.gapRelaxedFrac * gapReference && upperStalled))) {

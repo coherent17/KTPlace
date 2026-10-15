@@ -21,7 +21,7 @@ struct SimplOptions {
     std::size_t seed = 20240607;
     bool fences = true;
     double densityLimit = 1.0;
-    double alphaBase = 0.01;
+    double alphaBase = 0.02;
 
     std::size_t maxLevel = 10;
     std::size_t minCellsToSplit = 4;
@@ -29,6 +29,7 @@ struct SimplOptions {
     std::size_t gapReferenceIter = 10;
     double gapRelaxedFrac = 0.25;
     double gapTightFrac = 0.10;
+    std::size_t stallIters = 3;
     std::size_t cgMaxIter = 60;
     std::size_t traceEvery = 1;
     std::size_t cgEvery = 0;
