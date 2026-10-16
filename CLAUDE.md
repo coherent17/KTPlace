@@ -71,12 +71,12 @@ load → report → global place → legalize → detailed place → final image
   3. `flowMgr::run()` runs the algorithm, which modifies the DM's own design (the cells' positions); it returns only the run statistics.
   4. `flowMgr::solution()` hands the DM's positions to the flow, which commits them with `ktDM::set<Stage>Solution` (`setSimplSolution`, ...). That is the only place the shared design is written, and the flow then runs the legality check and reports the checksum.
 
-  SimPL follows this shape. The other stages still keep their answer outside their design and are being moved over one at a time. A stage never reads ktDM after building its DM.
+  Every stage follows this shape: `simpl`, `ntuplace1`, `abacus`, `multirow` and `fastdp`, committed with `setSimplSolution`, `setNtuplace1Solution`, `setAbacusSolution`, `setMultiRowSolution` and `setFastdpSolution`. A stage never reads ktDM after building its DM.
 
   SimPL's files: `simpl_dm` (data model: design, fences, result, `buildSimplDM`), `simpl_flowMgr` (the four steps), `simpl_placer` (netlist and the iteration loop), `simpl_lss` (linear system solve: B2B and star systems, conjugate gradient), `simpl_lal` (look-ahead legalization), `simpl_grid` (bin grid and free space), `simpl_parallel.h` (TBB helpers with deterministic reductions), `simpl_graph`, `simpl_options`.
 - **Stages:**
   - `globalPlacer/simpl`: default quadratic placer with B2B net model and look-ahead legalization, fence-aware. `docs/simpl.md` explains how it differs from the published SimPL.
-  - `globalPlacer/ntuplace1`: alternative global placer.
+  - `globalPlacer/ntuplace1`: alternative global placer, ratio partitioning (Chen, Hsu, Jiang, Chang, ISPD 2005).
   - `legalizer/abacus`: single-row legalizer, fence-aware.
   - `legalizer/multirow`: used instead of Abacus when the design has cells taller than one row.
   - `detailPlacer/fastdp`: detailed placement, following Pan, Viswanathan and Chu (ICCAD 2005): single-segment clustering, then global swap, vertical swap and 3-cell local re-ordering until the gain is small, then clustering again.
