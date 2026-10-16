@@ -25,23 +25,20 @@ ktplace --version
 
 ## Dependencies
 
-A C++23 compiler (g++ 13+ on Linux, Apple clang 15+ on macOS) and make. oneTBB,
-zlib and CImg are git submodules under `third_party/` (licenses there):
+KTPlace is self-contained: its libraries (oneTBB, zlib, CImg) are git submodules
+under `third_party/` and are built into the binary, so clone with them:
 
 ```sh
 git clone --recurse-submodules https://github.com/coherent17/KTPlace.git
-# or, in an existing clone:
-git submodule update --init --recursive
 ```
 
-Only the unit tests and formatting need packages:
+All you need installed is:
 
-```sh
-sudo apt-get install -y --no-install-recommends libboost-test-dev clang-format   # Linux
-brew install boost clang-format                                                  # macOS
-```
-
-Linux and macOS produce byte-identical placements; CI checks it.
+| tool | version |
+| --- | --- |
+| C++ compiler | g++ 13+ (Linux) or Apple clang 15+ (macOS), C++23 |
+| make | GNU make |
+| Boost.Test, clang-format | only for `make test` and `make format` |
 
 ## Build
 
