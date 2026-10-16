@@ -52,13 +52,13 @@ public:
     [[nodiscard]] solutionMgr getPlacementSolution() const;
 
     void setSimplSolution(const simplSolution &solution);
-    void setGPSolution(const ntuplace1Solution &solution);
+    void setNtuplace1Solution(const ntuplace1Solution &solution);
 
     /// The same, for a legalization stage. Kept as its own name so a reader can
     /// tell which stage produced the placement.
-    void setLegalizationSolution(const abacusSolution &solution);
+    void setAbacusSolution(const abacusSolution &solution);
     void setMultiRowSolution(const multiRowSolution &solution);
-    void setDetailedPlaceSolution(const fastdpSolution &solution);
+    void setFastdpSolution(const fastdpSolution &solution);
 
 
     // Cell management

@@ -1,11 +1,10 @@
-// @file ntuplace1_dm.cc
-// NTUPlace1's own database
-
 #include "globalPlacer/ntuplace1/ntuplace1_dm.h"
 
 #include "datamodel/kt_die.h"
 #include "datamodel/kt_dm.h"
 #include "datamodel/kt_stageReport.h"
+#include "globalPlacer/ntuplace1/ntuplace1_placer.h"
+#include "util/kt_reportTable.h"
 
 namespace ktplace::ntuplace1 {
 
@@ -44,9 +43,36 @@ void copyRows(const std::vector<ktplace::RowInfo> &rows, std::vector<RowInfo> &o
     }
 }
 
+void reportRun(const Ntuplace1Result &r) {
+    ktReportTable t("NTUplace1 solver results");
+    t.setHeaders({"metric", "value"});
+    t.addRow({"movable cells", std::format("{}", r.numMovable)});
+    t.addRow({"fixed blocks", std::format("{}", r.numFixed)});
+    t.addRow({"hypergraph nets", std::format("{}", r.nets)});
+    t.addRow({"cuts accepted", std::format("{}", r.cuts)});
+    t.addRow({"look-ahead retries", std::format("{}", r.ratioRetries)});
+    t.addRow({"retries per cut", std::format("{:.3}", r.meanImbalance)});
+    t.addRow({"recursion depth reached", std::format("{}", r.maxDepth)});
+    t.addRow({"smallest leaf", std::format("{}", r.minLeafCells)});
+    t.addRow({"HPWL estimate (pre-legalization)", std::format("{:.6}", r.hpwlFinal)});
+    if (r.fenceRegions > 0) {
+        t.addRow({"fence regions", std::format("{}", r.fenceRegions)});
+        t.addRow({"cells outside their fence", std::format("{}", r.fenceViolations)});
+    }
+    t.emit();
+}
+
 }  // namespace
 
-ntuplace1DM::ntuplace1DM(Design design) : d(std::move(design)) {}
+ntuplace1DM::ntuplace1DM(Design design, Ntuplace1Options options)
+    : d(std::move(design)), opts(std::move(options)) {}
+
+Ntuplace1Result ntuplace1DM::run() {
+    RatioPlacer placer(d);
+    const Ntuplace1Result result = placer.place(opts);
+    reportRun(result);
+    return result;
+}
 
 ntuplace1Solution ntuplace1DM::solution() const {
     ntuplace1Solution out;
@@ -68,10 +94,9 @@ ntuplace1DM buildNtuplace1DM(const ktDM &db) {
     design.fences = db.constraints();
 
     const StageCounts counts = countStage(design);
-    ntuplace1DM result(std::move(design));
-    result.opts = loadOptions<Ntuplace1Options>();
-    reportStageBuild(counts, db.checksum(), result.opts);
-    return result;
+    ntuplace1DM dm(std::move(design), loadOptions<Ntuplace1Options>());
+    reportStageBuild(counts, db.checksum(), dm.options());
+    return dm;
 }
 
 }  // namespace ktplace::ntuplace1

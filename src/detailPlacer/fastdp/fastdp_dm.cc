@@ -4,9 +4,10 @@
 #include "datamodel/kt_dm.h"
 #include "datamodel/kt_stageReport.h"
 #include "detailPlacer/fastdp/fastdp_placer.h"
+#include "util/kt_log.h"
+#include "util/kt_reportTable.h"
 
 namespace ktplace::fastdp {
-
 
 namespace {
 
@@ -25,8 +26,6 @@ void copyCells(const ktplace::Graph &graph, double macroHeight, std::vector<Cell
     }
 }
 
-/// Pins and nets, in the order the design has them, so pin ids line up with the
-/// cell ids MultiRow already has.
 void copyNets(const ktplace::Graph &graph, std::vector<Pin> &pins, std::vector<Net> &nets) {
     pins.resize(graph.getNumPins());
     for (std::size_t p = 0; p < graph.getNumPins(); ++p) {
@@ -60,7 +59,77 @@ void copyRows(const std::vector<ktplace::RowInfo> &rows,
     }
 }
 
+void reportRun(const FastdpResult &r) {
+    ktReportTable t("Detailed placement (FastDP)");
+    t.setHeaders({"metric", "value"});
+    t.addRow({"global swaps", std::format("{} ({:.3f}s)", r.globalSwaps, r.globalSeconds)});
+    t.addRow({"vertical swaps", std::format("{} ({:.3f}s)", r.verticalSwaps, r.verticalSeconds)});
+    t.addRow({"reorder moves", std::format("{} ({:.3f}s)", r.reorderMoves, r.reorderSeconds)});
+    t.addRow({"cluster moves", std::format("{} ({:.3f}s)", r.clusterMoves, r.clusterSeconds)});
+    t.addRow({"HPWL before", std::format("{:.6e}", r.hpwlBefore)});
+    t.addRow({"HPWL after", std::format("{:.6e}", r.hpwlAfter)});
+    t.addRow(
+        {"HPWL change", std::format("{:+.2f}%", 100.0 * (r.hpwlAfter - r.hpwlBefore) /
+                                                    (r.hpwlBefore > 0.0 ? r.hpwlBefore : 1.0))});
+    t.addRow({"seconds", std::format("{:.3f}", r.seconds)});
+    t.addRow({"overlapping pairs", std::format("{}", r.overlappingPairs)});
+    t.addRow({"cells off row", std::format("{}", r.offRow)});
+    t.addRow({"cells off site", std::format("{}", r.offSite)});
+    t.addRow({"cells over macro", std::format("{}", r.overFixed)});
+    t.emit();
+    if (r.overlappingPairs != 0 || r.offRow != 0 || r.overFixed != 0) {
+        ktlog.warning("detailed placement broke legality; see the counts above");
+    }
+}
+
 }  // namespace
+
+double netlistHPWL(const std::vector<Cell> &, const std::vector<Net> &nets,
+                   const std::vector<Pin> &pins, const std::vector<double> &xs,
+                   const std::vector<double> &ys) {
+    double total = 0.0;
+    for (const Net &net : nets) {
+        if (net.pins.size() < 2) {
+            continue;
+        }
+        double xlo = std::numeric_limits<double>::max();
+        double xhi = std::numeric_limits<double>::lowest();
+        double ylo = std::numeric_limits<double>::max();
+        double yhi = std::numeric_limits<double>::lowest();
+        for (const std::size_t pinId : net.pins) {
+            const Pin &pin = pins.at(pinId);
+            const double px = xs.at(pin.cellId) + pin.offsetX;
+            const double py = ys.at(pin.cellId) + pin.offsetY;
+            xlo = std::min(xlo, px);
+            xhi = std::max(xhi, px);
+            ylo = std::min(ylo, py);
+            yhi = std::max(yhi, py);
+        }
+        total += (xhi - xlo) + (yhi - ylo);
+    }
+    return total;
+}
+
+fastdpDM::fastdpDM(Design design, FastdpOptions options)
+    : d(std::move(design)), opts(std::move(options)) {}
+
+FastdpResult fastdpDM::run() {
+    FastDetailedPlacer placer(d);
+    const FastdpResult result = placer.place(opts);
+    reportRun(result);
+    return result;
+}
+
+fastdpSolution fastdpDM::solution() const {
+    fastdpSolution out;
+    out.xs.reserve(d.cells.size());
+    out.ys.reserve(d.cells.size());
+    for (const Cell &cell : d.cells) {
+        out.xs.push_back(cell.x);
+        out.ys.push_back(cell.y);
+    }
+    return out;
+}
 
 fastdpDM buildFastdpDM(const ktDM &db) {
     Design design;
@@ -70,20 +139,9 @@ fastdpDM buildFastdpDM(const ktDM &db) {
     design.die = placementDieBox(db.die(), db.getGraph());
 
     const StageCounts counts = countStage(design);
-    fastdpDM result(std::move(design));
-    result.opts = loadOptions<FastdpOptions>();
-    reportStageBuild(counts, db.checksum(), result.opts);
-    return result;
+    fastdpDM dm(std::move(design), loadOptions<FastdpOptions>());
+    reportStageBuild(counts, db.checksum(), dm.options());
+    return dm;
 }
-
-
-fastdpDM::fastdpDM(Design design) : d(std::move(design)) {}
-
-fastdpSolution fastdpDM::run() {
-    FastDetailedPlacer placer(d);
-    (void)placer.place(opts);
-    return placer.solution();
-}
-
 
 }  // namespace ktplace::fastdp

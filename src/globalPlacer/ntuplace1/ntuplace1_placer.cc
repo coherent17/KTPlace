@@ -1,10 +1,6 @@
-// Global placement by ratio partitioning. See kt_ntuplace1.h for what this is and
-// why it sits beside the analytical placer rather than inside it.
-
-#include "globalPlacer/ntuplace1/kt_ntuplace1.h"
+#include "globalPlacer/ntuplace1/ntuplace1_placer.h"
 
 #include "util/kt_log.h"
-#include "util/kt_reportTable.h"
 
 #include <algorithm>
 #include <array>
@@ -16,13 +12,9 @@
 #include <utility>
 #include <vector>
 
-namespace ktplace {
+namespace ktplace::ntuplace1 {
 namespace {
 
-// A net as the partitioner needs it: the movable blocks it touches, and the
-// extent of its fixed pins. The fixed pins are the t1/t2 of the paper's Figure 2
-// -- they tell a cut which side a net wants to be on, and they are the reason
-// this is a hypergraph and not a graph.
 struct HyperNet {
     std::vector<std::uint32_t> cells;
     double fx0 = 0.0, fx1 = 0.0, fy0 = 0.0, fy1 = 0.0;  // fixed pin points, min/max
@@ -46,37 +38,23 @@ double overlap(const AreaRect &a, double x0, double y0, double x1, double y1) {
 }
 
 constexpr std::uint32_t noIndex = 0xFFFFFFFFu;
-// FM passes per cut. A pass that finds no improving prefix ends the cut sooner;
-// this only bounds the pathological case.
 constexpr int maxPasses = 8;
-// Balance slack: side 0 may hold target +- this fraction of the region's cell
-// area (and never less than two of its largest cells, so FM can always move).
 constexpr double balanceSlack = 0.02;
 
 }  // namespace
 
 class RatioPlacer::Impl {
 public:
-    explicit Impl(ntuplace1::Design &target) : design(target) {}
+    explicit Impl(Design &target) : design(target) {}
 
-    RatioPlaceResult place(const Ntuplace1Options &params);
+    Ntuplace1Result place(const Ntuplace1Options &params);
 
 private:
     void build();
-    // Row area inside a rectangle, less the fixed blocks that sit on those rows:
-    // the area a region can actually give its cells. This is the capacity the
-    // whitespace distribution splits by and the look-ahead checks against.
     double freeAreaIn(double x0, double y0, double x1, double y1) const;
     double movableArea(const std::vector<std::uint32_t> &) const;
     void divide(RatioRegion r);
-    // Fiduccia-Mattheyses min-cut aiming at `target` cell area on side 0, within
-    // +-tol. Pins outside the region are fixed on the side of the cut they lie
-    // on (terminal propagation). Returns the number of nets cut.
-    /// Which child a fenced cell must go to: 0 or 1 when its region lies only in
-    /// that child, -1 when it may go either way (or it has no fence).
     [[nodiscard]] int forcedSide(int region, const RatioRegion &r0, const RatioRegion &r1) const;
-    /// Members into their region, every other cell out of all regions; returns
-    /// how many members still lie outside theirs.
     std::size_t applyFences();
     std::size_t bipartition(const std::vector<std::uint32_t> &cells, bool vertical, double cut,
                             double target, double tol, const std::vector<std::int8_t> &forced,
@@ -85,34 +63,21 @@ private:
     void setRegionCentre(const RatioRegion &r);
     void writeFrame(std::size_t depth, const char *note) const;
 
-    ntuplace1::Design &design;
+    Design &design;
     std::vector<std::uint32_t> mov;  // movable, non-terminal vertex ids
     std::vector<double> cellArea;    // area of each movable
-    // Fence of each movable, or constraintMgr::noRegion. Fences are exclusive
-    // (ISPD 2015): members belong inside their region, every other cell outside.
     std::vector<int> cellRegion;
     std::vector<HyperNet> hyperNets;
-    // For each movable, the nets it is on, so a gain update does not rescan the
-    // whole netlist.
     std::vector<std::vector<std::uint32_t>> cellNets;
     std::vector<AreaRect> rowRects;  // one per subrow, sorted by y
     double maxRowH = 0.0;
     std::vector<AreaRect> fixedRects;  // fixed blocks, terminals included
-    // Where cells may go: the bounding box of the rows. Not the die box, which also
-    // spans pads and macros outside the rows -- a region out there has no capacity
-    // at all, and every cell the recursion sends there is one the legalizer must
-    // drag back.
     std::array<double, 4> rowBox{};
-    // Each movable's position: the centre of the region it currently belongs to,
-    // refined as the recursion descends. Pins outside a region are read from here
-    // when a cut decides which side they pull towards.
     std::vector<double> posX, posY;
     Ntuplace1Options opts;
     const constraintMgr *fences = nullptr;
-    RatioPlaceResult result;
+    Ntuplace1Result result;
 
-    // Per-cut scratch, sized once and stamped with gen rather than cleared, so a
-    // cut costs the region's cells and nets, not the whole design's.
     std::uint32_t gen = 0;
     std::vector<std::uint32_t> localGen, localOf;         // per movable
     std::vector<std::uint32_t> netGen;                    // per net
@@ -124,10 +89,8 @@ private:
 void RatioPlacer::Impl::build() {
     const std::size_t nv = design.cells.size();
     for (std::size_t v = 0; v < nv; ++v) {
-        const ntuplace1::Cell &vert = design.cells[v];
+        const Cell &vert = design.cells[v];
         if (vert.isFixed || vert.isTerminal) {
-            // Bookshelf marks fixed macros as terminals (every one of adaptec1's 543
-            // is), so a "fixed and not terminal" test finds no obstacles at all.
             if (vert.width > 0.0 && vert.height > 0.0) {
                 fixedRects.push_back({vert.x, vert.y, vert.x + vert.width, vert.y + vert.height});
             }
@@ -147,14 +110,12 @@ void RatioPlacer::Impl::build() {
 
     hyperNets.clear();
     cellNets.assign(mov.size(), {});
-    // A block with two pins on one net is still one block of that net; counted
-    // twice, its side count never drops to 1 and FM never sees it un-cut the net.
     std::vector<std::size_t> lastNet(mov.size(), std::numeric_limits<std::size_t>::max());
     for (std::size_t v = 0; v < design.nets.size(); ++v) {
         HyperNet n;
         for (const std::size_t pinId : design.nets[v].pins) {
-            const ntuplace1::Pin &e = design.pins[pinId];
-            const ntuplace1::Cell &pin = design.cells[e.cellId];
+            const Pin &e = design.pins[pinId];
+            const Cell &pin = design.cells[e.cellId];
             if (indexOf[e.cellId] != noIndex) {
                 const std::uint32_t c = indexOf[e.cellId];
                 if (lastNet[c] != v) {
@@ -176,8 +137,6 @@ void RatioPlacer::Impl::build() {
             }
             ++n.fixedPins;
         }
-        // A net with one movable block still matters when it has fixed pins: it is
-        // what pulls that block towards a pad or macro.
         if (n.cells.empty() || n.cells.size() + n.fixedPins < 2) {
             continue;
         }
@@ -198,8 +157,8 @@ void RatioPlacer::Impl::build() {
 
     rowBox = {std::numeric_limits<double>::max(), std::numeric_limits<double>::max(),
               -std::numeric_limits<double>::max(), -std::numeric_limits<double>::max()};
-    for (const ntuplace1::RowInfo &r : design.rows) {
-        for (const ntuplace1::Subrow &sr : r.subrows) {
+    for (const RowInfo &r : design.rows) {
+        for (const Subrow &sr : r.subrows) {
             const AreaRect rr{sr.xlo, r.coordinate, sr.xhi, r.coordinate + r.height};
             if (rr.x1 <= rr.x0) {
                 continue;
@@ -214,8 +173,6 @@ void RatioPlacer::Impl::build() {
     if (rowRects.empty()) {
         rowBox = design.die;
     }
-    // Sorted by y so freeAreaIn only visits the rows a region spans, not all of
-    // them on every cut.
     std::stable_sort(rowRects.begin(), rowRects.end(), [](const AreaRect &a, const AreaRect &b) {
         return a.y0 < b.y0;
     });
@@ -239,9 +196,6 @@ double RatioPlacer::Impl::freeAreaIn(double x0, double y0, double x1, double y1)
     for (; it != rowRects.end() && it->y0 < y1; ++it) {
         rows += overlap(*it, x0, y0, x1, y1);
     }
-    // Fixed blocks only take capacity where they sit on rows; the rows are a solid
-    // band in every benchmark here, so clipping to the rows' bounding box is what
-    // keeps a pad outside the rows from being charged against a region.
     const double cx0 = std::max(x0, rowBox[0]), cy0 = std::max(y0, rowBox[1]);
     const double cx1 = std::min(x1, rowBox[2]), cy1 = std::min(y1, rowBox[3]);
     double fixed = 0.0;
@@ -273,11 +227,6 @@ std::size_t RatioPlacer::Impl::bipartition(const std::vector<std::uint32_t> &cel
         localOf[cells[i]] = i;
     }
 
-    // The region's nets, and where each one's outside pins pull. A pin outside the
-    // region -- a fixed pin, or a movable already sent to another region -- is a
-    // block locked on its side of the cut (the paper's dummy node). A net with
-    // outside pins on both sides is cut whatever this partition does, so it is
-    // left out of the gains entirely.
     regionNets.clear();
     for (std::uint32_t i = 0; i < n; ++i) {
         for (const std::uint32_t e : cellNets[cells[i]]) {
@@ -304,10 +253,6 @@ std::size_t RatioPlacer::Impl::bipartition(const std::vector<std::uint32_t> &cel
         }
     }
 
-    // Initial partition: fill side 0 up to the target in netlist order. FM's
-    // passes are what make it a min-cut; this only has to be balanced.
-    // Fenced cells whose region lies in one child are placed there first, and FM
-    // never moves them (see `locked` below), so the rest balance around them.
     const bool anyForced = !forced.empty();
     double a0 = 0.0;
     if (anyForced) {
@@ -381,8 +326,6 @@ std::size_t RatioPlacer::Impl::bipartition(const std::vector<std::uint32_t> &cel
         double bestDev = dev(a0);
         double cur = a0;
         while (true) {
-            // The best unlocked block on each side; stale heap entries (locked, or
-            // pushed before a later gain change) are discarded on the way.
             int pick = -1;
             int pickGain = std::numeric_limits<int>::min();
             for (int s = 0; s < 2; ++s) {
@@ -397,8 +340,6 @@ std::size_t RatioPlacer::Impl::bipartition(const std::vector<std::uint32_t> &cel
                 }
                 const std::uint32_t i = h.top().second;
                 const double na = (s == 0) ? cur - cellArea[cells[i]] : cur + cellArea[cells[i]];
-                // A move may leave the window only towards the target; with the
-                // window wider than two blocks, at most one side is ever blocked.
                 if (dev(na) > tol && dev(na) >= dev(cur)) {
                     continue;
                 }
@@ -423,8 +364,6 @@ std::size_t RatioPlacer::Impl::bipartition(const std::vector<std::uint32_t> &cel
                 if (anchor[e] == 3) {
                     continue;
                 }
-                // Only a net whose counts cross 0 or 1 changes anyone's gain (the
-                // usual FM critical-net test), so large nets are rarely rescanned.
                 const bool critical = sideCount[e][t] <= 1 || sideCount[e][s] <= 2;
                 --sideCount[e][s];
                 ++sideCount[e][t];
@@ -452,7 +391,6 @@ std::size_t RatioPlacer::Impl::bipartition(const std::vector<std::uint32_t> &cel
                 bestDev = dev(cur);
             }
         }
-        // Keep the best prefix of the pass, undo the rest.
         for (std::size_t k = moves.size(); k > bestLen; --k) {
             const std::uint32_t i = moves[k - 1];
             cur += (side[i] == 0) ? -cellArea[cells[i]] : cellArea[cells[i]];
@@ -464,7 +402,6 @@ std::size_t RatioPlacer::Impl::bipartition(const std::vector<std::uint32_t> &cel
         }
     }
 
-    // Cut size of the result, for the trace.
     for (const std::uint32_t e : regionNets) {
         sideCount[e] = {static_cast<std::uint32_t>((anchor[e] & 1) ? 1 : 0),
                         static_cast<std::uint32_t>((anchor[e] & 2) ? 1 : 0)};
@@ -492,9 +429,6 @@ void RatioPlacer::Impl::setRegionCentre(const RatioRegion &r) {
 }
 
 void RatioPlacer::Impl::placeLeaf(const RatioRegion &r) {
-    // Spread a leaf's blocks over a grid in its region rather than stacking them on
-    // its centre: the legalizer then moves each a short way instead of fanning a
-    // pile of dozens out of one point.
     const std::size_t k = r.cells.size();
     if (k == 0) {
         return;
@@ -521,11 +455,11 @@ void RatioPlacer::Impl::writeFrame(std::size_t depth, const char *note) const {
         ys[v] = static_cast<float>(design.cells[v].y);
     }
     for (std::size_t i = 0; i < mov.size(); ++i) {
-        const ntuplace1::Cell &v = design.cells[mov[i]];
+        const Cell &v = design.cells[mov[i]];
         xs[mov[i]] = static_cast<float>(posX[i] - 0.5 * v.width);
         ys[mov[i]] = static_cast<float>(posY[i] - 0.5 * v.height);
     }
-    design.onFrame(xs, ys, ntuplace1::FrameInfo{note, depth, opts.maxLevels});
+    design.onFrame(xs, ys, FrameInfo{note, depth, opts.maxLevels});
 }
 
 int RatioPlacer::Impl::forcedSide(int region, const RatioRegion &r0, const RatioRegion &r1) const {
@@ -558,9 +492,6 @@ std::size_t RatioPlacer::Impl::applyFences() {
     if (fences == nullptr || fences->numRegions() == 0) {
         return 0;
     }
-    // The same rule SimPL applies to what it hands on, on the lower-left corner
-    // the database stores: members into their region, every other cell out. The
-    // legalizer then keeps whole cells on the right side.
     std::size_t outside = 0;
     for (std::size_t i = 0; i < mov.size(); ++i) {
         double &x = design.cells[mov[i]].x;
@@ -587,15 +518,11 @@ void RatioPlacer::Impl::divide(RatioRegion r) {
         return;
     }
 
-    // Cut the longer side through its middle, so sub-regions do not degenerate
-    // into slivers.
     const double w = r.x1 - r.x0;
     const double h = r.y1 - r.y0;
     const bool vertical = (w >= h);
     const double cut = vertical ? r.x0 + 0.5 * w : r.y0 + 0.5 * h;
 
-    // Geometry only: the cells are dealt out after the partition, so copying the
-    // parent's list into both children first would be wasted work at every level.
     RatioRegion r0, r1;
     r0.x0 = r1.x0 = r.x0;
     r0.y0 = r1.y0 = r.y0;
@@ -608,8 +535,6 @@ void RatioPlacer::Impl::divide(RatioRegion r) {
     const double free0 = freeAreaIn(r0.x0, r0.y0, r0.x1, r0.y1);
     const double free1 = freeAreaIn(r1.x0, r1.y0, r1.x1, r1.y1);
     if (free0 <= 0.0 || free1 <= 0.0) {
-        // One half has no room at all (it is all macro, or off the rows): there is
-        // nothing to partition, so the region just shrinks to the other half.
         RatioRegion &keep = (free0 > 0.0) ? r0 : r1;
         if (free0 <= 0.0 && free1 <= 0.0) {
             placeLeaf(r);
@@ -621,10 +546,6 @@ void RatioPlacer::Impl::divide(RatioRegion r) {
         return;
     }
 
-    // Whitespace distribution (Section 2.2): each side gets cell area in
-    // proportion to the room it has, so both halves end up equally utilised. A
-    // fixed 50/50 split, whatever the halves can hold, is what overfills the half
-    // with the macro in it.
     const double total = movableArea(r.cells);
     const double target = total * free0 / (free0 + free1);
     double maxCell = 0.0;
@@ -633,8 +554,6 @@ void RatioPlacer::Impl::divide(RatioRegion r) {
     }
     double tol = std::max(balanceSlack * total, 2.0 * maxCell);
 
-    // Fenced cells whose region lies in only one child are sent there, so the
-    // recursion carries every member towards its fence.
     std::vector<std::int8_t> forced;
     if (fences != nullptr && fences->numRegions() > 0) {
         bool any = false;
@@ -660,9 +579,6 @@ void RatioPlacer::Impl::divide(RatioRegion r) {
         for (std::size_t i = 0; i < r.cells.size(); ++i) {
             (side[i] == 0 ? r0.cells : r1.cells).push_back(r.cells[i]);
         }
-        // Look-ahead (Section 2.3): a side the cut leaves fuller than it can hold
-        // is one the legalizer would have to empty. Unless the region as a whole is
-        // overfull -- then no cut can help -- retry with a tighter window.
         const double a0 = movableArea(r0.cells), a1 = total - a0;
         const bool fits = (a0 <= free0 && a1 <= free1) || total > free0 + free1;
         if (fits || attempt >= opts.maxRatioRetries || tol <= 2.0 * maxCell) {
@@ -673,9 +589,6 @@ void RatioPlacer::Impl::divide(RatioRegion r) {
     }
 
     ++result.cuts;
-    // One line per accepted cut: the recursion's heartbeat. The trace file is what
-    // the web console streams into its trace pane, so it is written whether or not
-    // -v is set.
     ktlog.trace("  ratio cut depth {}: {} cells -> {} / {} (target {:.1f}%), {} nets cut", r.depth,
                 r.cells.size(), r0.cells.size(), r1.cells.size(), 100.0 * free0 / (free0 + free1),
                 cutNets);
@@ -686,7 +599,7 @@ void RatioPlacer::Impl::divide(RatioRegion r) {
     divide(std::move(r1));
 }
 
-RatioPlaceResult RatioPlacer::Impl::place(const Ntuplace1Options &params) {
+Ntuplace1Result RatioPlacer::Impl::place(const Ntuplace1Options &params) {
     opts = params;
     fences = &design.fences;
     build();
@@ -696,9 +609,6 @@ RatioPlaceResult RatioPlacer::Impl::place(const Ntuplace1Options &params) {
     ktlog.trace("  ratio build: {} movable cells, {} fixed blocks, {} hypernets", result.numMovable,
                 result.numFixed, result.nets);
 
-    // The paper starts every block at the centre of the placement area: with
-    // nothing decided, that is the only placement that implies no cut, and the
-    // whole recursion then reads the solution out of the cuts.
     RatioRegion root;
     root.x0 = rowBox[0];
     root.y0 = rowBox[1];
@@ -708,10 +618,8 @@ RatioPlaceResult RatioPlacer::Impl::place(const Ntuplace1Options &params) {
     std::iota(root.cells.begin(), root.cells.end(), 0u);
     divide(std::move(root));
 
-    // posX/posY are centres; the database holds lower-left corners, kept inside
-    // the placement area.
     for (std::size_t i = 0; i < mov.size(); ++i) {
-        ntuplace1::Cell &v = design.cells[mov[i]];
+        Cell &v = design.cells[mov[i]];
         v.x = std::clamp(posX[i] - 0.5 * v.width, rowBox[0],
                          std::max(rowBox[0], rowBox[2] - v.width));
         v.y = std::clamp(posY[i] - 0.5 * v.height, rowBox[1],
@@ -720,9 +628,6 @@ RatioPlaceResult RatioPlacer::Impl::place(const Ntuplace1Options &params) {
     result.fenceRegions = fences != nullptr ? fences->numRegions() : 0;
     result.fenceViolations = applyFences();
 
-    // HPWL over the answer, from cell centres and fixed pin points: the
-    // partitioner's own estimate. The flow reports the pin-exact figure after
-    // legalization.
     double total = 0.0;
     for (const HyperNet &n : hyperNets) {
         double ax = std::numeric_limits<double>::max(), bx = -ax, ay = ax, by = -ax;
@@ -749,31 +654,13 @@ RatioPlaceResult RatioPlacer::Impl::place(const Ntuplace1Options &params) {
     return result;
 }
 
-RatioPlacer::RatioPlacer(ntuplace1::Design &design) : pImpl(new Impl(design)) {}
+RatioPlacer::RatioPlacer(Design &design) : pImpl(new Impl(design)) {}
 RatioPlacer::~RatioPlacer() = default;
 RatioPlacer::RatioPlacer(RatioPlacer &&) noexcept = default;
 RatioPlacer &RatioPlacer::operator=(RatioPlacer &&) noexcept = default;
 
-RatioPlaceResult RatioPlacer::place(const Ntuplace1Options &options) {
+Ntuplace1Result RatioPlacer::place(const Ntuplace1Options &options) {
     return pImpl->place(options);
 }
 
-void reportNtuPlace1(const RatioPlaceResult &r) {
-    ktReportTable t("NTUplace1 solver results");
-    t.setHeaders({"metric", "value"});
-    t.addRow({"movable cells", std::format("{}", r.numMovable)});
-    t.addRow({"fixed blocks", std::format("{}", r.numFixed)});
-    t.addRow({"hypergraph nets", std::format("{}", r.nets)});
-    t.addRow({"cuts accepted", std::format("{}", r.cuts)});
-    t.addRow({"look-ahead retries", std::format("{}", r.ratioRetries)});
-    t.addRow({"retries per cut", std::format("{:.3}", r.meanImbalance)});
-    t.addRow({"recursion depth reached", std::format("{}", r.maxDepth)});
-    t.addRow({"smallest leaf", std::format("{}", r.minLeafCells)});
-    t.addRow({"HPWL estimate (pre-legalization)", std::format("{:.6}", r.hpwlFinal)});
-    if (r.fenceRegions > 0) {
-        t.addRow({"fence regions", std::format("{}", r.fenceRegions)});
-        t.addRow({"cells outside their fence", std::format("{}", r.fenceViolations)});
-    }
-    t.emit();
-}
-}  // namespace ktplace
+}  // namespace ktplace::ntuplace1

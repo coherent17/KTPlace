@@ -1,10 +1,5 @@
-// @file abacus_legalizer.cc
-// Abacus legalization, DP-over-clusters form. See abacus_legalizer.h.
-
-
 #include "legalizer/abacus/abacus_legalizer.h"
 
-#include "legalizer/abacus/abacus_design.h"
 #include "util/kt_log.h"
 #include "util/kt_reportTable.h"
 #include "util/kt_scopedTimer.h"
@@ -17,16 +12,14 @@
 #include <memory>
 #include <numeric>
 
-namespace ktplace {
+namespace ktplace::abacus {
 
 namespace {
 
-/// Axis-aligned box of a fixed cell (a macro or a pin), used to carve subrows.
 struct FixedBox {
     double y0, y1, x0, x1;
 };
 
-/// Cost of a candidate that does not fit; no real cost reaches this.
 constexpr double infeasible = std::numeric_limits<double>::infinity();
 
 struct Span {
@@ -62,23 +55,11 @@ struct Trial {
     Span span;
 };
 
-/// One contiguous run of placeable sites within a row.
-///
-/// A row is not one span of x. Macros cut it into subrows of very different
-/// widths, so placing into a row means choosing a subrow first, and a subrow
-/// narrower than a cell cannot hold it at all. Modelling a row as a single span
-/// (as an earlier version did) made the placer slide cells along x straight
-/// across a blockage, which is what destroyed the wirelength: a cell that only
-/// needed to change rows was instead dragged to the far end of its own row.
-struct Subrow {
+struct Segment {
     double xlo = 0.0;
     double xhi = 0.0;
-    /// The fence this piece belongs to, or noRegion for open space. Only a cell
-    /// of the same region may be placed here.
-    int region = abacus::noRegion;
-    /// Clusters assigned here, in increasing left edge.
+    int region = noRegion;
     std::vector<Cluster> clusters;
-    /// Committed right edge of the last cluster, i.e. the used extent.
     double used = 0.0;
 
     [[nodiscard]] double width() const {
@@ -89,17 +70,15 @@ struct Subrow {
     }
 };
 
-/// One placement row: a y band plus the subrows inside it.
 struct RowTrack {
     double y = 0.0;
     double height = 0.0;
     double siteWidth = 1.0;
-    std::vector<Subrow> subrows;
+    std::vector<Segment> subrows;
 
-    /// Total placeable width left in the row.
     [[nodiscard]] double capacity() const {
         double t = 0.0;
-        for (const Subrow &sr : subrows) {
+        for (const Segment &sr : subrows) {
             t += sr.free();
         }
         return t;
@@ -108,13 +87,11 @@ struct RowTrack {
 
 }  // namespace
 
-// ---------------------------------------------------------------------------
-
 class AbacusLegalizer::Impl {
 public:
-    explicit Impl(const abacus::Design &d) : design(d) {}
+    explicit Impl(Design &d) : design(d) {}
 
-    LegalizeResult run(const AbacusOptions &params);
+    AbacusResult run(const AbacusOptions &params);
 
 private:
     void buildRows(bool mirrored);
@@ -125,40 +102,31 @@ private:
         double movement = 0.0;
     };
     [[nodiscard]] Pass legalizePass(const AbacusOptions &params, bool mirrored);
-    [[nodiscard]] Trial trial(const Subrow &sr, double grid, std::size_t i) const;
-    void commit(Subrow &sr, std::size_t i, const Trial &t);
+    [[nodiscard]] Trial trial(const Segment &sr, double grid, std::size_t i) const;
+    void commit(Segment &sr, std::size_t i, const Trial &t);
     [[nodiscard]] double hpwlOf(const std::vector<double> &x, const std::vector<double> &y) const;
-    /// Offer a snapshot to the sink. A no-op when the stage has no sink, so the
-    /// callers below do not each have to ask whether drawing is on.
     void writeFrame(const std::string &note, std::size_t step, std::size_t total) const;
-    void selfCheck(LegalizeResult &res) const;
+    void selfCheck(AbacusResult &res) const;
 
     static constexpr std::size_t noRow = std::numeric_limits<std::size_t>::max();
 
-    const abacus::Design &design;
+    Design &design;
     std::vector<RowTrack> tracks;
-    std::vector<std::size_t> mov;          ///< graph vertex id per movable slot
-    std::vector<double> cellW, cellH;      ///< per movable slot
-    std::vector<double> targetX, targetY;  ///< pre-legalization position (the target)
+    std::vector<std::size_t> mov;
+    std::vector<double> cellW, cellH;
+    std::vector<double> targetX, targetY;
     std::vector<double> sortKey;
-    std::vector<double> liveX, liveY;  ///< live position
-    std::vector<int> cellRegion;       ///< fence of each movable slot, or noRegion
+    std::vector<double> liveX, liveY;
+    std::vector<int> cellRegion;
     std::unordered_map<std::size_t, std::size_t> slotOf;
     std::vector<FixedBox> fixedBoxes;
-    abacus::DieBox dieBox = {0.0, 0.0, 0.0, 0.0};
+    DieBox dieBox = {0.0, 0.0, 0.0, 0.0};
     double minSubrowSites = 1.0;
-
-public:
-    /// What legalize() reads to build the placement it hands back. The pass never
-    /// writes to the design; these carry its answer out instead.
-    std::vector<std::size_t> movableIds;
-    std::vector<double> finalXs;
-    std::vector<double> finalYs;
 };
 
 void AbacusLegalizer::Impl::buildRows(bool mirrored) {
     tracks.clear();
-    for (const abacus::RowInfo &ri : design.rows) {
+    for (const RowInfo &ri : design.rows) {
         RowTrack r;
         r.y = ri.coordinate;
         r.height = ri.height;
@@ -166,14 +134,11 @@ void AbacusLegalizer::Impl::buildRows(bool mirrored) {
         if (!(r.siteWidth > 0.0)) {
             r.siteWidth = 1.0;
         }
-        // Each .scl subrow becomes a Subrow, trimmed by any fixed cell that
-        // crosses the row's band, so a macro crossing a subrow shortens it
-        // instead of being ignored.
-        for (const abacus::Subrow &si : ri.subrows) {
+        for (const Subrow &si : ri.subrows) {
             if (!(si.xhi > si.xlo)) {
                 continue;
             }
-            Subrow sr;
+            Segment sr;
             sr.xlo = si.xlo;
             sr.xhi = si.xhi;
             sr.region = si.region;
@@ -183,21 +148,19 @@ void AbacusLegalizer::Impl::buildRows(bool mirrored) {
         if (r.subrows.empty()) {
             continue;
         }
-        std::stable_sort(r.subrows.begin(), r.subrows.end(), [](const Subrow &a, const Subrow &b) {
-            return a.xlo < b.xlo;
-        });
+        std::stable_sort(r.subrows.begin(), r.subrows.end(),
+                         [](const Segment &a, const Segment &b) {
+                             return a.xlo < b.xlo;
+                         });
         tracks.push_back(r);
     }
     std::stable_sort(tracks.begin(), tracks.end(), [](const RowTrack &a, const RowTrack &b) {
         return a.y < b.y;
     });
 
-    // Trim each subrow against the fixed cells crossing its row band. A macro
-    // that lands inside a .scl subrow splits it into two placeable subrows, so
-    // the trimmed pieces are what the search actually chooses between.
     for (RowTrack &r : tracks) {
-        std::vector<Subrow> pieces;
-        for (const Subrow &sr : r.subrows) {
+        std::vector<Segment> pieces;
+        for (const Segment &sr : r.subrows) {
             std::vector<std::pair<double, double>> hit;
             for (const FixedBox &f : fixedBoxes) {
                 if (f.y1 <= r.y + 1e-9 || f.y0 >= r.y + r.height - 1e-9) {
@@ -213,7 +176,7 @@ void AbacusLegalizer::Impl::buildRows(bool mirrored) {
             double cur = sr.xlo;
             for (const auto &iv : hit) {
                 if (iv.first > cur) {
-                    Subrow piece = sr;
+                    Segment piece = sr;
                     piece.xlo = cur;
                     piece.xhi = iv.first;
                     piece.used = cur;
@@ -222,7 +185,7 @@ void AbacusLegalizer::Impl::buildRows(bool mirrored) {
                 cur = std::max(cur, iv.second);
             }
             if (cur < sr.xhi) {
-                Subrow piece = sr;
+                Segment piece = sr;
                 piece.xlo = cur;
                 piece.used = cur;
                 pieces.push_back(piece);
@@ -232,7 +195,7 @@ void AbacusLegalizer::Impl::buildRows(bool mirrored) {
     }
     if (mirrored) {
         for (RowTrack &r : tracks) {
-            for (Subrow &sr : r.subrows) {
+            for (Segment &sr : r.subrows) {
                 const double lo = -sr.xhi;
                 sr.xhi = -sr.xlo;
                 sr.xlo = lo;
@@ -242,10 +205,8 @@ void AbacusLegalizer::Impl::buildRows(bool mirrored) {
         }
     }
     for (RowTrack &r : tracks) {
-        // Subrows too narrow to be worth searching are dropped: a sliver a cell
-        // cannot fit into only makes the search slower and can never be chosen.
-        std::vector<Subrow> kept;
-        for (Subrow &piece : r.subrows) {
+        std::vector<Segment> kept;
+        for (Segment &piece : r.subrows) {
             if (piece.width() >= r.siteWidth * minSubrowSites) {
                 kept.push_back(std::move(piece));
             }
@@ -254,7 +215,7 @@ void AbacusLegalizer::Impl::buildRows(bool mirrored) {
     }
 }
 
-Trial AbacusLegalizer::Impl::trial(const Subrow &sr, double grid, std::size_t i) const {
+Trial AbacusLegalizer::Impl::trial(const Segment &sr, double grid, std::size_t i) const {
     const auto position = [&](const Span &span) {
         double x = std::clamp(span.ideal(), sr.xlo, std::max(sr.xlo, sr.xhi - span.w));
         if (grid > 0.0) {
@@ -288,7 +249,7 @@ Trial AbacusLegalizer::Impl::trial(const Subrow &sr, double grid, std::size_t i)
     return {span.costAt(x) - before, first, x, span};
 }
 
-void AbacusLegalizer::Impl::commit(Subrow &sr, std::size_t i, const Trial &t) {
+void AbacusLegalizer::Impl::commit(Segment &sr, std::size_t i, const Trial &t) {
     Cluster merged;
     merged.span = t.span;
     merged.x = t.x;
@@ -305,21 +266,21 @@ void AbacusLegalizer::Impl::commit(Subrow &sr, std::size_t i, const Trial &t) {
 double AbacusLegalizer::Impl::hpwlOf(const std::vector<double> &x,
                                      const std::vector<double> &y) const {
     double total = 0.0;
-    for (const abacus::Net &net : design.nets) {
+    for (const Net &net : design.nets) {
         if (net.pins.empty()) {
             continue;
         }
         double ax = std::numeric_limits<double>::max(), bx = -std::numeric_limits<double>::max();
         double ay = std::numeric_limits<double>::max(), by = -std::numeric_limits<double>::max();
         for (const std::size_t pinId : net.pins) {
-            const abacus::Pin &pin = design.pins[pinId];
+            const Pin &pin = design.pins[pinId];
             const auto it = slotOf.find(pin.cellId);
             double cx = 0.0, cy = 0.0;
             if (it != slotOf.end()) {
                 cx = x[it->second] + pin.offsetX;
                 cy = y[it->second] + pin.offsetY;
             } else {
-                const abacus::Cell &c = design.cells[pin.cellId];
+                const Cell &c = design.cells[pin.cellId];
                 cx = c.x + pin.offsetX;
                 cy = c.y + pin.offsetY;
             }
@@ -345,9 +306,8 @@ void AbacusLegalizer::Impl::writeFrame(const std::string &note, std::size_t step
         fx[mov[i]] = static_cast<float>(liveX[i]);
         fy[mov[i]] = static_cast<float>(liveY[i]);
     }
-    // The sink draws; Abacus only says when.
     if (design.onFrame) {
-        abacus::FrameInfo info;
+        FrameInfo info;
         info.note = note;
         info.step = step;
         info.numSteps = total;
@@ -358,7 +318,7 @@ void AbacusLegalizer::Impl::writeFrame(const std::string &note, std::size_t step
     }
 }
 
-void AbacusLegalizer::Impl::selfCheck(LegalizeResult &res) const {
+void AbacusLegalizer::Impl::selfCheck(AbacusResult &res) const {
     const double eps = 1e-6;
     res.overlappingPairs = 0;
     res.commitFailures = 0;
@@ -366,8 +326,6 @@ void AbacusLegalizer::Impl::selfCheck(LegalizeResult &res) const {
     res.offSite = 0;
     res.overFixed = 0;
     res.outOfRows = 0;
-    // Row of each cell, read off the cluster structure rather than by scanning
-    // every row for every cell.
     std::vector<std::size_t> rowOf(mov.size(), noRow);
     for (std::size_t i = 0; i < mov.size(); ++i) {
         const auto it = std::lower_bound(tracks.begin(), tracks.end(), liveY[i] - eps,
@@ -391,9 +349,8 @@ void AbacusLegalizer::Impl::selfCheck(LegalizeResult &res) const {
         if (off > 1e-6 * std::max(1.0, std::fabs(liveX[i]))) {
             ++res.offSite;
         }
-        // Inside some subrow of this row, with the cell on a site?
         bool inside = false;
-        for (const Subrow &sr : inRow->subrows) {
+        for (const Segment &sr : inRow->subrows) {
             if (liveX[i] >= sr.xlo - eps && liveX[i] + cellW[i] <= sr.xhi + eps) {
                 inside = true;
                 break;
@@ -404,9 +361,6 @@ void AbacusLegalizer::Impl::selfCheck(LegalizeResult &res) const {
         }
     }
 
-    // Overlap: sort every movable cell by (row, x) and test only adjacent pairs.
-    // Comparing each row's cells pairwise is quadratic and was both slow and,
-    // before the early-stop fix, a source of phantom overlaps.
     std::vector<std::uint64_t> order(mov.size());
     std::iota(order.begin(), order.end(), 0u);
     std::stable_sort(order.begin(), order.end(), [&](std::size_t a, std::size_t b) {
@@ -422,7 +376,6 @@ void AbacusLegalizer::Impl::selfCheck(LegalizeResult &res) const {
         }
     }
 
-    // Movable-vs-fixed, x-sorted sweep.
     const std::vector<FixedBox> &fixed = fixedBoxes;
     std::vector<std::size_t> byX(mov.size());
     std::iota(byX.begin(), byX.end(), 0u);
@@ -445,32 +398,25 @@ void AbacusLegalizer::Impl::selfCheck(LegalizeResult &res) const {
     }
 }
 
-LegalizeResult AbacusLegalizer::Impl::run(const AbacusOptions &params) {
-    LegalizeResult res;
+AbacusResult AbacusLegalizer::Impl::run(const AbacusOptions &params) {
+    AbacusResult res;
     minSubrowSites = static_cast<double>(params.minSubrowSites);
-    // ScopedTimer both times the phase and records it into the shared registry,
-    // so legalization appears in the flow's Timings table next to load, place
-    // and write instead of reporting a private duration.
     ScopedTimer timer("abacus");
 
-
     for (std::size_t v = 0; v < design.cells.size(); ++v) {
-        const abacus::Cell &cell = design.cells[v];
+        const Cell &cell = design.cells[v];
         if (cell.isFixed || cell.isTerminal) {
             continue;
         }
         const std::size_t slot = mov.size();
         mov.push_back(v);
-        movableIds.push_back(v);
         slotOf[v] = slot;
         cellW.push_back(cell.width);
         cellH.push_back(cell.height);
-        // A region id the design does not have is treated as unfenced rather than
-        // as a fence no piece can ever match.
         cellRegion.push_back(cell.region >= 0 && static_cast<std::size_t>(cell.region) <
                                                      design.fences.numRegions()
                                  ? cell.region
-                                 : abacus::noRegion);
+                                 : noRegion);
         targetX.push_back(cell.x);
         targetY.push_back(cell.y);
     }
@@ -521,15 +467,9 @@ LegalizeResult AbacusLegalizer::Impl::run(const AbacusOptions &params) {
     }
     res.hpwlAfter = hpwlOf(liveX, liveY);
 
-    finalXs.assign(design.cells.size(), 0.0);
-    finalYs.assign(design.cells.size(), 0.0);
-    for (std::size_t v = 0; v < design.cells.size(); ++v) {
-        finalXs[v] = design.cells[v].x;
-        finalYs[v] = design.cells[v].y;
-    }
     for (std::size_t i = 0; i < mov.size(); ++i) {
-        finalXs[mov[i]] = liveX[i];
-        finalYs[mov[i]] = liveY[i];
+        design.cells[mov[i]].x = liveX[i];
+        design.cells[mov[i]].y = liveY[i];
     }
     res.unplaced = mov.size() - chosen.placed;
     if (design.onFrame) {
@@ -582,7 +522,7 @@ AbacusLegalizer::Impl::Pass AbacusLegalizer::Impl::legalizePass(const AbacusOpti
             const RowTrack &track = tracks[ri];
             const double dy = rowGap(track);
             for (std::size_t si = 0; si < track.subrows.size(); ++si) {
-                const Subrow &sr = track.subrows[si];
+                const Segment &sr = track.subrows[si];
                 if (cellH[i] > track.height + 1e-9 || sr.region != cellRegion[i] ||
                     cellW[i] > sr.width() + 1e-9) {
                     continue;
@@ -643,7 +583,7 @@ AbacusLegalizer::Impl::Pass AbacusLegalizer::Impl::legalizePass(const AbacusOpti
     }
 
     for (const RowTrack &track : tracks) {
-        for (const Subrow &sr : track.subrows) {
+        for (const Segment &sr : track.subrows) {
             for (const Cluster &c : sr.clusters) {
                 double off = 0.0;
                 for (const std::size_t m : c.members) {
@@ -662,65 +602,12 @@ AbacusLegalizer::Impl::Pass AbacusLegalizer::Impl::legalizePass(const AbacusOpti
     return pass;
 }
 
-// ---------------------------------------------------------------------------
-
-AbacusLegalizer::AbacusLegalizer(const abacus::Design &design)
-    : pImpl(std::make_unique<Impl>(design)) {}
+AbacusLegalizer::AbacusLegalizer(Design &design) : pImpl(std::make_unique<Impl>(design)) {}
 
 AbacusLegalizer::~AbacusLegalizer() = default;
 
-namespace {
-
-void report(const LegalizeResult &r) {
-    ktReportTable t("Legalization (Abacus)");
-    t.setHeaders({"metric", "value"});
-    t.addRow({"cells placed", std::format("{}", r.cellsPlaced)});
-    t.addRow({"cells unplaced", std::format("{}", r.unplaced)});
-    t.addRow({"squared displacement", std::format("{:.6e}", r.totalSquaredDisplacement)});
-    t.addRow({"max displacement", std::format("{:.1f}", r.maxDisplacement)});
-    t.addRow({"HPWL before", std::format("{:.6e}", r.hpwlBefore)});
-    t.addRow({"HPWL after", std::format("{:.6e}", r.hpwlAfter)});
-    t.addRow(
-        {"HPWL change", std::format("{:+.2f}%", 100.0 * (r.hpwlAfter - r.hpwlBefore) /
-                                                    (r.hpwlBefore > 0.0 ? r.hpwlBefore : 1.0))});
-    t.addRow({"seconds", std::format("{:.3f}", r.seconds)});
-    t.addRow({"overlapping pairs", std::format("{}", r.overlappingPairs)});
-    t.addRow({"cells off row", std::format("{}", r.offRow)});
-    t.addRow({"cells off site", std::format("{}", r.offSite)});
-    t.addRow({"cells over macro", std::format("{}", r.overFixed)});
-    t.addRow({"cells out of rows", std::format("{}", r.outOfRows)});
-    t.addRow({"commit failures", std::format("{}", r.commitFailures)});
-    t.emit();
-
-    if (r.overlappingPairs != 0 || r.offRow != 0 || r.overFixed != 0) {
-        ktlog.warning("legalization is not legal; see the counts above");
-    }
-    // A cell Abacus could not fit into any row it searched stays where global
-    // placement left it, overlapping. That is a cell taller than one row (the flow
-    // sends those to the multi-row legalizer instead), or one whose nearby rows
-    // were full -- typically a global placement that piled cells onto macros or
-    // outside the rows. Named here rather than left to be inferred from a count.
-    if (r.outOfRows > 0) {
-        ktlog.warning(
-            "{} cell(s) could not be placed in any row and are still at their global placement "
-            "positions (no room within 'abacus max_row_dist' rows, or taller than a row). "
-            "The placement is not legal; see \"cells out of rows\" above.",
-            r.outOfRows);
-    }
+AbacusResult AbacusLegalizer::legalize(const AbacusOptions &options) {
+    return pImpl->run(options);
 }
 
-}  // namespace
-
-LegalizeResult AbacusLegalizer::legalize(const AbacusOptions &options) {
-    LegalizeResult result = pImpl->run(options);
-    report(result);
-    return result;
-}
-
-ktplace::abacusSolution AbacusLegalizer::solution() const {
-    abacusSolution out;
-    out.xs = pImpl->finalXs;
-    out.ys = pImpl->finalYs;
-    return out;
-}
-}  // namespace ktplace
+}  // namespace ktplace::abacus

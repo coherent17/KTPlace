@@ -14,8 +14,8 @@
 
 #include "datamodel/kt_constraintMgr.h"
 #include "datamodel/kt_dm.h"
-#include "globalPlacer/ntuplace1/kt_ntuplace1.h"
 #include "globalPlacer/ntuplace1/ntuplace1_dm.h"
+#include "globalPlacer/ntuplace1/ntuplace1_flowMgr.h"
 
 #include <boost/test/unit_test.hpp>
 #include <string>
@@ -63,7 +63,7 @@ void addNet(ktDM &db, const std::string &net, const std::vector<std::string> &ce
 }
 
 struct Placed {
-    RatioPlaceResult result;
+    ntuplace1::Ntuplace1Result result;
     ntuplace1Solution solution;
 
     [[nodiscard]] std::pair<double, double> at(std::size_t id) const {
@@ -72,11 +72,11 @@ struct Placed {
 };
 
 Placed place(const ktDM &db, const Ntuplace1Options &params) {
-    ntuplace1::ntuplace1DM dm = ntuplace1::buildNtuplace1DM(db);
-    RatioPlacer placer(dm.design());
+    ntuplace1::flowMgr flow(db);
+    flow.dm().options() = params;
     Placed out;
-    out.result = placer.place(params);
-    out.solution = dm.solution();
+    out.result = flow.run();
+    out.solution = flow.solution();
     return out;
 }
 
@@ -114,7 +114,7 @@ BOOST_AUTO_TEST_CASE(cells_avoid_a_macro_marked_as_terminal) {
     }
 
     const Placed placed = place(db, smallLeaves());
-    const RatioPlaceResult &res = placed.result;
+    const ntuplace1::Ntuplace1Result &res = placed.result;
 
     BOOST_TEST(res.numFixed == 1u);
     for (const std::size_t id : ids) {
@@ -204,7 +204,7 @@ BOOST_AUTO_TEST_CASE(tiny_designs_do_not_fail) {
     Ntuplace1Options p;
     p.targetLeafCells = 1;  // forces cuts down to single cells
     const Placed placed = place(db, p);
-    const RatioPlaceResult &res = placed.result;
+    const ntuplace1::Ntuplace1Result &res = placed.result;
     BOOST_TEST(res.numMovable == 3u);
     expectInRows(placed, ids);
 }
@@ -237,7 +237,7 @@ BOOST_AUTO_TEST_CASE(fenced_cells_are_placed_in_their_region_and_others_kept_out
     }
 
     const Placed placed = place(db, smallLeaves());
-    const RatioPlaceResult &res = placed.result;
+    const ntuplace1::Ntuplace1Result &res = placed.result;
 
     BOOST_TEST(res.fenceRegions == 1u);
     BOOST_TEST(res.fenceViolations == 0u);
@@ -264,25 +264,25 @@ BOOST_AUTO_TEST_CASE(frame_hook_sees_every_cut_and_does_not_change_the_placement
     }
     const Placed plain = place(db, smallLeaves());
 
-    ntuplace1::ntuplace1DM dm = ntuplace1::buildNtuplace1DM(db);
+    ntuplace1::flowMgr flow(db);
     std::size_t frames = 0;
     bool wholeDesign = true;
     bool depthInRange = true;
-    dm.design().onFrame = [&](const std::vector<float> &xs, const std::vector<float> &ys,
-                              const ntuplace1::FrameInfo &info) {
+    flow.dm().setFrameHook([&](const std::vector<float> &xs, const std::vector<float> &ys,
+                               const ntuplace1::FrameInfo &info) {
         ++frames;
         wholeDesign =
             wholeDesign && xs.size() == db.getGraph().getNumCells() && ys.size() == xs.size();
         depthInRange = depthInRange && info.step <= info.numSteps && !info.note.empty();
-    };
-    RatioPlacer placer(dm.design());
-    const RatioPlaceResult res = placer.place(smallLeaves());
+    });
+    flow.dm().options() = smallLeaves();
+    const ntuplace1::Ntuplace1Result res = flow.run();
 
     BOOST_TEST(frames == res.cuts);
     BOOST_TEST(wholeDesign);
     BOOST_TEST(depthInRange);
-    BOOST_TEST(dm.solution().xs == plain.solution.xs);
-    BOOST_TEST(dm.solution().ys == plain.solution.ys);
+    BOOST_TEST(flow.solution().xs == plain.solution.xs);
+    BOOST_TEST(flow.solution().ys == plain.solution.ys);
 }
 
 BOOST_AUTO_TEST_SUITE_END()

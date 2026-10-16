@@ -1,10 +1,3 @@
-// @file multirow_flowMgr.h
-// Runs one multi-row legalization.
-//
-// This is the stage as the rest of KTPlace sees it: run against a database the
-// caller owns, hand back the placement. It knows about reporting because that is
-// a flow concern; it does not know about ktDM, which is the adaptor's job.
-
 #pragma once
 
 #include "datamodel/kt_solutionMgr.h"
@@ -14,15 +7,17 @@ namespace ktplace::multirow {
 
 class flowMgr {
 public:
-    explicit flowMgr(multirowDM &db) : dm(db) {}
+    explicit flowMgr(const ktDM &db);
 
-    /// Legalize, and return where every cell ended up. Reports the pass's
-    /// statistics from inside the run and returns only the placement, so the
-    /// flow has one thing to do with the result: commit it.
-    multiRowSolution runLegalizer();
+    [[nodiscard]] multirowDM &dm() noexcept {
+        return multirowDb;
+    }
+
+    MultiRowResult run();
+    [[nodiscard]] multiRowSolution solution() const;
 
 private:
-    multirowDM &dm;
+    multirowDM multirowDb;
 };
 
 }  // namespace ktplace::multirow

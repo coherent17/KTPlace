@@ -461,7 +461,7 @@ void ktDM::setSimplSolution(const simplSolution &solution) {
     }
 }
 
-void ktDM::setGPSolution(const ntuplace1Solution &solution) {
+void ktDM::setNtuplace1Solution(const ntuplace1Solution &solution) {
     const std::size_t n = std::min({solution.xs.size(), solution.ys.size(), graph.getNumCells()});
     for (std::size_t v = 0; v < n; ++v) {
         setCellPosition(v, solution.xs[v], solution.ys[v]);
@@ -483,7 +483,7 @@ void commitCells(Graph &graph, const Solution &solution) {
 }
 }  // namespace
 
-void ktDM::setLegalizationSolution(const abacusSolution &solution) {
+void ktDM::setAbacusSolution(const abacusSolution &solution) {
     commitCells(graph, solution);
     isLegalizePlacement();
 }
@@ -493,7 +493,7 @@ void ktDM::setMultiRowSolution(const multiRowSolution &solution) {
     isLegalizePlacement();
 }
 
-void ktDM::setDetailedPlaceSolution(const fastdpSolution &solution) {
+void ktDM::setFastdpSolution(const fastdpSolution &solution) {
     commitCells(graph, solution);
     isLegalizePlacement();
 }

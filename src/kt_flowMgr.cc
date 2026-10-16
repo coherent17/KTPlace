@@ -238,9 +238,9 @@ void FlowMgr::Impl::placeDesign() {
     } else if (algorithm == "ntuplace1") {
         // Build this placer's own database, run it there, commit the answer: the
         // same shape as every other stage.
-        ntuplace1::ntuplace1DM placeDB = ntuplace1::buildNtuplace1DM(*db);
-        ntuplace1::flowMgr flow(placeDB);
-        db->setGPSolution(flow.runGlobalPlacer());
+        ntuplace1::flowMgr flow(*db);
+        (void)flow.run();
+        db->setNtuplace1Solution(flow.solution());
         commit("global placement");
         return;
 
@@ -258,29 +258,29 @@ void FlowMgr::Impl::legalizeDesign() {
     }
 
     if (const std::size_t tall = db->multiRowCells(); tall > 0) {
-        multirow::multirowDM multiDB = multirow::buildMultiRowDM(*db);
+        multirow::flowMgr flow(*db);
         ktlog.echo("multi-row legalization ({} cell(s) taller than a row)", tall);
-        recordStage(multiDB, snapshots.get(), {"legalize_multi", "", 0});
-        multirow::flowMgr flow(multiDB);
-        db->setMultiRowSolution(flow.runLegalizer());
+        recordStage(flow.dm(), snapshots.get(), {"legalize_multi", "", 0});
+        (void)flow.run();
+        db->setMultiRowSolution(flow.solution());
         commit("legalization");
         return;
     }
 
-    abacus::abacusDM abacusDB = abacus::buildAbacusDM(*db);
-    recordStage(abacusDB, snapshots.get(), {"legalize", "", 0});
-    abacus::flowMgr flow(abacusDB);
-    db->setLegalizationSolution(flow.runLegalizer());
+    abacus::flowMgr flow(*db);
+    recordStage(flow.dm(), snapshots.get(), {"legalize", "", 0});
+    (void)flow.run();
+    db->setAbacusSolution(flow.solution());
     commit("legalization");
 }
 
 
 void FlowMgr::Impl::detailPlaceDesign() {
     ScopedTimer timer("detailed placement", true);
-    fastdp::fastdpDM dpDB = fastdp::buildFastdpDM(*db);
-    recordStage(dpDB, snapshots.get(), {"detailplace", "", 0});
-    fastdp::flowMgr flow(dpDB);
-    db->setDetailedPlaceSolution(flow.runDetailedPlacer());
+    fastdp::flowMgr flow(*db);
+    recordStage(flow.dm(), snapshots.get(), {"detailplace", "", 0});
+    (void)flow.run();
+    db->setFastdpSolution(flow.solution());
     commit("detailed placement");
 }
 

@@ -4,9 +4,14 @@
 #include "datamodel/kt_dm.h"
 #include "datamodel/kt_stageReport.h"
 #include "legalizer/abacus/abacus_legalizer.h"
+#include "util/kt_log.h"
+#include "util/kt_reportTable.h"
+
+#include <algorithm>
+#include <format>
+#include <limits>
 
 namespace ktplace::abacus {
-
 
 namespace {
 
@@ -24,9 +29,6 @@ void copyCells(const ktplace::Graph &graph, std::vector<Cell> &out) {
         c.region = cell.regionId;
     }
 }
-
-/// Pins and nets, in the order the design has them, so pin ids line up with the
-/// cell ids Abacus already has.
 void copyNets(const ktplace::Graph &graph, std::vector<Pin> &pins, std::vector<Net> &nets) {
     pins.resize(graph.getNumPins());
     for (std::size_t p = 0; p < graph.getNumPins(); ++p) {
@@ -76,7 +78,93 @@ void copyFences(const ktplace::constraintMgr &mgr, Fences &out) {
     }
 }
 
+void reportRun(const AbacusResult &r) {
+    ktReportTable t("Legalization (Abacus)");
+    t.setHeaders({"metric", "value"});
+    t.addRow({"cells placed", std::format("{}", r.cellsPlaced)});
+    t.addRow({"cells unplaced", std::format("{}", r.unplaced)});
+    t.addRow({"squared displacement", std::format("{:.6e}", r.totalSquaredDisplacement)});
+    t.addRow({"max displacement", std::format("{:.1f}", r.maxDisplacement)});
+    t.addRow({"HPWL before", std::format("{:.6e}", r.hpwlBefore)});
+    t.addRow({"HPWL after", std::format("{:.6e}", r.hpwlAfter)});
+    t.addRow(
+        {"HPWL change", std::format("{:+.2f}%", 100.0 * (r.hpwlAfter - r.hpwlBefore) /
+                                                    (r.hpwlBefore > 0.0 ? r.hpwlBefore : 1.0))});
+    t.addRow({"seconds", std::format("{:.3f}", r.seconds)});
+    t.addRow({"overlapping pairs", std::format("{}", r.overlappingPairs)});
+    t.addRow({"cells off row", std::format("{}", r.offRow)});
+    t.addRow({"cells off site", std::format("{}", r.offSite)});
+    t.addRow({"cells over macro", std::format("{}", r.overFixed)});
+    t.addRow({"cells out of rows", std::format("{}", r.outOfRows)});
+    t.addRow({"commit failures", std::format("{}", r.commitFailures)});
+    t.emit();
+
+    if (r.overlappingPairs != 0 || r.offRow != 0 || r.overFixed != 0) {
+        ktlog.warning("legalization is not legal; see the counts above");
+    }
+    if (r.outOfRows > 0) {
+        ktlog.warning(
+            "{} cell(s) could not be placed in any row and are still at their global placement "
+            "positions (no room within 'abacus max_row_dist' rows, or taller than a row). "
+            "The placement is not legal; see \"cells out of rows\" above.",
+            r.outOfRows);
+    }
+}
+
 }  // namespace
+
+void Region::seal() {
+    if (rects.empty()) {
+        minX = minY = maxX = maxY = 0.0;
+        return;
+    }
+    minX = minY = std::numeric_limits<double>::max();
+    maxX = maxY = std::numeric_limits<double>::lowest();
+    for (const Rect &r : rects) {
+        minX = std::min(minX, r.xlo);
+        minY = std::min(minY, r.ylo);
+        maxX = std::max(maxX, r.xhi);
+        maxY = std::max(maxY, r.yhi);
+    }
+}
+
+std::size_t Fences::countViolations(const std::vector<double> &positions,
+                                    const std::vector<int> &regionIds) const {
+    std::size_t bad = 0;
+    const std::size_t n = std::min(regionIds.size(), positions.size() / 2);
+    for (std::size_t i = 0; i < n; ++i) {
+        const int id = regionIds[i];
+        if (id < 0 || static_cast<std::size_t>(id) >= regions.size()) {
+            continue;
+        }
+        if (!regions[static_cast<std::size_t>(id)].contains(positions[2 * i],
+                                                            positions[2 * i + 1])) {
+            ++bad;
+        }
+    }
+    return bad;
+}
+
+abacusDM::abacusDM(Design design, AbacusOptions options)
+    : d(std::move(design)), opts(std::move(options)) {}
+
+AbacusResult abacusDM::run() {
+    AbacusLegalizer legalizer(d);
+    const AbacusResult result = legalizer.legalize(opts);
+    reportRun(result);
+    return result;
+}
+
+abacusSolution abacusDM::solution() const {
+    abacusSolution out;
+    out.xs.reserve(d.cells.size());
+    out.ys.reserve(d.cells.size());
+    for (const Cell &cell : d.cells) {
+        out.xs.push_back(cell.x);
+        out.ys.push_back(cell.y);
+    }
+    return out;
+}
 
 abacusDM buildAbacusDM(const ktDM &db) {
     Design design;
@@ -87,20 +175,9 @@ abacusDM buildAbacusDM(const ktDM &db) {
     design.die = placementDieBox(db.die(), db.getGraph());
 
     const StageCounts counts = countStage(design);
-    abacusDM result(std::move(design));
-    result.opts = loadOptions<AbacusOptions>();
-    reportStageBuild(counts, db.checksum(), result.opts);
-    return result;
+    abacusDM dm(std::move(design), loadOptions<AbacusOptions>());
+    reportStageBuild(counts, db.checksum(), dm.options());
+    return dm;
 }
-
-
-abacusDM::abacusDM(Design design) : d(std::move(design)) {}
-
-abacusSolution abacusDM::run() {
-    AbacusLegalizer legalizer(d);
-    (void)legalizer.legalize(opts);
-    return legalizer.solution();
-}
-
 
 }  // namespace ktplace::abacus

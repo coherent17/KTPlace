@@ -10,7 +10,6 @@
 
 namespace ktplace::multirow {
 
-
 namespace {
 
 void copyCells(const ktplace::Graph &graph, std::vector<Cell> &out) {
@@ -28,8 +27,6 @@ void copyCells(const ktplace::Graph &graph, std::vector<Cell> &out) {
     }
 }
 
-/// Pins and nets, in the order the design has them, so pin ids line up with the
-/// cell ids MultiRow already has.
 void copyNets(const ktplace::Graph &graph, std::vector<Pin> &pins, std::vector<Net> &nets) {
     pins.resize(graph.getNumPins());
     for (std::size_t p = 0; p < graph.getNumPins(); ++p) {
@@ -81,27 +78,9 @@ void copyFences(const ktplace::constraintMgr &mgr, Fences &out) {
 
 }  // namespace
 
-multirowDM buildMultiRowDM(const ktDM &db) {
-    Design design;
-    copyCells(db.getGraph(), design.cells);
-    copyNets(db.getGraph(), design.pins, design.nets);
-    copyRows(db.getRows(), db.fencedSubrows(), design.rows);
-    copyFences(db.constraints(), design.fences);
-    design.die = placementDieBox(db.die(), db.getGraph());
-
-    const StageCounts counts = countStage(design);
-    multirowDM result(std::move(design));
-    result.opts = loadOptions<MultiRowOptions>();
-    reportStageBuild(counts, db.checksum(), result.opts);
-    return result;
-}
-
 namespace {
 
-/// The pass's own summary, emitted from the run that produced the numbers rather
-/// than by the caller. Nothing outside this pass can act on these, so they are
-/// printed here and not returned.
-void reportRun(const MultiRowLegalizeResult &res) {
+void reportRun(const MultiRowResult &res) {
     ktReportTable table("Legalization (multi-row)");
     table.setHeaders({"metric", "value"});
     table.addRow({"movable cells", std::format("{}", res.movable)});
@@ -125,17 +104,97 @@ void reportRun(const MultiRowLegalizeResult &res) {
 
 }  // namespace
 
-multirowDM::multirowDM(Design design) : d(std::move(design)) {}
-
-multiRowSolution multirowDM::run() {
-    MultiRowLegalizer legalizer(d);
-    const MultiRowLegalizeResult result = legalizer.legalize(opts);
-    reportRun(result);
-
-    // Only the placement crosses the boundary. The statistics are printed above
-    // and dropped here, so the flow only ever sees where the cells went.
-    return legalizer.solution();
+void Region::seal() {
+    if (rects.empty()) {
+        minX = minY = maxX = maxY = 0.0;
+        return;
+    }
+    minX = minY = std::numeric_limits<double>::max();
+    maxX = maxY = std::numeric_limits<double>::lowest();
+    for (const Rect &r : rects) {
+        minX = std::min(minX, r.xlo);
+        minY = std::min(minY, r.ylo);
+        maxX = std::max(maxX, r.xhi);
+        maxY = std::max(maxY, r.yhi);
+    }
 }
 
+std::size_t Fences::countViolations(const std::vector<double> &positions,
+                                    const std::vector<int> &regionIds) const {
+    std::size_t bad = 0;
+    const std::size_t n = std::min(regionIds.size(), positions.size() / 2);
+    for (std::size_t i = 0; i < n; ++i) {
+        const int id = regionIds[i];
+        if (id < 0 || static_cast<std::size_t>(id) >= regions.size()) {
+            continue;
+        }
+        if (!regions[static_cast<std::size_t>(id)].contains(positions[2 * i],
+                                                            positions[2 * i + 1])) {
+            ++bad;
+        }
+    }
+    return bad;
+}
+
+double netlistHPWL(const std::vector<Cell> &, const std::vector<Net> &nets,
+                   const std::vector<Pin> &pins, const std::vector<double> &xs,
+                   const std::vector<double> &ys) {
+    double total = 0.0;
+    for (const Net &net : nets) {
+        if (net.pins.size() < 2) {
+            continue;
+        }
+        double xlo = std::numeric_limits<double>::max();
+        double xhi = std::numeric_limits<double>::lowest();
+        double ylo = std::numeric_limits<double>::max();
+        double yhi = std::numeric_limits<double>::lowest();
+        for (const std::size_t pinId : net.pins) {
+            const Pin &pin = pins.at(pinId);
+            const double px = xs.at(pin.cellId) + pin.offsetX;
+            const double py = ys.at(pin.cellId) + pin.offsetY;
+            xlo = std::min(xlo, px);
+            xhi = std::max(xhi, px);
+            ylo = std::min(ylo, py);
+            yhi = std::max(yhi, py);
+        }
+        total += (xhi - xlo) + (yhi - ylo);
+    }
+    return total;
+}
+
+multirowDM::multirowDM(Design design, MultiRowOptions options)
+    : d(std::move(design)), opts(std::move(options)) {}
+
+MultiRowResult multirowDM::run() {
+    MultiRowLegalizer legalizer(d);
+    const MultiRowResult result = legalizer.legalize(opts);
+    reportRun(result);
+    return result;
+}
+
+multiRowSolution multirowDM::solution() const {
+    multiRowSolution out;
+    out.xs.reserve(d.cells.size());
+    out.ys.reserve(d.cells.size());
+    for (const Cell &cell : d.cells) {
+        out.xs.push_back(cell.x);
+        out.ys.push_back(cell.y);
+    }
+    return out;
+}
+
+multirowDM buildMultiRowDM(const ktDM &db) {
+    Design design;
+    copyCells(db.getGraph(), design.cells);
+    copyNets(db.getGraph(), design.pins, design.nets);
+    copyRows(db.getRows(), db.fencedSubrows(), design.rows);
+    copyFences(db.constraints(), design.fences);
+    design.die = placementDieBox(db.die(), db.getGraph());
+
+    const StageCounts counts = countStage(design);
+    multirowDM dm(std::move(design), loadOptions<MultiRowOptions>());
+    reportStageBuild(counts, db.checksum(), dm.options());
+    return dm;
+}
 
 }  // namespace ktplace::multirow

@@ -12,7 +12,7 @@ override INCLUDES := -I.. $(THIRD_PARTY_INCLUDES)
 OBJ_DIR ?= ../build/obj/detailPlacer
 
 # Source files in this directory
-SRCS := fastdp/fastdp_placer.cc fastdp/fastdp_design.cc fastdp/fastdp_dm.cc \
+SRCS := fastdp/fastdp_placer.cc fastdp/fastdp_dm.cc \
         fastdp/fastdp_flowMgr.cc
 
 EXISTING_SRCS := $(foreach src,$(SRCS),$(if $(wildcard $(src)),$(src),))

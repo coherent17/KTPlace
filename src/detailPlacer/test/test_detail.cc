@@ -8,6 +8,7 @@
 #include "datamodel/kt_constraintMgr.h"
 #include "datamodel/kt_dm.h"
 #include "detailPlacer/fastdp/fastdp_dm.h"
+#include "detailPlacer/fastdp/fastdp_flowMgr.h"
 #include "detailPlacer/fastdp/fastdp_placer.h"
 
 #include <boost/test/unit_test.hpp>
@@ -15,12 +16,12 @@
 // Run the placer over a database built from `db`, then commit its answer -- the
 // same two steps the flow performs. The placer itself writes nothing, so a test
 // that asserted on the design without this would be asserting on its own input.
-static ktplace::DetailPlaceResult runAndCommit(ktplace::ktDM &db,
-                                               const ktplace::FastdpOptions &params = {}) {
-    ktplace::fastdp::fastdpDM dpDB = ktplace::fastdp::buildFastdpDM(db);
-    ktplace::FastDetailedPlacer dp(dpDB.design());
-    const ktplace::DetailPlaceResult result = dp.place(params);
-    db.setDetailedPlaceSolution(dp.solution());
+static ktplace::fastdp::FastdpResult runAndCommit(ktplace::ktDM &db,
+                                                  const ktplace::FastdpOptions &params = {}) {
+    ktplace::fastdp::flowMgr flow(db);
+    flow.dm().options() = params;
+    const ktplace::fastdp::FastdpResult result = flow.run();
+    db.setFastdpSolution(flow.solution());
     return result;
 }
 
@@ -223,7 +224,7 @@ BOOST_AUTO_TEST_CASE(a_design_with_nothing_to_do_is_left_alone) {
     addRow(db, 0, 20);
     addCell(db, "a", 0.0, 0);
     addCell(db, "b", 1.0, 0);
-    const DetailPlaceResult r = runAndCommit(db, none());
+    const fastdp::FastdpResult r = runAndCommit(db, none());
     BOOST_TEST(r.globalSwaps == 0u);
     BOOST_TEST(r.verticalSwaps == 0u);
     BOOST_TEST(r.reorderMoves == 0u);
@@ -233,7 +234,7 @@ BOOST_AUTO_TEST_CASE(a_design_with_nothing_to_do_is_left_alone) {
 
 BOOST_AUTO_TEST_CASE(an_empty_database_does_not_crash) {
     ktDM db;
-    DetailPlaceResult r;
+    fastdp::FastdpResult r;
     BOOST_CHECK_NO_THROW(r = runAndCommit(db));
     BOOST_TEST(r.overlappingPairs == 0u);
     BOOST_TEST(r.offRow == 0u);
@@ -257,7 +258,7 @@ BOOST_AUTO_TEST_CASE(placing_a_legal_design_keeps_it_legal) {
             addCell(db, "c" + std::to_string(r * 10 + c), c * 2.0, r);
         }
     }
-    const DetailPlaceResult res = runAndCommit(db);
+    const fastdp::FastdpResult res = runAndCommit(db);
     BOOST_TEST(res.overlappingPairs == 0u);
     BOOST_TEST(res.offRow == 0u);
     BOOST_TEST(res.offSite == 0u);
@@ -276,7 +277,7 @@ BOOST_AUTO_TEST_CASE(an_illegal_input_is_reported_rather_than_silently_called_le
     addCell(db, "a", 5.0, 0);
     addCell(db, "b", 5.0, 0);  // exactly on top of a
     addCell(db, "c", 6.0, 0);
-    const DetailPlaceResult r = runAndCommit(db);
+    const fastdp::FastdpResult r = runAndCommit(db);
     BOOST_TEST(r.overlappingPairs == 0u);
     BOOST_TEST(isLegal(db));
 }
@@ -289,7 +290,7 @@ BOOST_AUTO_TEST_CASE(an_unrepairable_overlap_is_still_reported) {
     addRow(db, 0, 4);
     addCellRaw(db, "a", 1.0, 0, 3.0);
     addCellRaw(db, "b", 1.0, 0, 3.0);
-    const DetailPlaceResult r = runAndCommit(db);
+    const fastdp::FastdpResult r = runAndCommit(db);
     BOOST_TEST(r.overlappingPairs > 0u);
 }
 
@@ -313,7 +314,7 @@ BOOST_AUTO_TEST_CASE(hpwl_never_gets_worse_over_the_whole_run) {
             addNet(db, "n" + a + b, a, b);
         }
     }
-    const DetailPlaceResult res = runAndCommit(db);
+    const fastdp::FastdpResult res = runAndCommit(db);
     BOOST_TEST(res.hpwlBefore > 0.0);
     BOOST_TEST(res.hpwlAfter <= res.hpwlBefore + 1e-6);
     BOOST_TEST(res.seconds >= 0.0);
@@ -333,7 +334,7 @@ BOOST_AUTO_TEST_CASE(an_already_optimal_placement_is_not_reshuffled) {
         const std::string b = "c" + std::to_string(c + 1);
         addNet(db, "n" + a + b, a, b);
     }
-    const DetailPlaceResult r = runAndCommit(db);
+    const fastdp::FastdpResult r = runAndCommit(db);
     BOOST_TEST(r.hpwlAfter <= r.hpwlBefore + 1e-6);
     BOOST_TEST(isLegal(db));
 }
@@ -358,7 +359,7 @@ BOOST_AUTO_TEST_CASE(global_swap_alone_stays_legal) {
             addNet(db, "n" + a + b, a, b);
         }
     }
-    const DetailPlaceResult r = runAndCommit(db, only(0));
+    const fastdp::FastdpResult r = runAndCommit(db, only(0));
     BOOST_TEST(r.globalSwaps >= 1u);
     BOOST_TEST(r.verticalSwaps == 0u);
     BOOST_TEST(r.overlappingPairs == 0u);
@@ -381,7 +382,7 @@ BOOST_AUTO_TEST_CASE(global_swap_never_moves_a_cell_onto_a_fixed_one) {
     // A cell that would like to sit next to the macro.
     addNet(db, "nmacro", "c0", "macro");
 
-    const DetailPlaceResult r = runAndCommit(db, only(0));
+    const fastdp::FastdpResult r = runAndCommit(db, only(0));
     BOOST_TEST(r.overFixed == 0u);
     BOOST_TEST(r.overlappingPairs == 0u);
     // The macro is where it started.
@@ -403,7 +404,7 @@ BOOST_AUTO_TEST_CASE(vertical_swap_pulls_a_cell_back_to_its_own_row) {
     addNet(db, "n0", "a", "b");
     addNet(db, "n1", "b", "c");
 
-    const DetailPlaceResult r = runAndCommit(db, only(1));
+    const fastdp::FastdpResult r = runAndCommit(db, only(1));
     BOOST_TEST(r.verticalSwaps >= 1u);
     // The rows exchanged, so the y term of the HPWL is part of the decision.
     BOOST_TEST(r.hpwlAfter < r.hpwlBefore);
@@ -424,7 +425,7 @@ BOOST_AUTO_TEST_CASE(local_reordering_reduces_a_backwards_ordering) {
     addNet(db, "n0", "p", "r");
     addNet(db, "n1", "p", "q");
 
-    const DetailPlaceResult r = runAndCommit(db, only(2));
+    const fastdp::FastdpResult r = runAndCommit(db, only(2));
     BOOST_TEST(r.reorderMoves >= 1u);
     BOOST_TEST(r.hpwlAfter < r.hpwlBefore);
     BOOST_TEST(r.overlappingPairs == 0u);
@@ -457,7 +458,7 @@ BOOST_AUTO_TEST_CASE(local_reordering_never_moves_a_cell_onto_a_fixed_one) {
         addNet(db, "n" + a + b, a, b);
     }
 
-    const DetailPlaceResult r = runAndCommit(db, only(2));
+    const fastdp::FastdpResult r = runAndCommit(db, only(2));
     BOOST_TEST(r.overFixed == 0u);
     BOOST_TEST(r.overlappingPairs == 0u);
     BOOST_TEST(r.offRow == 0u);
@@ -484,7 +485,7 @@ BOOST_AUTO_TEST_CASE(local_reordering_keeps_cells_on_their_sites) {
         const std::string b = "c" + std::to_string(c + 1);
         addNet(db, "n" + a + b, a, b);
     }
-    const DetailPlaceResult r = runAndCommit(db, only(2));
+    const fastdp::FastdpResult r = runAndCommit(db, only(2));
     BOOST_TEST(r.overlappingPairs == 0u);
     BOOST_TEST(rowZeroOffsite(db) == 0u);
     BOOST_TEST(isLegal(db));
@@ -505,7 +506,7 @@ BOOST_AUTO_TEST_CASE(single_segment_clustering_tightens_a_gap) {
         addNet(db, "n" + e.first + e.second, e.first, e.second);
     }
 
-    const DetailPlaceResult r = runAndCommit(db, only(3));
+    const fastdp::FastdpResult r = runAndCommit(db, only(3));
     BOOST_TEST(r.clusterMoves >= 1u);
     BOOST_TEST(rowZeroOffsite(db) == 0u);
     BOOST_TEST(r.overlappingPairs == 0u);
@@ -522,7 +523,7 @@ BOOST_AUTO_TEST_CASE(single_segment_clustering_resolves_an_overlap) {
     addCellRaw(db, "c1", 2.5, 0, 2.0);
     addNet(db, "n0", "c0", "c1");
 
-    const DetailPlaceResult r = runAndCommit(db, only(3));
+    const fastdp::FastdpResult r = runAndCommit(db, only(3));
     BOOST_TEST(r.clusterMoves >= 1u);
     BOOST_TEST(r.overlappingPairs == 0u);
     BOOST_TEST(isLegal(db));
@@ -544,7 +545,7 @@ BOOST_AUTO_TEST_CASE(the_move_counts_add_up_to_the_reported_totals) {
             addNet(db, "n" + a + b, a, b);
         }
     }
-    const DetailPlaceResult r = runAndCommit(db);
+    const fastdp::FastdpResult r = runAndCommit(db);
     const std::size_t moves = r.globalSwaps + r.verticalSwaps + r.reorderMoves + r.clusterMoves;
     BOOST_TEST(moves <= r.hpwlBefore + 1e9);  // sanity: no overflow to a huge value
     BOOST_TEST(r.overlappingPairs == 0u);
@@ -577,7 +578,7 @@ BOOST_AUTO_TEST_CASE(a_local_reorder_window_of_zero_does_not_hang) {
     FastdpOptions p = none();
     p.localReorder = true;
     p.reorderWindow = 0;
-    DetailPlaceResult r;
+    fastdp::FastdpResult r;
     BOOST_CHECK_NO_THROW(r = runAndCommit(db, p));
     BOOST_TEST(r.overlappingPairs == 0u);
 
@@ -602,7 +603,7 @@ BOOST_AUTO_TEST_CASE(an_oversized_local_reorder_window_is_capped_not_obeyed) {
     FastdpOptions p = none();
     p.localReorder = true;
     p.reorderWindow = 64;
-    DetailPlaceResult r;
+    fastdp::FastdpResult r;
     BOOST_CHECK_NO_THROW(r = runAndCommit(db, p));
     BOOST_TEST(r.overlappingPairs == 0u);
     BOOST_TEST(r.reorderMoves < db.getNumCells() * 100u);
@@ -612,7 +613,7 @@ BOOST_AUTO_TEST_CASE(a_single_cell_placement_is_legal_and_untouched) {
     ktDM db;
     addRow(db, 0, 10);
     addCell(db, "only", 3.0, 0);
-    const DetailPlaceResult r = runAndCommit(db);
+    const fastdp::FastdpResult r = runAndCommit(db);
     BOOST_TEST(r.globalSwaps == 0u);
     BOOST_TEST(r.hpwlBefore == 0.0);
     BOOST_TEST(r.hpwlAfter == 0.0);
@@ -629,7 +630,7 @@ BOOST_AUTO_TEST_CASE(a_cell_with_no_nets_stays_where_it_is) {
     addCell(db, "lonely", 7.0, 0);
     addCell(db, "n1", 1.0, 0);
     addCell(db, "n2", 2.0, 0);
-    const DetailPlaceResult r = runAndCommit(db);
+    const fastdp::FastdpResult r = runAndCommit(db);
     BOOST_TEST(isLegal(db));
     // The report has to agree with the placement, not just be produced: a detail
     // placer that reported zero overlaps while the cells overlapped would still
@@ -648,7 +649,7 @@ BOOST_AUTO_TEST_CASE(cells_at_the_ends_of_a_row_are_not_pushed_off_it) {
     addCell(db, "a", 0.0, 0);
     addCell(db, "b", 5.0, 0);
     addFixed(db, "pad", 3.0, 0);
-    const DetailPlaceResult r = runAndCommit(db);
+    const fastdp::FastdpResult r = runAndCommit(db);
     BOOST_TEST(r.offSite == 0u);
     BOOST_TEST(r.overlappingPairs == 0u);
     BOOST_TEST(isLegal(db));
@@ -669,7 +670,7 @@ BOOST_AUTO_TEST_CASE(a_row_split_by_a_subrow_gap_is_respected) {
     BOOST_TEST(db.getRows()[row].subrows.size() == 2u);
     addCell(db, "a", 1.0, 0);
     addCell(db, "b", 21.0, 0);
-    const DetailPlaceResult r = runAndCommit(db);
+    const fastdp::FastdpResult r = runAndCommit(db);
     BOOST_TEST(r.offSite == 0u);
     BOOST_TEST(r.overlappingPairs == 0u);
     // Neither cell may sit in the gap at x in (5, 20).
@@ -697,7 +698,7 @@ BOOST_AUTO_TEST_CASE(fences_are_accepted_without_being_enforced) {
 
     FastdpOptions p = none();
     p.globalSwap = true;
-    DetailPlaceResult r;
+    fastdp::FastdpResult r;
     BOOST_CHECK_NO_THROW(r = runAndCommit(db, p));
     BOOST_TEST(r.overlappingPairs == 0u);
     BOOST_TEST(isLegal(db));
@@ -712,7 +713,7 @@ BOOST_AUTO_TEST_CASE(no_frame_sink_does_not_lose_the_placement) {
     for (int c = 0; c < 6; ++c) {
         addCell(db, "c" + std::to_string(c), 1.0 + c * 3.0, 0);
     }
-    DetailPlaceResult r;
+    fastdp::FastdpResult r;
     BOOST_CHECK_NO_THROW(r = runAndCommit(db));
     BOOST_TEST(r.overlappingPairs == 0u);
     BOOST_TEST(isLegal(db));
@@ -721,8 +722,8 @@ BOOST_AUTO_TEST_CASE(no_frame_sink_does_not_lose_the_placement) {
 BOOST_AUTO_TEST_CASE(the_placer_is_not_copyable) {
     // PIMPL with unique_ptr: a copy would double-free. Deleting the operations
     // is the cheap way to make that impossible.
-    static_assert(!std::is_copy_constructible_v<FastDetailedPlacer>);
-    static_assert(!std::is_copy_assignable_v<FastDetailedPlacer>);
+    static_assert(!std::is_copy_constructible_v<fastdp::FastDetailedPlacer>);
+    static_assert(!std::is_copy_assignable_v<fastdp::FastDetailedPlacer>);
     BOOST_TEST(true);
 }
 
@@ -765,7 +766,7 @@ BOOST_AUTO_TEST_CASE(failed_vertical_swap_restores_the_row_the_cell_is_in) {
         addNet(db, "nd2_" + std::to_string(k), "d2", "p3");
     }
 
-    const DetailPlaceResult r = runAndCommit(db, only(1));
+    const fastdp::FastdpResult r = runAndCommit(db, only(1));
     BOOST_TEST(r.verticalSwaps >= 1u);
 
     // c swapped into row 0 and its failed second trial must leave it there.
@@ -850,11 +851,11 @@ BOOST_AUTO_TEST_CASE(a_vertical_swap_does_not_carry_cells_across_a_fence) {
 
     // Run twice on one placer object, which also checks that no per-run state
     // (the cells' regions among it) carries over between calls.
-    fastdp::fastdpDM dpDB = fastdp::buildFastdpDM(db);
-    FastDetailedPlacer dp(dpDB.design());
+    fastdp::Design design = fastdp::buildFastdpDM(db).design();
+    fastdp::FastDetailedPlacer dp(design);
     (void)dp.place(only(1));
     (void)dp.place(only(1));
-    db.setDetailedPlaceSolution(dp.solution());
+    db.setFastdpSolution(fastdp::fastdpDM(std::move(design), only(1)).solution());
 
     const auto [mx, my] = db.getCellPosition("m0");
     BOOST_TEST((my == 10.0 && mx >= 0.0 && mx + 1.0 <= 30.0 + 1e-9),

@@ -1,10 +1,5 @@
-// @file multirow_legalizer.cc
-// Multi-row height legalization: Abacus extended to cells spanning several rows
-// (Chow, Pui & Young, DAC 2016), after a macro pre-pass for very tall cells
-
 #include "legalizer/multirow/multirow_legalizer.h"
 
-#include "legalizer/multirow/multirow_design.h"
 #include "util/kt_scopedTimer.h"
 
 #include <algorithm>
@@ -17,7 +12,7 @@
 #include <utility>
 #include <vector>
 
-namespace ktplace {
+namespace ktplace::multirow {
 
 namespace {
 
@@ -57,7 +52,7 @@ struct Lane {
     double xlo = 0.0;
     double xhi = 0.0;
     double pitch = 0.0;
-    int region = multirow::Fences::noRegion;
+    int region = Fences::noRegion;
     std::vector<std::uint32_t> clusters;
 };
 
@@ -106,15 +101,15 @@ struct Slot {
 
 class MultiRowLegalizer::Impl {
 public:
-    explicit Impl(const multirow::Design &d) : design(d) {}
+    explicit Impl(Design &d) : design(d) {}
 
-    MultiRowLegalizeResult run(const MultiRowOptions &params);
+    MultiRowResult run(const MultiRowOptions &params);
 
     std::vector<double> xs;
     std::vector<double> ys;
 
 private:
-    void legalizeMacros(const std::vector<std::uint32_t> &macros, MultiRowLegalizeResult &res);
+    void legalizeMacros(const std::vector<std::uint32_t> &macros, MultiRowResult &res);
     void buildLanes();
     [[nodiscard]] std::vector<Slot> slots(std::size_t bottom, std::size_t span, int region,
                                           double width) const;
@@ -135,9 +130,9 @@ private:
     void rollback();
     void forget();
 
-    const multirow::Design &design;
+    Design &design;
     double rowHeight = 0.0;
-    std::vector<multirow::RowInfo> rows;
+    std::vector<RowInfo> rows;
     std::vector<Box> blocked;
     std::vector<Lane> lanes;
     std::vector<std::vector<std::uint32_t>> lanesOfRow;
@@ -159,7 +154,7 @@ std::vector<std::uint32_t> MultiRowLegalizer::Impl::fillGaps(
     std::vector<std::size_t> &bottomRow) {
     std::vector<Intervals> used(lanes.size());
     const auto occupy = [&](std::uint32_t v) {
-        const multirow::Cell &c = design.cells[v];
+        const Cell &c = design.cells[v];
         const std::size_t span = spanOf(c.height);
         for (std::size_t k = bottomRow[v]; k < bottomRow[v] + span && k < rows.size(); ++k) {
             for (const std::uint32_t l : lanesOfRow[k]) {
@@ -177,19 +172,19 @@ std::vector<std::uint32_t> MultiRowLegalizer::Impl::fillGaps(
     }
 
     std::stable_sort(pending.begin(), pending.end(), [&](std::uint32_t a, std::uint32_t b) {
-        const multirow::Cell &ca = design.cells[a];
-        const multirow::Cell &cb = design.cells[b];
+        const Cell &ca = design.cells[a];
+        const Cell &cb = design.cells[b];
         return ca.width * ca.height > cb.width * cb.height;
     });
     std::vector<std::uint32_t> filled;
     std::vector<std::size_t> byDistance(rows.size());
     for (const std::uint32_t v : pending) {
-        const multirow::Cell &cell = design.cells[v];
+        const Cell &cell = design.cells[v];
         const std::size_t span = spanOf(cell.height);
         const int region = cell.regionId >= 0 && static_cast<std::size_t>(cell.regionId) <
                                                      design.fences.numRegions()
                                ? cell.regionId
-                               : multirow::Fences::noRegion;
+                               : Fences::noRegion;
         std::iota(byDistance.begin(), byDistance.end(), 0u);
         std::stable_sort(byDistance.begin(), byDistance.end(), [&](std::size_t a, std::size_t b) {
             return std::abs(rows[a].coordinate - cell.y) < std::abs(rows[b].coordinate - cell.y);
@@ -252,16 +247,16 @@ std::size_t MultiRowLegalizer::Impl::spanOf(double height) const {
 }
 
 void MultiRowLegalizer::Impl::legalizeMacros(const std::vector<std::uint32_t> &macros,
-                                             MultiRowLegalizeResult &res) {
+                                             MultiRowResult &res) {
     std::vector<std::uint32_t> order = macros;
     std::stable_sort(order.begin(), order.end(), [&](std::uint32_t a, std::uint32_t b) {
-        const multirow::Cell &ca = design.cells[a];
-        const multirow::Cell &cb = design.cells[b];
+        const Cell &ca = design.cells[a];
+        const Cell &cb = design.cells[b];
         return ca.width * ca.height > cb.width * cb.height;
     });
     std::vector<std::size_t> byDistance(rows.size());
     for (const std::uint32_t v : order) {
-        const multirow::Cell &cell = design.cells[v];
+        const Cell &cell = design.cells[v];
         std::iota(byDistance.begin(), byDistance.end(), 0u);
         std::stable_sort(byDistance.begin(), byDistance.end(), [&](std::size_t a, std::size_t b) {
             return std::abs(rows[a].coordinate - cell.y) < std::abs(rows[b].coordinate - cell.y);
@@ -278,7 +273,7 @@ void MultiRowLegalizer::Impl::legalizeMacros(const std::vector<std::uint32_t> &m
                 continue;
             }
             Intervals free;
-            for (const multirow::Subrow &s : rows[r].subrows) {
+            for (const Subrow &s : rows[r].subrows) {
                 free.emplace_back(s.xlo, s.xhi);
             }
             std::stable_sort(free.begin(), free.end());
@@ -287,7 +282,7 @@ void MultiRowLegalizer::Impl::legalizeMacros(const std::vector<std::uint32_t> &m
                 contiguous = std::abs(rows[k].coordinate -
                                       (rows[k - 1].coordinate + rows[k - 1].height)) < 1e-6;
                 Intervals here;
-                for (const multirow::Subrow &s : rows[k].subrows) {
+                for (const Subrow &s : rows[k].subrows) {
                     here.emplace_back(s.xlo, s.xhi);
                 }
                 std::stable_sort(here.begin(), here.end());
@@ -349,11 +344,11 @@ void MultiRowLegalizer::Impl::legalizeMacros(const std::vector<std::uint32_t> &m
 void MultiRowLegalizer::Impl::buildLanes() {
     lanesOfRow.assign(rows.size(), {});
     for (std::size_t r = 0; r < rows.size(); ++r) {
-        const multirow::RowInfo &row = rows[r];
+        const RowInfo &row = rows[r];
         const double y0 = row.coordinate;
         const double y1 = y0 + row.height;
         std::vector<std::tuple<double, double, int>> pieces;
-        for (const multirow::Subrow &s : row.subrows) {
+        for (const Subrow &s : row.subrows) {
             if (!(s.xhi > s.xlo)) {
                 continue;
             }
@@ -553,7 +548,7 @@ void MultiRowLegalizer::Impl::merge(std::uint32_t left, std::uint32_t right) {
 
 std::uint32_t MultiRowLegalizer::Impl::insert(std::uint32_t cell, const Slot &slot, double target,
                                               bool &feasible) {
-    const multirow::Cell &c = design.cells[cell];
+    const Cell &c = design.cells[cell];
     Cluster fresh;
     fresh.n = 1.0;
     fresh.a = -target;
@@ -614,17 +609,16 @@ std::uint32_t MultiRowLegalizer::Impl::insert(std::uint32_t cell, const Slot &sl
     }
 }
 
-MultiRowLegalizeResult MultiRowLegalizer::Impl::run(const MultiRowOptions &params) {
+MultiRowResult MultiRowLegalizer::Impl::run(const MultiRowOptions &params) {
     ScopedTimer timer("multirow");
-    MultiRowLegalizeResult res;
+    MultiRowResult res;
 
     rows = design.rows;
-    std::stable_sort(rows.begin(), rows.end(),
-                     [](const multirow::RowInfo &a, const multirow::RowInfo &b) {
-                         return a.coordinate < b.coordinate;
-                     });
+    std::stable_sort(rows.begin(), rows.end(), [](const RowInfo &a, const RowInfo &b) {
+        return a.coordinate < b.coordinate;
+    });
     rowHeight = std::numeric_limits<double>::max();
-    for (const multirow::RowInfo &r : rows) {
+    for (const RowInfo &r : rows) {
         if (r.height > 0.0 && !r.subrows.empty()) {
             rowHeight = std::min(rowHeight, r.height);
         }
@@ -636,7 +630,7 @@ MultiRowLegalizeResult MultiRowLegalizer::Impl::run(const MultiRowOptions &param
     std::vector<std::uint32_t> macros;
     std::vector<std::uint32_t> cells;
     for (std::uint32_t v = 0; v < n; ++v) {
-        const multirow::Cell &c = design.cells[v];
+        const Cell &c = design.cells[v];
         xs[v] = c.x;
         ys[v] = c.y;
         if (c.isFixed || c.isTerminal) {
@@ -656,7 +650,7 @@ MultiRowLegalizeResult MultiRowLegalizer::Impl::run(const MultiRowOptions &param
         }
     }
     res.macros = macros.size();
-    res.hpwlBefore = multirow::netlistHPWL(design.cells, design.nets, design.pins, xs, ys);
+    res.hpwlBefore = netlistHPWL(design.cells, design.nets, design.pins, xs, ys);
     if (rows.empty()) {
         res.unplaced = res.movable;
         res.hpwlAfter = res.hpwlBefore;
@@ -684,12 +678,12 @@ MultiRowLegalizeResult MultiRowLegalizer::Impl::run(const MultiRowOptions &param
     std::vector<std::uint32_t> pending;
     std::vector<std::size_t> bottomRow(n, 0);
     for (const std::uint32_t v : cells) {
-        const multirow::Cell &cell = design.cells[v];
+        const Cell &cell = design.cells[v];
         const std::size_t span = spanOf(cell.height);
         const int region = cell.regionId >= 0 && static_cast<std::size_t>(cell.regionId) <
                                                      design.fences.numRegions()
                                ? cell.regionId
-                               : multirow::Fences::noRegion;
+                               : Fences::noRegion;
         const std::size_t home = static_cast<std::size_t>(
             std::lower_bound(rowY.begin(), rowY.end(), cell.y) - rowY.begin());
 
@@ -791,7 +785,7 @@ MultiRowLegalizeResult MultiRowLegalizer::Impl::run(const MultiRowOptions &param
     res.multiRowPlaced += res.macrosPlaced;
     res.unplaced = res.movable - res.placed;
     for (std::uint32_t v = 0; v < n; ++v) {
-        const multirow::Cell &c = design.cells[v];
+        const Cell &c = design.cells[v];
         if (!c.isFixed && !c.isTerminal) {
             const double moved =
                 std::sqrt((xs[v] - c.x) * (xs[v] - c.x) + (ys[v] - c.y) * (ys[v] - c.y));
@@ -799,13 +793,16 @@ MultiRowLegalizeResult MultiRowLegalizer::Impl::run(const MultiRowOptions &param
             res.maxDisplacement = std::max(res.maxDisplacement, moved);
         }
     }
-    res.hpwlAfter = multirow::netlistHPWL(design.cells, design.nets, design.pins, xs, ys);
+    res.hpwlAfter = netlistHPWL(design.cells, design.nets, design.pins, xs, ys);
+    for (std::uint32_t v = 0; v < n; ++v) {
+        design.cells[v].x = xs[v];
+        design.cells[v].y = ys[v];
+    }
     res.seconds = timer.elapsedSeconds();
     return res;
 }
 
-MultiRowLegalizer::MultiRowLegalizer(const multirow::Design &design)
-    : pImpl(std::make_unique<Impl>(design)) {}
+MultiRowLegalizer::MultiRowLegalizer(Design &design) : pImpl(std::make_unique<Impl>(design)) {}
 
 MultiRowLegalizer::~MultiRowLegalizer() = default;
 
@@ -813,12 +810,8 @@ MultiRowLegalizer::MultiRowLegalizer(MultiRowLegalizer &&) noexcept = default;
 
 MultiRowLegalizer &MultiRowLegalizer::operator=(MultiRowLegalizer &&) noexcept = default;
 
-MultiRowLegalizeResult MultiRowLegalizer::legalize(const MultiRowOptions &options) {
+MultiRowResult MultiRowLegalizer::legalize(const MultiRowOptions &options) {
     return pImpl->run(options);
 }
 
-multiRowSolution MultiRowLegalizer::solution() const {
-    return {pImpl->xs, pImpl->ys};
-}
-
-}  // namespace ktplace
+}  // namespace ktplace::multirow
