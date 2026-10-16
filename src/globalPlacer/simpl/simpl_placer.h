@@ -1,6 +1,3 @@
-// @file simpl_placer.h
-// SimPL global placement (Kim, Lee & Markov, CACM 56(6):105-113, 2013)
-
 #pragma once
 
 #include "globalPlacer/simpl/simpl_design.h"

@@ -1,9 +1,3 @@
-// @file simpl_graph.h
-// SimPL's own netlist model.
-//
-// Deliberately not the shared Graph: SimPL is its own library and knows nothing
-// about ktDM. buildSimplDM in simpl_dm.cc fills this in.
-
 #pragma once
 
 #include <cstddef>
@@ -16,7 +10,6 @@ enum class PinRole {
     Receiver,
 };
 
-/// A placed object: a standard cell, a macro, or a fixed pad.
 struct Cell {
     double x = 0.0;
     double y = 0.0;
@@ -24,11 +17,9 @@ struct Cell {
     double height = 0.0;
     bool isFixed = false;
     bool isTerminal = false;
-    /// Index into the design's fence regions, or noRegion.
     int regionId = -1;
 };
 
-/// A pin on a cell. Offsets are from the cell origin.
 struct Pin {
     std::size_t cellId = 0;
     std::size_t netId = 0;
@@ -37,14 +28,11 @@ struct Pin {
     double offsetY = 0.0;
 };
 
-/// A net and the pins on it.
 struct Net {
     double weight = 1.0;
     std::vector<std::size_t> pins;
 };
 
-/// The netlist as SimPL sees it: flat arrays with net-to-pin and pin-to-cell
-/// links, which is the shape the quadratic solver wants to walk.
 class Graph {
 public:
     [[nodiscard]] std::size_t getNumCells() const noexcept {

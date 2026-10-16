@@ -1,9 +1,3 @@
-// @file simpl_fence.h
-// SimPL's own placement regions.
-//
-// The shared constraintMgr carries DEF regions with names, cell counts and
-// history SimPL never looks at. This is the part it needs.
-
 #pragma once
 
 #include <cstddef>
@@ -29,8 +23,6 @@ struct Rect {
     }
 };
 
-/// One placement region. A region is a union of rectangles and is generally
-/// disconnected, so the rectangles are kept apart rather than merged.
 struct Region {
     std::string name;
     std::vector<Rect> rects;
@@ -50,12 +42,9 @@ struct Region {
         }
         return false;
     }
-    /// Recompute the bounding box and area from the rectangles.
     void seal();
 };
 
-/// The regions of one design. Default-constructed means "no regions", which is a
-/// correctly unconstrained design, not a missing one.
 class Fences {
 public:
     static constexpr int noRegion = -1;
@@ -67,17 +56,11 @@ public:
         return regions.at(static_cast<std::size_t>(id));
     }
 
-    /// Pull (x,y) back inside region `id`, if it is outside. Returns true when it
-    /// had to move.
     bool clampToRegion(int id, double &x, double &y) const;
 
-    /// Move (x,y) just outside every region it sits inside, when the design is
-    /// unconstrained apart from fences. Returns true when it had to move.
     bool pushOutOfRegions(double &x, double &y, double dieMinX, double dieMinY, double maxX,
                           double maxY) const;
 
-    /// How many of `regionIds` sit outside their region. `positions` is a flat
-    /// x,y list indexed the same way as regionIds.
     [[nodiscard]] std::size_t countViolations(const std::vector<double> &positions,
                                               const std::vector<int> &regionIds) const;
 
