@@ -21,8 +21,8 @@ x86-64 builds of the same engine:
 
 | archive | runs on | needs |
 | --- | --- | --- |
-| `ktplace-vX.Y.Z-linux-x86_64-static.tar.gz` | any x86-64 Linux | nothing: oneTBB, Boost, fmt, zlib and the C/C++ runtimes are linked in |
-| `ktplace-vX.Y.Z-linux-x86_64.tar.gz` | Ubuntu 24.04 | `sudo apt-get install libtbb12 libboost-iostreams1.83.0 zlib1g libfmt9` |
+| `ktplace-vX.Y.Z-linux-x86_64-static.tar.gz` | any x86-64 Linux | nothing: everything, the C/C++ runtimes included, is linked in |
+| `ktplace-vX.Y.Z-linux-x86_64.tar.gz` | Ubuntu 24.04 or newer | nothing beyond the base system (glibc 2.38+, libstdc++ from GCC 13.2+) |
 
 ```sh
 sha256sum -c ktplace-v1.0.0-linux-x86_64-static.tar.gz.sha256
@@ -33,17 +33,25 @@ ktplace --version
 
 ## Dependencies
 
-g++ 13+ (C++23), oneTBB, Boost (Iostreams, Test), zlib, fmt, clang-format.
+Building and running needs only g++ 13+ (C++23) and make. oneTBB (v2021.11.0)
+and zlib (v1.3.1) are git submodules under `third_party/` and are compiled into
+the binary by the build, so clone with them:
 
 ```sh
-sudo apt-get install -y --no-install-recommends \
-    g++ libtbb-dev libboost-iostreams-dev libboost-test-dev zlib1g-dev libfmt-dev clang-format
+git clone --recurse-submodules https://github.com/coherent17/KTPlace.git
+# or, in an existing clone:
+git submodule update --init --recursive
 ```
 
-System packages, not submodules: every distribution ships these, and vendoring
-them would only pin versions behind the distribution's own updates. CImg, which
-is *not* packaged usefully, is vendored as a single header under CeCILL-C and
-CeCILL; see the header in `src/visualization/` for its terms.
+Only the unit tests and formatting need packages:
+
+```sh
+sudo apt-get install -y --no-install-recommends libboost-test-dev clang-format
+```
+
+CImg is vendored as a single header under CeCILL-C and CeCILL; see the header in
+`src/visualization/` for its terms. oneTBB is Apache-2.0 and zlib is under the
+zlib license; see their directories under `third_party/`.
 
 ## Build
 
@@ -51,12 +59,11 @@ CeCILL; see the header in `src/visualization/` for its terms.
 make            # builds build/bin/ktplace
 make test       # build and run every unit suite
 make format     # clang-format the sources
-make STATIC=1 TBB_STATIC_ROOT=<prefix>   # build-static/bin/ktplace, fully static
+make STATIC=1   # build-static/bin/ktplace, with glibc and libstdc++ linked in too
 ```
 
-The static build needs a static oneTBB, which Ubuntu does not package; build
-oneTBB from source with `-DBUILD_SHARED_LIBS=OFF` and pass its install prefix.
-`.github/workflows/release.yml` shows the exact steps.
+The first build also compiles oneTBB and zlib from `third_party/` (about 30 s on
+16 cores); later builds reuse them.
 
 The build also writes `ktplace.sh` and `ktplace.csh` into the repository root.
 Source the one for your shell and the engine is callable by name:

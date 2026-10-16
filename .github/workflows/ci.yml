@@ -17,24 +17,23 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Install dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             g++ \
-            libtbb-dev \
-            libboost-iostreams-dev \
             libboost-test-dev \
-            zlib1g-dev \
-            libfmt-dev \
             clang-format
 
       - name: Show toolchain
         run: |
           g++ --version | head -1
           clang-format --version
-          dpkg -l | grep -E 'libtbb|libboost-test|libfmt' | awk '{print $2, $3}'
+          dpkg -l | grep -E 'libboost-test' | awk '{print $2, $3}'
+          git submodule status
 
       - name: Check formatting
         run: |
@@ -86,11 +85,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            libtbb-dev \
-            libboost-iostreams-dev \
-            libboost-test-dev \
-            zlib1g-dev \
-            libfmt-dev
+            libboost-test-dev
 
       - uses: actions/download-artifact@v4
         with:
@@ -115,15 +110,6 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install runtime libraries
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            libtbb-dev \
-            libboost-iostreams-dev \
-            zlib1g-dev \
-            libfmt-dev
 
       - uses: actions/download-artifact@v4
         with:
@@ -215,15 +201,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install runtime libraries
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            libtbb-dev \
-            libboost-iostreams-dev \
-            zlib1g-dev \
-            libfmt-dev
-
       - uses: actions/download-artifact@v4
         with:
           name: binaries
@@ -284,15 +261,6 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install runtime libraries
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            libtbb-dev \
-            libboost-iostreams-dev \
-            zlib1g-dev \
-            libfmt-dev
 
       - uses: actions/download-artifact@v4
         with:

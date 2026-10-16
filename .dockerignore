@@ -1,6 +1,7 @@
 # Host build trees and run output: built by another compiler, or large, or both.
 build/
 build-cov/
+build-static/
 output/
 compile_commands.json
 ktplace.sh

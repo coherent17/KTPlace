@@ -7,6 +7,8 @@ on:
     paths:
       - .github/workflows/release.yml
       - src/Master.make
+      - .gitmodules
+      - third_party/**
       - scripts/ktplace.sh
       - scripts/ktplace.csh
   workflow_dispatch:
@@ -14,9 +16,6 @@ on:
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
-
-env:
-  ONETBB_VERSION: 2021.11.0
 
 jobs:
   package:
@@ -29,6 +28,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Check the tag against the engine's version
         if: startsWith(github.ref, 'refs/tags/')
@@ -45,33 +46,13 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             g++ \
-            libtbb-dev \
-            libboost-iostreams-dev \
-            libboost-test-dev \
-            zlib1g-dev \
-            libfmt-dev \
-            cmake \
-            ninja-build
-
-      - name: Build a static oneTBB
-        if: matrix.variant == 'static'
-        run: |
-          set -euo pipefail
-          curl -sSL -o onetbb.tar.gz \
-            "https://github.com/uxlfoundation/oneTBB/archive/refs/tags/v${ONETBB_VERSION}.tar.gz"
-          tar -xzf onetbb.tar.gz
-          cmake -S "oneTBB-${ONETBB_VERSION}" -B onetbb-build -G Ninja \
-            -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF -DTBB_TEST=OFF \
-            -DTBB_EXAMPLES=OFF -DTBBMALLOC_BUILD=OFF -DTBB_STRICT=OFF \
-            -DCMAKE_INSTALL_PREFIX="$PWD/onetbb-static"
-          cmake --build onetbb-build -j"$(nproc)"
-          cmake --install onetbb-build
+            libboost-test-dev
 
       - name: Build
         run: |
           set -euo pipefail
           if [ "${{ matrix.variant }}" = static ]; then
-            make -j"$(nproc)" STATIC=1 TBB_STATIC_ROOT="$PWD/onetbb-static"
+            make -j"$(nproc)" STATIC=1
             bin=build-static/bin/ktplace
             file "$bin" | grep -q 'statically linked'
           else

@@ -46,11 +46,7 @@ RUN apt-get update \
         git \
         make \
         python3 \
-        libtbb-dev \
-        libboost-iostreams-dev \
         libboost-test-dev \
-        zlib1g-dev \
-        libfmt-dev \
         clang-format \
     && rm -rf /var/lib/apt/lists/*
 
@@ -136,24 +132,15 @@ RUN make -j"$(nproc)" && strip build/bin/ktplace
 
 # ------------------------------------------------------------------ runtime
 # What `run` and `web` are both made of, and the reason neither carries a
-# toolchain: these four are the runtime packages behind the toolchain stage's
-# -dev packages, on the same Ubuntu the binary was built on, so what runs on
-# them is exactly what was built -- a tenth of the ci image's size.
+# toolchain: oneTBB and zlib are linked into the binary from third_party/, so the
+# plain Ubuntu the binary was built on is all it needs -- a tenth of the ci
+# image's size.
 #
 # The vendored adaptec1 (5 MB) goes in here rather than in `run`, because `web`
 # needs a design to offer the console as much as a one-shot run does, and taking
 # it from the build context rather than from `build` is what lets `web` skip the
 # compile entirely. Mount benchmark/ for any other suite.
 FROM ubuntu:24.04 AS runtime
-
-ENV DEBIAN_FRONTEND=noninteractive
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends \
-        libtbb12 \
-        libboost-iostreams1.83.0 \
-        zlib1g \
-        libfmt9 \
-    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /ktplace
 COPY benchmark/ISPD_2005/adaptec1 benchmark/ISPD_2005/adaptec1

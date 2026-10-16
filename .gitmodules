@@ -1,6 +1,8 @@
 [submodule "third_party/oneTBB"]
 	path = third_party/oneTBB
 	url = https://github.com/uxlfoundation/oneTBB.git
+	shallow = true
 [submodule "third_party/zlib"]
 	path = third_party/zlib
 	url = https://github.com/madler/zlib.git
+	shallow = true

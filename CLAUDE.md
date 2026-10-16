@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Build and test
 
-Plain GNU make, C++23 with g++ 13+. Dependencies are system packages: oneTBB, Boost (Iostreams, Test), zlib, fmt and clang-format. CImg is vendored as `src/visualization/CImg.h`; never format or edit it.
+Plain GNU make, C++23 with g++ 13+. oneTBB and zlib are git submodules under `third_party/` (clone with `--recurse-submodules`), compiled by `src/Master.make` into `build/lib/libtbb.a` and `libz.a` and linked statically; never edit them. Formatting uses `std::format`, not fmt. The only system packages are Boost.Test (unit tests) and clang-format. CImg is vendored as `src/visualization/CImg.h`; never format or edit it.
 
 ```sh
 make -j"$(nproc)"          # build/bin/ktplace, and copies ktplace.sh/.csh to the repo root
@@ -15,7 +15,7 @@ make compile-commands      # compile_commands.json for clangd
 make hooks                 # pre-commit: staged-file format check plus unit tests
                            #   (KTPLACE_SKIP_HOOKS=1 bypasses it; KTPLACE_HOOK_TESTS=0 skips the tests)
 python3 scripts/coverage_report.py --clean --build --min 80   # gcov line coverage (local only, not in CI)
-make STATIC=1 TBB_STATIC_ROOT=<prefix>   # fully static build-static/bin/ktplace (fmt header-only, oneTBB built from source)
+make STATIC=1           # build-static/bin/ktplace with glibc and libstdc++ linked in too
 ```
 
 Each component has its own test binary: `test_datamodel`, `test_adaptor`, `test_flow`, `test_util`, `test_constraint`, `test_option`, `test_viz`, `test_detail`, `test_ntuplace1`, `test_abacus`, `test_tcl` and `test_simpl`. To run one suite or one case, build the tests and then call Boost.Test directly:

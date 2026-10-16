@@ -20,23 +20,21 @@ ifeq ($(COVERAGE),1)
 else
   CXXFLAGS := -std=c++23 -Wall -Wextra -Wpedantic -Wshadow -O2 -g -pthread
 endif
-# All quoted includes are project-root-relative (e.g. "datamodel/kt_dm.h"),
-# so the project root (this directory) is the only include path needed.
-INCLUDES := -I.
+# oneTBB and zlib are git submodules under third_party/, built here into static
+# archives, so a clone needs only a C++23 compiler and make.
+THIRD_PARTY := $(abspath $(CURDIR)/../third_party)
+TBB_DIR := $(THIRD_PARTY)/oneTBB
+ZLIB_DIR := $(THIRD_PARTY)/zlib
+ifeq ($(wildcard $(TBB_DIR)/include/oneapi/tbb.h)$(wildcard $(ZLIB_DIR)/zlib.h),)
+  $(error third_party/ is empty: run 'git submodule update --init --recursive')
+endif
 
-# External libraries (oneTBB for parallelism, Boost.Iostreams/zlib for gzip
-# input, fmt for log message formatting)
-LIBS := -ltbb -lboost_iostreams -lz -lfmt
+# All quoted includes are project-root-relative (e.g. "datamodel/kt_dm.h").
+INCLUDES := -I. -isystem $(TBB_DIR)/include -isystem $(ZLIB_DIR)
 
-# `make STATIC=1` links a self-contained binary: fmt header-only, and oneTBB,
-# Boost.Iostreams with its compressors, the C++ runtime and glibc statically.
-# Ubuntu ships no static oneTBB, so TBB_STATIC_ROOT names the install prefix of
-# one built from source; its headers are used too, so they match the library.
+# `make STATIC=1` also links the C++ runtime and glibc statically.
 ifeq ($(STATIC),1)
-  CXXFLAGS += -DFMT_HEADER_ONLY
-  INCLUDES += $(if $(TBB_STATIC_ROOT),-I$(TBB_STATIC_ROOT)/include)
-  LIBS := -static $(if $(TBB_STATIC_ROOT),-L$(TBB_STATIC_ROOT)/lib) -Wl,--start-group -ltbb \
-          -lboost_iostreams -lz -Wl,--end-group
+  STATIC_LDFLAGS := -static
 endif
 
 # Directories
@@ -54,6 +52,30 @@ endif
 OBJ_DIR := $(BUILD_DIR)/obj
 BIN_DIR := $(BUILD_DIR)/bin
 LIB_DIR := $(BUILD_DIR)/lib
+
+TBB_SRCS := address_waiter allocator arena arena_slot concurrent_bounded_queue dynamic_link \
+            exception governor global_control itt_notify main market tcm_adaptor misc misc_ex \
+            observer_proxy parallel_pipeline private_server profiling rml_tbb rtm_mutex \
+            rtm_rw_mutex semaphore small_object_pool task task_dispatcher task_group_context \
+            thread_dispatcher thread_request_serializer threading_control version \
+            queuing_rw_mutex
+TBB_OBJS := $(TBB_SRCS:%=$(OBJ_DIR)/third_party/oneTBB/%.o)
+TBB_FLAGS := -std=c++17 -O2 -w -pthread -flifetime-dse=1 -D__TBB_BUILD \
+             -D__TBB_DYNAMIC_LOAD_ENABLED=0 -D__TBB_SOURCE_DIRECTLY_INCLUDED=1 \
+             -I$(TBB_DIR)/include -I$(TBB_DIR)/src
+ifeq ($(shell uname -m),x86_64)
+  TBB_FLAGS += -mrtm -mwaitpkg
+endif
+
+ZLIB_SRCS := adler32 compress crc32 deflate gzclose gzlib gzread gzwrite infback inffast inflate \
+             inftrees trees uncompr zutil
+ZLIB_OBJS := $(ZLIB_SRCS:%=$(OBJ_DIR)/third_party/zlib/%.o)
+ZLIB_FLAGS := -O2 -w -D_LARGEFILE64_SOURCE=1 -DHAVE_UNISTD_H -DHAVE_STDARG_H
+
+TBB_LIB := $(LIB_DIR)/libtbb.a
+ZLIB_LIB := $(LIB_DIR)/libz.a
+BUNDLED_LIBS := $(TBB_LIB) $(ZLIB_LIB)
+LIBS := $(STATIC_LDFLAGS) $(BUNDLED_LIBS) -pthread
 
 # Subdirectories
 SUBDIRS := datamodel adaptor constraint placer legalizer detailPlacer visualization util tcl
@@ -121,7 +143,7 @@ $(SUBDIRS):
 	@$(MAKE) -C $@ -f Master.make OBJ_DIR=$(OBJ_DIR)/$@ INCLUDES="$(INCLUDES)" CXX="$(CXX)" CXXFLAGS="$(CXXFLAGS)"
 
 # Main executable
-$(TARGET): $(ALL_OBJS) | dirs
+$(TARGET): $(ALL_OBJS) $(BUNDLED_LIBS) | dirs
 	@echo "Linking $@..."
 	@$(CXX) $(CXXFLAGS) -o $@ $(ALL_OBJS) $(LIBS) $(COVERAGE_LDFLAGS)
 	@echo "Build complete: $@"
@@ -169,8 +191,26 @@ $(OBJ_DIR)/%.o: %.cc
 	@echo "Compiling $<..."
 	@$(CXX) $(CXXFLAGS) $(INCLUDES) -MMD -MP -c $< -o $@
 
+$(OBJ_DIR)/third_party/oneTBB/%.o: $(TBB_DIR)/src/tbb/%.cpp
+	@mkdir -p $(dir $@)
+	@echo "Compiling oneTBB $(notdir $<)..."
+	@$(CXX) $(TBB_FLAGS) -MMD -MP -c $< -o $@
+
+$(OBJ_DIR)/third_party/zlib/%.o: $(ZLIB_DIR)/%.c
+	@mkdir -p $(dir $@)
+	@echo "Compiling zlib $(notdir $<)..."
+	@$(CC) $(ZLIB_FLAGS) -MMD -MP -c $< -o $@
+
+$(TBB_LIB): $(TBB_OBJS)
+	@mkdir -p $(dir $@)
+	@ar rcs $@ $^
+
+$(ZLIB_LIB): $(ZLIB_OBJS)
+	@mkdir -p $(dir $@)
+	@ar rcs $@ $^
+
 # Include dependency files
--include $(DEPS)
+-include $(DEPS) $(TBB_OBJS:.o=.d) $(ZLIB_OBJS:.o=.d)
 
 # ============================================================================
 # Unit tests (Boost.Test)
@@ -221,54 +261,54 @@ test check: $(TEST_BINS)
 	echo "All unit tests passed."
 
 # Each test binary: its own source plus the engine objects (no main()).
-$(BIN_DIR)/test_simpl: $(TEST_simpl) $(LIB_OBJS) | dirs
+$(BIN_DIR)/test_simpl: $(TEST_simpl) $(LIB_OBJS) $(BUNDLED_LIBS) | dirs
 	@echo "  Building test_simpl..."
 	@$(CXX) $(CXXFLAGS) $(INCLUDES) -o $@ $(TEST_simpl) $(LIB_OBJS) $(LIBS) $(COVERAGE_LDFLAGS) $(TEST_LIBS)
 
-$(BIN_DIR)/test_datamodel: $(TEST_datamodel) $(LIB_OBJS) | dirs
+$(BIN_DIR)/test_datamodel: $(TEST_datamodel) $(LIB_OBJS) $(BUNDLED_LIBS) | dirs
 	@echo "  Building test_datamodel..."
 	@$(CXX) $(CXXFLAGS) $(INCLUDES) -o $@ $(TEST_datamodel) $(LIB_OBJS) $(LIBS) $(COVERAGE_LDFLAGS) $(TEST_LIBS)
 
-$(BIN_DIR)/test_adaptor: $(TEST_adaptor) $(LIB_OBJS) | dirs
+$(BIN_DIR)/test_adaptor: $(TEST_adaptor) $(LIB_OBJS) $(BUNDLED_LIBS) | dirs
 	@echo "  Building test_adaptor..."
 	@$(CXX) $(CXXFLAGS) $(INCLUDES) -o $@ $(TEST_adaptor) $(LIB_OBJS) $(LIBS) $(COVERAGE_LDFLAGS) $(TEST_LIBS)
 
-$(BIN_DIR)/test_flow: $(TEST_flow) $(LIB_OBJS) | dirs
+$(BIN_DIR)/test_flow: $(TEST_flow) $(LIB_OBJS) $(BUNDLED_LIBS) | dirs
 	@echo "  Building test_flow..."
 	@$(CXX) $(CXXFLAGS) $(INCLUDES) -o $@ $(TEST_flow) $(LIB_OBJS) $(LIBS) $(COVERAGE_LDFLAGS) $(TEST_LIBS)
 
-$(BIN_DIR)/test_util: $(TEST_util) $(LIB_OBJS) | dirs
+$(BIN_DIR)/test_util: $(TEST_util) $(LIB_OBJS) $(BUNDLED_LIBS) | dirs
 	@echo "  Building test_util..."
 	@$(CXX) $(CXXFLAGS) $(INCLUDES) -o $@ $(TEST_util) $(LIB_OBJS) $(LIBS) $(COVERAGE_LDFLAGS) $(TEST_LIBS)
 
-$(BIN_DIR)/test_constraint: $(TEST_constraint) $(LIB_OBJS) | dirs
+$(BIN_DIR)/test_constraint: $(TEST_constraint) $(LIB_OBJS) $(BUNDLED_LIBS) | dirs
 	@echo "  Building test_constraint..."
 	@$(CXX) $(CXXFLAGS) $(INCLUDES) -o $@ $(TEST_constraint) $(LIB_OBJS) $(LIBS) $(COVERAGE_LDFLAGS) $(TEST_LIBS)
 
-$(BIN_DIR)/test_option: $(TEST_option) $(LIB_OBJS) | dirs
+$(BIN_DIR)/test_option: $(TEST_option) $(LIB_OBJS) $(BUNDLED_LIBS) | dirs
 	@echo "  Building test_option..."
 	@$(CXX) $(CXXFLAGS) $(INCLUDES) -o $@ $(TEST_option) $(LIB_OBJS) $(LIBS) $(COVERAGE_LDFLAGS) $(TEST_LIBS)
 
-$(BIN_DIR)/test_viz: $(TEST_viz) $(LIB_OBJS) | dirs
+$(BIN_DIR)/test_viz: $(TEST_viz) $(LIB_OBJS) $(BUNDLED_LIBS) | dirs
 	@echo "  Building test_viz..."
 	@$(CXX) $(CXXFLAGS) $(INCLUDES) -o $@ $(TEST_viz) $(LIB_OBJS) $(LIBS) $(COVERAGE_LDFLAGS) $(TEST_LIBS)
 
-$(BIN_DIR)/test_detail: $(TEST_detail) $(LIB_OBJS) | dirs
+$(BIN_DIR)/test_detail: $(TEST_detail) $(LIB_OBJS) $(BUNDLED_LIBS) | dirs
 	@echo "  Building test_detail..."
 	@$(CXX) $(CXXFLAGS) $(INCLUDES) -o $@ $(TEST_detail) $(LIB_OBJS) $(LIBS) $(COVERAGE_LDFLAGS) $(TEST_LIBS)
 
-$(BIN_DIR)/test_ntuplace1: $(TEST_ntuplace1) $(LIB_OBJS) | dirs
+$(BIN_DIR)/test_ntuplace1: $(TEST_ntuplace1) $(LIB_OBJS) $(BUNDLED_LIBS) | dirs
 	@echo "  Building test_ntuplace1..."
 	@$(CXX) $(CXXFLAGS) $(INCLUDES) -o $@ $(TEST_ntuplace1) $(LIB_OBJS) $(LIBS) $(COVERAGE_LDFLAGS) $(TEST_LIBS)
 
-$(BIN_DIR)/test_abacus: $(TEST_abacus) $(LIB_OBJS) | dirs
+$(BIN_DIR)/test_abacus: $(TEST_abacus) $(LIB_OBJS) $(BUNDLED_LIBS) | dirs
 	@echo "  Building test_abacus..."
 	@$(CXX) $(CXXFLAGS) $(INCLUDES) -o $@ $(TEST_abacus) $(LIB_OBJS) $(LIBS) $(COVERAGE_LDFLAGS) $(TEST_LIBS)
 
 # The Tcl tests read the example scripts next to them, so the source tree's
 # location is compiled in rather than guessed from the working directory the
 # binary happens to be run from.
-$(BIN_DIR)/test_tcl: $(TEST_tcl) $(LIB_OBJS) | dirs
+$(BIN_DIR)/test_tcl: $(TEST_tcl) $(LIB_OBJS) $(BUNDLED_LIBS) | dirs
 	@echo "  Building test_tcl..."
 	@$(CXX) $(CXXFLAGS) $(INCLUDES) -DKTPLACE_SOURCE_ROOT='"$(abspath $(CURDIR))"' -o $@ $(TEST_tcl) \
 		$(LIB_OBJS) $(LIBS) $(COVERAGE_LDFLAGS) $(TEST_LIBS)
