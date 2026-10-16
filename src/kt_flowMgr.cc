@@ -277,10 +277,10 @@ void FlowMgr::Impl::legalizeDesign() {
 
 void FlowMgr::Impl::detailPlaceDesign() {
     ScopedTimer timer("detailed placement", true);
-    fastdp::fastdpDM dpDB = fastdp::buildFastdpDM(*db);
-    recordStage(dpDB, snapshots.get(), {"detailplace", "", 0});
-    fastdp::flowMgr flow(dpDB);
-    db->setDetailedPlaceSolution(flow.runDetailedPlacer());
+    fastdp::flowMgr flow(*db);
+    recordStage(flow.dm(), snapshots.get(), {"detailplace", "", 0});
+    (void)flow.run();
+    db->setFastdpSolution(flow.solution());
     commit("detailed placement");
 }
 

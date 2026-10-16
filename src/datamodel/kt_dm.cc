@@ -493,7 +493,7 @@ void ktDM::setMultiRowSolution(const multiRowSolution &solution) {
     isLegalizePlacement();
 }
 
-void ktDM::setDetailedPlaceSolution(const fastdpSolution &solution) {
+void ktDM::setFastdpSolution(const fastdpSolution &solution) {
     commitCells(graph, solution);
     isLegalizePlacement();
 }

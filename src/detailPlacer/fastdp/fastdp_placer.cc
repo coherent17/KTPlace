@@ -1,9 +1,5 @@
-// @file fastdp_placer.cc
-// FastDP detailed placement (Pan, Viswanathan and Chu, ICCAD 2005)
-
 #include "detailPlacer/fastdp/fastdp_placer.h"
 
-#include "detailPlacer/fastdp/fastdp_design.h"
 #include "detailPlacer/fastdp/fastdp_options.h"
 #include "util/kt_log.h"
 #include "util/kt_reportTable.h"
@@ -21,7 +17,7 @@
 #include <utility>
 #include <vector>
 
-namespace ktplace {
+namespace ktplace::fastdp {
 
 namespace {
 
@@ -36,7 +32,7 @@ struct Span {
     double xhi = 0.0;
     double site = 1.0;
     std::size_t row = 0;
-    int region = fastdp::noRegion;
+    int region = noRegion;
     std::vector<std::size_t> cells;
 
     [[nodiscard]] double width() const noexcept {
@@ -130,11 +126,11 @@ double secondsSince(std::chrono::steady_clock::time_point start) {
 
 class FastDetailedPlacer::Impl {
 public:
-    explicit Impl(const fastdp::Design &d) : design(d) {}
+    explicit Impl(Design &d) : design(d) {}
 
-    DetailPlaceResult place(const FastdpOptions &params);
+    FastdpResult place(const FastdpOptions &params);
 
-    const fastdp::Design &design;
+    Design &design;
     std::vector<std::size_t> mov;
     std::vector<double> cellX;
     std::vector<double> cellY;
@@ -179,7 +175,7 @@ private:
     std::size_t localReorder();
     std::size_t clusterSegments();
 
-    void selfCheck(DetailPlaceResult &res) const;
+    void selfCheck(FastdpResult &res) const;
     void writeFrame(const char *note, std::size_t step = 0) const;
 
     FastdpOptions opts;
@@ -210,7 +206,7 @@ private:
 void FastDetailedPlacer::Impl::collectCells(double rowHeight) {
     movable.assign(design.cells.size(), 0);
     for (std::size_t v = 0; v < design.cells.size(); ++v) {
-        const fastdp::Cell &cell = design.cells[v];
+        const Cell &cell = design.cells[v];
         const bool tall = cell.height > rowHeight + eps;
         if (cell.isFixed || tall) {
             fixedBoxes.push_back(
@@ -231,17 +227,17 @@ void FastDetailedPlacer::Impl::collectCells(double rowHeight) {
 }
 
 void FastDetailedPlacer::Impl::buildSpans() {
-    std::vector<fastdp::RowInfo> rows(design.rows);
-    std::ranges::stable_sort(rows, {}, &fastdp::RowInfo::coordinate);
+    std::vector<RowInfo> rows(design.rows);
+    std::ranges::stable_sort(rows, {}, &RowInfo::coordinate);
     rowY.clear();
-    for (const fastdp::RowInfo &ri : rows) {
+    for (const RowInfo &ri : rows) {
         rowY.push_back(ri.coordinate);
     }
     stranded.assign(mov.size(), 0);
     for (int attempt = 0; attempt < 2; ++attempt) {
         std::vector<std::vector<std::pair<double, double>>> blocked(rows.size());
         const auto block = [&](double x0, double x1, double y0, double y1) {
-            auto r = std::ranges::upper_bound(rows, y0 + eps, {}, [](const fastdp::RowInfo &ri) {
+            auto r = std::ranges::upper_bound(rows, y0 + eps, {}, [](const RowInfo &ri) {
                 return ri.coordinate + ri.height;
             });
             for (; r != rows.end() && r->coordinate < y1 - eps; ++r) {
@@ -249,7 +245,7 @@ void FastDetailedPlacer::Impl::buildSpans() {
             }
         };
         for (std::size_t v = 0; v < design.cells.size(); ++v) {
-            const fastdp::Cell &cell = design.cells[v];
+            const Cell &cell = design.cells[v];
             if (!movable[v] && cell.width > 0.0 && cell.height > 0.0) {
                 block(cell.x, cell.x + cell.width, cell.y, cell.y + cell.height);
             }
@@ -263,10 +259,10 @@ void FastDetailedPlacer::Impl::buildSpans() {
         spans.clear();
         spansInRow.assign(rows.size(), {});
         for (std::size_t r = 0; r < rows.size(); ++r) {
-            const fastdp::RowInfo &ri = rows[r];
+            const RowInfo &ri = rows[r];
             std::vector<std::pair<double, double>> &obs = blocked[r];
             std::ranges::stable_sort(obs);
-            for (const fastdp::Subrow &sub : ri.subrows) {
+            for (const Subrow &sub : ri.subrows) {
                 const auto emit = [&](double lo, double hi) {
                     if (hi > lo + eps) {
                         spansInRow[r].push_back(spans.size());
@@ -337,7 +333,7 @@ void FastDetailedPlacer::Impl::assignCells() {
 
 void FastDetailedPlacer::Impl::indexFixed() {
     bandY0 = rowY.empty() ? 0.0 : rowY.front();
-    for (const fastdp::RowInfo &ri : design.rows) {
+    for (const RowInfo &ri : design.rows) {
         if (ri.height > 0.0) {
             bandY = std::min(bandY, ri.height);
         }
@@ -367,9 +363,9 @@ void FastDetailedPlacer::Impl::buildNetlist() {
     cellNets.assign(mov.size(), {});
     for (std::size_t n = 0; n < design.nets.size(); ++n) {
         for (const std::size_t pinId : design.nets[n].pins) {
-            const fastdp::Pin &pin = design.pins[pinId];
+            const Pin &pin = design.pins[pinId];
             const std::size_t s = slotOf[pin.cellId];
-            const fastdp::Cell &c = design.cells[pin.cellId];
+            const Cell &c = design.cells[pin.cellId];
             if (s == noSlot) {
                 netPins[n].push_back(
                     NetPin{noSlot, pin.offsetX, pin.offsetY, c.x + pin.offsetX, c.y + pin.offsetY});
@@ -965,7 +961,7 @@ void FastDetailedPlacer::Impl::writeFrame(const char *note, std::size_t step) co
         fx[mov[i]] = static_cast<float>(cellX[i]);
         fy[mov[i]] = static_cast<float>(cellY[i]);
     }
-    fastdp::FrameInfo info;
+    FrameInfo info;
     info.note = note;
     info.step = step;
     info.hpwl = hpwl();
@@ -974,7 +970,7 @@ void FastDetailedPlacer::Impl::writeFrame(const char *note, std::size_t step) co
     design.onFrame(fx, fy, info);
 }
 
-void FastDetailedPlacer::Impl::selfCheck(DetailPlaceResult &res) const {
+void FastDetailedPlacer::Impl::selfCheck(FastdpResult &res) const {
     res.overlappingPairs = 0;
     res.offRow = 0;
     res.offSite = 0;
@@ -1020,8 +1016,8 @@ void FastDetailedPlacer::Impl::selfCheck(DetailPlaceResult &res) const {
     }
 }
 
-DetailPlaceResult FastDetailedPlacer::Impl::place(const FastdpOptions &params) {
-    DetailPlaceResult res;
+FastdpResult FastDetailedPlacer::Impl::place(const FastdpOptions &params) {
+    FastdpResult res;
     ScopedTimer timer("fastdp");
     opts = params;
     mov.clear();
@@ -1035,7 +1031,7 @@ DetailPlaceResult FastDetailedPlacer::Impl::place(const FastdpOptions &params) {
     bandY = inf;
 
     double rowHeight = inf;
-    for (const fastdp::RowInfo &ri : design.rows) {
+    for (const RowInfo &ri : design.rows) {
         if (ri.height > 0.0) {
             rowHeight = std::min(rowHeight, ri.height);
         }
@@ -1115,6 +1111,10 @@ DetailPlaceResult FastDetailedPlacer::Impl::place(const FastdpOptions &params) {
 
     res.hpwlAfter = hpwl();
     selfCheck(res);
+    for (std::size_t i = 0; i < mov.size(); ++i) {
+        design.cells[mov[i]].x = cellX[i];
+        design.cells[mov[i]].y = cellY[i];
+    }
     res.seconds = timer.elapsedSeconds();
     if (tallSkipped > 0) {
         ktlog.echo("left {} multi-row cell(s) where legalization put them", tallSkipped);
@@ -1122,58 +1122,12 @@ DetailPlaceResult FastDetailedPlacer::Impl::place(const FastdpOptions &params) {
     return res;
 }
 
-FastDetailedPlacer::FastDetailedPlacer(const fastdp::Design &design)
-    : pImpl(std::make_unique<Impl>(design)) {}
+FastDetailedPlacer::FastDetailedPlacer(Design &design) : pImpl(std::make_unique<Impl>(design)) {}
 
 FastDetailedPlacer::~FastDetailedPlacer() = default;
 
-namespace {
-
-void report(const DetailPlaceResult &r) {
-    ktReportTable t("Detailed placement (FastDP)");
-    t.setHeaders({"metric", "value"});
-    t.addRow({"global swaps", std::format("{} ({:.3f}s)", r.globalSwaps, r.globalSeconds)});
-    t.addRow({"vertical swaps", std::format("{} ({:.3f}s)", r.verticalSwaps, r.verticalSeconds)});
-    t.addRow({"reorder moves", std::format("{} ({:.3f}s)", r.reorderMoves, r.reorderSeconds)});
-    t.addRow({"cluster moves", std::format("{} ({:.3f}s)", r.clusterMoves, r.clusterSeconds)});
-    t.addRow({"HPWL before", std::format("{:.6e}", r.hpwlBefore)});
-    t.addRow({"HPWL after", std::format("{:.6e}", r.hpwlAfter)});
-    t.addRow(
-        {"HPWL change", std::format("{:+.2f}%", 100.0 * (r.hpwlAfter - r.hpwlBefore) /
-                                                    (r.hpwlBefore > 0.0 ? r.hpwlBefore : 1.0))});
-    t.addRow({"seconds", std::format("{:.3f}", r.seconds)});
-    t.addRow({"overlapping pairs", std::format("{}", r.overlappingPairs)});
-    t.addRow({"cells off row", std::format("{}", r.offRow)});
-    t.addRow({"cells off site", std::format("{}", r.offSite)});
-    t.addRow({"cells over macro", std::format("{}", r.overFixed)});
-    t.emit();
-    if (r.overlappingPairs != 0 || r.offRow != 0 || r.overFixed != 0) {
-        ktlog.warning("detailed placement broke legality; see the counts above");
-    }
+FastdpResult FastDetailedPlacer::place(const FastdpOptions &options) {
+    return pImpl->place(options);
 }
 
-}  // namespace
-
-DetailPlaceResult FastDetailedPlacer::place(const FastdpOptions &options) {
-    DetailPlaceResult result = pImpl->place(options);
-    report(result);
-    return result;
-}
-
-ktplace::fastdpSolution FastDetailedPlacer::solution() const {
-    fastdpSolution out;
-    const std::size_t n = pImpl->design.cells.size();
-    out.xs.resize(n);
-    out.ys.resize(n);
-    for (std::size_t v = 0; v < n; ++v) {
-        out.xs[v] = pImpl->design.cells[v].x;
-        out.ys[v] = pImpl->design.cells[v].y;
-    }
-    for (std::size_t i = 0; i < pImpl->mov.size(); ++i) {
-        out.xs[pImpl->mov[i]] = pImpl->cellX[i];
-        out.ys[pImpl->mov[i]] = pImpl->cellY[i];
-    }
-    return out;
-}
-
-}  // namespace ktplace
+}  // namespace ktplace::fastdp
