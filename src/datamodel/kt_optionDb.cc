@@ -29,11 +29,11 @@ std::string toText(const OptionValue &value) {
 }  // namespace
 
 std::optional<Component> componentFromName(std::string_view name) noexcept {
-    const auto found = std::ranges::find(kComponentNames, name);
-    if (found == kComponentNames.end()) {
+    const auto found = std::ranges::find(componentNames, name);
+    if (found == componentNames.end()) {
         return std::nullopt;
     }
-    return static_cast<Component>(std::distance(kComponentNames.begin(), found));
+    return static_cast<Component>(std::distance(componentNames.begin(), found));
 }
 
 ComponentOptions::ComponentOptions(Component component, OptionMap configured)
@@ -101,7 +101,7 @@ void OptionDb::report() const {
     table.setHeaders({"component", "option", "value"});
     for (std::size_t c = 0; c < byComponent.size(); ++c) {
         for (const auto &[key, value] : byComponent[c]) {
-            table.addRow({std::string(kComponentNames[c]), key, toText(value)});
+            table.addRow({std::string(componentNames[c]), key, toText(value)});
         }
     }
     table.emit();

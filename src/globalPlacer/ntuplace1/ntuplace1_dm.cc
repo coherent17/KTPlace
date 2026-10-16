@@ -1,7 +1,7 @@
 // @file ntuplace1_dm.cc
 // NTUPlace1's own database
 
-#include "placer/ntuplace1/ntuplace1_dm.h"
+#include "globalPlacer/ntuplace1/ntuplace1_dm.h"
 
 #include "datamodel/kt_die.h"
 #include "datamodel/kt_dm.h"

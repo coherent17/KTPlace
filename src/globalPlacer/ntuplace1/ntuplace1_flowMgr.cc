@@ -1,11 +1,9 @@
 // @file ntuplace1_flowMgr.cc
 // Running one NTUPlace1 partition
 
-#include "placer/ntuplace1/ntuplace1_flowMgr.h"
+#include "globalPlacer/ntuplace1/ntuplace1_flowMgr.h"
 
-#include "placer/ntuplace1/kt_ntuplace1.h"
-#include "util/kt_log.h"
-#include "util/kt_reportTable.h"
+#include "globalPlacer/ntuplace1/kt_ntuplace1.h"
 
 namespace ktplace::ntuplace1 {
 

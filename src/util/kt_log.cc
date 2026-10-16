@@ -1,7 +1,6 @@
 #include "util/kt_log.h"
 
 #include <algorithm>
-#include <chrono>
 #include <cstdio>
 #include <ctime>
 #include <iostream>
@@ -111,8 +110,8 @@ void Logger::emit(Level level, const std::string &message) {
     const bool flagged = level == Level::Warning || level == Level::Fatal;
 
     std::string body = message;
-    if (body.size() > kMaxRecordBytes) {
-        body.resize(kMaxRecordBytes);
+    if (body.size() > maxRecordBytes) {
+        body.resize(maxRecordBytes);
         body += " ...[truncated]";
     }
 

@@ -8,9 +8,8 @@
 #pragma once
 
 #include "datamodel/kt_solutionMgr.h"
-#include "placer/ntuplace1/kt_ntuplace1.h"
-#include "placer/ntuplace1/ntuplace1_design.h"
-#include "placer/ntuplace1/ntuplace1_options.h"
+#include "globalPlacer/ntuplace1/ntuplace1_design.h"
+#include "globalPlacer/ntuplace1/ntuplace1_options.h"
 
 namespace ktplace {
 

@@ -42,7 +42,7 @@ template <typename StageGraph>
 
 template <typename Options>
 void reportStageBuild(const StageCounts &n, std::uint32_t checksum, const Options &options) {
-    ktlog.beginStep(std::string(toString(Options::kComponent)));
+    ktlog.beginStep(std::string(toString(Options::component)));
     ktlog.echo(
         "database built from ktDM {:08x}: {} cells ({} movable, {} fixed), {} nets, {} pins, {} "
         "rows",

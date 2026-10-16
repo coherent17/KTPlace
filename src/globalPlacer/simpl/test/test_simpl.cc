@@ -16,9 +16,8 @@
 #include "constraint/kt_constraintMgr.h"
 #include "datamodel/kt_dm.h"
 #include "datamodel/kt_optionDb.h"
-#include "placer/simpl/simpl_dm.h"
-#include "placer/simpl/simpl_placer.h"
-#include "util/kt_log.h"
+#include "globalPlacer/simpl/simpl_dm.h"
+#include "globalPlacer/simpl/simpl_placer.h"
 
 #include <boost/test/unit_test.hpp>
 #include <span>
@@ -31,12 +30,12 @@ using namespace ktplace::simpl;
 
 namespace {
 
-constexpr double kRowHeight = 10.0;
-constexpr int kRows = 40;
-constexpr double kWidth = 400.0;
+constexpr double rowHeight = 10.0;
+constexpr int rowCount = 40;
+constexpr double rowWidth = 400.0;
 
 // Fence: x 40..120, y 40..120 (rows 4..11), far from the pads on the right.
-constexpr double kFx0 = 40.0, kFy0 = 40.0, kFx1 = 120.0, kFy1 = 120.0;
+constexpr double fx0 = 40.0, fy0 = 40.0, fx1 = 120.0, fy1 = 120.0;
 
 struct Built {
     std::vector<std::size_t> members, others;
@@ -45,24 +44,24 @@ struct Built {
 /// A design whose fenced cells are pulled away from their fence by their nets,
 /// and -- with `pullOthersIn` -- whose other cells are pulled into it.
 Built buildDesign(ktDM &db, bool withFence, bool pullOthersIn = false) {
-    for (int r = 0; r < kRows; ++r) {
-        const std::size_t row = db.addRow(r * kRowHeight, kRowHeight, 1.0, 1.0);
-        (void)db.addSubrow(row, 0.0, kWidth);
+    for (int r = 0; r < rowCount; ++r) {
+        const std::size_t row = db.addRow(r * rowHeight, rowHeight, 1.0, 1.0);
+        (void)db.addSubrow(row, 0.0, rowWidth);
     }
     // Pads at the right edge, mid-height, outside the rows' x range.
     for (int p = 0; p < 4; ++p) {
         const std::size_t id = db.addCell("pad" + std::to_string(p), 1.0, 1.0, /*isTerminal=*/true);
-        db.setCellPosition(id, kWidth + 5.0, 150.0 + 30.0 * p);
+        db.setCellPosition(id, rowWidth + 5.0, 150.0 + 30.0 * p);
         db.setCellFixed(id, true);
     }
     Built b;
     // Members: a chain whose every fourth cell is tied to a pad on the right.
     for (int i = 0; i < 60; ++i) {
-        b.members.push_back(db.addCell("m" + std::to_string(i), 2.0, kRowHeight));
+        b.members.push_back(db.addCell("m" + std::to_string(i), 2.0, rowHeight));
     }
     // Others: a chain tied to the pads too, many enough to need spreading.
     for (int i = 0; i < 400; ++i) {
-        b.others.push_back(db.addCell("o" + std::to_string(i), 2.0, kRowHeight));
+        b.others.push_back(db.addCell("o" + std::to_string(i), 2.0, rowHeight));
     }
     int net = 0;
     const auto addNet = [&](const std::string &a, const std::string &c) {
@@ -87,7 +86,7 @@ Built buildDesign(ktDM &db, bool withFence, bool pullOthersIn = false) {
     // nets pull them into the fence, which they must not enter.
     if (pullOthersIn) {
         const std::size_t id = db.addCell("padIn", 1.0, 1.0, /*isTerminal=*/true);
-        db.setCellPosition(id, 0.5 * (kFx0 + kFx1), 0.5 * (kFy0 + kFy1));
+        db.setCellPosition(id, 0.5 * (fx0 + fx1), 0.5 * (fy0 + fy1));
         db.setCellFixed(id, true);
         for (int i = 5; i < 400; i += 10) {
             addNet("o" + std::to_string(i), "padIn");
@@ -97,7 +96,7 @@ Built buildDesign(ktDM &db, bool withFence, bool pullOthersIn = false) {
     addNet("m0", "o0");
     if (withFence) {
         constraintMgr mgr;
-        const int id = mgr.addRegion("f0", {Point{kFx0, kFy0}, Point{kFx1, kFy1}});
+        const int id = mgr.addRegion("f0", {Point{fx0, fy0}, Point{fx1, fy1}});
         (void)mgr.assignByPrefix(id, "m", db.getGraph());
         db.setConstraints(std::move(mgr));
     }
@@ -118,7 +117,7 @@ SimplResult place(ktDM &db, bool useFences) {
 }
 
 bool inFence(double x, double y) {
-    return x >= kFx0 && x <= kFx1 && y >= kFy0 && y <= kFy1;
+    return x >= fx0 && x <= fx1 && y >= fy0 && y <= fy1;
 }
 
 }  // namespace

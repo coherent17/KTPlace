@@ -8,13 +8,12 @@
 #include <string>
 #include <string_view>
 #include <utility>
-#include <vector>
 
 namespace ktplace {
 
 class Logger {
 public:
-    static constexpr std::size_t kMaxRecordBytes = 8000;
+    static constexpr std::size_t maxRecordBytes = 8000;
 
     static Logger &instance();
 

@@ -11,7 +11,7 @@
 namespace ktplace {
 
 struct SimplOptions {
-    static constexpr Component kComponent = Component::Simpl;
+    static constexpr Component component = Component::Simpl;
 
     std::size_t binsPerAxis = 0;
     double cgTol = 1e-4;

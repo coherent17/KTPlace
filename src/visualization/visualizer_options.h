@@ -10,7 +10,7 @@
 namespace ktplace {
 
 struct VisualizerOptions {
-    static constexpr Component kComponent = Component::Visualizer;
+    static constexpr Component component = Component::Visualizer;
 
     bool anim = true;
     std::size_t animMaxFrames = 1200;

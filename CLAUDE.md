@@ -51,8 +51,8 @@ add_option simpl grid 64
 add_option visualizer anim 0
 ```
 
-- `datamodel/kt_optionDb.h`: `OptionDb` is a process-wide store of `Component -> key -> std::variant<int,bool,double,string>`. Valid components are the `Component` enum and its `kComponentNames` (`simpl`, `ntuplace1`, `abacus`, `multirow`, `fastdp`, `visualizer`, `flow`), and `add_option` rejects any other name. A new component needs an enumerator and a name.
-- Each stage has one `<stage>_options.h` struct (`SimplOptions`, `AbacusOptions`, ...) that is the stage's whole configuration: its field initializers are the defaults, `kComponent` names its component, and a static `fields(self, visit)` lists only the keys a script may set. Constants nobody should change are plain members outside `fields()`. There are no separate `*Params` structs: the algorithm takes the options struct.
+- `datamodel/kt_optionDb.h`: `OptionDb` is a process-wide store of `Component -> key -> std::variant<int,bool,double,string>`. Valid components are the `Component` enum and its `componentNames` (`simpl`, `ntuplace1`, `abacus`, `multirow`, `fastdp`, `visualizer`, `flow`), and `add_option` rejects any other name. A new component needs an enumerator and a name.
+- Each stage has one `<stage>_options.h` struct (`SimplOptions`, `AbacusOptions`, ...) that is the stage's whole configuration: its field initializers are the defaults, `component` names its component, and a static `fields(self, visit)` lists only the keys a script may set. Constants nobody should change are plain members outside `fields()`. There are no separate `*Params` structs: the algorithm takes the options struct.
 - `build<Stage>DM` calls `loadOptions<XOptions>()`, which overwrites each listed field the script set, and stores the struct in the DM. The DM's `run()` reports it with `reportOptions(opts)` and hands it to the algorithm. Nothing keeps the `ComponentOptions` that `OptionDb::getComponentOption` returns.
 - Lookup order: the script value, then the default. **The environment is not read.** `ComponentOptions::get<T>(key)` returns `std::optional<T>`; a value of the wrong type is not converted: it logs a warning and the default is used. A misspelled key is stored and never read.
 - `tcl/` holds a small Tcl subset (`set`, `expr`, `if`, `foreach`, `source`, ...) and `TclMgr`, which adds `add_option`, the only ktplace-specific command. `FlowMgr::run` loads the script in its first step, `parseTcl`, before anything reads the store.
@@ -72,8 +72,8 @@ load → report → global place → legalize → detailed place → final image
 
   The files follow the same layout in every stage: `<stage>_design`, `<stage>_dm`, `<stage>_flowMgr`, `<stage>_options` and `<stage>_placer`/`_legalizer`. This keeps stages testable without a `ktDM`.
 - **Stages:**
-  - `placer/simpl`: default quadratic placer with B2B net model and look-ahead legalization, fence-aware. `docs/simpl.md` explains how it differs from the published SimPL.
-  - `placer/ntuplace1`: alternative global placer.
+  - `globalPlacer/simpl`: default quadratic placer with B2B net model and look-ahead legalization, fence-aware. `docs/simpl.md` explains how it differs from the published SimPL.
+  - `globalPlacer/ntuplace1`: alternative global placer.
   - `legalizer/abacus`: single-row legalizer, fence-aware.
   - `legalizer/multirow`: used instead of Abacus when the design has cells taller than one row.
   - `detailPlacer/fastdp`: detailed placement, following Pan, Viswanathan and Chu (ICCAD 2005): single-segment clustering, then global swap, vertical swap and 3-cell local re-ordering until the gain is small, then clustering again.
@@ -88,6 +88,8 @@ load → report → global place → legalize → detailed place → final image
 - Format with `.clang-format`: Google-based style, 4-space indent, 100-column limit. CI fails on any unformatted tracked file.
 - Top-level classes use PIMPL (`class Impl; std::unique_ptr<Impl> pImpl;`).
 - Names: `kt_`-prefixed files and types (`ktDM`, `kt_option`) and per-stage namespaces (`ktplace::simpl`, `ktplace::abacus`, ...).
+- **Identifier naming** (enforced by `.clang-tidy`, `readability-identifier-naming`): functions, methods, members, variables, parameters and constants are all `camelBack`, with no prefix or suffix: no trailing `_` on members, no `m_`, no `k` on constants (`noRow`, `version`, `componentNames`). Enum values are `CamelCase` (`Component::Simpl`, `Level::Warning`); prefer `enum class`. If the plain name collides with a method or a local, pick a more descriptive name (`cellX`, `regionList`) instead of decorating it.
+- **Modern C++ and includes** (`.clang-tidy` turns on `modernize-*` and `misc-include-cleaner`; `.clangd` shows both in the editor and flags unused includes): range-for, `auto` for casts, `emplace_back`, `starts_with`, raw string literals. Include what a file uses and nothing it doesn't: a `<stage>_dm.h` includes only the options and design headers, and its `.cc` includes the algorithm header. Run `clang-tidy -p . <file>` after `make compile-commands`; a change should add no new findings.
 - **Write clean, self-explanatory code without comments.** The existing code is heavily commented. Don't copy that style. Only fix a comment that has become wrong.
 - **Don't add environment variables.** A new setting is an `Option<T>` on its component, set from a Tcl script.
 - `.cursorrules` is outdated: it describes CMake, Eigen, GTest and an `include/` tree, none of which exist. Trust the code and the Makefiles over it.

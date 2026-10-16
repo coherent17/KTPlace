@@ -10,7 +10,6 @@
 #include <algorithm>
 #include <cstring>
 #include <filesystem>
-#include <fstream>
 #include <sstream>
 #include <unordered_map>
 
@@ -50,17 +49,17 @@ bool lowerEq(const std::string &a, const char *b) {
 // else is read as plain text.
 class InputTextFile {
 public:
-    explicit InputTextFile(const std::string &path) : in_(path) {}
+    explicit InputTextFile(const std::string &path) : gzFile(path) {}
 
     std::istream &stream() {
-        return in_;
+        return gzFile;
     }
     explicit operator bool() const {
-        return static_cast<bool>(in_);
+        return static_cast<bool>(gzFile);
     }
 
 private:
-    GzipInputFile in_;
+    GzipInputFile gzFile;
 };
 
 // Parsed node record produced by the parallel parsing phase.

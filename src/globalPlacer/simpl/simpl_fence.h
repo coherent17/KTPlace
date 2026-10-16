@@ -6,7 +6,6 @@
 
 #pragma once
 
-#include <array>
 #include <cstddef>
 #include <string>
 #include <vector>
@@ -59,7 +58,7 @@ struct Region {
 /// correctly unconstrained design, not a missing one.
 class Fences {
 public:
-    static constexpr int kNoRegion = -1;
+    static constexpr int noRegion = -1;
 
     [[nodiscard]] std::size_t numRegions() const noexcept {
         return regions.size();

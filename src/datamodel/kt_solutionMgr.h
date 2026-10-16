@@ -102,8 +102,8 @@ public:
     /// Resize, zero-filling. The positions of a design being read are the design's
     /// own; this is how a Solution is seeded from them.
     void resize(std::size_t numVertices) {
-        x_.assign(numVertices, 0.0);
-        y_.assign(numVertices, 0.0);
+        xPos.assign(numVertices, 0.0);
+        yPos.assign(numVertices, 0.0);
     }
 
     /// The positions currently in the design, for a graph of this shape.
@@ -117,43 +117,43 @@ public:
     void commitTo(Graph &graph) const;
 
     [[nodiscard]] double x(std::size_t vertexId) const {
-        return x_.at(vertexId);
+        return xPos.at(vertexId);
     }
     [[nodiscard]] double y(std::size_t vertexId) const {
-        return y_.at(vertexId);
+        return yPos.at(vertexId);
     }
     void setX(std::size_t vertexId, double x) {
-        x_.at(vertexId) = x;
+        xPos.at(vertexId) = x;
     }
     void setY(std::size_t vertexId, double y) {
-        y_.at(vertexId) = y;
+        yPos.at(vertexId) = y;
     }
 
     /// Take both coordinates for every cell at once. `xs` and `ys` must be
     /// indexed by cell id and the same length, which is the shape stages keep
     /// their results in.
     void setAll(const std::vector<double> &xs, const std::vector<double> &ys) {
-        if (xs.size() != ys.size() || xs.size() != x_.size()) {
+        if (xs.size() != ys.size() || xs.size() != xPos.size()) {
             throw std::invalid_argument("solutionMgr::setAll: size mismatch");
         }
-        x_ = xs;
-        y_ = ys;
+        xPos = xs;
+        yPos = ys;
     }
 
     [[nodiscard]] const std::vector<double> &xs() const {
-        return x_;
+        return xPos;
     }
     [[nodiscard]] const std::vector<double> &ys() const {
-        return y_;
+        return yPos;
     }
 
     [[nodiscard]] std::size_t size() const {
-        return x_.size();
+        return xPos.size();
     }
 
 private:
-    std::vector<double> x_;
-    std::vector<double> y_;
+    std::vector<double> xPos;
+    std::vector<double> yPos;
 };
 
 }  // namespace ktplace

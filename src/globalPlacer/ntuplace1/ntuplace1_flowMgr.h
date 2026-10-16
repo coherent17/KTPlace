@@ -7,7 +7,7 @@
 #pragma once
 
 #include "datamodel/kt_solutionMgr.h"
-#include "placer/ntuplace1/ntuplace1_dm.h"
+#include "globalPlacer/ntuplace1/ntuplace1_dm.h"
 
 namespace ktplace::ntuplace1 {
 

@@ -193,7 +193,7 @@ a separate engine.
 ## The algorithm
 
 SimPL is implemented from the paper, which is the reference for every decision in
-`src/placer/simpl/`:
+`src/globalPlacer/simpl/`:
 
 > M.-C. Kim, D.-J. Lee, I. L. Markov. *SimPL: An Algorithm for Placing VLSI
 > Circuits.* Communications of the ACM 56(6), June 2013. DOI

@@ -18,7 +18,6 @@
 #include <iterator>
 #include <limits>
 #include <map>
-#include <stdexcept>
 #include <utility>
 
 // oneTBB - parallel stats
@@ -317,7 +316,7 @@ std::vector<ktDM::Defect> ktDM::verify() const {
             ++outOfDie;
             continue;
         }
-        if (hasFences() && vert.regionId != constraintMgr::kNoRegion) {
+        if (hasFences() && vert.regionId != constraintMgr::noRegion) {
             std::vector<double> flat{vert.x, vert.y};
             std::vector<int> ids{vert.regionId};
             offFence += constraints().countViolations(flat, ids);
@@ -368,8 +367,8 @@ std::vector<ktDM::Defect> ktDM::verify() const {
                 isTall[v] = 1;
                 continue;
             }
-            const long long bx = static_cast<long long>(std::floor(vert.x / cell));
-            const long long by = static_cast<long long>(std::floor(vert.y / cell));
+            const auto bx = static_cast<long long>(std::floor(vert.x / cell));
+            const auto by = static_cast<long long>(std::floor(vert.y / cell));
             buckets[{bx, by}].push_back(v);
         }
         const double eps = 1e-9;
@@ -384,7 +383,7 @@ std::vector<ktDM::Defect> ktDM::verify() const {
                    p.y < q.y + q.height - eps && q.y < p.y + p.height - eps;
         };
         // Only forward neighbours: all eight examines each cross-bucket pair twice.
-        static const int kFwd[4][2] = {{1, 0}, {-1, 1}, {0, 1}, {1, 1}};
+        static const int fwd[4][2] = {{1, 0}, {-1, 1}, {0, 1}, {1, 1}};
         for (const auto &kv : buckets) {
             const std::vector<std::size_t> &mine = kv.second;
             for (std::size_t a = 0; a < mine.size(); ++a) {
@@ -392,7 +391,7 @@ std::vector<ktDM::Defect> ktDM::verify() const {
                     overlaps += hits(mine[a], mine[b]) ? 1u : 0u;
                 }
             }
-            for (const auto &d : kFwd) {
+            for (const auto &d : fwd) {
                 auto it = buckets.find({kv.first.first + d[0], kv.first.second + d[1]});
                 if (it == buckets.end()) {
                     continue;
@@ -625,14 +624,14 @@ void ktDM::reportStatistics() const {
         movableWidth += cell.width;
     }
 
-    constexpr std::array<std::size_t, 5> kDegreeTop{1, 2, 3, 10, 100};
-    std::array<std::size_t, kDegreeTop.size() + 1> byDegree{};
+    constexpr std::array<std::size_t, 5> degreeTop{1, 2, 3, 10, 100};
+    std::array<std::size_t, degreeTop.size() + 1> byDegree{};
     std::size_t maxDegree = 0;
     for (std::size_t n = 0; n < g.getNumNets(); ++n) {
         const std::size_t d = g.getNetPins(n).size();
         maxDegree = std::max(maxDegree, d);
         std::size_t bucket = 0;
-        while (bucket < kDegreeTop.size() && d > kDegreeTop[bucket]) {
+        while (bucket < degreeTop.size() && d > degreeTop[bucket]) {
             ++bucket;
         }
         ++byDegree[bucket];

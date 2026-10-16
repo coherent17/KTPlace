@@ -25,13 +25,13 @@ struct FenceRect {
 };
 
 /// A labelled stretch of a row: [xlo, xhi) belonging to `region`, or to no
-/// region (open space) when region is kOpenSpace.
+/// region (open space) when region is openSpace.
 struct RowPiece {
     double xlo = 0.0, xhi = 0.0;
     int region = -1;
 };
 
-inline constexpr int kOpenSpace = -1;
+inline constexpr int openSpace = -1;
 
 /// Split [xlo, xhi) of the row band [y0, y1) by the fence rectangles.
 ///
@@ -45,10 +45,10 @@ inline constexpr int kOpenSpace = -1;
 inline std::vector<RowPiece> splitRowByFences(double xlo, double xhi, double y0, double y1,
                                               double grid, const std::vector<FenceRect> &rects) {
     constexpr double eps = 1e-9;
-    constexpr int kBlocked = -2;
+    constexpr int blocked = -2;
     struct Span {
         double lo, hi;
-        int region;  // member region, or kBlocked
+        int region;  // member region, or blocked
     };
     std::vector<Span> spans;
     for (const FenceRect &rc : rects) {
@@ -56,10 +56,10 @@ inline std::vector<RowPiece> splitRowByFences(double xlo, double xhi, double y0,
             continue;
         }
         const bool covers = rc.ylo <= y0 + eps && rc.yhi >= y1 - eps;
-        spans.push_back({rc.xlo, rc.xhi, covers ? rc.region : kBlocked});
+        spans.push_back({rc.xlo, rc.xhi, covers ? rc.region : blocked});
     }
     if (spans.empty()) {
-        return {RowPiece{xlo, xhi, kOpenSpace}};
+        return {RowPiece{xlo, xhi, openSpace}};
     }
     std::vector<double> cuts{xlo, xhi};
     for (const Span &sp : spans) {
@@ -75,15 +75,15 @@ inline std::vector<RowPiece> splitRowByFences(double xlo, double xhi, double y0,
     // Label by midpoint: member space wins over a blocking rectangle, which wins
     // over open space.
     const auto labelOf = [&](double mid) {
-        int label = kOpenSpace;
+        int label = openSpace;
         for (const Span &sp : spans) {
             if (mid <= sp.lo || mid >= sp.hi) {
                 continue;
             }
-            if (sp.region != kBlocked) {
+            if (sp.region != blocked) {
                 return sp.region;
             }
-            label = kBlocked;
+            label = blocked;
         }
         return label;
     };
@@ -101,7 +101,7 @@ inline std::vector<RowPiece> splitRowByFences(double xlo, double xhi, double y0,
         while (e + 1 < cuts.size() && labelOf(0.5 * (cuts[e] + cuts[e + 1])) == label) {
             ++e;
         }
-        if (label != kBlocked) {
+        if (label != blocked) {
             const double lo = snapLo(cuts[k]), hi = snapHi(cuts[e]);
             if (hi > lo + eps) {
                 out.push_back(RowPiece{lo, hi, label});

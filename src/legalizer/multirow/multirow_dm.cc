@@ -4,9 +4,9 @@
 #include "datamodel/kt_dm.h"
 #include "datamodel/kt_optionDb.h"
 #include "datamodel/kt_stageReport.h"
+#include "legalizer/multirow/multirow_legalizer.h"
 #include "util/kt_log.h"
 #include "util/kt_reportTable.h"
-#include "util/kt_scopedTimer.h"
 
 namespace ktplace::multirow {
 

@@ -14,9 +14,8 @@
 
 #include "constraint/kt_constraintMgr.h"
 #include "datamodel/kt_dm.h"
-#include "placer/ntuplace1/kt_ntuplace1.h"
-#include "placer/ntuplace1/ntuplace1_dm.h"
-#include "util/kt_log.h"
+#include "globalPlacer/ntuplace1/kt_ntuplace1.h"
+#include "globalPlacer/ntuplace1/ntuplace1_dm.h"
 
 #include <boost/test/unit_test.hpp>
 #include <string>
@@ -27,15 +26,15 @@ using namespace ktplace;
 
 namespace {
 
-constexpr double kRowHeight = 10.0;
-constexpr int kRows = 10;
-constexpr double kWidth = 100.0;
+constexpr double rowHeight = 10.0;
+constexpr int rowCount = 10;
+constexpr double rowWidth = 100.0;
 
-/// kRows rows of kWidth unit sites, stacked from y = 0.
+/// rowCount rows of rowWidth unit sites, stacked from y = 0.
 void addRows(ktDM &db) {
-    for (int r = 0; r < kRows; ++r) {
-        const std::size_t row = db.addRow(r * kRowHeight, kRowHeight, 1.0, 1.0);
-        (void)db.addSubrow(row, 0.0, kWidth);
+    for (int r = 0; r < rowCount; ++r) {
+        const std::size_t row = db.addRow(r * rowHeight, rowHeight, 1.0, 1.0);
+        (void)db.addSubrow(row, 0.0, rowWidth);
     }
 }
 
@@ -51,7 +50,7 @@ std::size_t addFixed(ktDM &db, const std::string &name, double x, double y, doub
 std::vector<std::size_t> addCells(ktDM &db, const std::string &prefix, int n) {
     std::vector<std::size_t> ids;
     for (int i = 0; i < n; ++i) {
-        ids.push_back(db.addCell(prefix + std::to_string(i), 1.0, kRowHeight));
+        ids.push_back(db.addCell(prefix + std::to_string(i), 1.0, rowHeight));
     }
     return ids;
 }
@@ -86,9 +85,9 @@ void expectInRows(const Placed &placed, const std::vector<std::size_t> &ids) {
     for (const std::size_t id : ids) {
         const auto [x, y] = placed.at(id);
         BOOST_TEST(x >= -1e-9);
-        BOOST_TEST(x + 1.0 <= kWidth + 1e-9);
+        BOOST_TEST(x + 1.0 <= rowWidth + 1e-9);
         BOOST_TEST(y >= -1e-9);
-        BOOST_TEST(y + kRowHeight <= kRows * kRowHeight + 1e-9);
+        BOOST_TEST(y + rowHeight <= rowCount * rowHeight + 1e-9);
     }
 }
 
@@ -108,7 +107,7 @@ BOOST_AUTO_TEST_CASE(cells_avoid_a_macro_marked_as_terminal) {
     ktDM db;
     addRows(db);
     // A macro over the whole left half of the rows: the only room is on the right.
-    addFixed(db, "macro", 0.0, 0.0, 50.0, kRows * kRowHeight);
+    addFixed(db, "macro", 0.0, 0.0, 50.0, rowCount * rowHeight);
     const auto ids = addCells(db, "c", 60);
     for (int i = 0; i + 1 < 60; ++i) {
         addNet(db, "n" + std::to_string(i), {"c" + std::to_string(i), "c" + std::to_string(i + 1)});
@@ -131,13 +130,13 @@ BOOST_AUTO_TEST_CASE(cells_follow_their_pads) {
     addRows(db);
     // Pads outside the rows, left and right, as in a Bookshelf pad ring.
     addFixed(db, "padL", -20.0, 45.0, 1.0, 1.0);
-    addFixed(db, "padR", kWidth + 20.0, 45.0, 1.0, 1.0);
+    addFixed(db, "padR", rowWidth + 20.0, 45.0, 1.0, 1.0);
     // Created alternately (a0, b0, a1, b1, ...), so a split by netlist order
     // mixes the groups and only the pads can tell them apart.
     std::vector<std::size_t> a, b;
     for (int i = 0; i < 16; ++i) {
-        a.push_back(db.addCell("a" + std::to_string(i), 1.0, kRowHeight));
-        b.push_back(db.addCell("b" + std::to_string(i), 1.0, kRowHeight));
+        a.push_back(db.addCell("a" + std::to_string(i), 1.0, rowHeight));
+        b.push_back(db.addCell("b" + std::to_string(i), 1.0, rowHeight));
     }
     // Each group is a chain, and each group's ends are tied to its pad.
     for (int i = 0; i + 1 < 16; ++i) {
@@ -172,7 +171,7 @@ BOOST_AUTO_TEST_CASE(split_follows_free_area_and_stays_in_rows) {
     // A macro over the left quarter: the first cut (vertical, at x = 50) has
     // 25 units of free width on the left and 50 on the right, so a third of the
     // cells should land left of it and two thirds right.
-    addFixed(db, "macro", 0.0, 0.0, 25.0, kRows * kRowHeight);
+    addFixed(db, "macro", 0.0, 0.0, 25.0, rowCount * rowHeight);
     const auto ids = addCells(db, "c", 300);
     // A pad far outside the rows: it must not drag the placement area with it.
     addFixed(db, "pad", 400.0, 400.0, 1.0, 1.0);
@@ -185,9 +184,9 @@ BOOST_AUTO_TEST_CASE(split_follows_free_area_and_stays_in_rows) {
     for (const std::size_t id : ids) {
         const auto [x, y] = placed.at(id);
         BOOST_TEST(x >= 25.0 - 1e-9);
-        BOOST_TEST(x + 1.0 <= kWidth + 1e-9);
+        BOOST_TEST(x + 1.0 <= rowWidth + 1e-9);
         BOOST_TEST(y >= 0.0);
-        BOOST_TEST(y + kRowHeight <= kRows * kRowHeight + 1e-9);
+        BOOST_TEST(y + rowHeight <= rowCount * rowHeight + 1e-9);
         if (x < 50.0) {
             ++left;
         }
@@ -219,12 +218,12 @@ BOOST_AUTO_TEST_CASE(fenced_cells_are_placed_in_their_region_and_others_kept_out
     addRows(db);
     // Fence over x 10..40, rows 2..7 (y 20..80).
     constexpr double fx0 = 10.0, fy0 = 20.0, fx1 = 40.0, fy1 = 80.0;
-    addFixed(db, "padR", kWidth + 20.0, 50.0, 1.0, 1.0);
+    addFixed(db, "padR", rowWidth + 20.0, 50.0, 1.0, 1.0);
     addFixed(db, "padIn", 25.0, 50.0, 1.0, 1.0);
     std::vector<std::size_t> members, others;
     for (int i = 0; i < 24; ++i) {
-        members.push_back(db.addCell("m" + std::to_string(i), 1.0, kRowHeight));
-        others.push_back(db.addCell("o" + std::to_string(i), 1.0, kRowHeight));
+        members.push_back(db.addCell("m" + std::to_string(i), 1.0, rowHeight));
+        others.push_back(db.addCell("o" + std::to_string(i), 1.0, rowHeight));
     }
     for (int i = 0; i < 24; ++i) {
         addNet(db, "nm" + std::to_string(i), {"m" + std::to_string(i), "padR"});

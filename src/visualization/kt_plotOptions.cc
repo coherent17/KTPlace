@@ -6,7 +6,6 @@
 #include "visualization/visualizer_options.h"
 
 #include <cstdlib>
-#include <string>
 
 namespace ktplace {
 
@@ -14,7 +13,7 @@ namespace {}  // namespace
 
 PlotOptions PlotOptions::fromOptions() {
     PlotOptions out;
-    const VisualizerOptions opts = loadOptions<VisualizerOptions>();
+    const auto opts = loadOptions<VisualizerOptions>();
     out.animate = opts.anim;
     out.frameBudget = opts.animMaxFrames;
     out.frameZoom = opts.animZoom;

@@ -56,7 +56,7 @@ solve always starts from a point-like placement and always needs the spread.
 
 ## What KTPlace does
 
-Per outer iteration, in `src/placer/kt_quadPlacer.cc`:
+Per outer iteration, in `src/globalPlacer/simpl/simpl_placer.cc`:
 
 1. **Density grid.** The die bounding box is divided into a uniform bin grid,
    64 bins wide with the height scaled by the die aspect ratio, so bins stay

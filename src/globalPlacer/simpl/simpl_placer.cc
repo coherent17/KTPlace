@@ -1,7 +1,7 @@
 // @file simpl_placer.cc
 // SimPL global placement
 
-#include "placer/simpl/simpl_placer.h"
+#include "globalPlacer/simpl/simpl_placer.h"
 
 #include "util/kt_log.h"
 #include "util/kt_scopedTimer.h"
@@ -26,12 +26,12 @@ namespace ktplace::simpl {
 
 namespace {
 
-constexpr std::uint32_t kNoVar = std::numeric_limits<std::uint32_t>::max();
-constexpr std::size_t kGrain = 4096;
+constexpr std::uint32_t noVar = std::numeric_limits<std::uint32_t>::max();
+constexpr std::size_t grain = 4096;
 
 template <typename Body>
 void parallelFor(std::size_t n, Body body) {
-    tbb::parallel_for(tbb::blocked_range<std::size_t>(0, n, kGrain),
+    tbb::parallel_for(tbb::blocked_range<std::size_t>(0, n, grain),
                       [&](const tbb::blocked_range<std::size_t> &range) {
                           for (std::size_t i = range.begin(); i < range.end(); ++i) {
                               body(i);
@@ -50,14 +50,14 @@ void sortCells(std::vector<std::uint32_t> &cells, Key key) {
 
 template <typename Body>
 double deterministicSum(std::size_t n, Body body) {
-    const std::size_t chunks = (n + kGrain - 1) / kGrain;
+    const std::size_t chunks = (n + grain - 1) / grain;
     std::vector<double> partial(chunks, 0.0);
     tbb::parallel_for(tbb::blocked_range<std::size_t>(0, chunks, 1),
                       [&](const tbb::blocked_range<std::size_t> &range) {
                           for (std::size_t c = range.begin(); c < range.end(); ++c) {
-                              const std::size_t end = std::min(n, (c + 1) * kGrain);
+                              const std::size_t end = std::min(n, (c + 1) * grain);
                               double sum = 0.0;
-                              for (std::size_t i = c * kGrain; i < end; ++i) {
+                              for (std::size_t i = c * grain; i < end; ++i) {
                                   sum += body(i);
                               }
                               partial[c] = sum;
@@ -438,7 +438,7 @@ private:
 
 void simplPlacer::Impl::collect() {
     const std::size_t nv = graph.getNumCells();
-    varOfVertex.assign(nv, kNoVar);
+    varOfVertex.assign(nv, noVar);
     fixedX.assign(nv, 0.0);
     fixedY.assign(nv, 0.0);
     for (std::size_t v = 0; v < nv; ++v) {
@@ -483,7 +483,7 @@ void simplPlacer::Impl::collect() {
     pinStart.assign(numMovable + 1, 0);
     for (const NetPins &net : nets) {
         for (const std::uint32_t c : net.cells) {
-            if (varOfVertex[c] != kNoVar) {
+            if (varOfVertex[c] != noVar) {
                 ++pinStart[varOfVertex[c] + 1];
             }
         }
@@ -494,7 +494,7 @@ void simplPlacer::Impl::collect() {
     for (std::uint32_t n = 0; n < nets.size(); ++n) {
         for (std::uint32_t q = 0; q < nets[n].cells.size(); ++q) {
             const std::uint32_t v = varOfVertex[nets[n].cells[q]];
-            if (v != kNoVar) {
+            if (v != noVar) {
                 pinsOfCell[cursor[v]++] = {n, q};
             }
         }
@@ -639,7 +639,7 @@ void simplPlacer::Impl::buildSystem(SparseSystem &sys, const std::vector<double>
     parallelFor(numMovable, [&](std::size_t i) {
         std::size_t count = 0;
         forEachEdge(i, [&](std::uint32_t cell, double, double, double) {
-            count += varOfVertex[cell] != kNoVar ? 1 : 0;
+            count += varOfVertex[cell] != noVar ? 1 : 0;
         });
         sys.rowPtr[i + 1] = count;
     });
@@ -656,7 +656,7 @@ void simplPlacer::Impl::buildSystem(SparseSystem &sys, const std::vector<double>
         forEachEdge(i, [&](std::uint32_t cell, double pin, double ownOffset, double w) {
             const std::uint32_t var = varOfVertex[cell];
             diag += w;
-            if (var != kNoVar) {
+            if (var != noVar) {
                 sys.col[slot] = var;
                 sys.val[slot] = -w;
                 ++slot;
@@ -676,12 +676,12 @@ void simplPlacer::Impl::buildSystem(SparseSystem &sys, const std::vector<double>
 }
 
 std::size_t simplPlacer::Impl::buildStarSystems() {
-    std::vector<std::uint32_t> starOf(nets.size(), kNoVar);
+    std::vector<std::uint32_t> starOf(nets.size(), noVar);
     std::size_t size = numMovable;
     for (std::size_t n = 0; n < nets.size(); ++n) {
         const std::vector<std::uint32_t> &cells = nets[n].cells;
         const bool movable = std::ranges::any_of(cells, [&](std::uint32_t c) {
-            return varOfVertex[c] != kNoVar;
+            return varOfVertex[c] != noVar;
         });
         if (cells.size() >= 3 && movable) {
             starOf[n] = static_cast<std::uint32_t>(size++);
@@ -709,11 +709,11 @@ void simplPlacer::Impl::buildStarSystem(SparseSystem &sys, const std::vector<std
     sys.rhs.assign(size, 0.0);
     const auto spring = [&](const End &a, const End &b, double w) {
         const auto pull = [&](const End &self, const End &other) {
-            if (self.var == kNoVar) {
+            if (self.var == noVar) {
                 return;
             }
             sys.diag[self.var] += w;
-            if (other.var != kNoVar) {
+            if (other.var != noVar) {
                 rows[self.var].emplace_back(other.var, -w);
                 sys.rhs[self.var] += w * (other.offset - self.offset);
             } else {
@@ -736,7 +736,7 @@ void simplPlacer::Impl::buildStarSystem(SparseSystem &sys, const std::vector<std
         };
         if (p == 2) {
             spring(end(0), end(1), net.weight);
-        } else if (starOf[n] != kNoVar) {
+        } else if (starOf[n] != noVar) {
             const End star{starOf[n], 0.0, 0.0};
             const double w = net.weight * static_cast<double>(p) / static_cast<double>(p - 1);
             for (std::size_t q = 0; q < p; ++q) {
@@ -1221,7 +1221,7 @@ void simplPlacer::Impl::enforceFences(std::vector<double> &x, std::vector<double
         return;
     }
     for (std::size_t i = 0; i < numMovable; ++i) {
-        if (regionOf[i] != Fences::kNoRegion) {
+        if (regionOf[i] != Fences::noRegion) {
             res.fenceClamps += fences->clampToRegion(regionOf[i], x[i], y[i]) ? 1 : 0;
         } else {
             res.fencePushes +=

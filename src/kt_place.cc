@@ -24,7 +24,7 @@ int main(int argc, char *argv[]) {
         ktlog.configure(options.getLogFile(), options.verbose);
         ktlog.trace("ktplace start: argc={}", argc);
         ktlog.beginStep("setup");
-        ktlog.echo("KTPlace - Know Thyself Placement Engine v{}", VERSION);
+        ktlog.echo("KTPlace - Know Thyself Placement Engine v{}", version);
         std::string command = argv[0];
         for (int i = 1; i < argc; ++i) {
             command += ' ';

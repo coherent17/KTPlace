@@ -8,8 +8,8 @@
 
 #pragma once
 
-#include "placer/simpl/simpl_fence.h"
-#include "placer/simpl/simpl_graph.h"
+#include "globalPlacer/simpl/simpl_fence.h"
+#include "globalPlacer/simpl/simpl_graph.h"
 
 #include <array>
 #include <cstddef>

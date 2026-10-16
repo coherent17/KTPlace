@@ -17,7 +17,6 @@
 #include "datamodel/kt_optionDb.h"
 #include "legalizer/abacus/abacus_dm.h"
 #include "legalizer/abacus/abacus_legalizer.h"
-#include "util/kt_log.h"
 
 #include <boost/test/unit_test.hpp>
 #include <string>
@@ -27,21 +26,21 @@ using namespace ktplace;
 
 namespace {
 
-constexpr double kRowHeight = 10.0;
-constexpr int kRows = 10;
-constexpr double kWidth = 100.0;
+constexpr double rowHeight = 10.0;
+constexpr int rowCount = 10;
+constexpr double rowWidth = 100.0;
 
 void addRows(ktDM &db) {
-    for (int r = 0; r < kRows; ++r) {
-        const std::size_t row = db.addRow(r * kRowHeight, kRowHeight, 1.0, 1.0);
-        (void)db.addSubrow(row, 0.0, kWidth);
+    for (int r = 0; r < rowCount; ++r) {
+        const std::size_t row = db.addRow(r * rowHeight, rowHeight, 1.0, 1.0);
+        (void)db.addSubrow(row, 0.0, rowWidth);
     }
 }
 
 std::vector<std::size_t> addCells(ktDM &db, const std::string &prefix, int n, double x, double y) {
     std::vector<std::size_t> ids;
     for (int i = 0; i < n; ++i) {
-        const std::size_t id = db.addCell(prefix + std::to_string(i), 1.0, kRowHeight);
+        const std::size_t id = db.addCell(prefix + std::to_string(i), 1.0, rowHeight);
         db.setCellPosition(id, x, y);
         ids.push_back(id);
     }
@@ -68,12 +67,12 @@ LegalizeResult legalize(ktDM &db) {
 
 bool insideBox(const ktDM &db, std::size_t id, double x0, double y0, double x1, double y1) {
     const auto [x, y] = db.getCellPosition(id);
-    return x >= x0 - 1e-9 && x + 1.0 <= x1 + 1e-9 && y >= y0 - 1e-9 && y + kRowHeight <= y1 + 1e-9;
+    return x >= x0 - 1e-9 && x + 1.0 <= x1 + 1e-9 && y >= y0 - 1e-9 && y + rowHeight <= y1 + 1e-9;
 }
 
 bool overlapsBox(const ktDM &db, std::size_t id, double x0, double y0, double x1, double y1) {
     const auto [x, y] = db.getCellPosition(id);
-    return x < x1 - 1e-9 && x + 1.0 > x0 + 1e-9 && y < y1 - 1e-9 && y + kRowHeight > y0 + 1e-9;
+    return x < x1 - 1e-9 && x + 1.0 > x0 + 1e-9 && y < y1 - 1e-9 && y + rowHeight > y0 + 1e-9;
 }
 
 }  // namespace

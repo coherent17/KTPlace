@@ -88,7 +88,7 @@ BUNDLED_LIBS := $(TBB_LIB) $(ZLIB_LIB)
 LIBS := $(STATIC_LDFLAGS) $(BUNDLED_LIBS) -pthread
 
 # Subdirectories
-SUBDIRS := datamodel adaptor constraint placer legalizer detailPlacer visualization util tcl
+SUBDIRS := datamodel adaptor constraint globalPlacer legalizer detailPlacer visualization util tcl
 
 # Source files in current directory
 LOCAL_SRCS := kt_flowMgr.cc kt_place.cc kt_option.cc
@@ -194,7 +194,7 @@ $(STATIC_LIB): $(LIB_OBJS) | dirs
 
 # Compile local source files
 # Object trees are nested (a module may live in a subdirectory, e.g.
-# placer/simpl/), so the target directory is created before compiling -- gcc has
+# globalPlacer/simpl/), so the target directory is created before compiling -- gcc has
 # to be able to write the generated .d file next to the .o.
 $(OBJ_DIR)/%.o: %.cc
 	@mkdir -p $(dir $@)
@@ -245,7 +245,7 @@ TEST_constraint := constraint/test/test_constraint.cc
 TEST_option := test/test_option.cc
 TEST_viz := visualization/test/test_viz.cc
 TEST_detail := detailPlacer/test/test_detail.cc
-TEST_ntuplace1 := placer/ntuplace1/test/test_ntuplace1.cc
+TEST_ntuplace1 := globalPlacer/ntuplace1/test/test_ntuplace1.cc
 TEST_abacus := legalizer/abacus/test/test_abacus.cc
 TEST_tcl := tcl/test/test_tcl.cc
 
@@ -256,7 +256,7 @@ TEST_BINS := $(BIN_DIR)/test_datamodel $(BIN_DIR)/test_adaptor $(BIN_DIR)/test_f
 
 # SimPL's suite, appended rather than listed above so the line other suites add
 # themselves to stays untouched.
-TEST_simpl := placer/simpl/test/test_simpl.cc
+TEST_simpl := globalPlacer/simpl/test/test_simpl.cc
 TEST_BINS += $(BIN_DIR)/test_simpl
 
 # Builds the test binaries without running them. `make coverage` needs this:

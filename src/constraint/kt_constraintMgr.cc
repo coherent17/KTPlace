@@ -27,7 +27,7 @@ int constraintMgr::addRegion(std::string name, const std::vector<Point> &points)
         region.rects.push_back(r);
     }
     if (region.rects.empty()) {
-        return kNoRegion;  // unusable as a fence
+        return noRegion;  // unusable as a fence
     }
 
     region.area = 0.0;
@@ -43,14 +43,14 @@ int constraintMgr::addRegion(std::string name, const std::vector<Point> &points)
         region.maxY = std::max(region.maxY, r.hi.y);
     }
 
-    const int id = static_cast<int>(regions_.size());
-    byName_[region.name] = id;
-    regions_.push_back(std::move(region));
+    const int id = static_cast<int>(regionList.size());
+    idByName[region.name] = id;
+    regionList.push_back(std::move(region));
     return id;
 }
 
 bool constraintMgr::contains(int id, double x, double y) const {
-    if (id == kNoRegion) {
+    if (id == noRegion) {
         return true;  // unconstrained cells are always legal
     }
     const Region *r = region(id);
@@ -86,14 +86,14 @@ void constraintMgr::clampToRegion(int id, double &x, double &y) const {
 
 double constraintMgr::escapeEpsilon() const {
     double scale = 0.0;
-    for (const Region &r : regions_) {
+    for (const Region &r : regionList) {
         scale = std::max(scale, std::max(r.maxX - r.minX, r.maxY - r.minY));
     }
     return std::max(scale, 1.0) * 1e-6;
 }
 
 bool constraintMgr::insideAnyRegion(double x, double y) const {
-    for (const Region &r : regions_) {
+    for (const Region &r : regionList) {
         if (r.contains(x, y)) {
             return true;
         }
@@ -109,11 +109,11 @@ bool constraintMgr::pushOutOfRegions(double &x, double &y, double dieMinX, doubl
     // caught the point can drop it straight into the neighbour and ping-pong
     // forever. Each pass therefore picks the nearest of the four exits that
     // actually lands outside every region, which makes progress monotone.
-    const std::size_t maxPasses = 4 * (regions_.size() + 1) + 8;
+    const std::size_t maxPasses = 4 * (regionList.size() + 1) + 8;
     for (std::size_t pass = 0; pass < maxPasses; ++pass) {
         const Rect *host = nullptr;
         double hostArea = std::numeric_limits<double>::max();
-        for (const Region &r : regions_) {
+        for (const Region &r : regionList) {
             for (const Rect &cand : r.rects) {
                 if (cand.contains(x, y) && cand.area() < hostArea) {
                     hostArea = cand.area();
@@ -163,14 +163,14 @@ bool constraintMgr::pushOutOfRegions(double &x, double &y, double dieMinX, doubl
 }
 
 std::size_t constraintMgr::assignByPrefix(int regionId, const std::string &prefix, Graph &graph) {
-    if (regionId == kNoRegion || region(regionId) == nullptr || prefix.empty()) {
+    if (regionId == noRegion || region(regionId) == nullptr || prefix.empty()) {
         return 0;
     }
     std::size_t assigned = 0;
     const std::size_t count = graph.getNumCells();
     for (std::size_t v = 0; v < count; ++v) {
         Vertex &vert = graph.getCell(v);
-        if (vert.regionId != kNoRegion) {
+        if (vert.regionId != noRegion) {
             continue;  // first matching group wins
         }
         if (vert.name.compare(0, prefix.size(), prefix) == 0) {
@@ -178,8 +178,8 @@ std::size_t constraintMgr::assignByPrefix(int regionId, const std::string &prefi
             ++assigned;
         }
     }
-    if (regionId < static_cast<int>(regions_.size())) {
-        regions_[regionId].cellCount = assigned;
+    if (regionId < static_cast<int>(regionList.size())) {
+        regionList[regionId].cellCount = assigned;
     }
     return assigned;
 }

@@ -38,19 +38,19 @@ solutionMgr solutionMgr::fromGraph(const Graph &graph) {
     const std::size_t nv = graph.getNumCells();
     for (std::size_t v = 0; v < nv; ++v) {
         const Vertex &vert = graph.getCell(v);
-        s.x_[v] = vert.x;
-        s.y_[v] = vert.y;
+        s.xPos[v] = vert.x;
+        s.yPos[v] = vert.y;
     }
     return s;
 }
 
 void solutionMgr::commitTo(Graph &graph) const {
     const std::size_t nv = graph.getNumCells();
-    const std::size_t n = std::min(nv, x_.size());
+    const std::size_t n = std::min(nv, xPos.size());
     for (std::size_t v = 0; v < n; ++v) {
         Vertex &vert = graph.getCell(v);
-        vert.x = x_[v];
-        vert.y = y_[v];
+        vert.x = xPos[v];
+        vert.y = yPos[v];
     }
 }
 

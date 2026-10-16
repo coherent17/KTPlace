@@ -38,26 +38,26 @@ class ScratchDir {
 public:
     explicit ScratchDir(const char *tag) {
         static int counter = 0;
-        path_ = std::filesystem::temp_directory_path() /
-                ("ktplace_viz_" + std::string(tag) + "_" + std::to_string(++counter));
-        std::filesystem::remove_all(path_);
-        std::filesystem::create_directories(path_);
+        tempDir = std::filesystem::temp_directory_path() /
+                  ("ktplace_viz_" + std::string(tag) + "_" + std::to_string(++counter));
+        std::filesystem::remove_all(tempDir);
+        std::filesystem::create_directories(tempDir);
     }
     ~ScratchDir() {
         std::error_code ec;
-        std::filesystem::remove_all(path_, ec);
+        std::filesystem::remove_all(tempDir, ec);
     }
     ScratchDir(const ScratchDir &) = delete;
     ScratchDir &operator=(const ScratchDir &) = delete;
     [[nodiscard]] std::string str() const {
-        return path_.string();
+        return tempDir.string();
     }
     [[nodiscard]] std::filesystem::path file(const std::string &n) const {
-        return path_ / n;
+        return tempDir / n;
     }
 
 private:
-    std::filesystem::path path_;
+    std::filesystem::path tempDir;
 };
 
 /// A palette with enough flat colours for the drawing tests.
@@ -527,15 +527,15 @@ BOOST_AUTO_TEST_CASE(movable_cells_are_written_once_each_in_vertex_order) {
     // the cells in the file.
     const ScratchDir dir("svgorder");
     Graph g = sampleGraph();
-    constexpr std::size_t kCells = 10000;
+    constexpr std::size_t cells = 10000;
     const std::size_t first = g.getNumCells();
-    for (std::size_t i = 0; i < kCells; ++i) {
+    for (std::size_t i = 0; i < cells; ++i) {
         Vertex &v = g.getCell(g.addCell("o" + std::to_string(i)));
         v.width = 1.0;
         v.height = 1.0;
     }
     std::vector<float> x = sampleX(g), y = sampleY(g);
-    for (std::size_t i = 0; i < kCells; ++i) {
+    for (std::size_t i = 0; i < cells; ++i) {
         x[first + i] = static_cast<float>(i);
         y[first + i] = 50.0F;
     }
@@ -553,9 +553,9 @@ BOOST_AUTO_TEST_CASE(movable_cells_are_written_once_each_in_vertex_order) {
          at = svg.find("<rect x=\"", at + 1)) {
         xs.push_back(std::stod(svg.substr(at + 9)));
     }
-    // sampleGraph's three movable cells come first, then the kCells added here.
-    BOOST_REQUIRE_EQUAL(xs.size(), kCells + 3);
-    for (std::size_t i = 0; i < kCells; ++i) {
+    // sampleGraph's three movable cells come first, then the cells added here.
+    BOOST_REQUIRE_EQUAL(xs.size(), cells + 3);
+    for (std::size_t i = 0; i < cells; ++i) {
         BOOST_REQUIRE_EQUAL(xs[3 + i], static_cast<double>(i));
     }
 }
@@ -699,16 +699,16 @@ BOOST_AUTO_TEST_CASE(a_legal_row_is_drawn_at_its_true_size_and_not_wider) {
     a.height = 400.0;
     a.isFixed = true;
     a.isTerminal = true;
-    constexpr int kCells = 50;
-    constexpr double kW = 2.0;  // about three pixels at the scale below
-    constexpr double kH = 2.0;
-    for (int i = 0; i < kCells; ++i) {
+    constexpr int cells = 50;
+    constexpr double cellW = 2.0;  // about three pixels at the scale below
+    constexpr double cellH = 2.0;
+    for (int i = 0; i < cells; ++i) {
         const std::size_t c = g.addCell("c" + std::to_string(i));
         Vertex &v = g.getCell(c);
-        v.x = 20.0 + i * kW;  // exactly edge to edge, no gap and no overlap
+        v.x = 20.0 + i * cellW;  // exactly edge to edge, no gap and no overlap
         v.y = 20.0;
-        v.width = kW;
-        v.height = kH;
+        v.width = cellW;
+        v.height = cellH;
     }
     writeFrameRaster((dir.file("row.ppm")).string(), g, sampleX(g), sampleY(g), fixedCellBBox(g), 0,
                      1, 1.0, 1.0, 0.0, "", nullptr, /*fixedView=*/true, /*zoom=*/1.0);
@@ -739,9 +739,9 @@ BOOST_AUTO_TEST_CASE(a_legal_row_is_drawn_at_its_true_size_and_not_wider) {
     // Scanned below the caption band only: the key draws a swatch in the movable
     // colour, so a scan over the whole frame would measure the legend as well as
     // the placement and report a span wider than the cells.
-    constexpr int kBelowCaption = 160;
+    constexpr int belowCaption = 160;
     int firstX = -1, lastX = -1, rowsHit = 0;
-    for (int y = kBelowCaption; y < h; ++y) {
+    for (int y = belowCaption; y < h; ++y) {
         int lo = -1, hi = -1;
         for (int x = 0; x < w; ++x) {
             if (isBlue(x, y)) {
@@ -770,8 +770,8 @@ BOOST_AUTO_TEST_CASE(a_legal_row_is_drawn_at_its_true_size_and_not_wider) {
     // the two outer edges.
     const double avail = std::min(768.0 - 2 * 36.0 - 2.0, 768.0 - 116.0 - 36.0 - 2.0);
     const double scale = avail / (1.02 * 400.0);
-    const double expected = kCells * kW * scale;
-    const double drawn = static_cast<double>(lastX - firstX + 1);
+    const double expected = cells * cellW * scale;
+    const auto drawn = static_cast<double>(lastX - firstX + 1);
     // BOOST_TEST_CONTEXT, not BOOST_TEST_CONTEXT: the former leaves an empty
     // statement where its scoped object is introduced, which is -Wempty-body, and
     // it is the only construct in this file that warned.
@@ -982,8 +982,8 @@ BOOST_AUTO_TEST_CASE(blending_emits_in_between_frames_that_arrive_at_the_new_pla
     BOOST_TEST(Visualizer::instance().frameCount() == 1u);
 
     std::vector<float> x2 = x;
-    for (std::size_t i = 0; i < x2.size(); ++i) {
-        x2[i] += 4.0F;
+    for (float &i : x2) {
+        i += 4.0F;
     }
     // 1 still for the first placement, then blend-1 in-between frames plus the
     // placement itself.

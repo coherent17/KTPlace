@@ -8,7 +8,6 @@
 #include "legalizer/multirow/multirow_options.h"
 
 #include <memory>
-#include <string>
 
 namespace ktplace {
 

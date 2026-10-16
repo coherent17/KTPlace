@@ -10,7 +10,7 @@
 namespace ktplace {
 
 struct FastdpOptions {
-    static constexpr Component kComponent = Component::FastDp;
+    static constexpr Component component = Component::FastDp;
 
     std::size_t reorderWindow = 3;
     double penaltyWeight1 = 0.1;

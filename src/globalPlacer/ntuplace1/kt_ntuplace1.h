@@ -30,14 +30,11 @@
 
 #pragma once
 
-#include "placer/ntuplace1/ntuplace1_design.h"
-#include "placer/ntuplace1/ntuplace1_options.h"
+#include "globalPlacer/ntuplace1/ntuplace1_design.h"
+#include "globalPlacer/ntuplace1/ntuplace1_options.h"
 
-#include <array>
 #include <cstddef>
 #include <memory>
-#include <string>
-#include <vector>
 
 namespace ktplace {
 

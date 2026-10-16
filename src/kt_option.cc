@@ -82,7 +82,7 @@ void kt_option::report() const {
 }
 
 void kt_option::printUsage() {
-    constexpr const char *kUsage = R"(KTPlace - Know Thyself Placement Engine v{}
+    constexpr const char *usage = R"(KTPlace - Know Thyself Placement Engine v{}
 Usage: ktplace <input_dir> [options]
 
 Arguments:
@@ -116,11 +116,11 @@ Examples:
   ktplace benchmark/ISPD_2005/adaptec1 -w output
   ktplace benchmark/ISPD_2005/adaptec1 -w output -tcl run.tcl
 )";
-    ktlog.echo(std::format(kUsage, VERSION));
+    ktlog.echo(std::format(usage, version));
 }
 
 void kt_option::printVersion() {
-    ktlog.echo(std::format("KTPlace v{}\nKnow Thyself Placement Engine", VERSION));
+    ktlog.echo(std::format("KTPlace v{}\nKnow Thyself Placement Engine", version));
 }
 
 }  // namespace ktplace

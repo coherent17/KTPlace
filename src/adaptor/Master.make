@@ -7,7 +7,7 @@
 # Use variables passed from parent Makefile, or set defaults
 CXX ?= g++
 CXXFLAGS ?= -std=c++23 -Wall -Wextra -O2 -g -pthread
-# Every source uses project-root-relative includes (see placer/Master.make).
+# Every source uses project-root-relative includes (see globalPlacer/Master.make).
 override INCLUDES := -I.. $(THIRD_PARTY_INCLUDES)
 OBJ_DIR ?= ../build/obj/adaptor
 

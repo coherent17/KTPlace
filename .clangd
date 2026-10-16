@@ -1,26 +1,8 @@
-# clangd server configuration.
-#
-# The compilation database is found without any help from this file: clangd walks
-# up from the file being edited until it finds compile_commands.json. Generate it
-# with `make compile-commands`. It is not tracked: the include paths are absolute,
-# so a committed copy would be wrong on every other machine, and a stale database
-# is worse than none -- clangd would silently report diagnostics from flags the
-# build does not use.
-#
-# Nothing else is set here on purpose. Warnings come from the -Wall -Wextra
-# -Wpedantic -Wshadow already in the compile commands, so a warning appears where
-# it is written instead of only in a CI log. Formatting comes from the
-# repository's .clang-format, the one `make format` and the CI check read, so an
-# edit saved in the editor and one formatted by the target agree.
-
-# Match the compiler the build actually uses. Without this clangd assumes clang,
-# and the built-ins it then believes in, and the language standard it assumes, are
-# not the ones g++ compiles with.
-#
-# `c++2b` is the same standard as the build's `c++23` (g++ 13 accepts both), but
-# it is the spelling every clang from 14 on understands. A `-std` clang rejects is
-# not merely ignored: clangd then throws away the whole command line, include paths
-# included, and the file reports its own headers as missing.
 CompileFlags:
   Compiler: g++
   Add: [-std=c++2b]
+Diagnostics:
+  UnusedIncludes: Strict
+  MissingIncludes: None
+  ClangTidy:
+    FastCheckFilter: None

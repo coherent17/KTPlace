@@ -10,7 +10,7 @@
 namespace ktplace {
 
 struct Ntuplace1Options {
-    static constexpr Component kComponent = Component::NtuPlace1;
+    static constexpr Component component = Component::NtuPlace1;
 
     std::size_t targetLeafCells = 100;
     std::size_t maxLevels = 32;

@@ -10,9 +10,7 @@
 #include "datamodel/kt_solutionMgr.h"
 #include "detailPlacer/fastdp/fastdp_design.h"
 #include "detailPlacer/fastdp/fastdp_options.h"
-#include "detailPlacer/fastdp/fastdp_placer.h"
 
-#include <string>
 
 namespace ktplace {
 

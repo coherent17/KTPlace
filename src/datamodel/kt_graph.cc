@@ -6,7 +6,7 @@
 
 namespace ktplace {
 
-const std::vector<std::size_t> Graph::kNoPins;
+const std::vector<std::size_t> Graph::noPins;
 
 Graph::Graph() = default;
 Graph::~Graph() = default;

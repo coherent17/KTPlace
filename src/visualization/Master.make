@@ -8,7 +8,7 @@
 CXX ?= g++
 CXXFLAGS ?= -std=c++23 -Wall -Wextra -O2 -g -pthread
 # Every source uses project-root-relative includes ("datamodel/kt_dm.h",
-# "placer/simpl/kt_simpl.h", ...), so a single -I at the project root
+# "globalPlacer/simpl/kt_simpl.h", ...), so a single -I at the project root
 # (src/) is all that is needed, regardless of which subdirectory make
 # is running in.  `override` is required because the parent makefile
 # passes INCLUDES on the command line.

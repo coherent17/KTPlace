@@ -4,11 +4,10 @@
 #pragma once
 
 #include "datamodel/kt_solutionMgr.h"
-#include "placer/simpl/simpl_design.h"
-#include "placer/simpl/simpl_options.h"
+#include "globalPlacer/simpl/simpl_design.h"
+#include "globalPlacer/simpl/simpl_options.h"
 
 #include <cstddef>
-#include <cstdint>
 #include <memory>
 
 namespace ktplace::simpl {

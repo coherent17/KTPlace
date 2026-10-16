@@ -6,15 +6,12 @@
 
 #pragma once
 
-#include "constraint/kt_constraintMgr.h"
 #include "datamodel/kt_solutionMgr.h"
 #include "detailPlacer/fastdp/fastdp_design.h"
 #include "detailPlacer/fastdp/fastdp_options.h"
 
 #include <cstddef>
 #include <memory>
-#include <string>
-#include <vector>
 
 namespace ktplace {
 

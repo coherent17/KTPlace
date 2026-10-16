@@ -65,7 +65,7 @@ struct Region {
 class constraintMgr {
 public:
     /// Sentinel for "not constrained to any region".
-    static constexpr int kNoRegion = -1;
+    static constexpr int noRegion = -1;
 
     constraintMgr() = default;
 
@@ -79,18 +79,18 @@ public:
 
     /// @return number of regions
     [[nodiscard]] std::size_t numRegions() const {
-        return regions_.size();
+        return regionList.size();
     }
 
     /// @return the region with the given id, or nullptr when out of range
     [[nodiscard]] const Region *region(int id) const {
-        return (id >= 0 && static_cast<std::size_t>(id) < regions_.size()) ? &regions_[id]
-                                                                           : nullptr;
+        return (id >= 0 && static_cast<std::size_t>(id) < regionList.size()) ? &regionList[id]
+                                                                             : nullptr;
     }
 
     /// @return all regions
     [[nodiscard]] const std::vector<Region> &regions() const {
-        return regions_;
+        return regionList;
     }
 
     // Is (x, y) inside the region?
@@ -118,8 +118,8 @@ private:
     /// @return step used to land just outside a fence, scaled to the geometry
     [[nodiscard]] double escapeEpsilon() const;
 
-    std::vector<Region> regions_;
-    std::unordered_map<std::string, int> byName_;
+    std::vector<Region> regionList;
+    std::unordered_map<std::string, int> idByName;
 };
 
 }  // namespace ktplace

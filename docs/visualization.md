@@ -44,8 +44,8 @@ then builds no snapshot at all.
 
 | stage | hook(s) | payload |
 | --- | --- | --- |
-| SimPL (`placer/simpl/simpl_design.h`) | `onFrame`, `onBounds` | positions + `FrameInfo`; `BoundsPoint` per iteration |
-| NTUPlace1 (`placer/ntuplace1/kt_ntuplace1.h`) | `RatioPlacer::setFrameHook` | positions + `RatioFrameInfo` |
+| SimPL (`globalPlacer/simpl/simpl_design.h`) | `onFrame`, `onBounds` | positions + `FrameInfo`; `BoundsPoint` per iteration |
+| NTUPlace1 (`globalPlacer/ntuplace1/kt_ntuplace1.h`) | `RatioPlacer::setFrameHook` | positions + `RatioFrameInfo` |
 | Abacus (`legalizer/abacus/abacus_design.h`) | `onFrame` | positions + `FrameInfo` |
 | multi-row (`legalizer/multirow/multirow_design.h`) | `onFrame` | positions + `FrameInfo` |
 | FastDP (`detailPlacer/fastdp/fastdp_design.h`) | `onFrame` | positions + `FrameInfo` |

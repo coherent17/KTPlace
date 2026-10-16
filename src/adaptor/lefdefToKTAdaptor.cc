@@ -10,7 +10,6 @@
 #include <algorithm>
 #include <cctype>
 #include <filesystem>
-#include <fstream>
 #include <sstream>
 #include <utility>
 
@@ -66,11 +65,11 @@ std::string LefDefInputAdapter::sanitizeName(const std::string &name) {
     if (!out.empty() && out[0] == '\\') {
         out.erase(0, 1);  // DEF escape prefix
     }
-    for (std::size_t i = 0; i < out.size(); ++i) {
-        const char c = out[i];
+    for (char &i : out) {
+        const char c = i;
         if (c == '/' || c == '.' || c == '[' || c == ']' || c == '\\' || c == '(' || c == ')' ||
             c == '{' || c == '}') {
-            out[i] = '_';
+            i = '_';
         }
     }
     return out;
@@ -518,7 +517,7 @@ bool LefDefInputAdapter::parseDefFile(const std::string &filePath) {
                     for (std::size_t i = 0; i + 1 < coords.size(); i += 2) {
                         polygon.push_back(Point{coords[i], coords[i + 1]});
                     }
-                    if (fences.addRegion(name, std::move(polygon)) != constraintMgr::kNoRegion) {
+                    if (fences.addRegion(name, std::move(polygon)) != constraintMgr::noRegion) {
                         ++numRegions;
                     }
                 }
@@ -814,14 +813,14 @@ bool LefDefInputAdapter::parseDefFile(const std::string &filePath) {
     // GROUPS is written before COMPONENTS, so the instance -> region mapping
     // can only be applied now that every cell vertex exists.
     for (const auto &[regionName, pattern] : pendingGroups) {
-        int regionId = constraintMgr::kNoRegion;
+        int regionId = constraintMgr::noRegion;
         for (std::size_t i = 0; i < fences.numRegions(); ++i) {
             if (fences.region(static_cast<int>(i))->name == regionName) {
                 regionId = static_cast<int>(i);
                 break;
             }
         }
-        if (regionId == constraintMgr::kNoRegion) {
+        if (regionId == constraintMgr::noRegion) {
             continue;
         }
         const std::size_t assigned = fences.assignByPrefix(regionId, pattern, db->getGraph());

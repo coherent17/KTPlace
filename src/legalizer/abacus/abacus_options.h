@@ -10,7 +10,7 @@
 namespace ktplace {
 
 struct AbacusOptions {
-    static constexpr Component kComponent = Component::Abacus;
+    static constexpr Component component = Component::Abacus;
 
     std::size_t maxRowDistance = 0;
     std::size_t minSubrowSites = 1;
