@@ -25,7 +25,7 @@ endif
 THIRD_PARTY := $(abspath $(CURDIR)/../third_party)
 TBB_DIR := $(THIRD_PARTY)/oneTBB
 ZLIB_DIR := $(THIRD_PARTY)/zlib
-ifeq ($(wildcard $(TBB_DIR)/include/oneapi/tbb.h)$(wildcard $(ZLIB_DIR)/zlib.h),)
+ifeq ($(and $(wildcard $(TBB_DIR)/include/oneapi/tbb.h),$(wildcard $(ZLIB_DIR)/zlib.h)),)
   $(error third_party/ is empty: run 'git submodule update --init --recursive')
 endif
 
