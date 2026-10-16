@@ -41,6 +41,21 @@ constexpr std::uint32_t noIndex = 0xFFFFFFFFu;
 constexpr int maxPasses = 8;
 constexpr double balanceSlack = 0.02;
 
+std::pair<std::uint8_t, double> cutWeight(double tmin, double tmax, double p1, double p2) {
+    if (tmin > tmax) {
+        return {0, p2 - p1};
+    }
+    const double cost0 = std::max(tmax, p1) - std::min(tmin, p1);
+    const double cost1 = std::max(tmax, p2) - std::min(tmin, p2);
+    if (cost0 < cost1) {
+        return {1, cost1 - cost0};
+    }
+    if (cost1 < cost0) {
+        return {2, cost0 - cost1};
+    }
+    return {0, std::max(tmax, p2) - std::min(tmin, p1) - cost0};
+}
+
 }  // namespace
 
 class RatioPlacer::Impl {
@@ -56,8 +71,9 @@ private:
     void divide(RatioRegion r);
     [[nodiscard]] int forcedSide(int region, const RatioRegion &r0, const RatioRegion &r1) const;
     std::size_t applyFences();
-    std::size_t bipartition(const std::vector<std::uint32_t> &cells, bool vertical, double cut,
-                            double target, double tol, const std::vector<std::int8_t> &forced,
+    std::size_t bipartition(const std::vector<std::uint32_t> &cells, bool vertical, double p1,
+                            double p2, double target, double tol,
+                            const std::vector<std::int8_t> &forced,
                             std::vector<std::uint8_t> &side);
     void placeLeaf(const RatioRegion &r);
     void setRegionCentre(const RatioRegion &r);
@@ -79,10 +95,11 @@ private:
     Ntuplace1Result result;
 
     std::uint32_t gen = 0;
-    std::vector<std::uint32_t> localGen, localOf;         // per movable
-    std::vector<std::uint32_t> netGen;                    // per net
-    std::vector<std::uint8_t> anchor;                     // per net: bit s = a fixed pin on side s
-    std::vector<std::array<std::uint32_t, 2>> sideCount;  // per net: pins on each side
+    std::vector<std::uint32_t> localGen, localOf;  // per movable
+    std::vector<std::uint32_t> netGen;             // per net
+    std::vector<std::uint8_t> anchor;              // per net: bit s = a fixed pin on side s
+    std::vector<std::array<std::uint32_t, 2>> sideCount;
+    std::vector<double> netWeight;  // per net: pins on each side
     std::vector<std::uint32_t> regionNets;
 };
 
@@ -153,6 +170,7 @@ void RatioPlacer::Impl::build() {
     netGen.assign(hyperNets.size(), 0);
     anchor.assign(hyperNets.size(), 0);
     sideCount.assign(hyperNets.size(), {0, 0});
+    netWeight.assign(hyperNets.size(), 0.0);
     gen = 0;
 
     rowBox = {std::numeric_limits<double>::max(), std::numeric_limits<double>::max(),
@@ -216,7 +234,7 @@ double RatioPlacer::Impl::movableArea(const std::vector<std::uint32_t> &cells) c
 }
 
 std::size_t RatioPlacer::Impl::bipartition(const std::vector<std::uint32_t> &cells, bool vertical,
-                                           double cut, double target, double tol,
+                                           double p1, double p2, double target, double tol,
                                            const std::vector<std::int8_t> &forced,
                                            std::vector<std::uint8_t> &side) {
     const std::size_t n = cells.size();
@@ -236,20 +254,23 @@ std::size_t RatioPlacer::Impl::bipartition(const std::vector<std::uint32_t> &cel
             netGen[e] = gen;
             regionNets.push_back(e);
             const HyperNet &net = hyperNets[e];
-            std::uint8_t mask = 0;
+            double tmin = std::numeric_limits<double>::max();
+            double tmax = std::numeric_limits<double>::lowest();
             for (const std::uint32_t c : net.cells) {
                 if (localGen[c] == gen) {
                     continue;
                 }
                 const double p = vertical ? posX[c] : posY[c];
-                mask |= (p < cut) ? 1 : (p > cut) ? 2 : 0;
+                tmin = std::min(tmin, p);
+                tmax = std::max(tmax, p);
             }
             if (net.fixedPins > 0) {
-                const double lo = vertical ? net.fx0 : net.fy0;
-                const double hi = vertical ? net.fx1 : net.fy1;
-                mask |= (hi < cut) ? 1 : (lo > cut) ? 2 : 3;
+                tmin = std::min(tmin, vertical ? net.fx0 : net.fy0);
+                tmax = std::max(tmax, vertical ? net.fx1 : net.fy1);
             }
-            anchor[e] = mask;
+            const auto [mask, weight] = cutWeight(tmin, tmax, p1, p2);
+            anchor[e] = weight > 0.0 ? mask : 3;
+            netWeight[e] = weight;
         }
     }
 
@@ -277,16 +298,16 @@ std::size_t RatioPlacer::Impl::bipartition(const std::vector<std::uint32_t> &cel
 
     const auto gainOf = [&](std::uint32_t i) {
         const std::uint8_t s = side[i], t = 1 - s;
-        int g = 0;
+        double g = 0.0;
         for (const std::uint32_t e : cellNets[cells[i]]) {
             if (anchor[e] == 3) {
                 continue;
             }
             if (sideCount[e][s] == 1) {
-                ++g;  // the last pin on its side: moving it un-cuts the net
+                g += netWeight[e];
             }
             if (sideCount[e][t] == 0) {
-                --g;  // the net was whole on this side and moving it cuts it
+                g -= netWeight[e];
             }
         }
         return g;
@@ -295,11 +316,11 @@ std::size_t RatioPlacer::Impl::bipartition(const std::vector<std::uint32_t> &cel
         return std::fabs(a - target);
     };
 
-    std::vector<int> gain(n, 0);
+    std::vector<double> gain(n, 0.0);
     std::vector<char> locked(n, 0);
     std::vector<std::uint32_t> moves;
     moves.reserve(n);
-    using Entry = std::pair<int, std::uint32_t>;
+    using Entry = std::pair<double, std::uint32_t>;
 
     for (int pass = 0; pass < maxPasses; ++pass) {
         for (const std::uint32_t e : regionNets) {
@@ -321,13 +342,14 @@ std::size_t RatioPlacer::Impl::bipartition(const std::vector<std::uint32_t> &cel
         }
 
         moves.clear();
-        int cum = 0, bestCum = 0;
+        double cum = 0.0;
+        double bestCum = 0.0;
         std::size_t bestLen = 0;
         double bestDev = dev(a0);
         double cur = a0;
         while (true) {
             int pick = -1;
-            int pickGain = std::numeric_limits<int>::min();
+            double pickGain = std::numeric_limits<double>::lowest();
             for (int s = 0; s < 2; ++s) {
                 auto &h = heap[s];
                 while (!h.empty() &&
@@ -378,7 +400,7 @@ std::size_t RatioPlacer::Impl::bipartition(const std::vector<std::uint32_t> &cel
                     if (locked[j]) {
                         continue;
                     }
-                    const int g = gainOf(j);
+                    const double g = gainOf(j);
                     if (g != gain[j]) {
                         gain[j] = g;
                         heap[side[j]].emplace(g, j);
@@ -573,7 +595,9 @@ void RatioPlacer::Impl::divide(RatioRegion r) {
     std::vector<std::uint8_t> side;
     std::size_t cutNets = 0;
     for (std::size_t attempt = 0;; ++attempt) {
-        cutNets = bipartition(r.cells, vertical, cut, target, tol, forced, side);
+        const double p1 = vertical ? 0.5 * (r0.x0 + r0.x1) : 0.5 * (r0.y0 + r0.y1);
+        const double p2 = vertical ? 0.5 * (r1.x0 + r1.x1) : 0.5 * (r1.y0 + r1.y1);
+        cutNets = bipartition(r.cells, vertical, p1, p2, target, tol, forced, side);
         r0.cells.clear();
         r1.cells.clear();
         for (std::size_t i = 0; i < r.cells.size(); ++i) {
