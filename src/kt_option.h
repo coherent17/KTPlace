@@ -6,7 +6,7 @@
 
 namespace ktplace {
 
-inline constexpr std::string_view VERSION = "0.1.0";
+inline constexpr std::string_view VERSION = "1.0.0";
 
 class kt_option {
 public:

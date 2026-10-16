@@ -15,6 +15,7 @@ make compile-commands      # compile_commands.json for clangd
 make hooks                 # pre-commit: staged-file format check plus unit tests
                            #   (KTPLACE_SKIP_HOOKS=1 bypasses it; KTPLACE_HOOK_TESTS=0 skips the tests)
 python3 scripts/coverage_report.py --clean --build --min 80   # gcov line coverage (local only, not in CI)
+make STATIC=1 TBB_STATIC_ROOT=<prefix>   # fully static build-static/bin/ktplace (fmt header-only, oneTBB built from source)
 ```
 
 Each component has its own test binary: `test_datamodel`, `test_adaptor`, `test_flow`, `test_util`, `test_constraint`, `test_option`, `test_viz`, `test_detail`, `test_ntuplace1`, `test_abacus`, `test_tcl` and `test_simpl`. To run one suite or one case, build the tests and then call Boost.Test directly:
@@ -27,7 +28,9 @@ build/bin/test_abacus --run_test=ktplace_abacus/<case>   # --list_content lists 
 
 A new test binary needs a `TEST_<name>` variable, a `TEST_BINS` entry and a link rule in `src/Master.make`. A new source file must be added to `SRCS` in its directory's `Master.make`. The build does not glob.
 
-CI (`.github/workflows/ci.yml`) has a `build` job (format check, build, test binaries; it uploads the stripped `build/bin` as an artifact) and three jobs that start after it and run in parallel: unit tests, the adaptec1 smoke placement, and the ibm01 multi-row smoke placement, each configured by a small `-tcl` script. The smoke step checks the exact netlist counts in the log and the line count of `placed.pl`. Do not change those log strings by accident.
+CI (`.github/workflows/ci.yml`) has a `build` job (format check, build, test binaries; it uploads the stripped `build/bin` as an artifact) and four jobs that start after it and run in parallel: unit tests, the adaptec1 smoke placement, the ibm01 multi-row smoke placement (each configured by a small `-tcl` script), and a determinism job that runs ibm01 (animation on) and adaptec1 twice and requires byte-identical outputs. The smoke step checks the exact netlist counts in the log and the line count of `placed.pl`. Do not change those log strings by accident.
+
+Releases come from `.github/workflows/release.yml`: pushing a `v*` tag that matches `VERSION` in `src/kt_option.h` builds a dynamic and a fully static binary, places ibm01 and adaptec1 with each, and publishes both tarballs with checksums as a GitHub release.
 
 ## Running
 

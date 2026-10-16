@@ -28,6 +28,17 @@ INCLUDES := -I.
 # input, fmt for log message formatting)
 LIBS := -ltbb -lboost_iostreams -lz -lfmt
 
+# `make STATIC=1` links a self-contained binary: fmt header-only, and oneTBB,
+# Boost.Iostreams with its compressors, the C++ runtime and glibc statically.
+# Ubuntu ships no static oneTBB, so TBB_STATIC_ROOT names the install prefix of
+# one built from source; its headers are used too, so they match the library.
+ifeq ($(STATIC),1)
+  CXXFLAGS += -DFMT_HEADER_ONLY
+  INCLUDES += $(if $(TBB_STATIC_ROOT),-I$(TBB_STATIC_ROOT)/include)
+  LIBS := -static $(if $(TBB_STATIC_ROOT),-L$(TBB_STATIC_ROOT)/lib) -Wl,--start-group -ltbb \
+          -lboost_iostreams -lz -Wl,--end-group
+endif
+
 # Directories
 SRC_DIR := .
 # The coverage build gets its own tree: instrumented objects and counters must
@@ -35,6 +46,8 @@ SRC_DIR := .
 # as instrumented and a stale .gcda from an earlier run merges into the next.
 ifeq ($(COVERAGE),1)
   BUILD_DIR := ../build-cov
+else ifeq ($(STATIC),1)
+  BUILD_DIR := ../build-static
 else
   BUILD_DIR := ../build
 endif
