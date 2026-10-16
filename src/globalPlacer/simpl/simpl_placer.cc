@@ -354,12 +354,10 @@ struct Stripe {
 
 class simplPlacer::Impl {
 public:
-    explicit Impl(const Design &d) : design(d), graph(d.graph) {}
+    explicit Impl(Design &d) : design(d), graph(d.graph) {}
 
     SimplResult run(const SimplOptions &params);
 
-    std::vector<double> outX;
-    std::vector<double> outY;
 
 private:
     void collect();
@@ -404,7 +402,7 @@ private:
                     std::size_t total);
     void writeBounds(std::span<const BoundsPoint> bounds) const;
 
-    const Design &design;
+    Design &design;
     const Graph &graph;
     const Fences *fences = nullptr;
 
@@ -1274,8 +1272,6 @@ SimplResult simplPlacer::Impl::run(const SimplOptions &params) {
         res.binsY = grid.ny;
     }
 
-    outX = fixedX;
-    outY = fixedY;
     if (numMovable == 0) {
         return res;
     }
@@ -1449,8 +1445,7 @@ SimplResult simplPlacer::Impl::run(const SimplOptions &params) {
     }
 
     for (std::size_t i = 0; i < numMovable; ++i) {
-        outX[movVertex[i]] = upper[i];
-        outY[movVertex[i]] = upperY[i];
+        design.graph.setPosition(movVertex[i], upper[i], upperY[i]);
     }
 
     writeBounds(bounds);
@@ -1459,16 +1454,13 @@ SimplResult simplPlacer::Impl::run(const SimplOptions &params) {
     return res;
 }
 
-simplPlacer::simplPlacer(const Design &design) : pImpl(std::make_unique<Impl>(design)) {}
+simplPlacer::simplPlacer(Design &design) : pImpl(std::make_unique<Impl>(design)) {}
 simplPlacer::~simplPlacer() = default;
 simplPlacer::simplPlacer(simplPlacer &&) noexcept = default;
 simplPlacer &simplPlacer::operator=(simplPlacer &&) noexcept = default;
 
 SimplResult simplPlacer::place(const SimplOptions &options) {
-    SimplResult result = pImpl->run(options);
-    answer.xs = pImpl->outX;
-    answer.ys = pImpl->outY;
-    return result;
+    return pImpl->run(options);
 }
 
 }  // namespace ktplace::simpl

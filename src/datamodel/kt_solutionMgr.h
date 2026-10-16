@@ -26,27 +26,6 @@ namespace ktplace {
 [[nodiscard]] double netlistHPWL(const Graph &graph, const std::vector<double> &x,
                                  const std::vector<double> &y);
 
-/// What a global placer hands back: the positions it chose, indexed by cell id.
-///
-/// This is the shared vocabulary between a placement stage and the flow, and it
-/// is deliberately not the placer's own result type. A placer's result carries
-/// solver statistics -- iterations, residuals, gap -- that only mean something
-/// inside that solver; the flow does not want them, and the solver does not want
-/// to be committed to ktDM. What crosses the boundary is just the placement.
-///
-/// Deliberately separate from solutionMgr: a solutionMgr is sized and indexed for
-/// a graph's full id space, nets included, and is what ktDM accepts. This is the
-/// placer's answer before that expansion, one entry per cell.
-struct simplSolution {
-    std::vector<double> xs;  ///< indexed by cell id
-    std::vector<double> ys;  ///< indexed by cell id
-
-    /// Cells the placer actually moved. Fixed cells keep the position they were
-    /// given and are not repeated here, so a flow that only wants the movable
-    /// cells does not have to filter.
-    std::vector<std::size_t> movable;
-};
-
 /// What NTUPlace1 hands back: a complete placement, like the legalizers'. It is
 /// overfull on purpose -- the paper's global placement is, and legalization is a
 /// separate step.

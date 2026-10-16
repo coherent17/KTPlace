@@ -3,7 +3,6 @@
 
 #pragma once
 
-#include "datamodel/kt_solutionMgr.h"
 #include "globalPlacer/simpl/simpl_design.h"
 #include "globalPlacer/simpl/simpl_options.h"
 
@@ -44,7 +43,7 @@ struct SimplResult {
 
 class simplPlacer {
 public:
-    explicit simplPlacer(const Design &design);
+    explicit simplPlacer(Design &design);
     ~simplPlacer();
 
     simplPlacer(const simplPlacer &) = delete;
@@ -54,14 +53,9 @@ public:
 
     SimplResult place(const SimplOptions &options);
 
-    [[nodiscard]] const simplSolution &solution() const noexcept {
-        return answer;
-    }
-
 private:
     class Impl;
     std::unique_ptr<Impl> pImpl;
-    simplSolution answer;
 };
 
 }  // namespace ktplace::simpl

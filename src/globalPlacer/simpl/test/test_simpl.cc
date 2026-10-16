@@ -107,12 +107,11 @@ Built buildDesign(ktDM &db, bool withFence, bool pullOthersIn = false) {
 SimplResult place(ktDM &db, bool useFences) {
     // No plots: this checks the solver, not what it draws.
     simpl::simplDM dm = simpl::buildSimplDM(db);
-    simplPlacer placer(dm.design());
-    SimplOptions options;
-    options.maxIters = 30;
-    options.fences = useFences;
-    const SimplResult res = placer.place(options);
-    db.setGPSolution(placer.solution());
+    dm.options() = SimplOptions{};
+    dm.options().maxIters = 30;
+    dm.options().fences = useFences;
+    const SimplResult res = dm.run();
+    dm.commit(db);
     return res;
 }
 
@@ -150,10 +149,8 @@ Offered offered() {
     dm.setBoundsHook([&n](std::span<const simpl::BoundsPoint> curve) {
         n.bounds = curve.size();
     });
-    SimplOptions options = dm.options();
-    options.maxIters = 30;
-    simplPlacer placer(dm.design());
-    (void)placer.place(options);
+    dm.options().maxIters = 30;
+    (void)dm.run();
     return n;
 }
 

@@ -19,7 +19,6 @@ OBJ_DIR ?= ../build/obj/globalPlacer
 
 # Source files in this directory
 SRCS := simpl/simpl_placer.cc simpl/simpl_fence.cc simpl/simpl_dm.cc \
-        simpl/simpl_flowMgr.cc \
         ntuplace1/kt_ntuplace1.cc \
         ntuplace1/ntuplace1_dm.cc ntuplace1/ntuplace1_flowMgr.cc
 

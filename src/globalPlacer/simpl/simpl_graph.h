@@ -71,6 +71,11 @@ public:
         return getNet(netId).pins;
     }
 
+    void setPosition(std::size_t id, double x, double y) {
+        Cell &c = cells.at(id);
+        c.x = x;
+        c.y = y;
+    }
     void addCell(const Cell &c) {
         cells.push_back(c);
     }

@@ -442,13 +442,6 @@ void ktDM::setPlacementSolution(const solutionMgr &solution) {
 }
 
 
-void ktDM::setGPSolution(const simplSolution &solution) {
-    const std::size_t n = std::min({solution.xs.size(), solution.ys.size(), graph.getNumCells()});
-    for (std::size_t v = 0; v < n; ++v) {
-        setCellPosition(v, solution.xs[v], solution.ys[v]);
-    }
-}
-
 void ktDM::setGPSolution(const ntuplace1Solution &solution) {
     const std::size_t n = std::min({solution.xs.size(), solution.ys.size(), graph.getNumCells()});
     for (std::size_t v = 0; v < n; ++v) {

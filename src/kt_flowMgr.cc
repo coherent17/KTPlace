@@ -13,7 +13,6 @@
 #include "globalPlacer/ntuplace1/ntuplace1_dm.h"
 #include "globalPlacer/ntuplace1/ntuplace1_flowMgr.h"
 #include "globalPlacer/simpl/simpl_dm.h"
-#include "globalPlacer/simpl/simpl_flowMgr.h"
 #include "legalizer/abacus/abacus_dm.h"
 #include "legalizer/abacus/abacus_flowMgr.h"
 #include "legalizer/multirow/multirow_dm.h"
@@ -230,8 +229,8 @@ void FlowMgr::Impl::placeDesign() {
         if (!simplDB.options().fences) {
             ktlog.echo("SimPL: fence enforcement disabled by 'add_option simpl fences 0'");
         }
-        simpl::flowMgr flow(simplDB);
-        db->setGPSolution(flow.runGlobalPlacer());
+        (void)simplDB.run();
+        simplDB.commit(*db);
         commit("global placement");
         return;
 
