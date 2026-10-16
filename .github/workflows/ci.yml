@@ -116,11 +116,8 @@ jobs:
 
       - name: Smoke placement
         # adaptec1: 211,447 cells / 221,142 nets in Bookshelf form, the design the
-        # ISPD 2005 table in the README is written against, and the only benchmark
-        # in the tree. It is vendored rather than fetched (see .gitignore): the
-        # ISPD 2005 suite has no working download URL, so a smoke test that had to
-        # fetch it would be a build that fails for reasons that have nothing to do
-        # with the code. Unlike the LEF/DEF design this replaces it also runs the
+        # ISPD 2005 table in the README is written against. Unlike the LEF/DEF
+        # design this replaces it also runs the
         # whole downstream flow -- legalization, detailed placement and the
         # independent legality check -- so the smoke test now covers a legal
         # placement end to end rather than just the reader and the solver, and it
@@ -140,7 +137,7 @@ jobs:
           add_option visualizer anim_blend 1
           TCL
 
-          ktplace ./benchmark/ISPD_2005/adaptec1 \
+          ktplace ./benchmark/bookshelf/ISPD_2005/adaptec1 \
             -w output/adaptec1 -tcl smoke.tcl 2>&1 | tee smoke.log
 
           # Everything a run writes goes under the work directory, so the .pl is
@@ -157,14 +154,6 @@ jobs:
           test "$(grep -c 'Placement completed successfully' smoke.log)" -eq 1
           test "$(wc -l < "$PL")" -eq 211447
 
-          # Deliberately not asserted: the legality verdict. Whether the run
-          # produces a legal placement is a solver question this test cannot
-          # settle honestly -- the answer moves with the machine, and a gate that
-          # fails for that reason trains everyone to ignore a red build. The unit
-          # tests cover legality on small designs where the expected answer is
-          # known; here the gate is that the whole flow runs to completion
-          # without crashing.
-
           # Coarse quality gate: spreading must actually reduce the overflow.
           # The threshold is deliberately loose because the CG solve is
           # parallel, so the last digits move between machines.
@@ -176,6 +165,16 @@ jobs:
           test -n "$final"
           awk -v v="$final" 'BEGIN { exit !(v < 0.5) }'
 
+      - name: ISPD 2005 contest evaluator
+        run: |
+          set -euo pipefail
+          benchmark/bookshelf/ISPD_2005/evaluator/evaluate.sh \
+            benchmark/bookshelf/ISPD_2005/adaptec1 output/adaptec1/placed.pl | tee evaluate.log
+          official=$(sed -n 's/.*Total HPWL: *//p' evaluate.log)
+          logged=$(awk -F'|' '/^\| detailed placement \(/ {gsub(/ /, "", $3); print $3}' smoke.log)
+          echo "official HPWL $official, ktplace HPWL $logged"
+          awk -v a="$official" -v b="$logged" 'BEGIN { d = a - b; if (d < 0) d = -d; exit !(d <= 1e-6 * a) }'
+
       - name: Upload the smoke placement
         if: always()
         uses: actions/upload-artifact@v4
@@ -184,6 +183,7 @@ jobs:
           path: |
             output/adaptec1/placed.pl
             smoke.log
+            evaluate.log
             output/adaptec1/plots/final/final.png
             output/adaptec1/plots/final/final.svg
             output/adaptec1/plots/anim/placement.gif
@@ -224,7 +224,7 @@ jobs:
           add_option visualizer anim 0
           TCL
 
-          ktplace ./benchmark/ICCAD04/ibm01 \
+          ktplace ./benchmark/bookshelf/ICCAD04/ibm01 \
             -w output/ibm01 -tcl smoke-multirow.tcl 2>&1 | tee smoke-multirow.log
 
           PL=output/ibm01/placed.pl
@@ -277,9 +277,9 @@ jobs:
           TCL
 
           for run in a b; do
-            ktplace ./benchmark/ICCAD04/ibm01 -w "det/ibm01-$run" -tcl anim.tcl \
+            ktplace ./benchmark/bookshelf/ICCAD04/ibm01 -w "det/ibm01-$run" -tcl anim.tcl \
               > /dev/null 2>&1
-            ktplace ./benchmark/ISPD_2005/adaptec1 -w "det/adaptec1-$run" --no-plots \
+            ktplace ./benchmark/bookshelf/ISPD_2005/adaptec1 -w "det/adaptec1-$run" --no-plots \
               > /dev/null 2>&1
           done
 
@@ -319,8 +319,8 @@ jobs:
         run: |
           set -euo pipefail
           source ktplace.sh
-          ktplace ./benchmark/ICCAD04/ibm01 -w out/ibm01 --no-plots 2>&1 | tee ibm01.log
-          ktplace ./benchmark/ISPD_2005/adaptec1 -w out/adaptec1 --no-plots 2>&1 | tee adaptec1.log
+          ktplace ./benchmark/bookshelf/ICCAD04/ibm01 -w out/ibm01 --no-plots 2>&1 | tee ibm01.log
+          ktplace ./benchmark/bookshelf/ISPD_2005/adaptec1 -w out/adaptec1 --no-plots 2>&1 | tee adaptec1.log
           for d in ibm01 adaptec1; do
             test "$(grep -c 'verdict *| *PASS' $d.log)" -eq 2
           done

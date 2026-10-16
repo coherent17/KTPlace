@@ -11,3 +11,5 @@
 *.gz  binary
 *.png binary
 *.gif binary
+*.jpg binary
+benchmark/lefdef/ISPD_2015/evaluator/placement_checker binary

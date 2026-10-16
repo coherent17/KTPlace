@@ -113,8 +113,8 @@ pre { background: #0d1216; border: 1px solid var(--line); border-radius: 6px; pa
       Each step has a command-line equivalent for scripted experiments.</p>
     <div class="flow">
       <div class="node io"><div class="t"><span class="n">1</span>Pick a design</div>
-        <div class="d">Choose a benchmark under <code>benchmark/</code> (ISPD 2005, ISPD 2015,
-          ICCAD04, ISPD02) with the filter box in <b>New run</b>.</div></div>
+        <div class="d">Choose a benchmark under <code>benchmark/</code> (ISPD 2005, ISPD 2006,
+          ISPD 2015, ICCAD04) with the filter box in <b>New run</b>.</div></div>
       <div class="arrow"></div>
       <div class="node io"><div class="t"><span class="n">2</span>Choose the algorithm and settings</div>
         <div class="d"><b>simpl</b> (quadratic + look-ahead legalization) or <b>ntuplace1</b>
@@ -124,7 +124,7 @@ pre { background: #0d1216; border: 1px solid var(--line); border-radius: 6px; pa
       <div class="node"><div class="t"><span class="n">3</span>Start the run</div>
         <div class="d">The engine runs in the console container, in its own directory
           <code>runs/&lt;id&gt;/</code>.</div>
-        <div class="m">CLI: <code>ktplace benchmark/ISPD_2005/adaptec1 -a simpl -w output/adaptec1</code></div></div>
+        <div class="m">CLI: <code>ktplace benchmark/bookshelf/ISPD_2005/adaptec1 -a simpl -w output/adaptec1</code></div></div>
       <div class="arrow"></div>
       <div class="node"><div class="t"><span class="n">4</span>Watch it work</div>
         <div class="d">The phase bar follows the pipeline below; the heartbeat (frames/s, CPU,
@@ -286,7 +286,7 @@ pre { background: #0d1216; border: 1px solid var(--line); border-radius: 6px; pa
       </tbody>
     </table></div>
     <pre>KTPLACE_SIMPL_ITERS=25 KTPLACE_SIMPL_SEED=1 \
-    ktplace benchmark/ISPD_2005/adaptec1 -w output/adaptec1-25it</pre>
+    ktplace benchmark/bookshelf/ISPD_2005/adaptec1 -w output/adaptec1-25it</pre>
     <p>The full list: <code>grep -rhoE 'KTPLACE_[A-Z0-9_]+' src | sort -u</code>.</p>
   </section>
 </div>

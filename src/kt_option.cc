@@ -112,9 +112,9 @@ tuning a run does not need a flag each; `add_option visualizer anim 0` is the
 -tcl spelling of --no-plots.
 
 Examples:
-  ktplace benchmark/ISPD_2005/adaptec1
-  ktplace benchmark/ISPD_2005/adaptec1 -w output
-  ktplace benchmark/ISPD_2005/adaptec1 -w output -tcl run.tcl
+  ktplace benchmark/bookshelf/ISPD_2005/adaptec1
+  ktplace benchmark/bookshelf/ISPD_2005/adaptec1 -w output
+  ktplace benchmark/bookshelf/ISPD_2005/adaptec1 -w output -tcl run.tcl
 )";
     ktlog.echo(std::format(usage, version));
 }

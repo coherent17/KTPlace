@@ -1,0 +1,857 @@
+#!/sierra/project/tools/linux_x86_64_2.12/stow/perl-5.12.3/bin/perl -w
+# Author: David Chinnery
+
+use strict;
+use warnings;
+
+use File::Basename;
+use Getopt::Long;
+
+use Benchmark;
+use Time::HiRes;
+my $time0 = new Benchmark;
+
+my %errors;
+
+my %lib_cell_hash; # hash of cells in the Verilog netlist
+my $LOG_FILE;
+
+main();
+final_report();
+
+
+sub final_report {
+  my $time1 = new Benchmark;
+  print "\nCheck run time: " . timestr(timediff($time1, $time0)) . "\n\n";
+
+  my $placed_def_errors = 0;
+  my $other_errors = 0;
+  foreach my $type (sort(keys %errors)) {
+    my $count = $errors{$type};
+    print "Found $count errors of type $type.\n";
+    if ($type =~ /^placed DEF/) {
+      $placed_def_errors += $count;
+    } else {
+      $other_errors += $count;
+    }
+  }
+
+  if ($placed_def_errors or $other_errors) {
+    print "\n";
+    if ($placed_def_errors) {
+      print "ISPD 2015 placement checker found $placed_def_errors error(s) in the placed DEF.\n";
+    } else {
+      print "ISPD 2015 placement checker found no issues in the placed DEF.\n";
+    }
+    if ($other_errors) {
+      print "ISPD 2015 placement checker found $other_errors other error(s).\n";
+    }
+    exit(1);
+  } else {
+    print "ISPD 2015 placement checker found no issues in the placed DEF.\n";
+    exit(0);
+  }
+}
+
+
+sub print_error {
+  my @messages = @_;
+
+  if ($LOG_FILE) {
+    print $LOG_FILE @messages;
+  } else {
+    print @messages;
+  }
+}
+
+
+sub main {
+  my ($floorplan_def_filename, $lef_filename, $log_filename, $placed_def_filename, $verilog_filename);
+  my $help;
+
+  GetOptions(
+         'lef=s'              => \$lef_filename,
+         'log=s'              => \$log_filename,
+         'floorplan_def=s'    => \$floorplan_def_filename,
+         'placed_def=s'       => \$placed_def_filename,
+         'verilog=s'          => \$verilog_filename,
+         'help'               => \$help,
+        ) or usage("Incorrect options");
+  usage() if $help;
+
+  if ($log_filename) {
+    my $success = open($LOG_FILE, '>', $log_filename);
+    if (! $success) {
+      print "ERROR: unable to write to log file $log_filename\n";
+      ++$errors{"file I/O"};
+      $LOG_FILE = undef;
+    }
+  }
+
+  my ($verilog_connections_hash_ref,   $verilog_instance_cell_hash_ref) = read_verilog_and_lef($lef_filename, $verilog_filename);
+  my ($floorplan_connections_hash_ref, $floorplan_instance_cell_hash_ref, $floorplan_io_pins_hash_ref, $floorplan_hash_ref) = read_def("floorplan DEF", $floorplan_def_filename);
+
+  # avoid requiring placed DEF file to permit just comparing the Verilog and floorplan DEF
+  my ($placement_connections_hash_ref, $placement_instance_cell_hash_ref, $placement_io_pins_hash_ref, $placement_hash_ref);
+  if ($placed_def_filename) {
+    ($placement_connections_hash_ref, $placement_instance_cell_hash_ref, $placement_io_pins_hash_ref, $placement_hash_ref) = read_def("placed DEF",    $placed_def_filename);
+  } else {
+    ++$errors{"missing file"};
+    print "ERROR: missing valid input -placed_def <file>\n";
+  }
+
+  if ($verilog_filename) {
+    compare_connections($verilog_connections_hash_ref, $floorplan_connections_hash_ref, 'Verilog', 'floorplan DEF');
+    compare_instance_cells($verilog_instance_cell_hash_ref, $floorplan_instance_cell_hash_ref, 'Verilog', 'floorplan DEF');
+  }
+
+  if (! $floorplan_connections_hash_ref) {
+    print_error("ERROR: missing NETS section in floorplan DEF.\n");
+    ++$errors{"floorplan DEF missing NETS data"};
+  }
+  if ($placement_connections_hash_ref) {
+    compare_connections($floorplan_connections_hash_ref, $placement_connections_hash_ref, 'floorplan DEF', 'placed DEF');
+  } # we do not require NETS section in placement DEF, so no need to check if not there
+
+  if ($placed_def_filename) {
+    compare_instance_cells($floorplan_instance_cell_hash_ref, $placement_instance_cell_hash_ref, 'floorplan DEF', 'placed DEF');
+    compare_placements($floorplan_hash_ref, $placement_hash_ref);
+    compare_io_pins($floorplan_io_pins_hash_ref, $placement_io_pins_hash_ref);
+  }
+
+  close($LOG_FILE) if ($LOG_FILE);
+}
+
+
+sub read_verilog_and_lef {
+  my ($lef_filename, $verilog_filename) = @_;
+  return if (! $verilog_filename); # nothing to do - Verilog is an optional argument
+
+  if (! -e $verilog_filename) {
+    ++$errors{"missing file"};
+    usage("ERROR: did not find specified input -verilog $verilog_filename");
+  }
+  if (! $lef_filename) {
+    ++$errors{"missing file"};
+    usage("ERROR: missing valid input -lef <file>, which is required with -verilog <file>");
+  }
+  if (! -e $lef_filename) {
+    ++$errors{"missing file"};
+    usage("ERROR: did not find specified input -lef $lef_filename");
+  }
+
+  use lib '/home/dchinner/perl/Verilog-Perl-3.402/blib/lib';
+  use lib '/home/dchinner/perl/Verilog-Perl-3.402/blib/arch';
+  require Verilog::Netlist;
+  printf("CPAN Verilog Netlist version %s\n",$Verilog::Netlist::VERSION);
+
+  my $options = Verilog::Getopt->new(); # create netlist options to add library below to avoid link errors
+  my $netlist = new Verilog::Netlist(options=>$options, link_read=>1);
+  print "Reading Verilog $verilog_filename ...\n";
+  $netlist->read_file(filename=>$verilog_filename,keep_comments=>1);
+
+  # generate library of Verilog module headers from LEF so that we can link the Verilog
+  my $cell_pins_hash_ref = read_lef($lef_filename);
+  my $cell_modules_filename = generate_verilog_cell_modules($cell_pins_hash_ref, $verilog_filename);
+  $netlist->{options}->library($cell_modules_filename);
+  my $module_instances_hash_ref = initialize_module_instances_hash($netlist);
+  create_lib_cell_hash($netlist, $module_instances_hash_ref);
+  print "Reading Verilog library generated from cell LEF ...\n";
+  read_verilog_library($netlist);
+
+  print "Hashing instance cells and connectivity ...\n";
+  my ($connections_hash_ref, $instance_cell_hash_ref) = hash_verilog_instance_cell_and_connectivity($netlist, $module_instances_hash_ref);
+
+  return ($connections_hash_ref, $instance_cell_hash_ref);
+}
+
+
+sub compare_connections {
+  my ($connections_hash_ref_a, $connections_hash_ref_b, $type_a, $type_b) = @_;
+
+  print "Comparing connectivity in $type_b to $type_a ...\n";
+  foreach my $net_name (sort(keys %$connections_hash_ref_b)) {
+    if (! exists $connections_hash_ref_a->{$net_name}) {
+      print_error("ERROR: $type_b net $net_name was not in $type_a.\n");
+      ++$errors{"$type_b connectivity"};
+      next;
+    }
+    my $instance_pin_hash_ref_a = $connections_hash_ref_a->{$net_name};
+    my $instance_pin_hash_ref_b = $connections_hash_ref_b->{$net_name};
+
+    foreach my $instance_name (sort(keys %$instance_pin_hash_ref_b)) {
+      foreach my $pin_name (sort(keys %{$instance_pin_hash_ref_b->{$instance_name}})) {
+        if (not exists $instance_pin_hash_ref_a->{$instance_name} or not exists $instance_pin_hash_ref_a->{$instance_name}->{$pin_name}) {
+          if ($instance_name eq 'PIN' and
+              exists $connections_hash_ref_a->{$pin_name} and
+              exists $connections_hash_ref_a->{$pin_name}->{PIN} and
+              exists $connections_hash_ref_a->{$pin_name}->{PIN}->{$net_name}) {
+            $connections_hash_ref_a->{$pin_name}->{PIN}->{$net_name} = 0; # to support 'assign net_name = port_name;'
+          } else {
+            print_error("ERROR: $type_b net $net_name did not connect to instance $instance_name pin $pin_name in the $type_a.\n");
+            ++$errors{"$type_b connectivity"};
+          }
+        } else {
+          $instance_pin_hash_ref_a->{$instance_name}->{$pin_name} = 0;
+        }
+      }
+    }
+  }
+
+  foreach my $net_name (sort(keys %$connections_hash_ref_a)) {
+    my $instance_pin_hash_ref_a = $connections_hash_ref_a->{$net_name};
+
+    if ($type_a eq 'Verilog') {
+      my $pin_count = 0;
+      foreach my $instance_name (sort(keys %$instance_pin_hash_ref_a)) {
+        next if ($instance_name eq 'PORT_ASSIGN'); # ignore special handling for assigns
+        my $pin_hash_ref = $instance_pin_hash_ref_a->{$instance_name};
+        $pin_count += scalar(keys %$pin_hash_ref);
+      }
+      next if ($pin_count == 1); # ignore dangling nets in Verilog with only one connection
+    }
+
+    foreach my $instance_name (sort(keys %$instance_pin_hash_ref_a)) {
+      next if ($instance_name eq 'PORT_ASSIGN'); # ignore special handling for assigns
+      my $pin_hash_ref = $instance_pin_hash_ref_a->{$instance_name};
+      foreach my $pin_name (sort(keys %$pin_hash_ref)) {
+        next if ($pin_hash_ref->{$pin_name} == 0);
+        print_error("ERROR: $type_a net $net_name connects to instance $instance_name pin $pin_name, but did not find that connection in $type_b.\n");
+        ++$errors{"$type_b connectivity"};
+      }
+    }
+  }
+}
+
+
+sub compare_instance_cells {
+  my ($instance_cell_hash_ref_a, $instance_cell_hash_ref_b, $type_a, $type_b) = @_;
+
+  print "Comparing instance cells in $type_b to $type_a ...\n";
+  foreach my $instance_name (sort keys%$instance_cell_hash_ref_b) {
+    my @cell_names = keys %{$instance_cell_hash_ref_b->{$instance_name}};
+    if (scalar(@cell_names) != 1) {
+      print_error("ERROR: did not find only one cell in $type_b for instance $instance_name: ", join(' ', @cell_names), "\n");
+      ++$errors{"$type_b instances"};
+      next;
+    }
+    my $cell_name = $cell_names[0];
+
+    if (not exists $instance_cell_hash_ref_a->{$instance_name}) {
+      print_error("ERROR: $type_b instance $instance_name was not in $type_a.\n");
+      ++$errors{"$type_b instances"};
+    } elsif (not exists $instance_cell_hash_ref_a->{$instance_name}->{$cell_name}) {
+      my @cell_names = keys %{$instance_cell_hash_ref_a->{$instance_name}}; # will check for multiple $type_a instance cells below
+      print_error("ERROR: $type_b instance $instance_name is $cell_name, but should be cell ", $cell_names[0], " per $type_a.\n");
+      ++$errors{"$type_b instances"};
+    }
+  }
+
+  foreach my $instance_name (sort keys%$instance_cell_hash_ref_a) {
+    my @cell_names = keys %{$instance_cell_hash_ref_a->{$instance_name}};
+    if (scalar(@cell_names) != 1) {
+      print_error("ERROR: $type_a instance $instance_name has multple cells: ", join(' ', @cell_names), "\n");
+      ++$errors{"$type_a instances"}; # bad source data
+    }
+    if (! exists $instance_cell_hash_ref_b->{$instance_name}) {
+      print_error("ERROR: $type_a instance $instance_name was not in $type_b.\n");
+      ++$errors{"$type_b instances"};
+    }
+  }
+}
+
+
+sub read_def_components {
+  my ($DEF_FILE, $def_filename, $line, $placement_hash_ref, $type) = @_;
+
+  my $min_x = $placement_hash_ref->{DIEAREA}->{lower_left_x};
+  my $min_y = $placement_hash_ref->{DIEAREA}->{lower_left_y};
+  my $max_x = $placement_hash_ref->{DIEAREA}->{upper_right_x};
+  my $max_y = $placement_hash_ref->{DIEAREA}->{upper_right_y};
+
+  my %instance_cell;
+  my %placement;
+  my $full_line = "";
+  while (<$DEF_FILE>) {
+    ++$line;
+    last if ($_ =~ /^END COMPONENTS/);
+
+    chomp;
+    $full_line .= $_;
+    next if ($_ !~ /;\s*$/);
+
+    # Example: - u1/u1 DFFNSRX1 + PLACED ( 60000 20000 ) N ;
+    $full_line =~ s/^\s*-\s+//; # remove start of line
+    $full_line =~ s/\s*;\s*$//; # remove end of line
+    $full_line =~ s/#.*//; # remove comments
+    next if ($full_line eq "");
+    my @full_line = split(/\s+/, $full_line);
+    $full_line = "";
+
+    my $instance_name = $full_line[0];
+    my $cell_name = $full_line[1];
+    $instance_cell{$instance_name}{$cell_name} = 1;
+
+    my $placed = $full_line[3];
+    if ($type ne 'floorplan DEF' or $placed eq "FIXED") {
+      my $orient = $full_line[8];
+      $placement_hash_ref->{$instance_name}->{placed}       = $placed;
+      $placement_hash_ref->{$instance_name}->{lower_left_x} = $full_line[5];
+      $placement_hash_ref->{$instance_name}->{lower_left_y} = $full_line[6];
+      $placement_hash_ref->{$instance_name}->{orient}       = $orient;
+      if ($placed ne 'PLACED' and $placed ne 'FIXED') {
+        # nothing to do here - will check placement in compare_placements()
+      } elsif (not $orient or ($orient ne 'N' and $orient ne 'FN' and $orient ne 'S' and $orient ne 'FS' and $orient ne 'W' and $orient ne 'E' and $orient ne 'FS' and $orient ne 'FW')) {
+        $orient = '' if (! $orient);
+        print_error("ERROR($def_filename:$line): invalid orient '$orient' for instance $instance_name of cell $cell_name\n");
+        ++$errors{"$type syntax"};
+      } else {
+        my $x = $placement_hash_ref->{$instance_name}->{lower_left_x};
+        my $y = $placement_hash_ref->{$instance_name}->{lower_left_y};
+        if ($x < $min_x or $x > $max_x or $y < $min_y or $y > $max_y) {
+          print_error("ERROR($def_filename:$line): instance $instance_name of cell $cell_name position $x,$y is outside floorplan boundary $min_x,$min_y to $max_x,$max_y\n");
+          ++$errors{"$type outside floorplan"};
+        }
+      }
+    }
+  }
+  return ($line, \%instance_cell);
+}
+
+
+sub read_def_io_pins {
+  my ($DEF_FILE, $def_filename, $line, $type, $connections_hash_ref) = @_;
+
+  my %io_pins;
+  my $full_line = "";
+  while (<$DEF_FILE>) {
+    ++$line;
+    last if ($_ =~ /^END PINS/);
+
+    chomp;
+    $full_line .= ' ' . $_;
+    next if ($_ !~ /;\s*$/);
+
+    # Example:
+    # - TE + NET TE
+    # + DIRECTION INPUT
+    # + USE SIGNAL
+    # + LAYER METAL3 ( 0 0 ) ( 3000 1020 )
+    # + PLACED  ( 100001 10000 ) N  ;
+    $full_line =~ s/^\s*-\s+//; # remove start of line
+    $full_line =~ s/\s*;\s*$//; # remove end of line
+    next if ($full_line eq "");
+
+    $full_line =~ s/\s+/ /g;
+    my @full_line = split(/\s+\+\s+/, $full_line);
+    $full_line = "";
+    my $net_name = "";
+
+    my $pin_name = shift(@full_line);
+    foreach my $portion (@full_line) {
+      if ($portion =~ /NET (\S+)/) {
+        $net_name = $1;
+        $io_pins{$pin_name}{net_name} = $net_name;
+        if ($pin_name ne $net_name) {
+          $connections_hash_ref->{$net_name}->{PIN}->{$pin_name} = 1;
+        }
+      } elsif ($portion =~ /DIRECTION (\S+)/) {
+        $io_pins{$pin_name}{direction} = $1;
+      } elsif ($portion =~ /USE (\S+)/) {
+        $io_pins{$pin_name}{type} = $1;
+      } elsif ($portion =~ /^PLACED \( (\d+) (\d+) \)/) {
+        $io_pins{$pin_name}{x} = $1;
+        $io_pins{$pin_name}{y} = $2;
+      } elsif ($portion =~ /^LAYER (\S+) \( (\d+(\.\d+)?) (\d+(\.\d+)?) \) \( (\d+(\.\d+)?) (\d+(\.\d+)?) \)/) {
+        $io_pins{$pin_name}{layer}         = $1;
+        $io_pins{$pin_name}{lower_left_x}  = $2;
+        $io_pins{$pin_name}{lower_left_y}  = $4;
+        $io_pins{$pin_name}{upper_right_x} = $6;
+        $io_pins{$pin_name}{upper_right_y} = $8;
+      } else {
+        print_error("ERROR($def_filename:$line): unexpected pin format: $portion\n");
+        ++$errors{"$type syntax"};
+      }
+    }
+  }
+  return ($line, $connections_hash_ref, \%io_pins);
+}
+
+
+sub read_def_nets {
+  my ($DEF_FILE, $def_filename, $line, $type, $connections_hash_ref) = @_;
+
+  my $full_line = "";
+  while (<$DEF_FILE>) {
+    ++$line;
+    last if ($_ =~ /^END NETS/);
+
+    chomp;
+    $full_line .= $_;
+    next if ($_ !~ /;\s*$/);
+
+    $full_line =~ s/\+.*;.*$/;/; # ignore any assigned non-default rule
+    if ($full_line !~ /^\s*-\s+\S+\s*(\(\s*\S+\s*\S+\s*\)\s*)*\s*;\s*$/) {
+      print_error("ERROR($def_filename:$line): unsupported net format: $full_line\n");
+      ++$errors{"$type syntax"};
+    }
+
+    # Example: - n_9999 ( g771140 o )  ( g771094 b )  ( g770871 c )  ;
+    $full_line =~ s/^\s*-\s+//; # remove start of line
+    $full_line =~ s/\s*;\s*$//; # remove end of line
+    next if ($full_line eq "");
+
+    $full_line =~ s/\(//g; # remove brackets
+    $full_line =~ s/\)//g; # remove brackets
+    my @full_line = split(/\s+/, $full_line);
+    $full_line = "";
+
+    my $net_name = $full_line[0];
+    for (my $i = 1; $i < $#full_line; $i += 2) {
+      my $instance_name = $full_line[$i];
+      my $pin_name      = $full_line[$i+1];
+      $connections_hash_ref->{$net_name}->{$instance_name}->{$pin_name} = 1;
+    }
+  }
+  return ($line, $connections_hash_ref);
+}
+
+
+sub compare_io_pins {
+  my ($floorplan_io_pins_hash_ref, $placement_io_pins_hash_ref) = @_;
+
+  print "Comparing I/O pin placement in placed DEF versus floorplan DEF ...\n";
+  foreach my $pin_name (sort keys %$placement_io_pins_hash_ref) {
+    my $placement_pin_hash_ref = $placement_io_pins_hash_ref->{$pin_name};
+    if (! exists $floorplan_io_pins_hash_ref->{$pin_name}) {
+      print_error("ERROR: placement I/O pin $pin_name was not found in the floorplan.\n");
+      ++$errors{"placed DEF I/O pins"};
+      next;
+    }
+
+    my $floorplan_pin_hash_ref = $floorplan_io_pins_hash_ref->{$pin_name};
+    foreach my $key_name (sort keys %$placement_pin_hash_ref) {
+      if ($placement_pin_hash_ref->{$key_name} ne $floorplan_pin_hash_ref->{$key_name}) {
+        print_error("ERROR: placement I/O pin $pin_name $key_name ", $placement_pin_hash_ref->{$key_name}, " does not match floorplan ", $floorplan_pin_hash_ref->{$key_name}, "\n");
+        ++$errors{"placed DEF I/O pins"};
+      }
+    }
+    delete $floorplan_io_pins_hash_ref->{$pin_name}; # to find out which floorplan I/O pins are missing from the placement
+  }
+
+  foreach my $pin_name (sort keys %$floorplan_io_pins_hash_ref) {
+    print_error("ERROR: floorplan DEF I/O pin $pin_name was not found in the placed DEF.\n");
+    ++$errors{"placed DEF I/O pins"};
+  }
+}
+
+
+sub compare_placements {
+  my ($floorplan_hash_ref, $placement_hash_ref) = @_;
+
+  print "Comparing die area and instance placement in placed DEF versus floorplan DEF ...\n";
+  if ($placement_hash_ref->{DIEAREA}->{lower_left_x}  != $floorplan_hash_ref->{DIEAREA}{lower_left_x}  or 
+      $placement_hash_ref->{DIEAREA}->{lower_left_y}  != $floorplan_hash_ref->{DIEAREA}{lower_left_y}  or 
+      $placement_hash_ref->{DIEAREA}->{upper_right_x} != $floorplan_hash_ref->{DIEAREA}{upper_right_x} or 
+      $placement_hash_ref->{DIEAREA}->{upper_right_y} != $floorplan_hash_ref->{DIEAREA}{upper_right_y}) {
+    print_error("ERROR: DIEAREA is ( ", $placement_hash_ref->{DIEAREA}->{lower_left_x}, " ", $placement_hash_ref->{DIEAREA}->{lower_left_y}, " ) ( ", $placement_hash_ref->{DIEAREA}->{upper_right_x}, " ", $placement_hash_ref->{DIEAREA}->{upper_right_y}, " ) but should be ( ", $floorplan_hash_ref->{DIEAREA}->{lower_left_x}, " ", $floorplan_hash_ref->{DIEAREA}->{lower_left_y}, " ) ( ", $floorplan_hash_ref->{DIEAREA}->{upper_right_x}, " ", $floorplan_hash_ref->{DIEAREA}->{upper_right_y}, " ).\n");
+    ++$errors{"placed DEF die area"};
+  }
+
+  foreach my $instance_name (sort(keys %$placement_hash_ref)) {
+    next if ($instance_name eq 'DIEAREA');
+
+    my $placed = $placement_hash_ref->{$instance_name}->{placed};
+    if (exists $floorplan_hash_ref->{$instance_name} and $placed eq 'FIXED') {
+      my $lower_left_x = $placement_hash_ref->{$instance_name}->{lower_left_x};
+      my $lower_left_y = $placement_hash_ref->{$instance_name}->{lower_left_y};
+      my $orient       = $placement_hash_ref->{$instance_name}->{orient};
+      if ($lower_left_x != $floorplan_hash_ref->{$instance_name}->{lower_left_x} or
+          $lower_left_y != $floorplan_hash_ref->{$instance_name}->{lower_left_y} or
+          $orient       ne $floorplan_hash_ref->{$instance_name}->{orient}) {
+        print_error("ERROR: FIXED instance $instance_name position ( $lower_left_x $lower_left_y ) $orient does not match floorplan position ( ", $floorplan_hash_ref->{$instance_name}->{lower_left_x}, " ", $floorplan_hash_ref->{$instance_name}->{lower_left_y}, " ) ", $floorplan_hash_ref->{$instance_name}->{orient}, ".\n");
+        ++$errors{"placed DEF placement"};
+      }
+    } elsif (exists $floorplan_hash_ref->{$instance_name} and $placed ne 'FIXED') {
+      print_error("ERROR: instance $instance_name should be FIXED but is $placed.\n");
+      ++$errors{"placed DEF placement"};
+    } elsif ($placed eq "FIXED") {
+      print_error("ERROR: instance $instance_name is FIXED in the placed DEF, but was not FIXED in the floorplan DEF.\n");
+      ++$errors{"placed DEF placement"};
+    } elsif ($placed eq "UNPLACED") {
+      print_error("ERROR: instance $instance_name is UNPLACED.\n");
+      ++$errors{"placed DEF placement"};
+    }
+  }
+}
+
+
+sub read_def {
+  my $type = shift;
+  my $def_filename = shift;
+
+  if (! $def_filename) {
+    ++$errors{"missing file"};
+    usage("ERROR: missing valid input -$type <file>");
+  }
+  if (! -e $def_filename) {
+    ++$errors{"missing file"};
+    usage("ERROR: did not find specified input -$type $def_filename");
+  }
+  my $success;
+  my $DEF_FILE;
+  if ($def_filename =~ /\.gz$/) {
+    $success = open($DEF_FILE, "gzip -dc $def_filename |");
+  } else {
+    $success = open($DEF_FILE, '<', $def_filename);
+  }
+  usage("ERROR: unable to open DEF $def_filename: $!\n") if (! $success);
+
+  print "Reading DEF $def_filename ...\n";
+  my $line = 0;
+  my $connections_hash_ref;
+  my $instance_cell_hash_ref;
+  my $io_pins_hash_ref;
+  my $placement_hash_ref;
+  my $design_name = "";
+  while(<$DEF_FILE>) {
+    ++$line;
+
+    if ($_ =~ /^DESIGN\s+(\S+)\s*;/) {
+      $design_name = $1;
+      next;
+    }
+
+    # Example: DIEAREA ( 0 0 ) ( 100000 100000 ) ;
+    if ($_ =~ /^DIEAREA\s+\(\s+(\d+)\s+(\d+)\s+\)\s+\(\s+(\d+)\s+(\d+)\s+\)\s+;/) {
+      $placement_hash_ref->{DIEAREA}->{lower_left_x}  = $1;
+      $placement_hash_ref->{DIEAREA}->{lower_left_y}  = $2;
+      $placement_hash_ref->{DIEAREA}->{upper_right_x} = $3;
+      $placement_hash_ref->{DIEAREA}->{upper_right_y} = $4;
+      next;
+    }
+
+    if ($_ =~ /^COMPONENTS\s+\d+\s*;/) {
+      ($line, $instance_cell_hash_ref) = read_def_components($DEF_FILE, $def_filename, $line, $placement_hash_ref, $type);
+      next;
+    }
+
+    if ($_ =~ /^NETS\s+\d+\s*;/) {
+      ($line, $connections_hash_ref) = read_def_nets($DEF_FILE, $def_filename, $line, $type, $connections_hash_ref);
+      next;
+    }
+
+    if ($_ =~ /^PINS\s+\d+\s*;/) {
+      ($line, $connections_hash_ref, $io_pins_hash_ref) = read_def_io_pins($DEF_FILE, $def_filename, $line, $type, $connections_hash_ref);
+      next;
+    }
+  }
+
+  if (not exists $placement_hash_ref->{DIEAREA}) {
+    print_error("ERROR: found no DIEAREA boundary specified in $def_filename\n");
+    ++$errors{"$type die area"};
+  }
+  close($DEF_FILE);
+  return ($connections_hash_ref, $instance_cell_hash_ref, $io_pins_hash_ref, $placement_hash_ref);
+}
+
+
+sub read_lef {
+  my $lef_filename = shift;
+
+  my $success;
+  my $LEF_FILE;
+  if ($lef_filename =~ /\.gz$/) {
+    $success = open($LEF_FILE, "gzip -dc $lef_filename |");
+  } else {
+    $success = open($LEF_FILE, '<', $lef_filename);
+  }
+  usage("ERROR: unable to open cell LEF $lef_filename: $!\n") if (! $success);
+
+  print "Reading LEF $lef_filename ...\n";
+  my %cell_pins;
+  my $macro_name = "";
+  my $line = 0;
+  my $full_line = "";
+  while(<$LEF_FILE>) {
+    ++$line;
+    if ($_ =~ /^MACRO (\S+)$/) {
+      if ($macro_name) {
+        print_error("ERROR($lef_filename:$line): incomplete cell $macro_name before start of cell $1\n");
+        ++$errors{"LEF syntax"};
+        final_report();
+      }
+      $macro_name = $1;
+      $cell_pins{$macro_name} = undef; # needed for cells with no connectivity
+      next;
+    }
+    next if (!$macro_name);
+
+    if ($_ =~ /^END $macro_name/) {
+      $macro_name = "";
+      next;
+    }
+
+    if ($_ =~ /^\s*PIN/ or $full_line ne "") {
+      chomp;
+      $full_line .= $_;
+      next if ($_ !~ /;/);
+    } else {
+      next;
+    }
+
+    if ($full_line =~ /^\s*PIN\s+(\S+)\s+DIRECTION\s+(\S+)\s*;\s*$/) {
+      my $pin_name = $1;
+      my $pin_direction = $2;
+      next if ($pin_direction eq "POWER"); # ignore these as power/ground pins not in the Verilog
+      if ($pin_direction ne "INPUT" and $pin_direction ne "OUTPUT" and $pin_direction ne "INOUT") {
+        print_error("ERROR($lef_filename:$line): unrecognized cell $macro_name pin $pin_name direction $2\n");
+        ++$errors{"LEF syntax"};
+        next;
+      }
+      $cell_pins{$macro_name}{$pin_name} = lc($pin_direction);
+    }
+    $full_line = "";
+  }
+  close($LEF_FILE);
+  return \%cell_pins;
+}
+
+
+# creates the lib_cell_hash from the cells in the modules in the netlist
+sub create_lib_cell_hash {
+  my $netlist = shift; # netlist for which we need to read in libraries
+  my $module_instances_hash_ref = shift; # modules in this hash from the input netlist will not be loaded from the libraries
+
+  # build a list of the library cells in each module
+  foreach my $module ($netlist->modules_sorted) {
+    foreach my $instance ($module->cells_sorted) {
+      my $sub_module_name = $instance->submodname;
+      next if (exists $module_instances_hash_ref->{$sub_module_name}); # no need to load this cell from the library, the module is in the input Verilog
+      $lib_cell_hash{$sub_module_name} = 1; # just build a hash of the library cells for traversal, doesn't matter if it is already there
+    }
+  }
+  return;
+}
+
+
+sub read_verilog_library {
+  my $netlist = shift;
+
+  $netlist->read_libraries();
+  foreach my $lib_cell (keys %lib_cell_hash) {
+    if ($netlist->find_module($lib_cell)) {
+      delete $lib_cell_hash{$lib_cell};
+    }
+  }
+
+  my $missing_count = 0;
+  foreach my $lib_cell (keys %lib_cell_hash) {
+    print_error("ERROR: unable to find Verilog module for cell $lib_cell\n");
+    ++$errors{"Verilog invalid cell or LEF missing cell"};
+    $missing_count = 1;
+  }
+  if ($missing_count) {
+    print_error("ERROR: please use -lef <file> to read cell library LEF to generate Verilog stubs.\n");
+    final_report();
+  }
+
+  # We need to run $netlist->link to link ports to nets. $netlist->link also connects the instances to their library cell.
+  print "Linking netlist ...\n";
+  $netlist->link(keep_comments=>1, link_read=>1);
+
+  # Omitted as IBM benchmarks do have multiply driven nets and linting greatly increases runtime when there are such issues.
+  # print "Linting the netlist ...\n";
+  # $netlist->lint; # check cell modules are linked, and that signals are not multiply driven
+  return;
+}
+
+
+sub generate_verilog_cell_modules {
+  my $cell_pins_hash_ref = shift;
+  my $verilog_filename = shift;
+
+  my ($filename, $directories, $suffix) = fileparse($verilog_filename, (".v", ".v.gz"));
+  my $cell_modules_filename = "$filename.tmp_cell_modules.v.gz";
+
+  # delete the existing file as it is out of date
+  if (-e $cell_modules_filename and ! unlink($cell_modules_filename)) {
+    print_error("ERROR: unable to delete temporary Verilog file $cell_modules_filename\n");
+    ++$errors{"file I/O"};
+    final_report();
+  }
+
+  my $CELL_FILE;
+  if (! open($CELL_FILE, "| gzip -c > $cell_modules_filename")) {
+    print_error("ERROR: unable to write $cell_modules_filename\n");
+    ++$errors{"file I/O"};
+    final_report();
+  }
+
+  foreach my $cell_name (sort(keys %$cell_pins_hash_ref)) {
+    my $pins_hash_ref = $cell_pins_hash_ref->{$cell_name};
+    my @pin_names = sort(keys %$pins_hash_ref);
+    print $CELL_FILE "module $cell_name (", join(', ', @pin_names), ");\n";
+    foreach my $pin (@pin_names) {
+      my $direction = $pins_hash_ref->{$pin};
+      print $CELL_FILE "  $direction $pin;\n";
+    }
+    print $CELL_FILE "endmodule // $cell_name\n\n";
+  }
+  close($CELL_FILE);
+  return $cell_modules_filename;
+}
+
+
+# Initializes a hashed array of instances of modules in the input Verilog net list
+#
+# PRECONDITION: librarys have not been loaded with read_verilog_library(), otherwise we'll get for example stdcells that are leaves which we do not want
+sub initialize_module_instances_hash {
+  my ($netlist) = @_;
+
+  my %module_instances; # hash module names to check for lack of uniquification
+  # NB: must not use $netlist->modules_sorted_level here, as it will not work as libraries have not
+  # been loaded and it will prevent correct sort order being determined after libraries are loaded
+  foreach my $module (reverse($netlist->modules_sorted)) {
+    $module_instances{$module->name} = [];
+  }
+  return \%module_instances;
+}
+
+
+sub remove_leading_escape_and_trailing_whitespace {
+  my $name = shift;
+  $name =~ s/^\\//;
+  $name =~ s/\s+$//;
+  return $name;
+}
+
+
+# There are several Verilog syntaxes, e.g.:
+# .pin(net)
+# .bus({net1,net2,...})
+# .bus(bussed_net[m:n])
+# .bus(bussed_net)
+# .bus({bussed_net,$net1,$net2,...})
+# .bus({$net1,bussed_net[m:n],$net2,...})
+sub get_pin_net_names {
+  my ($module, $pin) = @_;
+
+  my $net_name = $pin->netname;
+  return if (! $net_name);
+
+  # split {a,b,c}
+  my @split_net_names;
+  if ($net_name =~ /^{(.*)}$/) {
+    @split_net_names = split(/,/,$1);
+  } else {
+    push @split_net_names, $net_name;
+  }
+
+  my @net_names;
+  foreach my $net_name (@split_net_names) {
+    my $net = $module->find_net($net_name);
+    push @net_names, $net_name;
+  }
+  return @net_names;
+}
+
+
+sub hash_verilog_instance_cell_and_connectivity {
+  my ($netlist, $module_instances_hash_ref) = @_;
+
+  my $errors = 0;
+  my %instance_cell;
+  my %connections;
+  foreach my $module ($netlist->modules_sorted_level) {
+    my $module_name = $module->name;
+    next if (! exists $module_instances_hash_ref->{$module_name}); # only traverse hierarchy in the input netlist, we do not care about stdcells
+
+    foreach my $cell ($module->cells_sorted) {
+      my $instance_name = $cell->name;
+      $instance_name = remove_leading_escape_and_trailing_whitespace($instance_name);
+      my $cell_name = $cell->submodname;
+      $instance_cell{$instance_name}{$cell_name} = 1;
+      foreach my $pin ($cell->pins_sorted) {
+        my $pin_name = $pin->portname;
+        my @net_names = get_pin_net_names($module, $pin);
+        next if (scalar(@net_names) == 0);
+        if (scalar(@net_names) > 1) {
+          print_error("ERROR: found multiple nets connected to pin $pin_name on instance $instance_name of module $module_name, but busses are not supported!\n");
+          ++$errors{"Verilog busses not supported"};
+          next;
+        }
+        my $net_name = remove_leading_escape_and_trailing_whitespace($net_names[0]);
+        $connections{$net_name}{$instance_name}{$pin_name} = 1;
+      }
+    }
+
+    my %assigns;
+    foreach my $assign ($module->statements) {
+      my $port_name = remove_leading_escape_and_trailing_whitespace($assign->lhs);
+      my $net_name  = remove_leading_escape_and_trailing_whitespace($assign->rhs);
+
+      if (exists $assigns{$port_name}) {
+        my $old_net_name = $assigns{$port_name};
+        print_error("ERROR: net or I/O pin $port_name is assigned multiple times - to $old_net_name and $net_name\n");
+        ++$errors{"Verilog duplicated assign"};
+        delete $connections{$old_net_name}{PIN}{$port_name}; # only keep the last such assignment, as it will override the earlier ones
+      } # else no such issue
+
+      $assigns{$port_name} = $net_name;
+      $connections{$net_name}{PIN}{$port_name} = 1;
+      $connections{$port_name}{PORT_ASSIGN}{$net_name} = 1; # to avoid incorrect error that a net by $port_name doesn't exist in design - will still report missing connectivity if that is the case
+    }
+
+    foreach my $port ($module->ports_sorted) {
+      my $port_name = remove_leading_escape_and_trailing_whitespace($port->name);
+      next if (exists $assigns{$port_name} or (exists $connections{$port_name} and exists $connections{$port_name}{PIN})); # to support 'assign net_name = port_name;'
+      $connections{$port_name}{PIN}{$port_name} = 1; # to match DEF net connectivity to I/O pins
+    }
+  }
+
+  return (\%connections, \%instance_cell);
+}
+
+
+sub usage {
+  my $msg = shift;
+
+  ++$errors{"bad invocation"};
+
+  print STDOUT <<"END";
+
+Usage:
+
+$0 -floorplan_def <file> -placed_def <file> [-lef <file> -verilog <file>] 
+
+Required arguments:
+-floorplan_def <file> : original DEF file with unplaced instances
+-placed_def    <file> : final placed DEF file
+
+Optional arguments:
+-lef           <file> : original library cells LEF - required with Verilog
+-verilog       <file> : original Verilog
+-log           <file> : send all errors to log file instead of STDOUT
+
+Script to verify ISPD 2015 placed DEF files. Checks the following:
+- Are any cells added/deleted?
+- Are any cells resized/remapped?
+- Are all cells placed?
+- Are all fixed cells still fixed and in the same position?
+- Did the floorplan boundary change?
+- Did any netlist connectivity change?
+- Did any I/O pin locations change?
+
+Limitations:
+- This script assumes that the Verilog is a flat gate-level netlist.
+- Verilog buses are not supported.
+- I/O pins are assumed to all be placed and rectangular in shape.
+
+END
+
+  print_error("\n$msg\n\n") if ($msg);
+  close($LOG_FILE) if ($LOG_FILE);
+  
+  final_report();
+}
