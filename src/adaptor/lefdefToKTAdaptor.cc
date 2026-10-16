@@ -88,8 +88,9 @@ bool LefDefInputAdapter::recognises(const std::string &dirPath) const {
     std::error_code ec;
     for (fs::directory_iterator it(dirPath, fs::directory_options::skip_permission_denied, ec), end;
          !ec && it != end; it.increment(ec)) {
-        const std::string name = it->path().filename().string();
-        if (fs::path(name).extension() == ".def") {
+        const fs::path &path = it->path();
+        if (path.extension() == ".def" ||
+            (path.extension() == ".gz" && path.stem().extension() == ".def")) {
             return true;
         }
     }
