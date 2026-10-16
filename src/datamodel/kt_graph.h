@@ -30,6 +30,7 @@ public:
 
     bool isTerminal = false;  ///< an I/O pad: fixed, and on the die boundary
     bool isFixed = false;     ///< a macro, or a pad
+    bool isIoPin = false;
 
     /// The placement region this cell is fenced into (constraintMgr), or -1.
     int regionId = -1;

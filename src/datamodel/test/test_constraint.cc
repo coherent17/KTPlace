@@ -368,3 +368,25 @@ BOOST_AUTO_TEST_CASE(regions_accessor_exposes_what_was_added) {
     BOOST_TEST(mgr.regions()[0].name == "er0");
     BOOST_TEST(mgr.regions()[1].name == "er1");
 }
+
+BOOST_AUTO_TEST_CASE(a_footprint_must_lie_wholly_inside_its_fence) {
+    const constraintMgr mgr = singleFence();
+    BOOST_TEST(mgr.containsBox(0, Rect{{10.0, 10.0}, {20.0, 20.0}}));
+    BOOST_TEST(mgr.containsBox(0, Rect{{90.0, 90.0}, {100.0, 100.0}}));
+    BOOST_TEST(!mgr.containsBox(0, Rect{{95.0, 10.0}, {105.0, 20.0}}));
+}
+
+BOOST_AUTO_TEST_CASE(a_footprint_may_span_abutting_rectangles_of_one_fence) {
+    constraintMgr mgr;
+    std::vector<Point> corners = rect(0.0, 0.0, 50.0, 100.0);
+    const std::vector<Point> right = rect(50.0, 0.0, 100.0, 100.0);
+    corners.insert(corners.end(), right.begin(), right.end());
+    mgr.addRegion("er0", corners);
+    BOOST_TEST(mgr.containsBox(0, Rect{{40.0, 10.0}, {60.0, 20.0}}));
+}
+
+BOOST_AUTO_TEST_CASE(a_box_overlaps_a_fence_only_through_its_interior) {
+    const constraintMgr mgr = singleFence();
+    BOOST_TEST(mgr.overlapsAnyRegion(Rect{{95.0, 10.0}, {105.0, 20.0}}));
+    BOOST_TEST(!mgr.overlapsAnyRegion(Rect{{100.0, 10.0}, {110.0, 20.0}}));
+}

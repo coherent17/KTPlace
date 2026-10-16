@@ -62,6 +62,7 @@ public:
 
 
     // Cell management
+    void markIoPin(const std::string &name);
     [[nodiscard]] std::size_t addCell(const std::string &name, double width, double height,
                                       bool isTerminal = false);
     [[nodiscard]] bool hasCell(const std::string &name) const;

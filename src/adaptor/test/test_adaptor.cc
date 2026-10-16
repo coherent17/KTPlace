@@ -261,6 +261,55 @@ BOOST_AUTO_TEST_CASE(reads_macros_cells_pads_and_nets) {
     BOOST_TEST(db.hasCell("u1"));
 }
 
+constexpr const char *shapedPinsDef = R"(VERSION 5.8 ;
+UNITS DISTANCE MICRONS 1000 ;
+DIEAREA ( 0 0 ) ( 10000 20000 ) ;
+ROW row0 core 0 0 N DO 10 BY 1 STEP 100 0 ;
+COMPONENTS 1 ;
+	- u1 NSTD + PLACED ( 1000 2000 ) N ;
+END COMPONENTS
+PINS 2 ;
+	- east + NET n0
+	  + PLACED ( 9490 300 ) N
+	  + LAYER metal3 ( 0 0 ) ( 510 100 ) ;
+	- south + NET n0
+	  + PLACED ( 4000 600 ) S
+	  + LAYER metal3 ( 0 0 ) ( 510 100 ) ;
+END PINS
+NETS 1 ;
+	- n0 ( u1 A ) ( PIN east ) ( PIN south ) ;
+END NETS
+END DESIGN
+)";
+
+BOOST_AUTO_TEST_CASE(an_io_pin_takes_its_oriented_layer_shape) {
+    const ScratchDir dir("ld_pin_shape");
+    dir.write("tech.lef", techLef);
+    dir.write("cells.lef", cellsLef);
+    dir.write("floorplan.def", shapedPinsDef);
+
+    LefDefInputAdapter adapter;
+    BOOST_REQUIRE(adapter.readFromDirectory(dir.str()));
+    const ktDM &db = adapter.getDM();
+
+    const Vertex &east = db.getGraph().getCell(db.getCellId("east"));
+    BOOST_TEST(east.isIoPin);
+    BOOST_TEST(east.width == 510.0);
+    BOOST_TEST(east.height == 100.0);
+    BOOST_TEST(east.x == 9490.0);
+    BOOST_TEST(east.y == 300.0);
+
+    const std::size_t southId = db.getCellId("south");
+    const Vertex &south = db.getGraph().getCell(southId);
+    BOOST_TEST(south.width == 510.0);
+    BOOST_TEST(south.height == 100.0);
+    BOOST_TEST(south.x == 3490.0);
+    BOOST_TEST(south.y == 500.0);
+    const Pin &pin = db.getGraph().getPin(db.getCellPins(southId).front());
+    BOOST_TEST(south.x + pin.offsetX == 4000.0);
+    BOOST_TEST(south.y + pin.offsetY == 600.0);
+}
+
 BOOST_AUTO_TEST_CASE(scales_lef_microns_by_the_def_units) {
     const ScratchDir dir("ld_units");
     dir.write("tech.lef", techLef);

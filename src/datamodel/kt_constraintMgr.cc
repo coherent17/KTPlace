@@ -49,6 +49,38 @@ int constraintMgr::addRegion(std::string name, const std::vector<Point> &points)
     return id;
 }
 
+namespace {
+
+constexpr double areaTolerance = 1e-6;
+
+double overlapArea(const Rect &a, const Rect &b) {
+    const double width = std::min(a.hi.x, b.hi.x) - std::max(a.lo.x, b.lo.x);
+    const double height = std::min(a.hi.y, b.hi.y) - std::max(a.lo.y, b.lo.y);
+    return width > 0.0 && height > 0.0 ? width * height : 0.0;
+}
+
+}  // namespace
+
+bool constraintMgr::containsBox(int id, const Rect &box) const {
+    const Region *r = region(id);
+    if (r == nullptr) {
+        return false;
+    }
+    double covered = 0.0;
+    for (const Rect &rect : r->rects) {
+        covered += overlapArea(rect, box);
+    }
+    return covered >= box.area() * (1.0 - areaTolerance);
+}
+
+bool constraintMgr::overlapsAnyRegion(const Rect &box) const {
+    return std::ranges::any_of(regionList, [&](const Region &r) {
+        return std::ranges::any_of(r.rects, [&](const Rect &rect) {
+            return overlapArea(rect, box) > areaTolerance * box.area();
+        });
+    });
+}
+
 bool constraintMgr::contains(int id, double x, double y) const {
     if (id == noRegion) {
         return true;  // unconstrained cells are always legal

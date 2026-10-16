@@ -96,6 +96,8 @@ public:
     // Is (x, y) inside the region?
 
     [[nodiscard]] bool contains(int id, double x, double y) const;
+    [[nodiscard]] bool containsBox(int id, const Rect &box) const;
+    [[nodiscard]] bool overlapsAnyRegion(const Rect &box) const;
 
     // Move (x, y) to the nearest position inside its region.// Inside positions are returned unchanged. Positions outside are clamped// into the nearest rectangle of the region, so a caller can use this as a// hard fence.
 
