@@ -13,15 +13,15 @@ namespace ktplace {
 
 namespace {
 
-enum Tag : std::uint8_t {
-    kStage = 'S',
-    kFrame = 'F',
-    kBounds = 'B',
-    kHoldBack = 'H',
+enum class Tag : std::uint8_t {
+    Stage = 'S',
+    Frame = 'F',
+    Bounds = 'B',
+    HoldBack = 'H',
 };
 
 // gzwrite and gzread take an unsigned count, so a big array goes in pieces.
-constexpr std::size_t kChunk = std::size_t{1} << 30;
+constexpr std::size_t chunkSize = std::size_t{1} << 30;
 
 class In {
 public:
@@ -51,7 +51,7 @@ public:
     void raw(void *p, std::size_t n) {
         auto *bytes = static_cast<unsigned char *>(p);
         while (n > 0) {
-            const auto want = static_cast<unsigned>(std::min(n, kChunk));
+            const auto want = static_cast<unsigned>(std::min(n, chunkSize));
             const int got = gzread(f, bytes, want);
             if (got <= 0) {
                 ktlog.fatal("snapshot file {} stops part-way through a record", file);
@@ -119,7 +119,7 @@ public:
     void raw(const void *p, std::size_t n) {
         const auto *bytes = static_cast<const unsigned char *>(p);
         while (n > 0) {
-            const auto len = static_cast<unsigned>(std::min(n, kChunk));
+            const auto len = static_cast<unsigned>(std::min(n, chunkSize));
             if (gzwrite(f, bytes, len) != static_cast<int>(len)) {
                 ktlog.fatal("cannot write snapshot file {}", file);
             }
@@ -164,7 +164,7 @@ void SnapshotWriter::close() {
 }
 
 void SnapshotWriter::beginStage(const StageVisual &stage) {
-    out->put<std::uint8_t>(kStage);
+    out->put(Tag::Stage);
     out->str(stage.stage);
     out->str(stage.subdir);
     out->size(stage.cadence);
@@ -173,7 +173,7 @@ void SnapshotWriter::beginStage(const StageVisual &stage) {
 void SnapshotWriter::frame(const std::vector<float> &x, const std::vector<float> &y,
                            const std::array<double, 4> &die, bool withFences,
                            const VisualFrame &what) {
-    out->put<std::uint8_t>(kFrame);
+    out->put(Tag::Frame);
     out->put<std::uint8_t>(withFences ? 1 : 0);
     out->vec<double>(die);
     out->str(what.series);
@@ -192,14 +192,14 @@ void SnapshotWriter::frame(const std::vector<float> &x, const std::vector<float>
 void SnapshotWriter::boundsCurve(std::string_view name, std::string_view title,
                                  std::span<const BoundsSample> curve) {
     static_assert(sizeof(BoundsSample) == 2 * sizeof(double));
-    out->put<std::uint8_t>(kBounds);
+    out->put(Tag::Bounds);
     out->str(name);
     out->str(title);
     out->vec(curve);
 }
 
 void SnapshotWriter::holdBack(std::size_t n) {
-    out->put<std::uint8_t>(kHoldBack);
+    out->put(Tag::HoldBack);
     out->size(n);
 }
 
@@ -209,8 +209,8 @@ std::size_t replaySnapshots(const std::string &path, Visualizer &viz, const Grap
     std::size_t frames = 0;
     std::uint8_t t = 0;
     while (in.tag(t)) {
-        switch (t) {
-            case kStage: {
+        switch (static_cast<Tag>(t)) {
+            case Tag::Stage: {
                 StageVisual stage;
                 stage.stage = in.str();
                 stage.subdir = in.str();
@@ -218,7 +218,7 @@ std::size_t replaySnapshots(const std::string &path, Visualizer &viz, const Grap
                 viz.beginStage(std::move(stage));
                 break;
             }
-            case kFrame: {
+            case Tag::Frame: {
                 const bool withFences = in.get<std::uint8_t>() != 0;
                 const std::vector<double> die = in.vec<double>();
                 if (die.size() != 4) {
@@ -240,13 +240,13 @@ std::size_t replaySnapshots(const std::string &path, Visualizer &viz, const Grap
                 ++frames;
                 break;
             }
-            case kBounds: {
+            case Tag::Bounds: {
                 const std::string name = in.str();
                 const std::string title = in.str();
                 viz.boundsCurve(name, title, in.vec<BoundsSample>());
                 break;
             }
-            case kHoldBack:
+            case Tag::HoldBack:
                 viz.holdBack(in.size());
                 break;
             default:

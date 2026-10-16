@@ -243,7 +243,7 @@ BOOST_AUTO_TEST_CASE(flow_places_a_bookshelf_design_and_writes_pl) {
     int fixedCells = 0;
     for (const std::string &line : lines) {
         const bool isFixed = line.find("/FIXED") != std::string::npos;
-        if (line.find("padA\t") == 0 || line.find("padB\t") == 0) {
+        if (line.starts_with("padA\t") || line.starts_with("padB\t")) {
             fixedPads += isFixed;
         } else if (isFixed) {
             ++fixedCells;
@@ -283,7 +283,7 @@ BOOST_AUTO_TEST_CASE(flow_writes_visualization_output_when_asked) {
     // frame_*.ppm stills only appear when a CG trace cadence is requested.
     for (const auto &entry : fs::directory_iterator(plots / "simpl")) {
         const std::string name = entry.path().filename().string();
-        if (name.rfind("simpl_", 0) == 0 && entry.path().extension() == ".svg") {
+        if (name.starts_with("simpl_") && entry.path().extension() == ".svg") {
             ++stills;
         }
     }

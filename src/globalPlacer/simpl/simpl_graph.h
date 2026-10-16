@@ -7,7 +7,6 @@
 #pragma once
 
 #include <cstddef>
-#include <cstdint>
 #include <vector>
 
 namespace ktplace::simpl {
@@ -25,7 +24,7 @@ struct Cell {
     double height = 0.0;
     bool isFixed = false;
     bool isTerminal = false;
-    /// Index into the design's fence regions, or kNoRegion.
+    /// Index into the design's fence regions, or noRegion.
     int regionId = -1;
 };
 

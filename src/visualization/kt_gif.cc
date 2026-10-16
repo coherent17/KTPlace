@@ -17,13 +17,13 @@ namespace {
 // Column-major: five bytes per glyph, one per column, bit 0 the top row. This
 // is the classic 5x7 cell used by small monochrome LCD libraries, covering
 // printable ASCII 0x20-0x7E.
-constexpr int kFontFirst = 0x20;
-constexpr int kFontLast = 0x7E;
-constexpr int kGlyphW = 5;
-constexpr int kGlyphH = 7;
-constexpr int kGlyphAdvance = 6;  // 5 columns plus one of spacing
+constexpr int fontFirst = 0x20;
+constexpr int fontLast = 0x7E;
+constexpr int glyphW = 5;
+constexpr int glyphH = 7;
+constexpr int glyphAdvance = 6;  // 5 columns plus one of spacing
 
-constexpr std::uint8_t kFont[][kGlyphW] = {
+constexpr std::uint8_t font[][glyphW] = {
     {0x00, 0x00, 0x00, 0x00, 0x00},  // ' '
     {0x00, 0x00, 0x5F, 0x00, 0x00},  // '!'
     {0x00, 0x07, 0x00, 0x07, 0x00},  // '"'
@@ -121,39 +121,39 @@ constexpr std::uint8_t kFont[][kGlyphW] = {
     {0x08, 0x08, 0x2A, 0x1C, 0x08},  // '~'
 };
 
-constexpr std::size_t kFontEntries = (sizeof(kFont) / sizeof(kFont[0]));
+constexpr std::size_t fontEntries = (sizeof(font) / sizeof(font[0]));
 
 /// LSB-first bit packer: GIF codes go out least-significant bit first.
 class BitWriter {
 public:
     void put(std::uint32_t code, int bits) {
         for (int i = 0; i < bits; ++i) {
-            acc_ |= ((code >> i) & 1u) << nbits_;
-            if (++nbits_ == 8) {
-                out_.push_back(static_cast<std::uint8_t>(acc_));
-                acc_ = 0;
-                nbits_ = 0;
+            acc |= ((code >> i) & 1u) << nbits;
+            if (++nbits == 8) {
+                buffer.push_back(static_cast<std::uint8_t>(acc));
+                acc = 0;
+                nbits = 0;
             }
         }
     }
 
     /// Pad the final partial byte with zeros, as the format requires.
     void flush() {
-        if (nbits_ > 0) {
-            out_.push_back(static_cast<std::uint8_t>(acc_));
-            acc_ = 0;
-            nbits_ = 0;
+        if (nbits > 0) {
+            buffer.push_back(static_cast<std::uint8_t>(acc));
+            acc = 0;
+            nbits = 0;
         }
     }
 
     std::vector<std::uint8_t> &bytes() {
-        return out_;
+        return buffer;
     }
 
 private:
-    std::vector<std::uint8_t> out_;
-    std::uint32_t acc_ = 0;
-    int nbits_ = 0;
+    std::vector<std::uint8_t> buffer;
+    std::uint32_t acc = 0;
+    int nbits = 0;
 };
 
 void put16(std::vector<std::uint8_t> &v, std::uint32_t x) {
@@ -185,26 +185,32 @@ void putSubBlocks(std::vector<std::uint8_t> &v, const std::vector<std::uint8_t> 
 // --- Canvas ---------------------------------------------------------------
 
 Canvas::Canvas(int w, int h, const std::vector<Rgb> &palette)
-    : w_(w > 0 ? w : 1), h_(h > 0 ? h : 1), palette_(palette) {
-    if (palette_.size() > 256) {
-        palette_.resize(256);
+    : pixelWidth(w > 0 ? w : 1), pixelHeight(h > 0 ? h : 1), colorTable(palette) {
+    if (colorTable.size() > 256) {
+        colorTable.resize(256);
     }
-    px_.assign(static_cast<std::size_t>(w_) * static_cast<std::size_t>(h_), 0);
+    pixelIndex.assign(static_cast<std::size_t>(pixelWidth) * static_cast<std::size_t>(pixelHeight),
+                      0);
 }
 
 Canvas::Canvas(int w, int h, const std::vector<std::uint8_t> &indices,
                const std::vector<Rgb> &palette)
-    : w_(w > 0 ? w : 1), h_(h > 0 ? h : 1), px_(indices), palette_(palette) {
-    if (palette_.size() > 256) {
-        palette_.resize(256);
+    : pixelWidth(w > 0 ? w : 1),
+      pixelHeight(h > 0 ? h : 1),
+      pixelIndex(indices),
+      colorTable(palette) {
+    if (colorTable.size() > 256) {
+        colorTable.resize(256);
     }
-    const std::size_t want = static_cast<std::size_t>(w_) * static_cast<std::size_t>(h_);
-    if (px_.size() != want) {
-        px_.resize(want, 0);
+    const std::size_t want =
+        static_cast<std::size_t>(pixelWidth) * static_cast<std::size_t>(pixelHeight);
+    if (pixelIndex.size() != want) {
+        pixelIndex.resize(want, 0);
     }
     // Drop any index the (possibly truncated) palette cannot address.
-    const std::uint8_t top = palette_.empty() ? 0 : static_cast<std::uint8_t>(palette_.size() - 1);
-    for (std::uint8_t &v : px_) {
+    const std::uint8_t top =
+        colorTable.empty() ? 0 : static_cast<std::uint8_t>(colorTable.size() - 1);
+    for (std::uint8_t &v : pixelIndex) {
         if (v > top) {
             v = 0;
         }
@@ -214,10 +220,10 @@ Canvas::Canvas(int w, int h, const std::vector<std::uint8_t> &indices,
 int Canvas::nearest(const Rgb &c) const {
     int best = 0;
     long bestD = -1;
-    for (std::size_t i = 0; i < palette_.size(); ++i) {
-        const long dr = static_cast<long>(c.r) - palette_[i].r;
-        const long dg = static_cast<long>(c.g) - palette_[i].g;
-        const long db = static_cast<long>(c.b) - palette_[i].b;
+    for (std::size_t i = 0; i < colorTable.size(); ++i) {
+        const long dr = static_cast<long>(c.r) - colorTable[i].r;
+        const long dg = static_cast<long>(c.g) - colorTable[i].g;
+        const long db = static_cast<long>(c.b) - colorTable[i].b;
         const long d = dr * dr + dg * dg + db * db;
         if (bestD < 0 || d < bestD) {
             bestD = d;
@@ -231,36 +237,37 @@ int Canvas::nearest(const Rgb &c) const {
 }
 
 void Canvas::blendPixel(int x, int y, const Rgb &src, double alpha) {
-    if (x < 0 || y < 0 || x >= w_ || y >= h_ || palette_.empty()) {
+    if (x < 0 || y < 0 || x >= pixelWidth || y >= pixelHeight || colorTable.empty()) {
         return;
     }
     Rgb dst;
     if (alpha >= 1.0) {
         dst = src;
     } else {
-        const std::uint8_t here = px_[static_cast<std::size_t>(y) * w_ + x];
-        const Rgb &bg = palette_[here < palette_.size() ? here : 0];
+        const std::uint8_t here = pixelIndex[static_cast<std::size_t>(y) * pixelWidth + x];
+        const Rgb &bg = colorTable[here < colorTable.size() ? here : 0];
         const double a = alpha < 0.0 ? 0.0 : alpha;
         dst.r = static_cast<std::uint8_t>(src.r * a + bg.r * (1.0 - a) + 0.5);
         dst.g = static_cast<std::uint8_t>(src.g * a + bg.g * (1.0 - a) + 0.5);
         dst.b = static_cast<std::uint8_t>(src.b * a + bg.b * (1.0 - a) + 0.5);
     }
-    px_[static_cast<std::size_t>(y) * w_ + x] = static_cast<std::uint8_t>(nearest(dst));
+    pixelIndex[static_cast<std::size_t>(y) * pixelWidth + x] =
+        static_cast<std::uint8_t>(nearest(dst));
 }
 
 void Canvas::clear(int idx) {
-    std::fill(px_.begin(), px_.end(), static_cast<std::uint8_t>(idx));
+    std::fill(pixelIndex.begin(), pixelIndex.end(), static_cast<std::uint8_t>(idx));
 }
 
 void Canvas::fillRect(int x, int y, int w, int h, int idx, double alpha) {
-    if (idx < 0 || static_cast<std::size_t>(idx) >= palette_.size()) {
+    if (idx < 0 || static_cast<std::size_t>(idx) >= colorTable.size()) {
         return;
     }
-    const Rgb &c = palette_[static_cast<std::size_t>(idx)];
+    const Rgb &c = colorTable[static_cast<std::size_t>(idx)];
     const int x0 = std::max(0, x);
     const int y0 = std::max(0, y);
-    const int x1 = std::min(w_, x + w);
-    const int y1 = std::min(h_, y + h);
+    const int x1 = std::min(pixelWidth, x + w);
+    const int y1 = std::min(pixelHeight, y + h);
     for (int yy = y0; yy < y1; ++yy) {
         for (int xx = x0; xx < x1; ++xx) {
             blendPixel(xx, yy, c, alpha);
@@ -284,31 +291,31 @@ void Canvas::vLine(int y0, int y1, int x, int idx) {
 
 int Canvas::textWidth(const std::string &s, int scale) {
     const int sc = scale > 0 ? scale : 1;
-    return static_cast<int>(s.size()) * kGlyphAdvance * sc;
+    return static_cast<int>(s.size()) * glyphAdvance * sc;
 }
 
 void Canvas::text(int x, int y, const std::string &s, int idx, int scale) {
-    if (idx < 0 || static_cast<std::size_t>(idx) >= palette_.size()) {
+    if (idx < 0 || static_cast<std::size_t>(idx) >= colorTable.size()) {
         return;
     }
     const int sc = scale > 0 ? scale : 1;
     int penX = x;
     for (const char ch : s) {
-        const unsigned char u = static_cast<unsigned char>(ch);
-        if (u < kFontFirst || u > kFontLast) {
-            penX += kGlyphAdvance * sc;
+        const auto u = static_cast<unsigned char>(ch);
+        if (u < fontFirst || u > fontLast) {
+            penX += glyphAdvance * sc;
             continue;
         }
-        const std::uint8_t *glyph = kFont[u - kFontFirst];
-        for (int col = 0; col < kGlyphW; ++col) {
-            for (int row = 0; row < kGlyphH; ++row) {
+        const std::uint8_t *glyph = font[u - fontFirst];
+        for (int col = 0; col < glyphW; ++col) {
+            for (int row = 0; row < glyphH; ++row) {
                 if (((glyph[col] >> row) & 1u) == 0u) {
                     continue;
                 }
                 fillRect(penX + col * sc, y + row * sc, sc, sc, idx);
             }
         }
-        penX += kGlyphAdvance * sc;
+        penX += glyphAdvance * sc;
     }
 }
 
@@ -326,7 +333,7 @@ std::vector<std::uint8_t> gifCompress(const std::vector<std::uint8_t> &pixels, i
     const std::uint32_t clearCode = 1u << minCodeSize;  // 256
     const std::uint32_t eoiCode = clearCode + 1u;       // 257
     const std::uint32_t firstFree = eoiCode + 1u;       // 258
-    constexpr std::uint32_t kMaxCode = 4096;            // 12-bit ceiling
+    constexpr std::uint32_t maxCode = 4096;             // 12-bit ceiling
 
     BitWriter bw;
     bw.put(clearCode, minCodeSize + 1);
@@ -352,7 +359,7 @@ std::vector<std::uint8_t> gifCompress(const std::vector<std::uint8_t> &pixels, i
             continue;
         }
         bw.put(prefix, codeSize);
-        if (next < kMaxCode) {
+        if (next < maxCode) {
             dict[slot] = next++;
             // Widen one code later than the naive "next no longer fits" bound.
             // Code (1 << codeSize) may be handed out while the width is still

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: BSD-3-Clause
-// @file test_detail.cc// Unit tests for the fast detailed placer// Detailed placement's whole contract is that it may only make a legal// placement legaler-and-shorter. So the assertions here are mostly about the// invariant rather than the optimisation: whatever the four techniques do, the// result has to be on-site, in-row, clear of the fixed cells, and never worse// on HPWL than the input. An optimiser that reports a swap count but leaves the// design illegal has failed at the only thing that matters.// The four techniques are then exercised one at a time, with pass counts of// zero for the others, so a failure names the move that broke legality rather// than "something in place()".
+// @file test_detail.cc// Unit tests for the fast detailed globalPlacer// Detailed placement's whole contract is that it may only make a legal// placement legaler-and-shorter. So the assertions here are mostly about the// invariant rather than the optimisation: whatever the four techniques do, the// result has to be on-site, in-row, clear of the fixed cells, and never worse// on HPWL than the input. An optimiser that reports a swap count but leaves the// design illegal has failed at the only thing that matters.// The four techniques are then exercised one at a time, with pass counts of// zero for the others, so a failure names the move that broke legality rather// than "something in place()".
 
 
 #define BOOST_TEST_MODULE ktplace_detail
@@ -9,7 +9,6 @@
 #include "datamodel/kt_dm.h"
 #include "detailPlacer/fastdp/fastdp_dm.h"
 #include "detailPlacer/fastdp/fastdp_placer.h"
-#include "util/kt_log.h"
 
 #include <boost/test/unit_test.hpp>
 
@@ -44,7 +43,6 @@ struct Fixture {
 
 BOOST_FIXTURE_TEST_SUITE(ktplace_detail, Fixture)
 
-#include <algorithm>
 #include <cmath>
 #include <string>
 #include <type_traits>
@@ -55,14 +53,14 @@ using namespace ktplace;
 namespace {
 
 /// Site pitch for every row built here; the placements are on a 1-unit grid.
-constexpr double kSite = 1.0;
-constexpr double kRowHeight = 10.0;
-constexpr double kRowPitch = 10.0;
+constexpr double site = 1.0;
+constexpr double rowHeight = 10.0;
+constexpr double rowPitch = 10.0;
 
-/// A row of @p numSites sites, y at @p rowIndex * kRowPitch.
+/// A row of @p numSites sites, y at @p rowIndex * rowPitch.
 void addRow(ktDM &db, int rowIndex, double numSites, double originX = 0.0) {
-    const double y = rowIndex * kRowPitch;
-    const std::size_t row = db.addRow(y, kRowHeight, kSite, kSite);
+    const double y = rowIndex * rowPitch;
+    const std::size_t row = db.addRow(y, rowHeight, site, site);
     BOOST_TEST(row < db.getNumRows());
     const std::size_t before = db.getRows()[row].subrows.size();
     const std::size_t sub = db.addSubrow(row, originX, numSites);
@@ -75,21 +73,21 @@ void addRow(ktDM &db, int rowIndex, double numSites, double originX = 0.0) {
 // Places a cell off the site pitch, for the tests that check a pass snaps
 // cells back onto it. Every other test goes through addCell, which rounds.
 void addCellRaw(ktDM &db, const std::string &name, double x, int rowIndex, double width = 1.0) {
-    const std::size_t id = db.addCell(name, width, kRowHeight);
-    db.setCellPosition(id, x, rowIndex * kRowPitch);
+    const std::size_t id = db.addCell(name, width, rowHeight);
+    db.setCellPosition(id, x, rowIndex * rowPitch);
 }
 
 void addCell(ktDM &db, const std::string &name, double x, int rowIndex, double width = 1.0) {
-    const std::size_t id = db.addCell(name, width, kRowHeight);
-    db.setCellPosition(id, std::round(x / kSite) * kSite, rowIndex * kRowPitch);
+    const std::size_t id = db.addCell(name, width, rowHeight);
+    db.setCellPosition(id, std::round(x / site) * site, rowIndex * rowPitch);
     gWidths.resize(db.getNumCells(), 1.0);
     gWidths[id] = width;
 }
 
 /// A fixed cell, which the optimiser must not move and must not overlap.
 void addFixed(ktDM &db, const std::string &name, double x, int rowIndex, double width = 1.0) {
-    const std::size_t id = db.addCell(name, width, kRowHeight, /*isTerminal=*/true);
-    db.setCellPosition(id, x, rowIndex * kRowPitch);
+    const std::size_t id = db.addCell(name, width, rowHeight, /*isTerminal=*/true);
+    db.setCellPosition(id, x, rowIndex * rowPitch);
     db.setCellFixed(id, true);
     gWidths.resize(db.getNumCells(), 1.0);
     gWidths[id] = width;
@@ -125,7 +123,7 @@ void addNet(ktDM &db, const std::string &net, const std::string &a, const std::s
 }
 
 /// Number of movable cells not sitting on a site pitch.
-[[nodiscard]] std::size_t r0_offsite(ktDM &db) {
+[[nodiscard]] std::size_t rowZeroOffsite(ktDM &db) {
     const auto rows = db.getRows();
     if (rows.empty()) {
         return 0;
@@ -137,8 +135,8 @@ void addNet(ktDM &db, const std::string &net, const std::string &a, const std::s
         }
         const auto [x, y] = db.getCellPosition(i);
         (void)y;
-        const double rem = std::fmod(x - rows.front().xlo(), kSite);
-        if (std::abs(rem) > 1e-6 && std::abs(rem - kSite) > 1e-6) {
+        const double rem = std::fmod(x - rows.front().xlo(), site);
+        if (std::abs(rem) > 1e-6 && std::abs(rem - site) > 1e-6) {
             ++off;
         }
     }
@@ -173,14 +171,14 @@ void addNet(ktDM &db, const std::string &net, const std::string &a, const std::s
     for (std::size_t i = 0; i < db.getNumCells(); ++i) {
         const auto [x, y] = db.getCellPosition(i);
         const double w = widthOf(i);
-        const double h = kRowHeight;
+        const double h = rowHeight;
         if (db.isCellFixed(i)) {
             boxes.push_back({x, x + w, y, y + h});
             continue;
         }
         // On a site, to within floating point.
-        const double rem = std::fmod(x - rows.front().xlo(), kSite);
-        if (std::abs(rem) > 1e-6 && std::abs(rem - kSite) > 1e-6) {
+        const double rem = std::fmod(x - rows.front().xlo(), site);
+        if (std::abs(rem) > 1e-6 && std::abs(rem - site) > 1e-6) {
             return false;
         }
         // In some row band.
@@ -488,7 +486,7 @@ BOOST_AUTO_TEST_CASE(local_reordering_keeps_cells_on_their_sites) {
     }
     const DetailPlaceResult r = runAndCommit(db, only(2));
     BOOST_TEST(r.overlappingPairs == 0u);
-    BOOST_TEST(r0_offsite(db) == 0u);
+    BOOST_TEST(rowZeroOffsite(db) == 0u);
     BOOST_TEST(isLegal(db));
 }
 
@@ -509,7 +507,7 @@ BOOST_AUTO_TEST_CASE(single_segment_clustering_tightens_a_gap) {
 
     const DetailPlaceResult r = runAndCommit(db, only(3));
     BOOST_TEST(r.clusterMoves >= 1u);
-    BOOST_TEST(r0_offsite(db) == 0u);
+    BOOST_TEST(rowZeroOffsite(db) == 0u);
     BOOST_TEST(r.overlappingPairs == 0u);
     BOOST_TEST(isLegal(db));
 }
@@ -664,7 +662,7 @@ BOOST_AUTO_TEST_CASE(a_row_split_by_a_subrow_gap_is_respected) {
     // A row with two subrows is not one span of x, so placing into it means
     // choosing a subrow. The gap between them has no sites.
     ktDM db;
-    const std::size_t row = db.addRow(0.0, kRowHeight, kSite, kSite);
+    const std::size_t row = db.addRow(0.0, rowHeight, site, site);
     BOOST_TEST(row < db.getNumRows());
     BOOST_TEST(db.addSubrow(row, 0.0, 5.0) == 0u);
     BOOST_TEST(db.addSubrow(row, 20.0, 5.0) == 1u);
@@ -756,8 +754,8 @@ BOOST_AUTO_TEST_CASE(failed_vertical_swap_restores_the_row_the_cell_is_in) {
     addCell(db, "e", 98.0, 1);       // sits where c lands if y is restored wrongly
     // Two rows tall, at the right end of rows 2-3 (x 97..100). c (3 wide) at
     // x 95 in row 2 hits it; d2 (1 wide) at x 96 in row 1 does not.
-    const std::size_t tall = db.addCell("tall", 3.0, 2.0 * kRowHeight);
-    db.setCellPosition(tall, 97.0, 2.0 * kRowPitch);
+    const std::size_t tall = db.addCell("tall", 3.0, 2.0 * rowHeight);
+    db.setCellPosition(tall, 97.0, 2.0 * rowPitch);
     pad("p1", 97.0, 0.0);   // c wants row 0 near x 97
     pad("p2", 51.0, 10.0);  // d1 wants row 1 near x 51
     pad("p3", 96.0, 10.0);  // d2 wants row 1 near x 96, strongly
@@ -783,7 +781,7 @@ BOOST_AUTO_TEST_CASE(failed_vertical_swap_restores_the_row_the_cell_is_in) {
             const auto [xj, yj] = db.getCellPosition(cells[j].first);
             const bool disjoint = xi + cells[i].second <= xj + 1e-9 ||
                                   xj + cells[j].second <= xi + 1e-9 ||
-                                  yi + kRowHeight <= yj + 1e-9 || yj + kRowHeight <= yi + 1e-9;
+                                  yi + rowHeight <= yj + 1e-9 || yj + rowHeight <= yi + 1e-9;
             BOOST_TEST(disjoint, cells[i].first << " overlaps " << cells[j].first);
         }
     }
@@ -819,7 +817,7 @@ BOOST_AUTO_TEST_CASE(cells_stay_on_their_side_of_a_fence) {
 
     for (const char *m : {"m0", "m1"}) {
         const auto [x, y] = db.getCellPosition(m);
-        BOOST_TEST((x >= 0.0 && x + 1.0 <= 20.0 + 1e-9 && y + kRowHeight <= 20.0 + 1e-9),
+        BOOST_TEST((x >= 0.0 && x + 1.0 <= 20.0 + 1e-9 && y + rowHeight <= 20.0 + 1e-9),
                    m << " left its fence: (" << x << ", " << y << ")");
     }
     const auto [ox, oy] = db.getCellPosition("o0");

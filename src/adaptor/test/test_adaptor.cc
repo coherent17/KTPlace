@@ -52,7 +52,7 @@ private:
 };
 
 /// Two movable cells, one I/O pad, one two-pin net, one row.
-constexpr const char *kNodes = R"(UCLA nodes 1.0
+constexpr const char *nodes = R"(UCLA nodes 1.0
 
 NumNodes : 3
 NumTerminals : 1
@@ -62,7 +62,7 @@ NumTerminals : 1
 	pad0	1.0	2.0	terminal
 )";
 
-constexpr const char *kNets = R"(UCLA nets 1.0
+constexpr const char *nets = R"(UCLA nets 1.0
 
 NumNets : 1
 NumPins : 3
@@ -73,14 +73,14 @@ NetDegree : 3	n0
 	pad0 I	: 0.0	0.0
 )";
 
-constexpr const char *kPl = R"(UCLA pl 1.0
+constexpr const char *pl = R"(UCLA pl 1.0
 
 c0	0.0	0.0 : N
 c1	4.0	0.0 : N
 pad0	0.0	0.0 : N /FIXED
 )";
 
-constexpr const char *kScl = R"(UCLA scl 1.0
+constexpr const char *scl = R"(UCLA scl 1.0
 
 NumRows : 1
 
@@ -94,7 +94,7 @@ End
 )";
 
 /// Minimal LEF/DEF pair: one fixed macro, one placed standard cell, one pad.
-constexpr const char *kTechLef = R"(VERSION 5.8 ;
+constexpr const char *techLef = R"(VERSION 5.8 ;
 UNITS
   DATABASE MICRONS 1000 ;
 END UNITS
@@ -105,7 +105,7 @@ END core
 END LIBRARY
 )";
 
-constexpr const char *kCellsLef = R"(VERSION 5.8 ;
+constexpr const char *cellsLef = R"(VERSION 5.8 ;
 MACRO NSTD
   CLASS CORE ;
   SIZE 0.200 BY 0.900 ;
@@ -129,7 +129,7 @@ END MACRO1
 END LIBRARY
 )";
 
-constexpr const char *kFloorplanDef = R"(VERSION 5.8 ;
+constexpr const char *floorplanDef = R"(VERSION 5.8 ;
 UNITS DISTANCE MICRONS 1000 ;
 DIEAREA ( 0 0 ) ( 10000 20000 ) ;
 ROW row0 core 0 0 N DO 10 BY 1 STEP 100 0 ;
@@ -152,10 +152,10 @@ BOOST_AUTO_TEST_SUITE(Bookshelf)
 
 BOOST_AUTO_TEST_CASE(reads_a_minimal_design_from_a_directory) {
     const ScratchDir dir("bs_dir");
-    dir.write("tiny/tiny.nodes", kNodes);
-    dir.write("tiny/tiny.nets", kNets);
-    dir.write("tiny/tiny.pl", kPl);
-    dir.write("tiny/tiny.scl", kScl);
+    dir.write("tiny/tiny.nodes", nodes);
+    dir.write("tiny/tiny.nets", nets);
+    dir.write("tiny/tiny.pl", pl);
+    dir.write("tiny/tiny.scl", scl);
 
     BookshelfInputAdapter adapter;
     BOOST_REQUIRE(adapter.readFromDirectory(dir.file("tiny").string()));
@@ -172,8 +172,8 @@ BOOST_AUTO_TEST_CASE(reads_a_minimal_design_from_a_directory) {
 
 BOOST_AUTO_TEST_CASE(reads_cell_geometry_and_terminal_flag) {
     const ScratchDir dir("bs_geom");
-    dir.write("tiny/tiny.nodes", kNodes);
-    dir.write("tiny/tiny.nets", kNets);
+    dir.write("tiny/tiny.nodes", nodes);
+    dir.write("tiny/tiny.nets", nets);
 
     BookshelfInputAdapter adapter;
     BOOST_REQUIRE(adapter.readFromFiles(dir.file("tiny/tiny.nodes").string(),
@@ -190,9 +190,9 @@ BOOST_AUTO_TEST_CASE(reads_cell_geometry_and_terminal_flag) {
 
 BOOST_AUTO_TEST_CASE(placement_file_marks_pads_fixed) {
     const ScratchDir dir("bs_fixed");
-    dir.write("tiny/tiny.nodes", kNodes);
-    dir.write("tiny/tiny.nets", kNets);
-    dir.write("tiny/tiny.pl", kPl);
+    dir.write("tiny/tiny.nodes", nodes);
+    dir.write("tiny/tiny.nets", nets);
+    dir.write("tiny/tiny.pl", pl);
 
     BookshelfInputAdapter adapter;
     BOOST_REQUIRE(adapter.readFromFiles(dir.file("tiny/tiny.nodes").string(),
@@ -207,8 +207,8 @@ BOOST_AUTO_TEST_CASE(placement_file_marks_pads_fixed) {
 
 BOOST_AUTO_TEST_CASE(terminals_are_fixed_even_without_a_pl_file) {
     const ScratchDir dir("bs_term");
-    dir.write("tiny/tiny.nodes", kNodes);
-    dir.write("tiny/tiny.nets", kNets);
+    dir.write("tiny/tiny.nodes", nodes);
+    dir.write("tiny/tiny.nets", nets);
 
     BookshelfInputAdapter adapter;
     BOOST_REQUIRE(adapter.readFromFiles(dir.file("tiny/tiny.nodes").string(),
@@ -222,9 +222,9 @@ BOOST_AUTO_TEST_CASE(terminals_are_fixed_even_without_a_pl_file) {
 
 BOOST_AUTO_TEST_CASE(reads_row_structure) {
     const ScratchDir dir("bs_rows");
-    dir.write("tiny/tiny.nodes", kNodes);
-    dir.write("tiny/tiny.nets", kNets);
-    dir.write("tiny/tiny.scl", kScl);
+    dir.write("tiny/tiny.nodes", nodes);
+    dir.write("tiny/tiny.nets", nets);
+    dir.write("tiny/tiny.scl", scl);
 
     BookshelfInputAdapter adapter;
     BOOST_REQUIRE(adapter.readFromFiles(dir.file("tiny/tiny.nodes").string(),
@@ -245,9 +245,9 @@ BOOST_AUTO_TEST_SUITE(LefDef)
 
 BOOST_AUTO_TEST_CASE(reads_macros_cells_pads_and_nets) {
     const ScratchDir dir("ld_basic");
-    dir.write("tech.lef", kTechLef);
-    dir.write("cells.lef", kCellsLef);
-    dir.write("floorplan.def", kFloorplanDef);
+    dir.write("tech.lef", techLef);
+    dir.write("cells.lef", cellsLef);
+    dir.write("floorplan.def", floorplanDef);
 
     LefDefInputAdapter adapter;
     BOOST_REQUIRE(adapter.readFromDirectory(dir.str()));
@@ -263,9 +263,9 @@ BOOST_AUTO_TEST_CASE(reads_macros_cells_pads_and_nets) {
 
 BOOST_AUTO_TEST_CASE(scales_lef_microns_by_the_def_units) {
     const ScratchDir dir("ld_units");
-    dir.write("tech.lef", kTechLef);
-    dir.write("cells.lef", kCellsLef);
-    dir.write("floorplan.def", kFloorplanDef);
+    dir.write("tech.lef", techLef);
+    dir.write("cells.lef", cellsLef);
+    dir.write("floorplan.def", floorplanDef);
 
     LefDefInputAdapter adapter;
     BOOST_REQUIRE(adapter.readFromDirectory(dir.str()));
@@ -284,9 +284,9 @@ BOOST_AUTO_TEST_CASE(scales_lef_microns_by_the_def_units) {
 
 BOOST_AUTO_TEST_CASE(keeps_macro_and_placed_component_coordinates) {
     const ScratchDir dir("ld_pos");
-    dir.write("tech.lef", kTechLef);
-    dir.write("cells.lef", kCellsLef);
-    dir.write("floorplan.def", kFloorplanDef);
+    dir.write("tech.lef", techLef);
+    dir.write("cells.lef", cellsLef);
+    dir.write("floorplan.def", floorplanDef);
 
     LefDefInputAdapter adapter;
     BOOST_REQUIRE(adapter.readFromDirectory(dir.str()));
@@ -306,9 +306,9 @@ BOOST_AUTO_TEST_CASE(keeps_macro_and_placed_component_coordinates) {
 
 BOOST_AUTO_TEST_CASE(reads_die_area_and_rows) {
     const ScratchDir dir("ld_die");
-    dir.write("tech.lef", kTechLef);
-    dir.write("cells.lef", kCellsLef);
-    dir.write("floorplan.def", kFloorplanDef);
+    dir.write("tech.lef", techLef);
+    dir.write("cells.lef", cellsLef);
+    dir.write("floorplan.def", floorplanDef);
 
     LefDefInputAdapter adapter;
     BOOST_REQUIRE(adapter.readFromDirectory(dir.str()));
@@ -325,8 +325,8 @@ BOOST_AUTO_TEST_CASE(reads_die_area_and_rows) {
 
 BOOST_AUTO_TEST_CASE(renames_def_components_containing_slashes) {
     const ScratchDir dir("ld_sanitize");
-    dir.write("tech.lef", kTechLef);
-    dir.write("cells.lef", kCellsLef);
+    dir.write("tech.lef", techLef);
+    dir.write("cells.lef", cellsLef);
     dir.write("floorplan.def", R"(VERSION 5.8 ;
 UNITS DISTANCE MICRONS 1000 ;
 COMPONENTS 1 ;
@@ -343,7 +343,7 @@ END DESIGN
 
 BOOST_AUTO_TEST_CASE(fails_cleanly_without_a_def_file) {
     const ScratchDir dir("ld_empty");
-    dir.write("tech.lef", kTechLef);
+    dir.write("tech.lef", techLef);
     LefDefInputAdapter adapter;
     BOOST_TEST(!adapter.readFromDirectory(dir.str()));
 }

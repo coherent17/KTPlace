@@ -29,16 +29,16 @@ public:
     Canvas(int w, int h, const std::vector<std::uint8_t> &indices, const std::vector<Rgb> &palette);
 
     int width() const {
-        return w_;
+        return pixelWidth;
     }
     int height() const {
-        return h_;
+        return pixelHeight;
     }
     const std::vector<std::uint8_t> &pixels() const {
-        return px_;
+        return pixelIndex;
     }
     const std::vector<Rgb> &palette() const {
-        return palette_;
+        return colorTable;
     }
 
     /// Fill the whole image with palette index @p idx.
@@ -65,10 +65,10 @@ private:
     /// Palette index of the colour nearest to @p c, by squared RGB distance.
     int nearest(const Rgb &c) const;
 
-    int w_ = 0;
-    int h_ = 0;
-    std::vector<std::uint8_t> px_;
-    std::vector<Rgb> palette_;
+    int pixelWidth = 0;
+    int pixelHeight = 0;
+    std::vector<std::uint8_t> pixelIndex;
+    std::vector<Rgb> colorTable;
 };
 
 // GIF's variable-width LZW, as a sequence of data sub-blocks ready to be// appended to a file.

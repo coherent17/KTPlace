@@ -10,7 +10,7 @@
 namespace ktplace {
 
 struct MultiRowOptions {
-    static constexpr Component kComponent = Component::MultiRow;
+    static constexpr Component component = Component::MultiRow;
 
     std::size_t macroRows = 3;
 

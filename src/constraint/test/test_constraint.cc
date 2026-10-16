@@ -6,7 +6,6 @@
 #define BOOST_TEST_DYN_LINK
 
 #include "constraint/kt_constraintMgr.h"
-#include "util/kt_log.h"
 
 #include <boost/test/unit_test.hpp>
 #include <string>
@@ -89,11 +88,11 @@ BOOST_AUTO_TEST_CASE(an_odd_trailing_corner_is_dropped_not_misread) {
 
 BOOST_AUTO_TEST_CASE(a_region_with_no_usable_rectangle_is_rejected) {
     constraintMgr mgr;
-    BOOST_TEST(mgr.addRegion("empty", {}) == constraintMgr::kNoRegion);
+    BOOST_TEST(mgr.addRegion("empty", {}) == constraintMgr::noRegion);
     // Zero area and a single corner are both unusable.
-    BOOST_TEST(mgr.addRegion("degenerate", rect(5.0, 5.0, 5.0, 5.0)) == constraintMgr::kNoRegion);
+    BOOST_TEST(mgr.addRegion("degenerate", rect(5.0, 5.0, 5.0, 5.0)) == constraintMgr::noRegion);
     BOOST_TEST(mgr.addRegion("flat", {Point{0.0, 0.0}, Point{10.0, 0.0}}) ==
-               constraintMgr::kNoRegion);
+               constraintMgr::noRegion);
     BOOST_TEST(mgr.numRegions() == 0u);
 }
 
@@ -110,10 +109,10 @@ BOOST_AUTO_TEST_CASE(containment_includes_the_boundary) {
 }
 
 BOOST_AUTO_TEST_CASE(an_unconstrained_cell_is_always_legal) {
-    // kNoRegion means "not fenced", so it must not report a violation for a
+    // noRegion means "not fenced", so it must not report a violation for a
     // position that happens to be outside every fence.
     const constraintMgr mgr = singleFence();
-    BOOST_TEST(mgr.contains(constraintMgr::kNoRegion, 1e9, 1e9));
+    BOOST_TEST(mgr.contains(constraintMgr::noRegion, 1e9, 1e9));
     // An id that is in range of the manager but not of its region list is not
     // silently treated as unconstrained.
     BOOST_TEST(!mgr.contains(7, 1e9, 1e9));
@@ -183,7 +182,7 @@ BOOST_AUTO_TEST_CASE(clamping_an_unknown_region_is_a_no_op) {
     const constraintMgr mgr = singleFence();
     double x = 1e6;
     double y = 1e6;
-    mgr.clampToRegion(constraintMgr::kNoRegion, x, y);
+    mgr.clampToRegion(constraintMgr::noRegion, x, y);
     BOOST_TEST(x == 1e6);
     BOOST_TEST(y == 1e6);
     mgr.clampToRegion(42, x, y);
@@ -274,8 +273,8 @@ BOOST_AUTO_TEST_CASE(assign_by_prefix_stamps_matching_cells_only) {
     BOOST_TEST(graph.getCellId("eh0/a") != static_cast<std::size_t>(-1));
     BOOST_TEST(graph.getCell(graph.getCellId("eh0/a")).regionId == 0);
     BOOST_TEST(graph.getCell(graph.getCellId("eh0/b")).regionId == 0);
-    BOOST_TEST(graph.getCell(graph.getCellId("eh1/a")).regionId == constraintMgr::kNoRegion);
-    BOOST_TEST(graph.getCell(graph.getCellId("other")).regionId == constraintMgr::kNoRegion);
+    BOOST_TEST(graph.getCell(graph.getCellId("eh1/a")).regionId == constraintMgr::noRegion);
+    BOOST_TEST(graph.getCell(graph.getCellId("other")).regionId == constraintMgr::noRegion);
     // A net is not a cell and so cannot carry a region: the two are numbered
     // separately, and asking for the net as a cell is an error rather than a hit.
     BOOST_CHECK_THROW((void)graph.getCellId("eh0/net"), std::runtime_error);
@@ -308,10 +307,10 @@ BOOST_AUTO_TEST_CASE(assign_rejects_an_unusable_region_or_prefix) {
     (void)graph.addCell("eh0/a");
 
     constraintMgr mgr = singleFence();
-    BOOST_TEST(mgr.assignByPrefix(constraintMgr::kNoRegion, "eh0/", graph) == 0u);
+    BOOST_TEST(mgr.assignByPrefix(constraintMgr::noRegion, "eh0/", graph) == 0u);
     BOOST_TEST(mgr.assignByPrefix(9, "eh0/", graph) == 0u);  // out of range
     BOOST_TEST(mgr.assignByPrefix(0, "", graph) == 0u);      // empty prefix
-    BOOST_TEST(graph.getCell(graph.getCellId("eh0/a")).regionId == constraintMgr::kNoRegion);
+    BOOST_TEST(graph.getCell(graph.getCellId("eh0/a")).regionId == constraintMgr::noRegion);
 }
 
 BOOST_AUTO_TEST_CASE(a_prefix_longer_than_the_name_cannot_match) {

@@ -10,12 +10,12 @@
 CXX ?= g++
 CXXFLAGS ?= -std=c++23 -Wall -Wextra -O2 -g -pthread
 # Every source uses project-root-relative includes ("datamodel/kt_dm.h",
-# "placer/simpl/kt_simpl.h", ...), so a single -I at the project root
+# "globalPlacer/simpl/kt_simpl.h", ...), so a single -I at the project root
 # (src/) is all that is needed, regardless of which subdirectory make
 # is running in.  `override` is required because the parent makefile
 # passes INCLUDES on the command line.
 override INCLUDES := -I.. $(THIRD_PARTY_INCLUDES)
-OBJ_DIR ?= ../build/obj/placer
+OBJ_DIR ?= ../build/obj/globalPlacer
 
 # Source files in this directory
 SRCS := simpl/simpl_placer.cc simpl/simpl_fence.cc simpl/simpl_dm.cc \
@@ -60,7 +60,7 @@ $(OBJ_DIR)/%.o: %.cc
 # Unit tests (Boost.Test)
 # ============================================================================
 #
-# The suites (placer/simpl/test/test_simpl.cc) are built and run by the
+# The suites (globalPlacer/simpl/test/test_simpl.cc) are built and run by the
 # top-level `make test`, not here: they need ktDM, the logger, the
 # timer and the plotter, so they link the whole engine and belong with the
 # other suites at the top level.

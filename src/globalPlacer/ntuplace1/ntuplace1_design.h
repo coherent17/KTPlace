@@ -20,7 +20,7 @@ struct Cell {
     double height = 0.0;
     bool isFixed = false;
     bool isTerminal = false;
-    int region = constraintMgr::kNoRegion;
+    int region = constraintMgr::noRegion;
 };
 
 struct Pin {

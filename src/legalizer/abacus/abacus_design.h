@@ -25,13 +25,13 @@ struct Cell {
     double height = 0.0;
     bool isFixed = false;
     bool isTerminal = false;
-    /// Index into Design::fences, or kNoRegion. A fenced cell may only be placed
+    /// Index into Design::fences, or noRegion. A fenced cell may only be placed
     /// inside its region, and no other cell may be placed inside any region.
     int region = -1;
 };
 
 /// Region id of a cell bound to no fence.
-inline constexpr int kNoRegion = -1;
+inline constexpr int noRegion = -1;
 
 /// A pin on a cell. Only its offset from the cell origin matters, for HPWL.
 struct Pin {
@@ -53,7 +53,7 @@ struct Net {
 struct Subrow {
     double xlo = 0.0;
     double xhi = 0.0;
-    int region = kNoRegion;
+    int region = noRegion;
 };
 
 /// One placement row: its band and its site pitch.

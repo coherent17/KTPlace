@@ -9,9 +9,8 @@
 
 #include "datamodel/kt_solutionMgr.h"
 #include "legalizer/multirow/multirow_design.h"
-#include "legalizer/multirow/multirow_legalizer.h"
+#include "legalizer/multirow/multirow_options.h"
 
-#include <string>
 
 namespace ktplace {
 

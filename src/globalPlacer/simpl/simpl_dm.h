@@ -8,9 +8,8 @@
 #pragma once
 
 #include "datamodel/kt_solutionMgr.h"
-#include "placer/simpl/simpl_design.h"
-#include "placer/simpl/simpl_options.h"
-#include "placer/simpl/simpl_placer.h"
+#include "globalPlacer/simpl/simpl_design.h"
+#include "globalPlacer/simpl/simpl_options.h"
 
 namespace ktplace {
 

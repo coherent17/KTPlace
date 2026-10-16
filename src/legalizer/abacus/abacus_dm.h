@@ -9,10 +9,8 @@
 
 #include "datamodel/kt_solutionMgr.h"
 #include "legalizer/abacus/abacus_design.h"
-#include "legalizer/abacus/abacus_legalizer.h"
 #include "legalizer/abacus/abacus_options.h"
 
-#include <string>
 
 namespace ktplace {
 

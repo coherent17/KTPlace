@@ -3,15 +3,12 @@
 
 #pragma once
 
-#include "constraint/kt_constraintMgr.h"
 #include "datamodel/kt_solutionMgr.h"
 #include "legalizer/abacus/abacus_design.h"
 #include "legalizer/abacus/abacus_options.h"
 
 #include <cstddef>
 #include <memory>
-#include <string>
-#include <vector>
 
 namespace ktplace {
 

@@ -117,7 +117,7 @@ private:
     std::vector<std::vector<std::size_t>> netPinIds;
     std::vector<std::vector<std::size_t>> cellPinIds;
 
-    static const std::vector<std::size_t> kNoPins;
+    static const std::vector<std::size_t> noPins;
 };
 
 }  // namespace ktplace

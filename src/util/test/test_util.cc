@@ -68,9 +68,9 @@ private:
     std::filesystem::path path;
 };
 
-constexpr const char *kYellow = "\033[1;33m";
-constexpr const char *kRed = "\033[1;31m";
-constexpr const char *kReset = "\033[0m";
+constexpr const char *yellow = "\033[1;33m";
+constexpr const char *red = "\033[1;31m";
+constexpr const char *reset = "\033[0m";
 
 }  // namespace
 
@@ -82,8 +82,8 @@ BOOST_AUTO_TEST_CASE(echo_reaches_both_sinks_without_colour) {
         CaptureCerr cap;
         ktlog.echo("plain record {}", 42);
         BOOST_TEST(cap.str().find("plain record 42") != std::string::npos);
-        BOOST_TEST(cap.str().find(kYellow) == std::string::npos);
-        BOOST_TEST(cap.str().find(kRed) == std::string::npos);
+        BOOST_TEST(cap.str().find(yellow) == std::string::npos);
+        BOOST_TEST(cap.str().find(red) == std::string::npos);
     }
     BOOST_TEST(log.contents().find("plain record 42") != std::string::npos);
     ktlog.configure("", false);
@@ -100,9 +100,9 @@ BOOST_AUTO_TEST_CASE(warning_is_yellow_on_console_and_plain_in_the_transcript) {
         console = cap.str();
     }
 
-    BOOST_TEST(console.find(kYellow) != std::string::npos);
+    BOOST_TEST(console.find(yellow) != std::string::npos);
     BOOST_TEST(console.find("warning") != std::string::npos);
-    BOOST_TEST(console.find(kReset) != std::string::npos);
+    BOOST_TEST(console.find(reset) != std::string::npos);
     BOOST_TEST(console.find("cell 7 is taller than one row") != std::string::npos);
 
     const std::string file = log.contents();
@@ -161,7 +161,7 @@ BOOST_AUTO_TEST_CASE(fatal_is_red_and_exits) {
     BOOST_REQUIRE(WIFEXITED(status));
     BOOST_REQUIRE(WEXITSTATUS(status) != 0);
 
-    BOOST_TEST(console.find(kRed) != std::string::npos);
+    BOOST_TEST(console.find(red) != std::string::npos);
     BOOST_TEST(console.find("fatal") != std::string::npos);
     BOOST_TEST(console.find("cannot open x.nodes") != std::string::npos);
 

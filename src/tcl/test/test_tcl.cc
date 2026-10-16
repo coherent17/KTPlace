@@ -6,9 +6,8 @@
 #define BOOST_TEST_DYN_LINK
 
 #include "datamodel/kt_optionDb.h"
-#include "placer/simpl/simpl_options.h"
+#include "globalPlacer/simpl/simpl_options.h"
 #include "tcl/kt_tclMgr.h"
-#include "util/kt_log.h"
 
 #include <boost/test/unit_test.hpp>
 #include <cstdio>
@@ -309,7 +308,7 @@ BOOST_AUTO_TEST_CASE(load_options_keeps_the_component_defaults_for_unset_keys) {
     OptionsFixture fixture;
     (void)fixture.mgr().interpreter.eval("add_option simpl grid 96\nadd_option simpl fences 0\n");
 
-    const SimplOptions options = loadOptions<SimplOptions>();
+    const auto options = loadOptions<SimplOptions>();
     BOOST_TEST(options.binsPerAxis == 96u);
     BOOST_TEST(options.fences == false);
     BOOST_TEST(options.maxIters == SimplOptions{}.maxIters);
@@ -336,7 +335,7 @@ BOOST_AUTO_TEST_CASE(numbers_convert_to_the_type_asked_for) {
 }
 
 BOOST_AUTO_TEST_CASE(component_names_round_trip) {
-    for (const std::string_view name : kComponentNames) {
+    for (const std::string_view name : componentNames) {
         const std::optional<Component> id = componentFromName(name);
         BOOST_REQUIRE(id.has_value());
         BOOST_TEST(toString(*id) == name);

@@ -29,13 +29,13 @@ enum class Component : std::uint8_t {
     Flow
 };
 
-inline constexpr std::array<std::string_view, 7> kComponentNames{
+inline constexpr std::array<std::string_view, 7> componentNames{
     "simpl", "ntuplace1", "abacus", "multirow", "fastdp", "visualizer", "flow"};
 
-static_assert(kComponentNames.size() == std::to_underlying(Component::Flow) + 1);
+static_assert(componentNames.size() == std::to_underlying(Component::Flow) + 1);
 
 [[nodiscard]] constexpr std::string_view toString(Component component) noexcept {
-    return kComponentNames[std::to_underlying(component)];
+    return componentNames[std::to_underlying(component)];
 }
 
 [[nodiscard]] std::optional<Component> componentFromName(std::string_view name) noexcept;
@@ -145,18 +145,17 @@ public:
     void report() const;
 
 private:
-    std::array<OptionMap, kComponentNames.size()> byComponent;
+    std::array<OptionMap, componentNames.size()> byComponent;
 };
 
 template <typename T>
 concept ComponentOptionSet = requires {
-    { T::kComponent } -> std::convertible_to<Component>;
+    { T::component } -> std::convertible_to<Component>;
 };
 
 template <ComponentOptionSet Options>
 [[nodiscard]] Options loadOptions() {
-    const ComponentOptions configured =
-        OptionDb::instance().getComponentOption(Options::kComponent);
+    const ComponentOptions configured = OptionDb::instance().getComponentOption(Options::component);
     Options out;
     Options::fields(out, [&configured](std::string_view key, auto &field) {
         field = configured.get<std::remove_cvref_t<decltype(field)>>(key).value_or(field);
@@ -173,7 +172,7 @@ void reportOptions(const Options &options) {
     Options::fields(options, [&rows](std::string_view key, const auto &field) {
         rows.emplace_back(key, toOptionValue(field));
     });
-    reportOptionTable(Options::kComponent, rows);
+    reportOptionTable(Options::component, rows);
 }
 
 }  // namespace ktplace

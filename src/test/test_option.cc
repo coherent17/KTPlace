@@ -12,8 +12,6 @@
 
 #include "kt_option.h"
 
-#include "util/kt_log.h"
-
 #include <boost/test/unit_test.hpp>
 #include <cstdio>
 #include <cstdlib>
@@ -36,30 +34,30 @@ class ScratchDir {
 public:
     explicit ScratchDir(const char *tag) {
         static int counter = 0;
-        path_ = std::filesystem::temp_directory_path() /
-                ("ktplace_opt_" + std::string(tag) + "_" + std::to_string(++counter));
-        std::filesystem::remove_all(path_);
+        tempDir = std::filesystem::temp_directory_path() /
+                  ("ktplace_opt_" + std::string(tag) + "_" + std::to_string(++counter));
+        std::filesystem::remove_all(tempDir);
     }
 
     ~ScratchDir() {
         std::error_code ec;
-        std::filesystem::remove_all(path_, ec);
+        std::filesystem::remove_all(tempDir, ec);
     }
 
     ScratchDir(const ScratchDir &) = delete;
     ScratchDir &operator=(const ScratchDir &) = delete;
 
     [[nodiscard]] std::filesystem::path file(const std::string &name) const {
-        return path_ / name;
+        return tempDir / name;
     }
 
 private:
-    std::filesystem::path path_;
+    std::filesystem::path tempDir;
 };
 
 /// The design directory used throughout. It does not have to exist: these tests
 /// exercise the parser, not the reader.
-const char *kDesign = "./benchmark/ISPD_2005/adaptec1";
+const char *design = "./benchmark/ISPD_2005/adaptec1";
 
 std::vector<char *> argvOf(std::vector<std::string> &args) {
     std::vector<char *> argv;
@@ -132,15 +130,15 @@ std::string cwd() {
 }  // namespace
 
 BOOST_AUTO_TEST_CASE(the_input_directory_is_the_only_positional) {
-    const kt_option opt = parse({"ktplace", kDesign, "-v"});
-    BOOST_TEST(opt.inputPath == kDesign);
+    const kt_option opt = parse({"ktplace", design, "-v"});
+    BOOST_TEST(opt.inputPath == design);
     BOOST_TEST(opt.verbose);
 }
 
 BOOST_AUTO_TEST_CASE(every_artifact_is_derived_from_the_work_dir) {
     const ScratchDir dir("derive");
     const std::string work = dir.file("run").string();
-    const kt_option opt = parse({"ktplace", kDesign, "-w", work});
+    const kt_option opt = parse({"ktplace", design, "-w", work});
 
     BOOST_TEST(opt.workDir == work);
     // Fixed names: only the root moves with -w, so two designs can share one
@@ -151,7 +149,7 @@ BOOST_AUTO_TEST_CASE(every_artifact_is_derived_from_the_work_dir) {
 }
 
 BOOST_AUTO_TEST_CASE(the_work_dir_defaults_to_the_current_directory) {
-    const kt_option opt = parse({"ktplace", kDesign});
+    const kt_option opt = parse({"ktplace", design});
     BOOST_TEST(opt.workDir == cwd());
     BOOST_TEST(opt.getOutputPath() == cwd() + "/placed.pl");
     BOOST_TEST(opt.getLogFile() == cwd() + "/ktplace.log");
@@ -161,7 +159,7 @@ BOOST_AUTO_TEST_CASE(a_work_dir_is_created_when_asked_for) {
     const ScratchDir dir("create");
     const std::string work = (dir.file("a") / "b").string();
     BOOST_TEST(!std::filesystem::exists(work));
-    parse({"ktplace", kDesign, "-w", work});
+    parse({"ktplace", design, "-w", work});
     BOOST_TEST(std::filesystem::is_directory(work));
 }
 
@@ -175,17 +173,17 @@ BOOST_AUTO_TEST_CASE(an_uncreatable_work_dir_is_reported) {
         std::ofstream out(blocker);
         out << "not a directory\n";
     }
-    BOOST_CHECK_THROW(parse({"ktplace", kDesign, "-w", blocker + "/under"}), std::runtime_error);
+    BOOST_CHECK_THROW(parse({"ktplace", design, "-w", blocker + "/under"}), std::runtime_error);
 }
 
 BOOST_AUTO_TEST_CASE(verbose_is_off_by_default) {
-    BOOST_TEST(!parse({"ktplace", kDesign}).verbose);
+    BOOST_TEST(!parse({"ktplace", design}).verbose);
 }
 
 BOOST_AUTO_TEST_CASE(the_placer_is_not_a_command_line_option) {
     // Choosing the placer belongs to the flow, which knows what placers exist, and
     // to the script. A flag here would put a component's vocabulary in the parser.
-    const ChildRun run = parseInChild({"ktplace", kDesign, "-a", "ntuplace1"});
+    const ChildRun run = parseInChild({"ktplace", design, "-a", "ntuplace1"});
     BOOST_TEST(WIFEXITED(run.status));
     BOOST_TEST(WEXITSTATUS(run.status) == EXIT_FAILURE);
     BOOST_TEST(run.output.find("Unknown command-line option") != std::string::npos);
@@ -205,20 +203,20 @@ BOOST_AUTO_TEST_CASE(every_flag_is_accepted_in_both_its_short_and_long_form) {
 
     for (const auto &f : forms) {
         BOOST_TEST_CONTEXT(f.shortForm) {
-            BOOST_CHECK_NO_THROW(parse({"ktplace", kDesign, f.shortForm, f.value}));
-            BOOST_CHECK_NO_THROW(parse({"ktplace", kDesign, f.longForm, f.value}));
+            BOOST_CHECK_NO_THROW(parse({"ktplace", design, f.shortForm, f.value}));
+            BOOST_CHECK_NO_THROW(parse({"ktplace", design, f.longForm, f.value}));
         }
     }
 }
 
 BOOST_AUTO_TEST_CASE(flag_values_are_stored) {
-    const kt_option opt = parse({"ktplace", kDesign, "-tcl", "run.tcl", "-v"});
+    const kt_option opt = parse({"ktplace", design, "-tcl", "run.tcl", "-v"});
     BOOST_TEST(opt.tclFile == "run.tcl");
     BOOST_TEST(opt.verbose);
 }
 
 BOOST_AUTO_TEST_CASE(verbose_has_a_long_form_too) {
-    BOOST_TEST(parse({"ktplace", kDesign, "--verbose"}).verbose);
+    BOOST_TEST(parse({"ktplace", design, "--verbose"}).verbose);
 }
 
 BOOST_AUTO_TEST_CASE(a_flag_at_the_end_without_a_value_is_rejected) {
@@ -226,7 +224,7 @@ BOOST_AUTO_TEST_CASE(a_flag_at_the_end_without_a_value_is_rejected) {
     // wrong thing, so each of these has to throw.
     for (const char *flag : {"-w", "--work-dir", "-tcl", "--tcl"}) {
         BOOST_TEST_CONTEXT(flag) {
-            BOOST_CHECK_THROW(parse({"ktplace", kDesign, flag}), std::runtime_error);
+            BOOST_CHECK_THROW(parse({"ktplace", design, flag}), std::runtime_error);
         }
     }
 }
@@ -235,13 +233,13 @@ BOOST_AUTO_TEST_CASE(a_tcl_script_is_kept_as_given) {
     // The script is loaded by the run, not by the parser, so parsing only has to
     // carry the path: resolving it here would create directories for a file that
     // may not exist.
-    const kt_option opt = parse({"ktplace", kDesign, "-tcl", "cfg/run.tcl"});
+    const kt_option opt = parse({"ktplace", design, "-tcl", "cfg/run.tcl"});
     BOOST_TEST(opt.tclFile == "cfg/run.tcl");
-    BOOST_TEST(parse({"ktplace", kDesign}).tclFile.empty());
+    BOOST_TEST(parse({"ktplace", design}).tclFile.empty());
 }
 
 BOOST_AUTO_TEST_CASE(an_unknown_flag_is_reported_and_stops_the_run) {
-    const ChildRun run = parseInChild({"ktplace", kDesign, "--nonesuch"});
+    const ChildRun run = parseInChild({"ktplace", design, "--nonesuch"});
     BOOST_TEST(WIFEXITED(run.status));
     BOOST_TEST(WEXITSTATUS(run.status) == EXIT_FAILURE);
     BOOST_TEST(run.output.find("Unknown command-line option") != std::string::npos);
@@ -289,9 +287,9 @@ BOOST_AUTO_TEST_CASE(help_and_version_stop_before_anything_else) {
 }
 
 BOOST_AUTO_TEST_CASE(the_parser_can_be_copied) {
-    const kt_option src = parse({"ktplace", kDesign, "-v"});
+    const kt_option src = parse({"ktplace", design, "-v"});
     kt_option copy = src;
-    BOOST_TEST(copy.inputPath == kDesign);
+    BOOST_TEST(copy.inputPath == design);
     BOOST_TEST(copy.verbose);
 
     copy.verbose = false;
@@ -299,19 +297,19 @@ BOOST_AUTO_TEST_CASE(the_parser_can_be_copied) {
 }
 
 BOOST_AUTO_TEST_CASE(the_parser_can_be_moved) {
-    kt_option src = parse({"ktplace", kDesign, "-v"});
+    kt_option src = parse({"ktplace", design, "-v"});
     const kt_option dst = std::move(src);
-    BOOST_TEST(dst.inputPath == kDesign);
+    BOOST_TEST(dst.inputPath == design);
     BOOST_TEST(dst.verbose);
 }
 
 BOOST_AUTO_TEST_CASE(parsing_twice_uses_the_second_command_line) {
     kt_option opt;
-    std::vector<std::string> first{"ktplace", kDesign};
+    std::vector<std::string> first{"ktplace", design};
     std::vector<char *> fargv = argvOf(first);
     BOOST_TEST(opt.parse(static_cast<int>(fargv.size()), fargv.data()));
 
-    std::vector<std::string> second{"ktplace", kDesign, "-v", "-tcl", "run.tcl"};
+    std::vector<std::string> second{"ktplace", design, "-v", "-tcl", "run.tcl"};
     std::vector<char *> sargv = argvOf(second);
     BOOST_TEST(opt.parse(static_cast<int>(sargv.size()), sargv.data()));
     BOOST_TEST(opt.verbose);

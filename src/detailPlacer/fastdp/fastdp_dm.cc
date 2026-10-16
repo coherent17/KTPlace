@@ -3,8 +3,7 @@
 #include "datamodel/kt_die.h"
 #include "datamodel/kt_dm.h"
 #include "datamodel/kt_stageReport.h"
-#include "util/kt_reportTable.h"
-#include "util/kt_scopedTimer.h"
+#include "detailPlacer/fastdp/fastdp_placer.h"
 
 namespace ktplace::fastdp {
 

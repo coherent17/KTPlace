@@ -17,7 +17,7 @@ namespace ktplace::tcl {
 
 namespace {
 
-constexpr int kMaxDepth = 64;
+constexpr int maxDepth = 64;
 
 std::string toLower(std::string text) {
     std::transform(text.begin(), text.end(), text.begin(), [](unsigned char c) {
@@ -92,7 +92,7 @@ const std::vector<Value> &emptyList() {
 // Splitting
 // ---------------------------------------------------------------------------
 
-// Reads one word, starting at pos_. Sets `pos_` just past the word. Returns false
+// Reads one word, starting at cursor. Sets `cursor` just past the word. Returns false
 // when there is no word there (end of input, or a command separator).
 bool readWord(const std::string &s, std::size_t *pos, Word *word) {
     if (*pos >= s.size()) {
@@ -215,39 +215,40 @@ std::vector<Word> splitCommand(const std::string &script, std::size_t begin, std
 class ExprParser {
 public:
     ExprParser(const std::function<Value(const std::string &)> &lookup, const std::string &text)
-        : lookup_(lookup), text_(text) {}
+        : resolve(lookup), source(text) {}
 
     Value parse() {
         Value out = orExpr();
         skip();
-        if (pos_ != text_.size()) {
-            throw Error("expr: unexpected '" + text_.substr(pos_) + "'");
+        if (cursor != source.size()) {
+            throw Error("expr: unexpected '" + source.substr(cursor) + "'");
         }
         return out;
     }
 
 private:
     void skip() {
-        while (pos_ < text_.size() && std::isspace(static_cast<unsigned char>(text_[pos_])) != 0) {
-            ++pos_;
+        while (cursor < source.size() &&
+               std::isspace(static_cast<unsigned char>(source[cursor])) != 0) {
+            ++cursor;
         }
     }
 
     bool accept(const char *token) {
         skip();
         const std::size_t n = std::strlen(token);
-        if (text_.compare(pos_, n, token) != 0) {
+        if (source.compare(cursor, n, token) != 0) {
             return false;
         }
         // A longer operator that starts the same way must not be truncated:
         // `==` is not a prefix-match for `=`.
-        pos_ += n;
+        cursor += n;
         return true;
     }
 
     bool peek(const char *token) {
         skip();
-        return text_.compare(pos_, std::strlen(token), token) == 0;
+        return source.compare(cursor, std::strlen(token), token) == 0;
     }
 
     Value orExpr() {
@@ -255,7 +256,7 @@ private:
         for (;;) {
             skip();
             if (peek("||")) {
-                pos_ += 2;
+                cursor += 2;
                 const Value right = andExpr();
                 left = Value::boolean(left.asBool() || right.asBool());
                 continue;
@@ -269,7 +270,7 @@ private:
         for (;;) {
             skip();
             if (peek("&&")) {
-                pos_ += 2;
+                cursor += 2;
                 const Value right = compareExpr();
                 left = Value::boolean(left.asBool() && right.asBool());
                 continue;
@@ -286,7 +287,7 @@ private:
             bool matched = false;
             for (const char *op : ops) {
                 if (peek(op)) {
-                    pos_ += std::strlen(op);
+                    cursor += std::strlen(op);
                     const Value right = sumExpr();
                     const int cmp = compare(left, right);
                     const bool result = std::strcmp(op, "==") == 0   ? cmp == 0
@@ -321,14 +322,14 @@ private:
         Value left = termExpr();
         for (;;) {
             skip();
-            if (pos_ >= text_.size()) {
+            if (cursor >= source.size()) {
                 return left;
             }
-            const char op = text_[pos_];
+            const char op = source[cursor];
             if (op != '+' && op != '-') {
                 return left;
             }
-            ++pos_;
+            ++cursor;
             const Value right = termExpr();
             if (op == '+') {
                 left = arith(
@@ -364,14 +365,14 @@ private:
         Value left = unaryExpr();
         for (;;) {
             skip();
-            if (pos_ >= text_.size()) {
+            if (cursor >= source.size()) {
                 return left;
             }
-            const char op = text_[pos_];
+            const char op = source[cursor];
             if (op != '*' && op != '/' && op != '%') {
                 return left;
             }
-            ++pos_;
+            ++cursor;
             const Value right = unaryExpr();
             if (op == '*') {
                 left = arith(
@@ -400,12 +401,12 @@ private:
 
     Value unaryExpr() {
         skip();
-        if (pos_ < text_.size() && text_[pos_] == '!') {
-            ++pos_;
+        if (cursor < source.size() && source[cursor] == '!') {
+            ++cursor;
             return Value::boolean(!unaryExpr().asBool());
         }
-        if (pos_ < text_.size() && text_[pos_] == '-') {
-            ++pos_;
+        if (cursor < source.size() && source[cursor] == '-') {
+            ++cursor;
             const Value v = unaryExpr();
             return v.isInt() ? Value::integer(-v.asInt()) : Value::real(-v.asDouble());
         }
@@ -414,68 +415,68 @@ private:
 
     Value primaryExpr() {
         skip();
-        if (pos_ >= text_.size()) {
+        if (cursor >= source.size()) {
             throw Error("expr: unexpected end of expression");
         }
-        if (text_[pos_] == '(') {
-            ++pos_;
+        if (source[cursor] == '(') {
+            ++cursor;
             const Value inner = orExpr();
             skip();
-            if (pos_ >= text_.size() || text_[pos_] != ')') {
+            if (cursor >= source.size() || source[cursor] != ')') {
                 throw Error("expr: missing ')'");
             }
-            ++pos_;
+            ++cursor;
             return inner;
         }
-        if (text_[pos_] == '"') {
-            ++pos_;
+        if (source[cursor] == '"') {
+            ++cursor;
             std::string text;
-            while (pos_ < text_.size() && text_[pos_] != '"') {
-                text += text_[pos_++];
+            while (cursor < source.size() && source[cursor] != '"') {
+                text += source[cursor++];
             }
-            ++pos_;
+            ++cursor;
             return parseLiteral(text);
         }
-        if (std::isdigit(static_cast<unsigned char>(text_[pos_])) != 0 ||
-            (text_[pos_] == '.' && pos_ + 1 < text_.size() &&
-             std::isdigit(static_cast<unsigned char>(text_[pos_ + 1])) != 0)) {
-            const std::size_t begin = pos_;
-            while (pos_ < text_.size() &&
-                   (std::isdigit(static_cast<unsigned char>(text_[pos_])) != 0 ||
-                    text_[pos_] == '.' || text_[pos_] == 'e' || text_[pos_] == 'E' ||
-                    ((text_[pos_] == '+' || text_[pos_] == '-') &&
-                     (text_[pos_ - 1] == 'e' || text_[pos_ - 1] == 'E')))) {
-                ++pos_;
+        if (std::isdigit(static_cast<unsigned char>(source[cursor])) != 0 ||
+            (source[cursor] == '.' && cursor + 1 < source.size() &&
+             std::isdigit(static_cast<unsigned char>(source[cursor + 1])) != 0)) {
+            const std::size_t begin = cursor;
+            while (cursor < source.size() &&
+                   (std::isdigit(static_cast<unsigned char>(source[cursor])) != 0 ||
+                    source[cursor] == '.' || source[cursor] == 'e' || source[cursor] == 'E' ||
+                    ((source[cursor] == '+' || source[cursor] == '-') &&
+                     (source[cursor - 1] == 'e' || source[cursor - 1] == 'E')))) {
+                ++cursor;
             }
-            return parseLiteral(text_.substr(begin, pos_ - begin));
+            return parseLiteral(source.substr(begin, cursor - begin));
         }
-        if (isVariableStart(text_[pos_])) {
-            const std::size_t begin = pos_;
-            while (pos_ < text_.size() && isVariableChar(text_[pos_])) {
-                ++pos_;
+        if (isVariableStart(source[cursor])) {
+            const std::size_t begin = cursor;
+            while (cursor < source.size() && isVariableChar(source[cursor])) {
+                ++cursor;
             }
-            const std::string name = text_.substr(begin, pos_ - begin);
+            const std::string name = source.substr(begin, cursor - begin);
             // A function call: abs(-1), max(a, b).
-            if (pos_ < text_.size() && text_[pos_] == '(') {
-                ++pos_;
+            if (cursor < source.size() && source[cursor] == '(') {
+                ++cursor;
                 std::vector<double> args;
                 for (;;) {
                     skip();
-                    if (pos_ < text_.size() && text_[pos_] == ')') {
-                        ++pos_;
+                    if (cursor < source.size() && source[cursor] == ')') {
+                        ++cursor;
                         break;
                     }
                     args.push_back(orExpr().asDouble());
                     skip();
-                    if (pos_ < text_.size() && text_[pos_] == ',') {
-                        ++pos_;
+                    if (cursor < source.size() && source[cursor] == ',') {
+                        ++cursor;
                     }
                 }
                 return applyFunction(name, args);
             }
-            return lookup_(name);
+            return resolve(name);
         }
-        throw Error("expr: unexpected '" + text_.substr(pos_) + "'");
+        throw Error("expr: unexpected '" + source.substr(cursor) + "'");
     }
 
     Value applyFunction(const std::string &name, const std::vector<double> &args) {
@@ -503,9 +504,9 @@ private:
         throw Error("expr: unknown function \"" + name + "\"");
     }
 
-    const std::function<Value(const std::string &)> &lookup_;
-    const std::string &text_;
-    std::size_t pos_ = 0;
+    const std::function<Value(const std::string &)> &resolve;
+    const std::string &source;
+    std::size_t cursor = 0;
 };
 
 // A word already split by the parser becomes a Value: a braced word is the string
@@ -1266,7 +1267,7 @@ Value Interpreter::evalFile(const std::string &path) {
 }
 
 Value Interpreter::eval(const std::string &script, int depth) {
-    if (depth > kMaxDepth) {
+    if (depth > maxDepth) {
         throw Error("too many nested commands (is a command calling itself?)");
     }
     Value result;

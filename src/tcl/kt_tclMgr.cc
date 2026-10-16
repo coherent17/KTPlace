@@ -67,7 +67,7 @@ void TclMgr::installCommands() {
             if (!id) {
                 throw tcl::Error(
                     std::format("add_option: '{}' is not a known component (try one of: {})",
-                                component, joined(kComponentNames)));
+                                component, joined(componentNames)));
             }
             const Value value = args[3].literal ? Value::string(args[3].text)
                                                 : parseLiteral(self.substitute(args[3].text));

@@ -1,9 +1,9 @@
-#include "placer/simpl/simpl_dm.h"
+#include "globalPlacer/simpl/simpl_dm.h"
 
 #include "datamodel/kt_dm.h"
 #include "datamodel/kt_stageReport.h"
+#include "globalPlacer/simpl/simpl_placer.h"
 #include "util/kt_reportTable.h"
-#include "util/kt_scopedTimer.h"
 
 
 namespace ktplace::simpl {
