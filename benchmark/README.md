@@ -88,3 +88,24 @@ Bookshelf circuits ship as `.nodes` (cells), `.nets` (connectivity), `.pl`
 (initial placement), `.scl` (row structure), `.wts` (net weights) and `.aux`
 (manifest). Terminals in `.nodes` are the die I/O pads; they are fixed and are
 marked `/FIXED` in `.pl`. Gzipped (`.gz`) inputs are read transparently.
+
+## ISPD 2005 contest evaluator
+
+`ISPD_2005/evaluator/` holds the contest's own scripts, unchanged, from the
+[ISPD 2005 contest page](https://www.ispd.cc/contests/05/contest.htm), written by
+the organizer, Gi-Joon Nam (IBM):
+
+- `hpwl.pl`: HPWL with pin offsets, the contest's metric.
+- `legal2.pl`: the final legality check (March 2005); `legal.pl` is the earlier one.
+
+They read plain Bookshelf files, so `evaluate.sh` unpacks a design and runs both:
+
+```sh
+benchmark/ISPD_2005/evaluator/evaluate.sh benchmark/ISPD_2005/adaptec1 output/adaptec1/placed.pl
+#          Total HPWL: 79443114
+# Legality: 0 error(s)
+```
+
+It exits non-zero if the placement has any legality error. The contest did not
+allow cells to be rotated or mirrored (organizer's announcement of 21 January
+2005), and `hpwl.pl` ignores the orientation column, scoring every cell as `N`.

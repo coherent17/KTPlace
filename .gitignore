@@ -46,6 +46,7 @@ benchmark/*
 !benchmark/ISPD_2005/
 benchmark/ISPD_2005/*
 !benchmark/ISPD_2005/adaptec1/
+!benchmark/ISPD_2005/evaluator/
 
 # ibm01 is the multi-row legalization design: 120 of its movable cells are taller
 # than a row, so it is the only benchmark here that exercises that path at all,
