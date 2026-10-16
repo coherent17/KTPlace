@@ -363,7 +363,8 @@ public:
 
 private:
     void collect();
-    void buildGrid();
+    void buildGrid(std::size_t perAxis);
+    [[nodiscard]] std::size_t defaultBinsPerAxis() const;
     void seedUniform(std::vector<double> &x, std::vector<double> &y) const;
 
     void buildSystems(const std::vector<double> &x, const std::vector<double> &y, double alpha,
@@ -508,14 +509,16 @@ void simplPlacer::Impl::collect() {
     }
 }
 
-void simplPlacer::Impl::buildGrid() {
+std::size_t simplPlacer::Impl::defaultBinsPerAxis() const {
+    return par.binsPerAxis > 0
+               ? par.binsPerAxis
+               : static_cast<std::size_t>(std::clamp(
+                     std::sqrt(static_cast<double>(std::max<std::size_t>(numMovable, 1)) / 51.0),
+                     16.0, 256.0));
+}
+
+void simplPlacer::Impl::buildGrid(std::size_t perAxis) {
     die = design.die;
-    const std::size_t perAxis =
-        par.binsPerAxis > 0
-            ? par.binsPerAxis
-            : static_cast<std::size_t>(std::clamp(
-                  std::sqrt(static_cast<double>(std::max<std::size_t>(numMovable, 1)) / 51.0), 16.0,
-                  256.0));
     grid.x0 = die[0];
     grid.y0 = die[1];
     grid.nx = perAxis;
@@ -553,8 +556,6 @@ void simplPlacer::Impl::buildGrid() {
         rows.push_back(std::move(r));
     }
     freeSpace.build(std::move(rows), obstacles);
-    res.binsX = grid.nx;
-    res.binsY = grid.ny;
 }
 
 void simplPlacer::Impl::seedUniform(std::vector<double> &x, std::vector<double> &y) const {
@@ -1235,7 +1236,9 @@ SimplResult simplPlacer::Impl::run(const SimplOptions &params) {
     {
         ScopedTimer setup("simpl-setup");
         collect();
-        buildGrid();
+        buildGrid(defaultBinsPerAxis());
+        res.binsX = grid.nx;
+        res.binsY = grid.ny;
     }
 
     outX = fixedX;
@@ -1374,6 +1377,23 @@ SimplResult simplPlacer::Impl::run(const SimplOptions &params) {
             ScopedTimer timer("simpl-solve");
             solve(lower, lowerY, "g" + frameStep(it));
             res.solveSeconds += timer.elapsedSeconds();
+        }
+    }
+
+    if (!upper.empty() && par.refineIters > 0) {
+        const std::size_t done = res.globalIters;
+        buildGrid(grid.nx * par.refineGridFactor);
+        for (std::size_t r = 0; r < par.refineIters; ++r) {
+            const double alpha = par.alphaBase * (1.0 + static_cast<double>(done + r));
+            buildSystems(lower, lowerY, alpha, upper, upperY);
+            solve(lower, lowerY, "refine" + frameStep(r));
+            upper = lower;
+            upperY = lowerY;
+            lookAheadLegalize(upper, upperY);
+            enforceFences(upper, upperY);
+            ktlog.trace("refine {:2d} on {}x{} bins: lower {:.6e} upper {:.6e} overflow {:.4f}", r,
+                        grid.nx, grid.ny, hpwl(lower, lowerY), hpwl(upper, upperY),
+                        overflow(occupancy(upper, upperY)));
         }
     }
 

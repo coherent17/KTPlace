@@ -28,8 +28,10 @@ struct SimplOptions {
     double stripeAreaFraction = 0.1;
     std::size_t gapReferenceIter = 10;
     double gapRelaxedFrac = 0.25;
-    double gapTightFrac = 0.10;
-    std::size_t stallIters = 3;
+    double gapTightFrac = 0.05;
+    std::size_t stallIters = 6;
+    std::size_t refineIters = 10;
+    std::size_t refineGridFactor = 3;
     std::size_t cgMaxIter = 60;
     std::size_t traceEvery = 1;
     std::size_t cgEvery = 0;
