@@ -218,9 +218,9 @@ are fetched. CI runs two of them:
 - `bookshelf/ICCAD04/ibm01` — the only design with cells taller than a row, so
   the only one that reaches the multi-row legalizer.
 
-The ISPD 2005 and 2006 contests' own evaluators are in each suite's `evaluator/`
-directory. `fetch_benchmarks.py` downloads everything again from the original
-publishers:
+The ISPD 2005 contest's own evaluator is in `bookshelf/ISPD_2005/evaluator/`.
+`fetch_benchmarks.py` downloads everything again from the original publishers,
+including the ISPD 2006 designs and their contest scripts:
 
 ```sh
 python3 benchmark/fetch_benchmarks.py            # everything missing

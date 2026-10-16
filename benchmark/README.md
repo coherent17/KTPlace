@@ -102,39 +102,30 @@ It exits non-zero if the placement has any legality error. The contest did not
 allow cells to be rotated or mirrored (organizer's announcement of 21 January
 2005), and `hpwl.pl` ignores the orientation column, scoring every cell as `N`.
 
-## ISPD 2006 contest evaluator
+## ISPD 2006 contest scripts
 
-`bookshelf/ISPD06/evaluator/` holds the 2006 contest's scripts, unchanged apart from the
-`.pl` suffix: `hpwl.pl` and `check_legality.pl` (the 2005 scripts, lightly
-revised), `check_density_target.pl`, and the variant newblue1 needs with its
-`transformed.list`. The 2006 score is not plain HPWL. Each design has a target
-density, and the score is
+ISPD 2006 is not committed. `fetch_benchmarks.py --suite ISPD06` downloads its
+designs and the contest's scripts into `bookshelf/ISPD06/evaluator/`: `hpwl.pl`,
+`check_legality.pl`, `check_density_target.pl`, and the variant newblue1 needs
+with its `transformed.list`. The 2006 score is not plain HPWL. Each design has a
+target density (adaptec5 0.5, newblue1 0.8, newblue2 0.9, newblue3 0.8,
+newblue4 0.5, newblue5 0.5, newblue6 0.8, newblue7 0.8), and the score is
 
     scaled HPWL = HPWL * (1 + scaled overflow per bin / 100)
 
-with the overflow measured on a 120 x 120 bin grid. The placement must also be
-legal. `evaluate.sh` runs all three and prints the score; the target densities
-are the contest's (adaptec5 0.5, newblue1 0.8, newblue2 0.9, newblue3 0.8,
-newblue4 0.5, newblue5 0.5, newblue6 0.8, newblue7 0.8), and a third argument
-overrides it:
-
-```sh
-benchmark/bookshelf/ISPD06/evaluator/evaluate.sh benchmark/bookshelf/ISPD06/newblue1 output/newblue1/placed.pl
-```
-
-The contest also scaled the score by run time (up to 10%), which the script
-does not attempt.
+with the overflow measured on a 120 x 120 bin grid; the placement must also be
+legal, and the contest scaled the score by run time too (up to 10%).
 
 ## ISPD 2015 placement checker
 
 The ISPD 2015 contest scored placements by routing them with Mentor's
 Olympus-SoC, which was never released. The only tool it published is
 `placement_checker`, which checks that a placement DEF is well formed and legal;
-`fetch_benchmarks.py` downloads it into `lefdef/ISPD_2015/evaluator/`.
+it is in `lefdef/ISPD_2015/evaluator/`.
 
 ## Fetching the evaluators
 
 `fetch_benchmarks.py` also downloads each contest's scripts into
 `<suite>/evaluator/`, skipping files that are already there, so the committed
-ISPD 2005 and 2006 copies are left alone. ICCAD04 is an academic release with
+ISPD 2005 and 2015 copies are left alone. ICCAD04 is an academic release with
 no contest evaluator.

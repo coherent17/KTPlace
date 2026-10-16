@@ -23,14 +23,11 @@ out.pl
 ktplace.log
 *.log
 
-# The benchmark suites are committed, gzipped, except ISPD 2006;
-# fetch_benchmarks.py downloads any of them from their original publishers.
+# The benchmark suites are committed, gzipped, except ISPD 2006, which
+# fetch_benchmarks.py downloads on demand.
 benchmark/.cache/
 benchmark/__pycache__/
-
-# ISPD 2006 is fetched, not committed; only its evaluator is.
-benchmark/bookshelf/ISPD06/*
-!benchmark/bookshelf/ISPD06/evaluator/
+benchmark/bookshelf/ISPD06/
 
 # Editor / OS noise
 *.swp
