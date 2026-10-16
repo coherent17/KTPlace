@@ -483,7 +483,7 @@ void commitCells(Graph &graph, const Solution &solution) {
 }
 }  // namespace
 
-void ktDM::setLegalizationSolution(const abacusSolution &solution) {
+void ktDM::setAbacusSolution(const abacusSolution &solution) {
     commitCells(graph, solution);
     isLegalizePlacement();
 }

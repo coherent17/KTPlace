@@ -56,7 +56,7 @@ public:
 
     /// The same, for a legalization stage. Kept as its own name so a reader can
     /// tell which stage produced the placement.
-    void setLegalizationSolution(const abacusSolution &solution);
+    void setAbacusSolution(const abacusSolution &solution);
     void setMultiRowSolution(const multiRowSolution &solution);
     void setDetailedPlaceSolution(const fastdpSolution &solution);
 

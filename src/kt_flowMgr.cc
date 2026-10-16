@@ -267,10 +267,10 @@ void FlowMgr::Impl::legalizeDesign() {
         return;
     }
 
-    abacus::abacusDM abacusDB = abacus::buildAbacusDM(*db);
-    recordStage(abacusDB, snapshots.get(), {"legalize", "", 0});
-    abacus::flowMgr flow(abacusDB);
-    db->setLegalizationSolution(flow.runLegalizer());
+    abacus::flowMgr flow(*db);
+    recordStage(flow.dm(), snapshots.get(), {"legalize", "", 0});
+    (void)flow.run();
+    db->setAbacusSolution(flow.solution());
     commit("legalization");
 }
 
