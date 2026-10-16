@@ -19,7 +19,7 @@ concurrency:
 
 jobs:
   package:
-    name: Package (${{ matrix.variant }})
+    name: Linux / Package (${{ matrix.variant }})
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false

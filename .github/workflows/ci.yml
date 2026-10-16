@@ -12,7 +12,7 @@ concurrency:
 
 jobs:
   build:
-    name: Format check and build
+    name: Linux / Format check and build
     runs-on: ubuntu-latest
 
     steps:
@@ -70,7 +70,7 @@ jobs:
           retention-days: 1
 
   unit-tests:
-    name: Unit tests
+    name: Linux / Unit tests
     needs: build
     runs-on: ubuntu-latest
 
@@ -100,7 +100,7 @@ jobs:
           exit $fail
 
   smoke-adaptec1:
-    name: Smoke placement (adaptec1)
+    name: Linux / Smoke placement (adaptec1)
     needs: build
     runs-on: ubuntu-latest
 
@@ -190,7 +190,7 @@ jobs:
           if-no-files-found: ignore
 
   smoke-multirow:
-    name: Multi-row smoke placement (ibm01)
+    name: Linux / Multi-row smoke placement (ibm01)
     needs: build
     runs-on: ubuntu-latest
 
@@ -251,7 +251,7 @@ jobs:
           test "$(grep -c 'verdict *| *FAIL' smoke-multirow.log || true)" -eq 0
 
   determinism:
-    name: Determinism (ibm01 and adaptec1 run twice)
+    name: Linux / Determinism (ibm01 and adaptec1 run twice)
     needs: build
     runs-on: ubuntu-latest
 
@@ -298,7 +298,7 @@ jobs:
           retention-days: 1
 
   macos:
-    name: macOS (Apple clang)
+    name: macOS / Build, unit tests and placement (Apple clang)
     runs-on: macos-15
 
     steps:
@@ -335,7 +335,7 @@ jobs:
           retention-days: 1
 
   cross-platform:
-    name: Linux and macOS place identically
+    name: Linux vs macOS / Identical placed.pl
     needs: [determinism, macos]
     runs-on: ubuntu-latest
 
