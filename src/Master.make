@@ -29,8 +29,10 @@ ifeq ($(and $(wildcard $(TBB_DIR)/include/oneapi/tbb.h),$(wildcard $(ZLIB_DIR)/z
   $(error third_party/ is incomplete: run 'git submodule update --init --recursive')
 endif
 
-# All quoted includes are project-root-relative (e.g. "datamodel/kt_dm.h").
-INCLUDES := -I. -isystem $(TBB_DIR)/include -isystem $(ZLIB_DIR)
+# All quoted includes are project-root-relative (e.g. "datamodel/kt_dm.h"). The
+# subdirectory makefiles set their own -I.. and append THIRD_PARTY_INCLUDES.
+THIRD_PARTY_INCLUDES := -isystem $(TBB_DIR)/include -isystem $(ZLIB_DIR)
+INCLUDES := -I. $(THIRD_PARTY_INCLUDES)
 
 # `make STATIC=1` also links the C++ runtime and glibc statically.
 ifeq ($(STATIC),1)
@@ -140,7 +142,7 @@ dirs:
 # Build subdirectories
 $(SUBDIRS):
 	@echo "Building $@..."
-	@$(MAKE) -C $@ -f Master.make OBJ_DIR=$(OBJ_DIR)/$@ INCLUDES="$(INCLUDES)" CXX="$(CXX)" CXXFLAGS="$(CXXFLAGS)"
+	@$(MAKE) -C $@ -f Master.make OBJ_DIR=$(OBJ_DIR)/$@ INCLUDES="$(INCLUDES)" THIRD_PARTY_INCLUDES="$(THIRD_PARTY_INCLUDES)" CXX="$(CXX)" CXXFLAGS="$(CXXFLAGS)"
 
 # Main executable
 $(TARGET): $(ALL_OBJS) $(BUNDLED_LIBS) | dirs

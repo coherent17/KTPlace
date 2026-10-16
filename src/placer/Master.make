@@ -14,7 +14,7 @@ CXXFLAGS ?= -std=c++23 -Wall -Wextra -O2 -g -pthread
 # (src/) is all that is needed, regardless of which subdirectory make
 # is running in.  `override` is required because the parent makefile
 # passes INCLUDES on the command line.
-override INCLUDES := -I..
+override INCLUDES := -I.. $(THIRD_PARTY_INCLUDES)
 OBJ_DIR ?= ../build/obj/placer
 
 # Source files in this directory
