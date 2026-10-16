@@ -2,6 +2,7 @@
 build/
 src/build/
 build-cov/
+build-static/
 *.o
 *.d
 
@@ -73,10 +74,6 @@ docs/*
 !docs/images/
 ref/
 *.whl
-
-# Downloaded toolchain (Doxygen), same policy as the benchmark data: fetched, not
-# committed. `make docs` fetches it.
-tools/
 
 # Python bytecode
 __pycache__/

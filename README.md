@@ -14,6 +14,23 @@ add_option visualizer anim_blend 1
 add_option simpl trace_every 2
 ```
 
+## Install a release
+
+Each [release](https://github.com/coherent17/KTPlace/releases) ships two Linux
+x86-64 builds of the same engine:
+
+| archive | runs on | needs |
+| --- | --- | --- |
+| `ktplace-vX.Y.Z-linux-x86_64-static.tar.gz` | any x86-64 Linux | nothing: oneTBB, Boost, fmt, zlib and the C/C++ runtimes are linked in |
+| `ktplace-vX.Y.Z-linux-x86_64.tar.gz` | Ubuntu 24.04 | `sudo apt-get install libtbb12 libboost-iostreams1.83.0 zlib1g libfmt9` |
+
+```sh
+sha256sum -c ktplace-v1.0.0-linux-x86_64-static.tar.gz.sha256
+tar -xzf ktplace-v1.0.0-linux-x86_64-static.tar.gz
+source ktplace-v1.0.0-linux-x86_64-static/ktplace.sh
+ktplace --version
+```
+
 ## Dependencies
 
 g++ 13+ (C++23), oneTBB, Boost (Iostreams, Test), zlib, fmt, clang-format.
@@ -34,7 +51,12 @@ CeCILL; see the header in `src/visualization/` for its terms.
 make            # builds build/bin/ktplace
 make test       # build and run every unit suite
 make format     # clang-format the sources
+make STATIC=1 TBB_STATIC_ROOT=<prefix>   # build-static/bin/ktplace, fully static
 ```
+
+The static build needs a static oneTBB, which Ubuntu does not package; build
+oneTBB from source with `-DBUILD_SHARED_LIBS=OFF` and pass its install prefix.
+`.github/workflows/release.yml` shows the exact steps.
 
 The build also writes `ktplace.sh` and `ktplace.csh` into the repository root.
 Source the one for your shell and the engine is callable by name:

@@ -21,6 +21,9 @@ KTPLACE_HOME="$(cd "$(dirname "$_ktplace_self")" && pwd)"
 export KTPLACE_HOME
 
 _ktplace_bin="${KTPLACE_HOME}/build/bin"
+if [ ! -x "${_ktplace_bin}/ktplace" ] && [ -x "${KTPLACE_HOME}/bin/ktplace" ]; then
+    _ktplace_bin="${KTPLACE_HOME}/bin"
+fi
 
 if [ ! -x "${_ktplace_bin}/ktplace" ]; then
     echo "ktplace: ${_ktplace_bin}/ktplace not found; run 'make' first." >&2

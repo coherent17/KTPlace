@@ -19,6 +19,9 @@ if ( "$_" != "" ) then
 endif
 
 set ktplace_bin = "$ktplace_root"/build/bin
+if ( ! -x "$ktplace_bin/ktplace" && -x "$ktplace_root/bin/ktplace" ) then
+    set ktplace_bin = "$ktplace_root"/bin
+endif
 
 if ( ! -x "$ktplace_bin/ktplace" ) then
     echo "ktplace: $ktplace_bin/ktplace not found; run 'make' first." >&2
