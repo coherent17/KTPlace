@@ -133,12 +133,33 @@ End
 )");
 }
 
-/// Run `fn` in a forked child and require that it terminates the process with
+/// Run `fn` in a child process and require that it terminates the process with
 /// EXIT_FAILURE after printing `needle` on stderr.
 ///
-/// Boost.Test 1.83 ships no death-test macros, so this is done with fork(2).
-/// The child exits via _exit() so it never flushes the parent's test buffers.
+/// Boost.Test 1.83 ships no death-test macros. The child re-runs this test
+/// binary on the current case alone rather than calling `fn` straight after
+/// fork(2): the parent has oneTBB worker threads by then, and a forked copy of
+/// a threaded process cannot use them on macOS.
+bool isFatalChild() {
+    const auto &suite = boost::unit_test::framework::master_test_suite();
+    for (int i = 1; i < suite.argc; ++i) {
+        if (std::string(suite.argv[i]) == "--fatal-child") {
+            return true;
+        }
+    }
+    return false;
+}
+
 void expectFatalExit(const std::function<void()> &fn, const std::string &needle) {
+    if (isFatalChild()) {
+        fn();
+        std::fflush(nullptr);
+        ::_exit(EXIT_SUCCESS);
+    }
+    const std::string self = boost::unit_test::framework::master_test_suite().argv[0];
+    const std::string only =
+        "--run_test=" + boost::unit_test::framework::current_test_case().p_name.get();
+
     int channel[2];
     BOOST_REQUIRE_EQUAL(::pipe(channel), 0);
 
@@ -152,9 +173,9 @@ void expectFatalExit(const std::function<void()> &fn, const std::string &needle)
         if (devNull != nullptr) {
             ::dup2(::fileno(devNull), STDOUT_FILENO);
         }
-        fn();
-        std::fflush(nullptr);
-        ::_exit(EXIT_SUCCESS);  // only reached when the call did NOT terminate
+        ::execl(self.c_str(), self.c_str(), only.c_str(), "--", "--fatal-child",
+                static_cast<char *>(nullptr));
+        ::_exit(127);
     }
 
     ::close(channel[1]);

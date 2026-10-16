@@ -184,12 +184,12 @@ void AbacusLegalizer::Impl::buildRows(bool mirrored) {
         if (r.subrows.empty()) {
             continue;
         }
-        std::sort(r.subrows.begin(), r.subrows.end(), [](const Subrow &a, const Subrow &b) {
+        std::stable_sort(r.subrows.begin(), r.subrows.end(), [](const Subrow &a, const Subrow &b) {
             return a.xlo < b.xlo;
         });
         rows_.push_back(r);
     }
-    std::sort(rows_.begin(), rows_.end(), [](const RowTrack &a, const RowTrack &b) {
+    std::stable_sort(rows_.begin(), rows_.end(), [](const RowTrack &a, const RowTrack &b) {
         return a.y < b.y;
     });
 
@@ -210,7 +210,7 @@ void AbacusLegalizer::Impl::buildRows(bool mirrored) {
                     hit.emplace_back(a, b);
                 }
             }
-            std::sort(hit.begin(), hit.end());
+            std::stable_sort(hit.begin(), hit.end());
             double cur = sr.xlo;
             for (const auto &iv : hit) {
                 if (iv.first > cur) {
@@ -410,7 +410,7 @@ void AbacusLegalizer::Impl::selfCheck(LegalizeResult &res) const {
     // before the early-stop fix, a source of phantom overlaps.
     std::vector<std::uint64_t> order(mov_.size());
     std::iota(order.begin(), order.end(), 0u);
-    std::sort(order.begin(), order.end(), [&](std::size_t a, std::size_t b) {
+    std::stable_sort(order.begin(), order.end(), [&](std::size_t a, std::size_t b) {
         if (rowOf[a] != rowOf[b]) {
             return rowOf[a] < rowOf[b];
         }
@@ -427,7 +427,7 @@ void AbacusLegalizer::Impl::selfCheck(LegalizeResult &res) const {
     const std::vector<FixedBox> &fixed = fixed_;
     std::vector<std::size_t> byX(mov_.size());
     std::iota(byX.begin(), byX.end(), 0u);
-    std::sort(byX.begin(), byX.end(), [&](std::size_t a, std::size_t b) {
+    std::stable_sort(byX.begin(), byX.end(), [&](std::size_t a, std::size_t b) {
         return xs_[a] < xs_[b];
     });
     std::size_t lo = 0;
@@ -519,7 +519,7 @@ LegalizeResult AbacusLegalizer::Impl::run(const AbacusOptions &params) {
         const double dx = xs_[i] - x0_[i];
         const double dy = ys_[i] - y0_[i];
         res.totalSquaredDisplacement += dx * dx + dy * dy;
-        res.maxDisplacement = std::max(res.maxDisplacement, std::hypot(dx, dy));
+        res.maxDisplacement = std::max(res.maxDisplacement, std::sqrt(dx * dx + dy * dy));
     }
     res.hpwlAfter = hpwlOf(xs_, ys_);
 
@@ -662,7 +662,8 @@ AbacusLegalizer::Impl::Pass AbacusLegalizer::Impl::legalizePass(const AbacusOpti
         }
     }
     for (std::size_t i = 0; i < mov_.size(); ++i) {
-        pass.movement += std::hypot(pass.xs[i] - x0_[i], pass.ys[i] - y0_[i]);
+        pass.movement += std::sqrt((pass.xs[i] - x0_[i]) * (pass.xs[i] - x0_[i]) +
+                                   (pass.ys[i] - y0_[i]) * (pass.ys[i] - y0_[i]));
     }
     return pass;
 }

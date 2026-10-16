@@ -216,7 +216,7 @@ void RatioPlacer::Impl::build() {
     }
     // Sorted by y so freeAreaIn only visits the rows a region spans, not all of
     // them on every cut.
-    std::sort(rowRects_.begin(), rowRects_.end(), [](const AreaRect &a, const AreaRect &b) {
+    std::stable_sort(rowRects_.begin(), rowRects_.end(), [](const AreaRect &a, const AreaRect &b) {
         return a.y0 < b.y0;
     });
     maxRowH_ = 0.0;

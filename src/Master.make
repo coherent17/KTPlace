@@ -15,10 +15,10 @@ CXX := g++
 # lines back through the optimizer at higher levels, which makes the uncovered
 # set harder to read and the numbers less trustworthy.
 ifeq ($(COVERAGE),1)
-  CXXFLAGS := -std=c++23 -Wall -Wextra -Wpedantic -Wshadow -O0 -g -pthread --coverage
+  CXXFLAGS := -std=c++2b -Wall -Wextra -Wpedantic -Wshadow -O0 -g -pthread -ffp-contract=off --coverage
   COVERAGE_LDFLAGS := --coverage
 else
-  CXXFLAGS := -std=c++23 -Wall -Wextra -Wpedantic -Wshadow -O2 -g -pthread
+  CXXFLAGS := -std=c++2b -Wall -Wextra -Wpedantic -Wshadow -O2 -g -pthread -ffp-contract=off
 endif
 # oneTBB, zlib and CImg are git submodules under third_party/. oneTBB and zlib are
 # built here into static archives and CImg is header-only, so a clone needs only
@@ -64,11 +64,17 @@ TBB_SRCS := address_waiter allocator arena arena_slot concurrent_bounded_queue d
             thread_dispatcher thread_request_serializer threading_control version \
             queuing_rw_mutex
 TBB_OBJS := $(TBB_SRCS:%=$(OBJ_DIR)/third_party/oneTBB/%.o)
-TBB_FLAGS := -std=c++17 -O2 -w -pthread -flifetime-dse=1 -D__TBB_BUILD \
+TBB_FLAGS := -std=c++17 -O2 -w -pthread -D__TBB_BUILD \
              -D__TBB_DYNAMIC_LOAD_ENABLED=0 -D__TBB_SOURCE_DIRECTLY_INCLUDED=1 \
              -I$(TBB_DIR)/include -I$(TBB_DIR)/src
 ifeq ($(shell uname -m),x86_64)
   TBB_FLAGS += -mrtm -mwaitpkg
+endif
+ifeq ($(findstring clang,$(shell $(CXX) --version)),)
+  TBB_FLAGS += -flifetime-dse=1
+endif
+ifeq ($(shell uname -s),Darwin)
+  TBB_FLAGS += -D_XOPEN_SOURCE
 endif
 
 ZLIB_SRCS := adler32 compress crc32 deflate gzclose gzlib gzread gzwrite infback inffast inflate \
@@ -225,6 +231,11 @@ $(ZLIB_LIB): $(ZLIB_OBJS)
 # ============================================================================
 
 TEST_LIBS := -lboost_unit_test_framework
+ifeq ($(shell uname -s),Darwin)
+  HOMEBREW := $(shell brew --prefix 2>/dev/null)
+  TEST_INCLUDES := $(if $(HOMEBREW),-isystem $(HOMEBREW)/include)
+  TEST_LIBS := $(if $(HOMEBREW),-L$(HOMEBREW)/lib) $(TEST_LIBS)
+endif
 
 TEST_datamodel := datamodel/test/test_datamodel.cc
 TEST_adaptor := adaptor/test/test_adaptor.cc
@@ -267,54 +278,54 @@ test check: $(TEST_BINS)
 # Each test binary: its own source plus the engine objects (no main()).
 $(BIN_DIR)/test_simpl: $(TEST_simpl) $(LIB_OBJS) $(BUNDLED_LIBS) | dirs
 	@echo "  Building test_simpl..."
-	@$(CXX) $(CXXFLAGS) $(INCLUDES) -o $@ $(TEST_simpl) $(LIB_OBJS) $(LIBS) $(COVERAGE_LDFLAGS) $(TEST_LIBS)
+	@$(CXX) $(CXXFLAGS) $(INCLUDES) $(TEST_INCLUDES) -o $@ $(TEST_simpl) $(LIB_OBJS) $(LIBS) $(COVERAGE_LDFLAGS) $(TEST_LIBS)
 
 $(BIN_DIR)/test_datamodel: $(TEST_datamodel) $(LIB_OBJS) $(BUNDLED_LIBS) | dirs
 	@echo "  Building test_datamodel..."
-	@$(CXX) $(CXXFLAGS) $(INCLUDES) -o $@ $(TEST_datamodel) $(LIB_OBJS) $(LIBS) $(COVERAGE_LDFLAGS) $(TEST_LIBS)
+	@$(CXX) $(CXXFLAGS) $(INCLUDES) $(TEST_INCLUDES) -o $@ $(TEST_datamodel) $(LIB_OBJS) $(LIBS) $(COVERAGE_LDFLAGS) $(TEST_LIBS)
 
 $(BIN_DIR)/test_adaptor: $(TEST_adaptor) $(LIB_OBJS) $(BUNDLED_LIBS) | dirs
 	@echo "  Building test_adaptor..."
-	@$(CXX) $(CXXFLAGS) $(INCLUDES) -o $@ $(TEST_adaptor) $(LIB_OBJS) $(LIBS) $(COVERAGE_LDFLAGS) $(TEST_LIBS)
+	@$(CXX) $(CXXFLAGS) $(INCLUDES) $(TEST_INCLUDES) -o $@ $(TEST_adaptor) $(LIB_OBJS) $(LIBS) $(COVERAGE_LDFLAGS) $(TEST_LIBS)
 
 $(BIN_DIR)/test_flow: $(TEST_flow) $(LIB_OBJS) $(BUNDLED_LIBS) | dirs
 	@echo "  Building test_flow..."
-	@$(CXX) $(CXXFLAGS) $(INCLUDES) -o $@ $(TEST_flow) $(LIB_OBJS) $(LIBS) $(COVERAGE_LDFLAGS) $(TEST_LIBS)
+	@$(CXX) $(CXXFLAGS) $(INCLUDES) $(TEST_INCLUDES) -o $@ $(TEST_flow) $(LIB_OBJS) $(LIBS) $(COVERAGE_LDFLAGS) $(TEST_LIBS)
 
 $(BIN_DIR)/test_util: $(TEST_util) $(LIB_OBJS) $(BUNDLED_LIBS) | dirs
 	@echo "  Building test_util..."
-	@$(CXX) $(CXXFLAGS) $(INCLUDES) -o $@ $(TEST_util) $(LIB_OBJS) $(LIBS) $(COVERAGE_LDFLAGS) $(TEST_LIBS)
+	@$(CXX) $(CXXFLAGS) $(INCLUDES) $(TEST_INCLUDES) -o $@ $(TEST_util) $(LIB_OBJS) $(LIBS) $(COVERAGE_LDFLAGS) $(TEST_LIBS)
 
 $(BIN_DIR)/test_constraint: $(TEST_constraint) $(LIB_OBJS) $(BUNDLED_LIBS) | dirs
 	@echo "  Building test_constraint..."
-	@$(CXX) $(CXXFLAGS) $(INCLUDES) -o $@ $(TEST_constraint) $(LIB_OBJS) $(LIBS) $(COVERAGE_LDFLAGS) $(TEST_LIBS)
+	@$(CXX) $(CXXFLAGS) $(INCLUDES) $(TEST_INCLUDES) -o $@ $(TEST_constraint) $(LIB_OBJS) $(LIBS) $(COVERAGE_LDFLAGS) $(TEST_LIBS)
 
 $(BIN_DIR)/test_option: $(TEST_option) $(LIB_OBJS) $(BUNDLED_LIBS) | dirs
 	@echo "  Building test_option..."
-	@$(CXX) $(CXXFLAGS) $(INCLUDES) -o $@ $(TEST_option) $(LIB_OBJS) $(LIBS) $(COVERAGE_LDFLAGS) $(TEST_LIBS)
+	@$(CXX) $(CXXFLAGS) $(INCLUDES) $(TEST_INCLUDES) -o $@ $(TEST_option) $(LIB_OBJS) $(LIBS) $(COVERAGE_LDFLAGS) $(TEST_LIBS)
 
 $(BIN_DIR)/test_viz: $(TEST_viz) $(LIB_OBJS) $(BUNDLED_LIBS) | dirs
 	@echo "  Building test_viz..."
-	@$(CXX) $(CXXFLAGS) $(INCLUDES) -o $@ $(TEST_viz) $(LIB_OBJS) $(LIBS) $(COVERAGE_LDFLAGS) $(TEST_LIBS)
+	@$(CXX) $(CXXFLAGS) $(INCLUDES) $(TEST_INCLUDES) -o $@ $(TEST_viz) $(LIB_OBJS) $(LIBS) $(COVERAGE_LDFLAGS) $(TEST_LIBS)
 
 $(BIN_DIR)/test_detail: $(TEST_detail) $(LIB_OBJS) $(BUNDLED_LIBS) | dirs
 	@echo "  Building test_detail..."
-	@$(CXX) $(CXXFLAGS) $(INCLUDES) -o $@ $(TEST_detail) $(LIB_OBJS) $(LIBS) $(COVERAGE_LDFLAGS) $(TEST_LIBS)
+	@$(CXX) $(CXXFLAGS) $(INCLUDES) $(TEST_INCLUDES) -o $@ $(TEST_detail) $(LIB_OBJS) $(LIBS) $(COVERAGE_LDFLAGS) $(TEST_LIBS)
 
 $(BIN_DIR)/test_ntuplace1: $(TEST_ntuplace1) $(LIB_OBJS) $(BUNDLED_LIBS) | dirs
 	@echo "  Building test_ntuplace1..."
-	@$(CXX) $(CXXFLAGS) $(INCLUDES) -o $@ $(TEST_ntuplace1) $(LIB_OBJS) $(LIBS) $(COVERAGE_LDFLAGS) $(TEST_LIBS)
+	@$(CXX) $(CXXFLAGS) $(INCLUDES) $(TEST_INCLUDES) -o $@ $(TEST_ntuplace1) $(LIB_OBJS) $(LIBS) $(COVERAGE_LDFLAGS) $(TEST_LIBS)
 
 $(BIN_DIR)/test_abacus: $(TEST_abacus) $(LIB_OBJS) $(BUNDLED_LIBS) | dirs
 	@echo "  Building test_abacus..."
-	@$(CXX) $(CXXFLAGS) $(INCLUDES) -o $@ $(TEST_abacus) $(LIB_OBJS) $(LIBS) $(COVERAGE_LDFLAGS) $(TEST_LIBS)
+	@$(CXX) $(CXXFLAGS) $(INCLUDES) $(TEST_INCLUDES) -o $@ $(TEST_abacus) $(LIB_OBJS) $(LIBS) $(COVERAGE_LDFLAGS) $(TEST_LIBS)
 
 # The Tcl tests read the example scripts next to them, so the source tree's
 # location is compiled in rather than guessed from the working directory the
 # binary happens to be run from.
 $(BIN_DIR)/test_tcl: $(TEST_tcl) $(LIB_OBJS) $(BUNDLED_LIBS) | dirs
 	@echo "  Building test_tcl..."
-	@$(CXX) $(CXXFLAGS) $(INCLUDES) -DKTPLACE_SOURCE_ROOT='"$(abspath $(CURDIR))"' -o $@ $(TEST_tcl) \
+	@$(CXX) $(CXXFLAGS) $(INCLUDES) $(TEST_INCLUDES) -DKTPLACE_SOURCE_ROOT='"$(abspath $(CURDIR))"' -o $@ $(TEST_tcl) \
 		$(LIB_OBJS) $(LIBS) $(COVERAGE_LDFLAGS) $(TEST_LIBS)
 
 # ============================================================================

@@ -190,7 +190,7 @@ std::vector<std::uint32_t> MultiRowLegalizer::Impl::fillGaps(
                                ? cell.regionId
                                : multirow::Fences::kNoRegion;
         std::iota(byDistance.begin(), byDistance.end(), 0u);
-        std::sort(byDistance.begin(), byDistance.end(), [&](std::size_t a, std::size_t b) {
+        std::stable_sort(byDistance.begin(), byDistance.end(), [&](std::size_t a, std::size_t b) {
             return std::abs(rows[a].coordinate - cell.y) < std::abs(rows[b].coordinate - cell.y);
         });
         double bestCost = std::numeric_limits<double>::max();
@@ -262,7 +262,7 @@ void MultiRowLegalizer::Impl::legalizeMacros(const std::vector<std::uint32_t> &m
     for (const std::uint32_t v : order) {
         const multirow::Cell &cell = design.cells[v];
         std::iota(byDistance.begin(), byDistance.end(), 0u);
-        std::sort(byDistance.begin(), byDistance.end(), [&](std::size_t a, std::size_t b) {
+        std::stable_sort(byDistance.begin(), byDistance.end(), [&](std::size_t a, std::size_t b) {
             return std::abs(rows[a].coordinate - cell.y) < std::abs(rows[b].coordinate - cell.y);
         });
         const std::size_t span = spanOf(cell.height);
@@ -280,7 +280,7 @@ void MultiRowLegalizer::Impl::legalizeMacros(const std::vector<std::uint32_t> &m
             for (const multirow::Subrow &s : rows[r].subrows) {
                 free.emplace_back(s.xlo, s.xhi);
             }
-            std::sort(free.begin(), free.end());
+            std::stable_sort(free.begin(), free.end());
             bool contiguous = true;
             for (std::size_t k = r + 1; k < r + span && contiguous; ++k) {
                 contiguous = std::abs(rows[k].coordinate -
@@ -289,7 +289,7 @@ void MultiRowLegalizer::Impl::legalizeMacros(const std::vector<std::uint32_t> &m
                 for (const multirow::Subrow &s : rows[k].subrows) {
                     here.emplace_back(s.xlo, s.xhi);
                 }
-                std::sort(here.begin(), here.end());
+                std::stable_sort(here.begin(), here.end());
                 Intervals both;
                 std::size_t i = 0;
                 std::size_t j = 0;
@@ -368,7 +368,7 @@ void MultiRowLegalizer::Impl::buildLanes() {
                 }
             }
         }
-        std::ranges::sort(pieces);
+        std::ranges::stable_sort(pieces);
         for (const auto &[lo, hi, region] : pieces) {
             lanesOfRow[r].push_back(static_cast<std::uint32_t>(lanes.size()));
             lanes.push_back({r, y0, row.height, lo, hi, row.pitch(), region, {}});
@@ -618,9 +618,10 @@ MultiRowLegalizeResult MultiRowLegalizer::Impl::run(const MultiRowOptions &param
     MultiRowLegalizeResult res;
 
     rows = design.rows;
-    std::sort(rows.begin(), rows.end(), [](const multirow::RowInfo &a, const multirow::RowInfo &b) {
-        return a.coordinate < b.coordinate;
-    });
+    std::stable_sort(rows.begin(), rows.end(),
+                     [](const multirow::RowInfo &a, const multirow::RowInfo &b) {
+                         return a.coordinate < b.coordinate;
+                     });
     rowHeight = std::numeric_limits<double>::max();
     for (const multirow::RowInfo &r : rows) {
         if (r.height > 0.0 && !r.subrows.empty()) {
@@ -791,7 +792,8 @@ MultiRowLegalizeResult MultiRowLegalizer::Impl::run(const MultiRowOptions &param
     for (std::uint32_t v = 0; v < n; ++v) {
         const multirow::Cell &c = design.cells[v];
         if (!c.isFixed && !c.isTerminal) {
-            const double moved = std::hypot(xs[v] - c.x, ys[v] - c.y);
+            const double moved =
+                std::sqrt((xs[v] - c.x) * (xs[v] - c.x) + (ys[v] - c.y) * (ys[v] - c.y));
             res.displacement += moved;
             res.maxDisplacement = std::max(res.maxDisplacement, moved);
         }

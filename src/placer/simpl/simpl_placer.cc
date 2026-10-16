@@ -249,7 +249,7 @@ struct FreeSpace {
 
     void build(std::vector<Row> raw, const std::vector<Box> &obstacles) {
         rows = std::move(raw);
-        std::sort(rows.begin(), rows.end(), [](const Row &a, const Row &b) {
+        std::stable_sort(rows.begin(), rows.end(), [](const Row &a, const Row &b) {
             return a.y0 < b.y0;
         });
         for (Row &row : rows) {
@@ -259,8 +259,8 @@ struct FreeSpace {
                     cuts.emplace_back(o.x0, o.x1);
                 }
             }
-            std::sort(cuts.begin(), cuts.end());
-            std::sort(row.spans.begin(), row.spans.end());
+            std::stable_sort(cuts.begin(), cuts.end());
+            std::stable_sort(row.spans.begin(), row.spans.end());
             std::vector<std::pair<double, double>> open;
             for (auto [a, b] : row.spans) {
                 for (const auto &[c0, c1] : cuts) {
@@ -309,7 +309,7 @@ struct FreeSpace {
                     }
                 }
             }
-            std::sort(steps.begin(), steps.end());
+            std::stable_sort(steps.begin(), steps.end());
             double height = 0.0;
             for (const auto &[at, dh] : steps) {
                 extend(at, height * (at - out.edges.back()));
@@ -463,7 +463,7 @@ void simplPlacer::Impl::collect() {
     for (std::size_t n = 0; n < nets.size(); ++n) {
         const std::vector<std::size_t> &pins = graph.getNetPins(n);
         std::vector<std::size_t> order(pins.begin(), pins.end());
-        std::sort(order.begin(), order.end(), [&](std::size_t a, std::size_t b) {
+        std::stable_sort(order.begin(), order.end(), [&](std::size_t a, std::size_t b) {
             return graph.getPin(a).cellId < graph.getPin(b).cellId;
         });
         NetPins &net = nets[n];
@@ -1101,7 +1101,7 @@ std::vector<Stripe> simplPlacer::Impl::stripes(const Box &box, bool vertical, do
             }
         }
     }
-    std::sort(cuts.begin(), cuts.end());
+    std::stable_sort(cuts.begin(), cuts.end());
     cuts.erase(std::unique(cuts.begin(), cuts.end()), cuts.end());
 
     const double limit = par.stripeAreaFraction * (regionRoom > 0.0 ? regionRoom : room.total());
@@ -1139,7 +1139,7 @@ void simplPlacer::Impl::nonlinearScale(const std::vector<std::uint32_t> &cells, 
     const auto fromCut = [&](double c) {
         return belowCut ? cutline - c : c - cutline;
     };
-    std::sort(strips.begin(), strips.end(), [&](const Stripe &a, const Stripe &b) {
+    std::stable_sort(strips.begin(), strips.end(), [&](const Stripe &a, const Stripe &b) {
         return fromCut(0.5 * (a.lo + a.hi)) > fromCut(0.5 * (b.lo + b.hi));
     });
 
