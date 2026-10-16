@@ -5,6 +5,7 @@
 
 #include "datamodel/kt_die.h"
 #include "datamodel/kt_dm.h"
+#include "datamodel/kt_stageReport.h"
 
 namespace ktplace::ntuplace1 {
 
@@ -66,8 +67,10 @@ ntuplace1DM buildNtuplace1DM(const ktDM &db) {
     design.die = placementDieBox(db.die(), db.getGraph());
     design.fences = db.constraints();
 
+    const StageCounts counts = countStage(design);
     ntuplace1DM result(std::move(design));
     result.opts = loadOptions<Ntuplace1Options>();
+    reportStageBuild("NTUPlace1", counts, db.checksum(), result.opts);
     return result;
 }
 

@@ -1,8 +1,10 @@
 #include "util/kt_scopedTimer.h"
 
+#include "util/kt_log.h"
 #include "util/kt_reportTable.h"
 
 #include <format>
+#include <sys/resource.h>
 #include <utility>
 
 namespace ktplace {
@@ -90,11 +92,31 @@ void TimerRegistry::report() const {
     table.emit();
 }
 
-ScopedTimer::ScopedTimer(std::string name)
-    : timerName(std::move(name)), start(std::chrono::steady_clock::now()), cpuStart(std::clock()) {}
+ScopedTimer::ScopedTimer(std::string name, bool announceOnExit)
+    : timerName(std::move(name)),
+      start(std::chrono::steady_clock::now()),
+      cpuStart(std::clock()),
+      announce(announceOnExit) {}
 
 ScopedTimer::~ScopedTimer() {
-    TimerRegistry::instance().record(timerName, elapsedSeconds(), cpuElapsedSeconds());
+    const double wall = elapsedSeconds();
+    const double cpu = cpuElapsedSeconds();
+    TimerRegistry::instance().record(timerName, wall, cpu);
+    if (announce) {
+        ktlog.echo("{} finished in {:.3f}s wall, {:.3f}s cpu", timerName, wall, cpu);
+    }
+}
+
+std::size_t peakResidentBytes() {
+    rusage usage{};
+    if (getrusage(RUSAGE_SELF, &usage) != 0) {
+        return 0;
+    }
+#if defined(__APPLE__)
+    return static_cast<std::size_t>(usage.ru_maxrss);
+#else
+    return static_cast<std::size_t>(usage.ru_maxrss) * 1024;
+#endif
 }
 
 void ScopedTimer::lap() {

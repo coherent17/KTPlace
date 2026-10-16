@@ -6,29 +6,15 @@
 #include <iostream>
 
 namespace ktplace {
-namespace {
 
-std::string timestamp() {
-    using clock = std::chrono::system_clock;
-    const auto now = clock::now();
-    const std::time_t secs = clock::to_time_t(now);
-    const auto millis =
-        std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count() %
-        1000;
+std::string localDateTime() {
+    const std::time_t now = std::time(nullptr);
     std::tm tm{};
-#if defined(_WIN32)
-    localtime_s(&tm, &secs);
-#else
-    localtime_r(&secs, &tm);
-#endif
+    localtime_r(&now, &tm);
     char buf[64];
-    std::snprintf(buf, sizeof(buf), "%04d-%02d-%02d %02d:%02d:%02d.%03d", tm.tm_year + 1900,
-                  tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec,
-                  static_cast<int>(millis));
+    std::strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M:%S %Z", &tm);
     return buf;
 }
-
-}  // namespace
 
 const char *Logger::levelTag(Level tag) {
     switch (tag) {
@@ -131,13 +117,12 @@ void Logger::emit(Level level, const std::string &message) {
     std::lock_guard<std::mutex> lock(mutex);
     ++records;
 
-    if (isTrace) {
-        if (traceFile.is_open()) {
-            traceFile << timestamp() << " [trace] " << body << '\n';
-            traceFile.flush();
-        }
-    } else if (file.is_open()) {
-        file << timestamp() << " [" << levelTag(level) << "] " << body << '\n';
+    if (traceFile.is_open()) {
+        traceFile << '[' << levelTag(level) << "] " << body << '\n';
+        traceFile.flush();
+    }
+    if (!isTrace && file.is_open()) {
+        file << '[' << levelTag(level) << "] " << body << '\n';
         file.flush();
     }
 

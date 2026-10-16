@@ -172,6 +172,25 @@ BOOST_AUTO_TEST_CASE(fatal_is_red_and_exits) {
     ktlog.configure("", false);
 }
 
+BOOST_AUTO_TEST_CASE(the_trace_log_holds_every_level_and_the_log_all_but_trace) {
+    TempLog log;
+    ktlog.configure(log.str(), false);
+    {
+        CaptureCerr cap;
+        ktlog.echo("an echo");
+        ktlog.warning("a warning");
+        ktlog.trace("a trace");
+    }
+    ktlog.configure("", false);
+    std::ifstream in(Logger::tracePathFor(log.str()));
+    std::ostringstream trace;
+    trace << in.rdbuf();
+    std::filesystem::remove(Logger::tracePathFor(log.str()));
+
+    BOOST_TEST(log.contents() == "[echo] an echo\n[warning] a warning\n");
+    BOOST_TEST(trace.str() == "[echo] an echo\n[warning] a warning\n[trace] a trace\n");
+}
+
 BOOST_AUTO_TEST_CASE(record_count_includes_warnings) {
     TempLog log;
     ktlog.configure(log.str(), false);

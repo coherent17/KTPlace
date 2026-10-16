@@ -96,4 +96,7 @@ private:
 
 inline Logger &ktlog = Logger::instance();
 
+/// The local date and time, e.g. "2026-10-16 13:50:04 CST".
+[[nodiscard]] std::string localDateTime();
+
 }  // namespace ktplace

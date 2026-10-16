@@ -243,6 +243,26 @@ BOOST_AUTO_TEST_CASE(clear_resets_the_id_counters) {
 
 BOOST_AUTO_TEST_SUITE_END()
 
+BOOST_AUTO_TEST_CASE(the_checksum_follows_the_placement) {
+    const auto build = [](ktDM &db) {
+        addCell(db, "c0", 2.0, 1.0);
+        addCell(db, "c1", 3.0, 1.0);
+        addNet(db, "n0");
+        addPin(db, "c0", "n0", 0.5, 0.5, true);
+        addPin(db, "c1", "n0", 0.0, 0.0, false);
+        db.setCellPosition("c0", 4.0, 0.0);
+    };
+    ktDM a;
+    ktDM b;
+    build(a);
+    build(b);
+    BOOST_TEST(a.checksum() == b.checksum());
+    b.setCellPosition("c1", 1.0, 0.0);
+    BOOST_TEST(a.checksum() != b.checksum());
+    a.setCellPosition("c1", 1.0, 0.0);
+    BOOST_TEST(a.checksum() == b.checksum());
+}
+
 BOOST_AUTO_TEST_CASE(ktDM_clear_resets_everything) {
     ktDM db;
     addCell(db, "c0", 1.0, 1.0);

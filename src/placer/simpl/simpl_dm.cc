@@ -1,6 +1,7 @@
 #include "placer/simpl/simpl_dm.h"
 
 #include "datamodel/kt_dm.h"
+#include "datamodel/kt_stageReport.h"
 #include "util/kt_reportTable.h"
 #include "util/kt_scopedTimer.h"
 
@@ -73,8 +74,10 @@ simplDM buildSimplDM(const ktDM &db) {
     copyFences(db.constraints(), design.fences);
     design.die = placementDieBox(db.die(), db.getGraph());
 
+    const StageCounts counts = countGraph(design.graph, design.rows.size());
     simplDM out(std::move(design));
     out.opts = loadOptions<SimplOptions>();
+    reportStageBuild("SimPL", counts, db.checksum(), out.opts);
     return out;
 }
 
@@ -116,7 +119,6 @@ simplDM::simplDM(Design design) : d(std::move(design)) {}
 
 simplSolution simplDM::run() {
     ScopedTimer timer("simpl");
-    reportOptions(opts);
 
     simplPlacer placer(d);
     const SimplResult result = placer.place(opts);

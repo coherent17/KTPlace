@@ -2,6 +2,7 @@
 
 #include "datamodel/kt_die.h"
 #include "datamodel/kt_dm.h"
+#include "datamodel/kt_stageReport.h"
 #include "util/kt_reportTable.h"
 #include "util/kt_scopedTimer.h"
 
@@ -69,8 +70,10 @@ fastdpDM buildFastdpDM(const ktDM &db) {
     copyRows(db.getRows(), db.fencedSubrows(), design.rows);
     design.die = placementDieBox(db.die(), db.getGraph());
 
+    const StageCounts counts = countStage(design);
     fastdpDM result(std::move(design));
     result.opts = loadOptions<FastdpOptions>();
+    reportStageBuild("FastDP", counts, db.checksum(), result.opts);
     return result;
 }
 
@@ -101,7 +104,6 @@ void reportRun(const DetailPlaceResult &res) {
 fastdpDM::fastdpDM(Design design) : d(std::move(design)) {}
 
 fastdpSolution fastdpDM::run() {
-    reportOptions(opts);
     ScopedTimer timer("detailplace");
 
     FastDetailedPlacer placer(d);

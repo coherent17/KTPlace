@@ -2,12 +2,18 @@
 #include "kt_option.h"
 
 #include "util/kt_log.h"
+#include "util/kt_scopedTimer.h"
 
+#include <chrono>
+#include <ctime>
 #include <exception>
+#include <string>
 
 using namespace ktplace;
 
 int main(int argc, char *argv[]) {
+    const auto started = std::chrono::steady_clock::now();
+    const std::clock_t cpuStarted = std::clock();
     try {
         kt_option options;
         if (!options.parse(argc, argv)) {
@@ -19,6 +25,13 @@ int main(int argc, char *argv[]) {
         ktlog.trace("ktplace start: argc={}", argc);
         ktlog.echo("KTPlace - Know Thyself Placement Engine v{}", VERSION);
         ktlog.echo("========================================");
+        std::string command = argv[0];
+        for (int i = 1; i < argc; ++i) {
+            command += ' ';
+            command += argv[i];
+        }
+        ktlog.echo("Run started: {}", localDateTime());
+        ktlog.echo("Command: {}", command);
         options.report();
 
         FlowMgr flowMgr;
@@ -26,6 +39,13 @@ int main(int argc, char *argv[]) {
         flowMgr.run(options);
         ktlog.echo("Placement completed successfully!");
         ktlog.echo("Results written to: {}", options.getOutputPath());
+        const double wall =
+            std::chrono::duration<double>(std::chrono::steady_clock::now() - started).count();
+        const double cpu =
+            static_cast<double>(std::clock() - cpuStarted) / static_cast<double>(CLOCKS_PER_SEC);
+        ktlog.echo("Run finished: {}; total {:.3f}s wall, {:.3f}s cpu, peak memory {:.1f} MiB",
+                   localDateTime(), wall, cpu,
+                   static_cast<double>(peakResidentBytes()) / (1024.0 * 1024.0));
         ktlog.shutdown();
         return 0;
 

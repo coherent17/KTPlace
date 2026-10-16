@@ -113,13 +113,22 @@ else is loaded as Bookshelf.
 | `-v, --verbose` | also echo the trace log to the console |
 
 `-w` is the single artifact root: the run derives `placed.pl`, `plots/` and
-`ktplace.log` from it and creates it if missing. The trace always goes to
-`ktplace_trace.log`. **stdout is never written to** — the log goes to the file
-and stderr, so redirecting stdout stays clean.
+`ktplace.log` from it and creates it if missing. `ktplace_trace.log` holds the
+same records plus the trace, so it is the complete record of a run. **stdout is
+never written to** — the log goes to the files and stderr, so redirecting stdout
+stays clean.
 
 | `ktplace.log` | `ktplace_trace.log` | stderr |
 |:---:|:---:|:---:|
-| echo, fatal | trace | echo, fatal |
+| echo, warning, fatal | trace, echo, warning, fatal | echo, warning, fatal (trace too with `-v`) |
+
+A log starts with the date and the command line and ends with the run's total
+wall and CPU time and its peak memory. In between it reports the design
+(statistics and utilisation), and for each stage: what its own database
+collected from the ktDM and the ktDM checksum it started from, its options, its
+results, the ktDM checksum once its answer is committed, and how long it took.
+Equal checksums mean equal designs and placements, so two runs can be compared
+stage by stage.
 
 ## Output
 

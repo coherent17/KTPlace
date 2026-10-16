@@ -11,7 +11,9 @@
 #include "util/kt_scopedTimer.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
+#include <cstring>
 #include <format>
 #include <iterator>
 #include <limits>
@@ -569,6 +571,107 @@ void ktDM::isLegalizePlacement() const {
     if (!defects.empty()) {
         ktlog.warning("the placement that will be written is not legal; see the check above");
     }
+}
+
+}  // namespace ktplace
+
+namespace ktplace {
+
+std::uint64_t ktDM::checksum() const {
+    std::uint64_t h = 1469598103934665603ULL;
+    const auto mix = [&h](const auto &value) {
+        unsigned char bytes[sizeof(value)];
+        std::memcpy(bytes, &value, sizeof(value));
+        for (const unsigned char b : bytes) {
+            h = (h ^ b) * 1099511628211ULL;
+        }
+    };
+    const Graph &g = getGraph();
+    mix(g.getNumCells());
+    for (std::size_t v = 0; v < g.getNumCells(); ++v) {
+        const Vertex &cell = g.getCell(v);
+        mix(cell.x);
+        mix(cell.y);
+        mix(cell.width);
+        mix(cell.height);
+        mix(static_cast<std::uint8_t>(cell.isFixed));
+    }
+    mix(g.getNumNets());
+    for (const Pin &pin : g.getPins()) {
+        mix(pin.cellId);
+        mix(pin.netId);
+        mix(pin.offsetX);
+        mix(pin.offsetY);
+    }
+    return h;
+}
+
+void ktDM::reportStatistics() const {
+    const Graph &g = getGraph();
+    const double rowHeight = getRows().empty() ? 0.0 : getRows().front().height;
+    std::size_t movable = 0, fixed = 0, macros = 0;
+    double movableWidth = 0.0, macroArea = 0.0;
+    for (std::size_t v = 0; v < g.getNumCells(); ++v) {
+        const Vertex &cell = g.getCell(v);
+        if (cell.isFixed || cell.isTerminal) {
+            if (cell.height > rowHeight) {
+                ++macros;
+                macroArea += cell.width * cell.height;
+            }
+            ++fixed;
+            continue;
+        }
+        ++movable;
+        movableWidth += cell.width;
+    }
+
+    constexpr std::array<std::size_t, 5> kDegreeTop{1, 2, 3, 10, 100};
+    std::array<std::size_t, kDegreeTop.size() + 1> byDegree{};
+    std::size_t maxDegree = 0;
+    for (std::size_t n = 0; n < g.getNumNets(); ++n) {
+        const std::size_t d = g.getNetPins(n).size();
+        maxDegree = std::max(maxDegree, d);
+        std::size_t bucket = 0;
+        while (bucket < kDegreeTop.size() && d > kDegreeTop[bucket]) {
+            ++bucket;
+        }
+        ++byDegree[bucket];
+    }
+
+    std::size_t sites = 0;
+    double siteWidth = 0.0;
+    for (const RowInfo &row : getRows()) {
+        siteWidth = std::max(siteWidth, row.pitch());
+        for (const SubrowInfo &sub : row.subrows) {
+            sites += static_cast<std::size_t>(sub.numSites);
+        }
+    }
+    const std::array<double, 4> box = placementDieBox();
+    const double nets = static_cast<double>(std::max<std::size_t>(g.getNumNets(), 1));
+
+    ktReportTable t("Design statistics");
+    t.setHeaders({"measure", "value"});
+    t.addRow({"placement area",
+              std::format("({:.0f}, {:.0f}) - ({:.0f}, {:.0f})", box[0], box[1], box[2], box[3])});
+    t.addRow({"rows / sites", std::format("{} / {}", getNumRows(), sites)});
+    t.addRow({"site width", std::format("{:.3}", siteWidth)});
+    t.addRow(
+        {"cells (movable / fixed)", std::format("{} ({} / {})", g.getNumCells(), movable, fixed)});
+    t.addRow({"fixed cells taller than a row (macros)", std::format("{}", macros)});
+    t.addRow({"macro area", std::format("{:.6e}", macroArea)});
+    t.addRow(
+        {"mean movable width",
+         std::format("{:.2f}", movable > 0 ? movableWidth / static_cast<double>(movable) : 0.0)});
+    t.addRow({"movable cells taller than a row", std::format("{}", multiRowCells())});
+    t.addRow({"nets / pins", std::format("{} / {}", g.getNumNets(), g.getNumPins())});
+    t.addRow({"pins per net (mean / max)",
+              std::format("{:.2f} / {}", static_cast<double>(g.getNumPins()) / nets, maxDegree)});
+    t.addRow({"nets with 1 / 2 / 3 pins",
+              std::format("{} / {} / {}", byDegree[0], byDegree[1], byDegree[2])});
+    t.addRow({"nets with 4-10 / 11-100 / >100 pins",
+              std::format("{} / {} / {}", byDegree[3], byDegree[4], byDegree[5])});
+    t.addRow({"fence regions", std::format("{}", constraints().numRegions())});
+    t.emit();
 }
 
 }  // namespace ktplace

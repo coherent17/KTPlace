@@ -54,7 +54,7 @@ private:
 
 class ScopedTimer {
 public:
-    explicit ScopedTimer(std::string name);
+    explicit ScopedTimer(std::string name, bool announceOnExit = false);
 
     ScopedTimer(const ScopedTimer &) = delete;
     ScopedTimer &operator=(const ScopedTimer &) = delete;
@@ -73,6 +73,10 @@ private:
     std::string timerName;
     std::chrono::steady_clock::time_point start;
     std::clock_t cpuStart = 0;
+    bool announce = false;
 };
+
+/// The largest resident set this process has had, in bytes.
+[[nodiscard]] std::size_t peakResidentBytes();
 
 }  // namespace ktplace
