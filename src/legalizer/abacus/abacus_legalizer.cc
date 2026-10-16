@@ -452,7 +452,7 @@ LegalizeResult AbacusLegalizer::Impl::run(const AbacusOptions &params) {
     // ScopedTimer both times the phase and records it into the shared registry,
     // so legalization appears in the flow's Timings table next to load, place
     // and write instead of reporting a private duration.
-    ScopedTimer timer("legalize");
+    ScopedTimer timer("abacus");
 
 
     for (std::size_t v = 0; v < design.cells.size(); ++v) {
@@ -539,11 +539,6 @@ LegalizeResult AbacusLegalizer::Impl::run(const AbacusOptions &params) {
     }
     selfCheck(res);
     res.seconds = timer.elapsedSeconds();
-    ktlog.echo(
-        "Abacus: {} cells in {:.3f}s, HPWL {:.6e} -> {:.6e}, squared displacement {:.6e} "
-        "(max {:.1f}), {} unplaced",
-        res.cellsPlaced, res.seconds, res.hpwlBefore, res.hpwlAfter, res.totalSquaredDisplacement,
-        res.maxDisplacement, res.unplaced);
     return res;
 }
 
@@ -682,11 +677,14 @@ void report(const LegalizeResult &r) {
     t.setHeaders({"metric", "value"});
     t.addRow({"cells placed", std::format("{}", r.cellsPlaced)});
     t.addRow({"cells unplaced", std::format("{}", r.unplaced)});
-    t.addRow({"squared displacement", std::format("{:.6}", r.totalSquaredDisplacement)});
-    t.addRow({"max displacement", std::format("{:.6}", r.maxDisplacement)});
-    t.addRow({"HPWL before", std::format("{:.6}", r.hpwlBefore)});
-    t.addRow({"HPWL after", std::format("{:.6}", r.hpwlAfter)});
-    t.addRow({"time (s)", std::format("{:.6}", r.seconds)});
+    t.addRow({"squared displacement", std::format("{:.6e}", r.totalSquaredDisplacement)});
+    t.addRow({"max displacement", std::format("{:.1f}", r.maxDisplacement)});
+    t.addRow({"HPWL before", std::format("{:.6e}", r.hpwlBefore)});
+    t.addRow({"HPWL after", std::format("{:.6e}", r.hpwlAfter)});
+    t.addRow(
+        {"HPWL change", std::format("{:+.2f}%", 100.0 * (r.hpwlAfter - r.hpwlBefore) /
+                                                    (r.hpwlBefore > 0.0 ? r.hpwlBefore : 1.0))});
+    t.addRow({"seconds", std::format("{:.3f}", r.seconds)});
     t.addRow({"overlapping pairs", std::format("{}", r.overlappingPairs)});
     t.addRow({"cells off row", std::format("{}", r.offRow)});
     t.addRow({"cells off site", std::format("{}", r.offSite)});
@@ -706,7 +704,7 @@ void report(const LegalizeResult &r) {
     if (r.outOfRows > 0) {
         ktlog.warning(
             "{} cell(s) could not be placed in any row and are still at their global placement "
-            "positions (no room within KTPLACE_ABACUS_MAX_ROW_DIST rows, or taller than a row). "
+            "positions (no room within 'abacus max_row_dist' rows, or taller than a row). "
             "The placement is not legal; see \"cells out of rows\" above.",
             r.outOfRows);
     }

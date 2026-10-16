@@ -1,8 +1,12 @@
 #include "util/kt_scopedTimer.h"
 
+#include "util/kt_log.h"
 #include "util/kt_reportTable.h"
 
+#include <algorithm>
 #include <format>
+#include <map>
+#include <sys/resource.h>
 #include <utility>
 
 namespace ktplace {
@@ -25,6 +29,17 @@ void TimerRegistry::record(std::string name, double wallSeconds, double cpuSecon
     entry.wallSeconds += wallSeconds;
     entry.cpuSeconds += cpuSeconds > 0.0 ? cpuSeconds : 0.0;
     ++entry.calls;
+}
+
+void TimerRegistry::started(const std::string &name) {
+    std::lock_guard<std::mutex> lock(mutex);
+    firstRun.try_emplace(name, FirstRun{firstRun.size(), depth});
+    ++depth;
+}
+
+void TimerRegistry::stopped() {
+    std::lock_guard<std::mutex> lock(mutex);
+    depth -= depth > 0 ? 1 : 0;
 }
 
 bool TimerRegistry::isEnabled(const std::string &name) const {
@@ -70,6 +85,8 @@ double TimerRegistry::totalCpuSeconds() const {
 void TimerRegistry::reset() {
     std::lock_guard<std::mutex> lock(mutex);
     stats.clear();
+    firstRun.clear();
+    depth = 0;
 }
 
 void TimerRegistry::report() const {
@@ -77,24 +94,60 @@ void TimerRegistry::report() const {
     if (all.empty()) {
         return;
     }
-    const double wall = totalWallSeconds();
-    const double cpu = totalCpuSeconds();
-    ktReportTable table(std::format("Timings (wall {:.3f}s, cpu {:.3f}s, {:.2f}x parallelism)",
-                                    wall, cpu, wall > 0.0 ? cpu / wall : 0.0));
+    std::vector<std::pair<std::size_t, std::string>> ordered;
+    std::map<std::string, std::size_t> indent;
+    {
+        std::lock_guard<std::mutex> lock(mutex);
+        for (const auto &[name, entry] : all) {
+            const auto it = firstRun.find(name);
+            const bool known = it != firstRun.end();
+            ordered.emplace_back(known ? it->second.order : firstRun.size(), name);
+            indent[name] = known ? it->second.depth : 0;
+        }
+    }
+    std::ranges::stable_sort(ordered);
+    const std::map<std::string, TimerStats> byName(all.begin(), all.end());
+
+    ktReportTable table("Timings, in run order; a nested phase is part of the one above it");
     table.setHeaders({"phase", "wall", "cpu", "calls", "cpu/wall"});
-    for (const auto &[name, entry] : all) {
-        table.addRow({name, std::format("{:.3f}s", entry.wallSeconds),
+    for (const auto &[order, name] : ordered) {
+        const TimerStats &entry = byName.at(name);
+        table.addRow({std::string(2 * indent[name], ' ') + name,
+                      std::format("{:.3f}s", entry.wallSeconds),
                       std::format("{:.3f}s", entry.cpuSeconds), std::to_string(entry.calls),
                       std::format("{:.2f}x", entry.parallelism())});
     }
     table.emit();
 }
 
-ScopedTimer::ScopedTimer(std::string name)
-    : timerName(std::move(name)), start(std::chrono::steady_clock::now()), cpuStart(std::clock()) {}
+ScopedTimer::ScopedTimer(std::string name, bool announceOnExit)
+    : timerName(std::move(name)),
+      start(std::chrono::steady_clock::now()),
+      cpuStart(std::clock()),
+      announce(announceOnExit) {
+    TimerRegistry::instance().started(timerName);
+}
 
 ScopedTimer::~ScopedTimer() {
-    TimerRegistry::instance().record(timerName, elapsedSeconds(), cpuElapsedSeconds());
+    const double wall = elapsedSeconds();
+    const double cpu = cpuElapsedSeconds();
+    TimerRegistry::instance().stopped();
+    TimerRegistry::instance().record(timerName, wall, cpu);
+    if (announce) {
+        ktlog.echo("finished in {:.3f}s wall, {:.3f}s cpu", wall, cpu);
+    }
+}
+
+std::size_t peakResidentBytes() {
+    rusage usage{};
+    if (getrusage(RUSAGE_SELF, &usage) != 0) {
+        return 0;
+    }
+#if defined(__APPLE__)
+    return static_cast<std::size_t>(usage.ru_maxrss);
+#else
+    return static_cast<std::size_t>(usage.ru_maxrss) * 1024;
+#endif
 }
 
 void ScopedTimer::lap() {

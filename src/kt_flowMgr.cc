@@ -20,16 +20,20 @@
 #include "placer/simpl/simpl_flowMgr.h"
 #include "tcl/kt_tclMgr.h"
 #include "util/kt_log.h"
+#include "util/kt_reportTable.h"
 #include "util/kt_scopedTimer.h"
 #include "visualization/kt_snapshots.h"
 #include "visualization/kt_visualizer.h"
 
+#include <cstdint>
 #include <filesystem>
+#include <format>
 #include <fstream>
 #include <iomanip>
 #include <memory>
 #include <span>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace ktplace {
@@ -84,6 +88,16 @@ private:
     void writeDesign(const std::string &outputPath);
     void legalizeDesign();
     void detailPlaceDesign();
+    void commit(std::string_view stage);
+    void reportSummary() const;
+
+    struct Committed {
+        std::string stage;
+        std::string step;
+        double hpwl = 0.0;
+        std::uint32_t checksum = 0;
+    };
+    std::vector<Committed> committed;
     void drawPictures();
     void finishAnimation();
 };
@@ -105,13 +119,14 @@ void FlowMgr::Impl::run(const kt_option &options) {
     plot.dir = options.getPlotDir();
 
     loadDesign(options.inputPath);
-    reportDesign();
     placeDesign();
     legalizeDesign();
     detailPlaceDesign();
     writeDesign(options.getOutputPath());
     drawPictures();
+    ktlog.beginStep("summary");
     TimerRegistry::instance().report();
+    reportSummary();
 }
 
 void FlowMgr::Impl::parseTcl(const kt_option &options) {
@@ -126,7 +141,8 @@ void FlowMgr::Impl::parseTcl(const kt_option &options) {
 }
 
 void FlowMgr::Impl::loadDesign(const std::string &dirPath) {
-    ScopedTimer timer("load");
+    ktlog.beginStep("load");
+    ScopedTimer timer("load", true);
 
     std::error_code ec;
     if (!std::filesystem::is_directory(dirPath, ec)) {
@@ -143,15 +159,42 @@ void FlowMgr::Impl::loadDesign(const std::string &dirPath) {
     if (!db) {
         ktlog.fatal("Failed to read {} design from {}", reader->formatName(), dirPath);
     }
+    reportDesign();
+    commit("load");
 }
 
 void FlowMgr::Impl::reportDesign() {
     db->report();
+    db->reportStatistics();
     db->reportUtilisation();
 }
 
+void FlowMgr::Impl::commit(std::string_view stage) {
+    committed.push_back({std::string(stage), ktlog.currentStep(), db->hpwl(), db->checksum()});
+    ktlog.echo("committed to ktDM: HPWL {:.6e}, checksum {:08x}", committed.back().hpwl,
+               committed.back().checksum);
+}
+
+void FlowMgr::Impl::reportSummary() const {
+    ktReportTable t("Run summary");
+    t.setHeaders({"stage", "HPWL", "change", "wall", "cpu", "ktDM"});
+    for (std::size_t i = 0; i < committed.size(); ++i) {
+        const Committed &c = committed[i];
+        const TimerStats *time = TimerRegistry::instance().find(c.stage);
+        const double before = i > 0 ? committed[i - 1].hpwl : 0.0;
+        t.addRow({c.step == c.stage ? c.stage : std::format("{} ({})", c.stage, c.step),
+                  std::format("{:.6e}", c.hpwl),
+                  i > 0 && before > 0.0 ? std::format("{:+.2f}%", 100.0 * (c.hpwl / before - 1.0))
+                                        : std::string(),
+                  time != nullptr ? std::format("{:.3f}s", time->wallSeconds) : std::string(),
+                  time != nullptr ? std::format("{:.3f}s", time->cpuSeconds) : std::string(),
+                  std::format("{:08x}", c.checksum)});
+    }
+    t.emit();
+}
+
 void FlowMgr::Impl::placeDesign() {
-    ScopedTimer timer("place");
+    ScopedTimer timer("global placement", true);
 
     // Which placer runs is the flow's business: it is the one that knows what
     // placers exist. The script chooses with `add_option flow algorithm ...`, and
@@ -180,7 +223,6 @@ void FlowMgr::Impl::placeDesign() {
     }
 
     if (algorithm == "simpl") {
-        ktlog.echo("Running SimPL global placement (B2B net model + look-ahead legalization)...");
         simpl::simplDM simplDB = simpl::buildSimplDM(*db);
         if (recordStage(simplDB, snapshots.get(), {"simpl", "simpl", 0})) {
             recordSimplBounds(simplDB, *snapshots);
@@ -190,6 +232,7 @@ void FlowMgr::Impl::placeDesign() {
         }
         simpl::flowMgr flow(simplDB);
         db->setGPSolution(flow.runGlobalPlacer());
+        commit("global placement");
         return;
 
     } else if (algorithm == "ntuplace1") {
@@ -198,6 +241,7 @@ void FlowMgr::Impl::placeDesign() {
         ntuplace1::ntuplace1DM placeDB = ntuplace1::buildNtuplace1DM(*db);
         ntuplace1::flowMgr flow(placeDB);
         db->setGPSolution(flow.runGlobalPlacer());
+        commit("global placement");
         return;
 
     } else {
@@ -206,6 +250,7 @@ void FlowMgr::Impl::placeDesign() {
 }
 
 void FlowMgr::Impl::legalizeDesign() {
+    ScopedTimer timer("legalization", true);
     // Whatever the placer reserved is released, so the later stages get the whole
     // remaining budget.
     if (snapshots) {
@@ -213,28 +258,30 @@ void FlowMgr::Impl::legalizeDesign() {
     }
 
     if (const std::size_t tall = db->multiRowCells(); tall > 0) {
-        ktlog.echo("Running multi-row legalization ({} cell(s) taller than a row)...", tall);
         multirow::multirowDM multiDB = multirow::buildMultiRowDM(*db);
+        ktlog.echo("multi-row legalization ({} cell(s) taller than a row)", tall);
         recordStage(multiDB, snapshots.get(), {"legalize_multi", "", 0});
         multirow::flowMgr flow(multiDB);
         db->setMultiRowSolution(flow.runLegalizer());
+        commit("legalization");
         return;
     }
 
-    ktlog.echo("Running Abacus legalization...");
     abacus::abacusDM abacusDB = abacus::buildAbacusDM(*db);
     recordStage(abacusDB, snapshots.get(), {"legalize", "", 0});
     abacus::flowMgr flow(abacusDB);
     db->setLegalizationSolution(flow.runLegalizer());
+    commit("legalization");
 }
 
 
 void FlowMgr::Impl::detailPlaceDesign() {
-    ktlog.echo("Running FastDP detailed placement...");
+    ScopedTimer timer("detailed placement", true);
     fastdp::fastdpDM dpDB = fastdp::buildFastdpDM(*db);
     recordStage(dpDB, snapshots.get(), {"detailplace", "", 0});
     fastdp::flowMgr flow(dpDB);
     db->setDetailedPlaceSolution(flow.runDetailedPlacer());
+    commit("detailed placement");
 }
 
 
@@ -242,9 +289,10 @@ void FlowMgr::Impl::drawPictures() {
     if (!snapshots) {
         return;
     }
-    ScopedTimer timer("draw");
+    ktlog.beginStep("draw");
+    ScopedTimer timer("draw", true);
     snapshots->close();
-    ktlog.echo("Drawing {} recorded snapshot(s)...", snapshots->frameCount());
+    ktlog.echo("replaying {} recorded snapshot(s)", snapshots->frameCount());
     (void)replaySnapshots(snapshots->path(), Visualizer::instance(), db->getGraph(),
                           &db->constraints());
     Visualizer::instance().finalImage(db->getGraph(), &db->constraints(), db->hpwl());
@@ -283,7 +331,8 @@ void FlowMgr::Impl::finishAnimation() {
 }
 
 void FlowMgr::Impl::writeDesign(const std::string &outputPath) {
-    ScopedTimer timer("write");
+    ktlog.beginStep("write");
+    ScopedTimer timer("write", true);
     std::ofstream out(outputPath);
     if (!out.is_open()) {
         ktlog.fatal("Cannot open output file: {}", outputPath);

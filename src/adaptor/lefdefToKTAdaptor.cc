@@ -137,11 +137,11 @@ bool LefDefInputAdapter::readFromDirectory(const std::string &dirPath) {
         }
     }
     if (ec) {
-        ktlog.echo("cannot scan the LEF/DEF directory {}", dirPath);
+        ktlog.warning("cannot scan the LEF/DEF directory {}", dirPath);
         return false;
     }
     if (defFile.empty()) {
-        ktlog.echo("no .def file found in {}", dirPath);
+        ktlog.warning("no .def file found in {}", dirPath);
         return false;
     }
     return readFromFiles(defFile, lefFiles);
@@ -200,7 +200,7 @@ void LefDefInputAdapter::peekDefUnits(const std::string &filePath) {
 bool LefDefInputAdapter::parseLefFile(const std::string &filePath) {
     InputTextFile file(filePath);
     if (!file) {
-        ktlog.echo("cannot open the LEF file {}", filePath);
+        ktlog.warning("cannot open the LEF file {}", filePath);
         return false;
     }
 
@@ -316,7 +316,7 @@ bool LefDefInputAdapter::parseLefFile(const std::string &filePath) {
 bool LefDefInputAdapter::parseDefFile(const std::string &filePath) {
     InputTextFile file(filePath);
     if (!file) {
-        ktlog.echo("cannot open the DEF file {}", filePath);
+        ktlog.warning("cannot open the DEF file {}", filePath);
         return false;
     }
 

@@ -3,6 +3,7 @@
 #include "datamodel/kt_die.h"
 #include "datamodel/kt_dm.h"
 #include "datamodel/kt_optionDb.h"
+#include "datamodel/kt_stageReport.h"
 #include "util/kt_log.h"
 #include "util/kt_reportTable.h"
 #include "util/kt_scopedTimer.h"
@@ -88,8 +89,10 @@ multirowDM buildMultiRowDM(const ktDM &db) {
     copyFences(db.constraints(), design.fences);
     design.die = placementDieBox(db.die(), db.getGraph());
 
+    const StageCounts counts = countStage(design);
     multirowDM result(std::move(design));
     result.opts = loadOptions<MultiRowOptions>();
+    reportStageBuild(counts, db.checksum(), result.opts);
     return result;
 }
 
@@ -125,9 +128,6 @@ void reportRun(const MultiRowLegalizeResult &res) {
 multirowDM::multirowDM(Design design) : d(std::move(design)) {}
 
 multiRowSolution multirowDM::run() {
-    ScopedTimer timer("legalize");
-
-    reportOptions(opts);
     MultiRowLegalizer legalizer(d);
     const MultiRowLegalizeResult result = legalizer.legalize(opts);
     reportRun(result);
