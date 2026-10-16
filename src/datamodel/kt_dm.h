@@ -3,7 +3,7 @@
 
 #pragma once
 
-#include "constraint/kt_constraintMgr.h"
+#include "datamodel/kt_constraintMgr.h"
 #include "datamodel/kt_die.h"
 #include "datamodel/kt_graph.h"
 #include "datamodel/kt_rowFence.h"
@@ -51,6 +51,7 @@ public:
     void setPlacementSolution(const solutionMgr &solution);
     [[nodiscard]] solutionMgr getPlacementSolution() const;
 
+    void setSimplSolution(const simplSolution &solution);
     void setGPSolution(const ntuplace1Solution &solution);
 
     /// The same, for a legalization stage. Kept as its own name so a reader can

@@ -13,6 +13,7 @@
 #include "globalPlacer/ntuplace1/ntuplace1_dm.h"
 #include "globalPlacer/ntuplace1/ntuplace1_flowMgr.h"
 #include "globalPlacer/simpl/simpl_dm.h"
+#include "globalPlacer/simpl/simpl_flowMgr.h"
 #include "legalizer/abacus/abacus_dm.h"
 #include "legalizer/abacus/abacus_flowMgr.h"
 #include "legalizer/multirow/multirow_dm.h"
@@ -222,15 +223,15 @@ void FlowMgr::Impl::placeDesign() {
     }
 
     if (algorithm == "simpl") {
-        simpl::simplDM simplDB = simpl::buildSimplDM(*db);
-        if (recordStage(simplDB, snapshots.get(), {"simpl", "simpl", 0})) {
-            recordSimplBounds(simplDB, *snapshots);
+        simpl::flowMgr flow(*db);
+        if (recordStage(flow.dm(), snapshots.get(), {"simpl", "simpl", 0})) {
+            recordSimplBounds(flow.dm(), *snapshots);
         }
-        if (!simplDB.options().fences) {
+        if (!flow.dm().options().fences) {
             ktlog.echo("SimPL: fence enforcement disabled by 'add_option simpl fences 0'");
         }
-        (void)simplDB.run();
-        simplDB.commit(*db);
+        (void)flow.run();
+        db->setSimplSolution(flow.solution());
         commit("global placement");
         return;
 

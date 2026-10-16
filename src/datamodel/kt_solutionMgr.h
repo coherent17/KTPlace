@@ -26,6 +26,11 @@ namespace ktplace {
 [[nodiscard]] double netlistHPWL(const Graph &graph, const std::vector<double> &x,
                                  const std::vector<double> &y);
 
+struct simplSolution {
+    std::vector<double> xs;
+    std::vector<double> ys;
+};
+
 /// What NTUPlace1 hands back: a complete placement, like the legalizers'. It is
 /// overfull on purpose -- the paper's global placement is, and legalization is a
 /// separate step.

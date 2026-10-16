@@ -16,7 +16,7 @@
 
 #pragma once
 
-#include "constraint/kt_constraintMgr.h"
+#include "datamodel/kt_constraintMgr.h"
 #include "datamodel/kt_graph.h"
 #include "visualization/kt_plotOptions.h"
 

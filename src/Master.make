@@ -88,7 +88,7 @@ BUNDLED_LIBS := $(TBB_LIB) $(ZLIB_LIB)
 LIBS := $(STATIC_LDFLAGS) $(BUNDLED_LIBS) -pthread
 
 # Subdirectories
-SUBDIRS := datamodel adaptor constraint globalPlacer legalizer detailPlacer visualization util tcl
+SUBDIRS := datamodel adaptor globalPlacer legalizer detailPlacer visualization util tcl
 
 # Source files in current directory
 LOCAL_SRCS := kt_flowMgr.cc kt_place.cc kt_option.cc
@@ -241,7 +241,7 @@ TEST_datamodel := datamodel/test/test_datamodel.cc
 TEST_adaptor := adaptor/test/test_adaptor.cc
 TEST_flow := test/test_flow.cc
 TEST_util := util/test/test_util.cc
-TEST_constraint := constraint/test/test_constraint.cc
+TEST_constraint := datamodel/test/test_constraint.cc
 TEST_option := test/test_option.cc
 TEST_viz := visualization/test/test_viz.cc
 TEST_detail := detailPlacer/test/test_detail.cc

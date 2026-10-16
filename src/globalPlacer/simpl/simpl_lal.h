@@ -1,6 +1,6 @@
 #pragma once
 
-#include "globalPlacer/simpl/simpl_design.h"
+#include "globalPlacer/simpl/simpl_dm.h"
 #include "globalPlacer/simpl/simpl_grid.h"
 #include "globalPlacer/simpl/simpl_options.h"
 

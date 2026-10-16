@@ -3,7 +3,7 @@
 
 #pragma once
 
-#include "constraint/kt_constraintMgr.h"
+#include "datamodel/kt_constraintMgr.h"
 
 #include <array>
 #include <cstddef>

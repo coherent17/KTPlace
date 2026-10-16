@@ -1,7 +1,7 @@
 // @file kt_constraintMgr.cc// Implementation of the placement region constraints
 
 
-#include "constraint/kt_constraintMgr.h"
+#include "datamodel/kt_constraintMgr.h"
 
 #include <algorithm>
 #include <limits>

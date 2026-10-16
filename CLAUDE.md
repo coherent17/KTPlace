@@ -64,16 +64,16 @@ add_option visualizer anim 0
 load → report → global place → legalize → detailed place → final image, GIF → write `.pl`
 
 - **Input** (`adaptor/`): `makeInputReader` auto-detects the format. A `.def`/`.def.gz` goes to the LEF/DEF adaptor and anything else goes to Bookshelf. Both build the shared `ktDM`.
-- **Shared database** (`datamodel/`): `ktDM` owns the `Graph`, where cells and nets share one vertex-id space, along with the die and rows, the constraints (fences, from `constraint/`) and design-level queries such as `multiRowCells()`, `hpwl()`, the placement check and `fencedSubrows()`: the rows cut at fence boundaries, each piece labelled with its region (`datamodel/kt_rowFence.h`). The row-based stages get those labelled subrows from their DM builder and never split rows by fences themselves.
-- **Stage shape.** A stage owns a DM, and everything it needs lives in that DM:
-  1. `build<Stage>DM(ktDM)` converts ktDM into the stage's own `<stage>::Design` / `<stage>DM`.
+- **Shared database** (`datamodel/`): `ktDM` owns the `Graph`, where cells and nets share one vertex-id space, along with the die and rows, the constraints (fences, `datamodel/kt_constraintMgr`) and design-level queries such as `multiRowCells()`, `hpwl()`, the placement check and `fencedSubrows()`: the rows cut at fence boundaries, each piece labelled with its region (`datamodel/kt_rowFence.h`). The row-based stages get those labelled subrows from their DM builder and never split rows by fences themselves.
+- **Stage shape.** A stage owns a DM, and everything it needs lives in that DM. `<stage>::flowMgr` drives it:
+  1. Its constructor calls `build<Stage>DM(ktDM)`, which converts ktDM into the stage's own data model (`<stage>_dm.h`: the design, its fences, its result type).
   2. The same call loads the stage's options from `OptionDb` (`loadOptions<XOptions>()`) into the DM.
-  3. `<stage>DM::run()` runs the algorithm, which modifies the DM's own design (the cells' positions); it returns only the run statistics.
-  4. `<stage>DM::commit(ktDM&)` writes the result back to ktDM. The flow then runs the legality check and reports the checksum.
+  3. `flowMgr::run()` runs the algorithm, which modifies the DM's own design (the cells' positions); it returns only the run statistics.
+  4. `flowMgr::solution()` hands the DM's positions to the flow, which commits them with `ktDM::set<Stage>Solution` (`setSimplSolution`, ...). That is the only place the shared design is written, and the flow then runs the legality check and reports the checksum.
 
-  SimPL follows this shape (`simpl_dm`: `buildSimplDM`, `run`, `commit`). The other stages still return a solution struct from a `<stage>::flowMgr`, which the flow commits with `ktDM::set{GP,Legalization,MultiRow,DetailedPlace}Solution`; they are being moved to the DM shape one at a time. A stage never reads ktDM after building its DM.
+  SimPL follows this shape. The other stages still keep their answer outside their design and are being moved over one at a time. A stage never reads ktDM after building its DM.
 
-  SimPL's files: `simpl_dm` (the four steps), `simpl_placer` (netlist, B2B systems, iteration loop), `simpl_solver` (sparse system and conjugate gradient), `simpl_lal` (look-ahead legalization), `simpl_grid` (bin grid and free space), `simpl_parallel.h` (TBB helpers with deterministic reductions), `simpl_fence`, `simpl_design`, `simpl_graph`, `simpl_options`.
+  SimPL's files: `simpl_dm` (data model: design, fences, result, `buildSimplDM`), `simpl_flowMgr` (the four steps), `simpl_placer` (netlist and the iteration loop), `simpl_lss` (linear system solve: B2B and star systems, conjugate gradient), `simpl_lal` (look-ahead legalization), `simpl_grid` (bin grid and free space), `simpl_parallel.h` (TBB helpers with deterministic reductions), `simpl_graph`, `simpl_options`.
 - **Stages:**
   - `globalPlacer/simpl`: default quadratic placer with B2B net model and look-ahead legalization, fence-aware. `docs/simpl.md` explains how it differs from the published SimPL.
   - `globalPlacer/ntuplace1`: alternative global placer.

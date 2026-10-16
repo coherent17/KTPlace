@@ -12,7 +12,7 @@
 #define BOOST_TEST_MODULE ktplace_ntuplace1
 #define BOOST_TEST_DYN_LINK
 
-#include "constraint/kt_constraintMgr.h"
+#include "datamodel/kt_constraintMgr.h"
 #include "datamodel/kt_dm.h"
 #include "globalPlacer/ntuplace1/kt_ntuplace1.h"
 #include "globalPlacer/ntuplace1/ntuplace1_dm.h"
