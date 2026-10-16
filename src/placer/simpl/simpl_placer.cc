@@ -923,18 +923,28 @@ void simplPlacer::Impl::lookAheadLegalize(std::vector<double> &x, std::vector<do
         occ[k] += area[i];
     }
 
+    struct Turn {
+        BinRect bins;
+        BinRect reach;
+        std::uint32_t id = 0;
+    };
+    const auto reachOf = [&](const BinRect &r) {
+        return BinRect{r.x0 > 0 ? r.x0 - 1 : 0, std::min(r.x1 + 1, grid.nx - 1),
+                       r.y0 > 0 ? r.y0 - 1 : 0, std::min(r.y1 + 1, grid.ny - 1)};
+    };
+    const auto touches = [](const BinRect &a, const BinRect &b) {
+        return a.x0 <= b.x1 && b.x0 <= a.x1 && a.y0 <= b.y1 && b.y0 <= a.y1;
+    };
+
     std::vector<std::uint32_t> taken(numMovable, 0);
-    std::uint32_t turn = 0;
-    for (const BinRect &cluster : overfilledClusters(occ)) {
-        const BinRect bins = grown(cluster, occ);
-        Block top{grid.box(bins), 1, true, {}, grid.sum(grid.avail, bins)};
-        ++turn;
-        for (std::size_t iy = bins.y0; iy <= bins.y1; ++iy) {
-            for (std::size_t ix = bins.x0; ix <= bins.x1; ++ix) {
+    const auto legalizeRegion = [&](const Turn &t) {
+        Block top{grid.box(t.bins), 1, true, {}, grid.sum(grid.avail, t.bins)};
+        for (std::size_t iy = t.bins.y0; iy <= t.bins.y1; ++iy) {
+            for (std::size_t ix = t.bins.x0; ix <= t.bins.x1; ++ix) {
                 const std::size_t k = grid.at(ix, iy);
                 for (const std::uint32_t i : members[k]) {
-                    if (binOf[i] == k && taken[i] != turn) {
-                        taken[i] = turn;
+                    if (binOf[i] == k && taken[i] != t.id) {
+                        taken[i] = t.id;
                         top.cells.push_back(i);
                     }
                 }
@@ -951,7 +961,30 @@ void simplPlacer::Impl::lookAheadLegalize(std::vector<double> &x, std::vector<do
                 members[k].push_back(i);
             }
         }
+    };
+
+    std::vector<Turn> batch;
+    const auto runBatch = [&] {
+        tbb::parallel_for(std::size_t{0}, batch.size(), [&](std::size_t b) {
+            legalizeRegion(batch[b]);
+        });
+        batch.clear();
+    };
+    std::uint32_t turn = 0;
+    for (const BinRect &cluster : overfilledClusters(occ)) {
+        BinRect bins = grown(cluster, occ);
+        const auto clashes = [&] {
+            return std::ranges::any_of(batch, [&](const Turn &t) {
+                return touches(t.reach, reachOf(bins));
+            });
+        };
+        if (clashes()) {
+            runBatch();
+            bins = grown(cluster, occ);
+        }
+        batch.push_back({bins, reachOf(bins), ++turn});
     }
+    runBatch();
     clampToDie(x, y);
 }
 
