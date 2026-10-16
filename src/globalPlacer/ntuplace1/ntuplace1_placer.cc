@@ -41,6 +41,17 @@ constexpr std::uint32_t noIndex = 0xFFFFFFFFu;
 constexpr int maxPasses = 8;
 constexpr double balanceSlack = 0.02;
 
+double imbalanceWindow(double total, double cap0, double cap1) {
+    const auto maxImbalance = [total](double cap) {
+        return cap >= total ? std::numeric_limits<double>::infinity() : cap / (total - cap) - 1.0;
+    };
+    const double f = std::min(maxImbalance(cap0), maxImbalance(cap1));
+    if (std::isinf(f)) {
+        return 0.5 * total;
+    }
+    return std::max(0.0, total * f / (2.0 * (2.0 + f)));
+}
+
 std::pair<std::uint8_t, double> cutWeight(double tmin, double tmax, double p1, double p2) {
     if (tmin > tmax) {
         return {0, p2 - p1};
@@ -69,6 +80,8 @@ private:
     double freeAreaIn(double x0, double y0, double x1, double y1) const;
     double movableArea(const std::vector<std::uint32_t> &) const;
     void divide(RatioRegion r);
+    [[nodiscard]] double ratioCut(const RatioRegion &r, bool vertical, double total) const;
+    void trimToFree(RatioRegion &r) const;
     [[nodiscard]] int forcedSide(int region, const RatioRegion &r0, const RatioRegion &r1) const;
     std::size_t applyFences();
     std::size_t bipartition(const std::vector<std::uint32_t> &cells, bool vertical, double p1,
@@ -528,6 +541,67 @@ std::size_t RatioPlacer::Impl::applyFences() {
     return outside;
 }
 
+double RatioPlacer::Impl::ratioCut(const RatioRegion &r, bool vertical, double total) const {
+    const double lo = vertical ? r.x0 : r.y0;
+    const double hi = vertical ? r.x1 : r.y1;
+    const auto below = [&](double c) {
+        return vertical ? freeAreaIn(r.x0, r.y0, c, r.y1) : freeAreaIn(r.x0, r.y0, r.x1, c);
+    };
+    const auto above = [&](double c) {
+        return vertical ? freeAreaIn(c, r.y0, r.x1, r.y1) : freeAreaIn(r.x0, c, r.x1, r.y1);
+    };
+    const double middle = lo + 0.5 * (hi - lo);
+    const double half = 0.5 * total;
+    if (below(middle) >= half && above(middle) >= half) {
+        return middle;
+    }
+    const auto bisect = [&](double a, double b, auto &&enough) {
+        for (int step = 0; step < 40; ++step) {
+            const double m = 0.5 * (a + b);
+            (enough(m) ? b : a) = m;
+        }
+        return b;
+    };
+    if (below(middle) < half) {
+        const double c = bisect(middle, hi, [&](double m) {
+            return below(m) >= half;
+        });
+        return above(c) >= half ? c : middle;
+    }
+    const double c = -bisect(-middle, -lo, [&](double m) {
+        return above(-m) >= half;
+    });
+    return below(c) >= half ? c : middle;
+}
+
+void RatioPlacer::Impl::trimToFree(RatioRegion &r) const {
+    const double room = freeAreaIn(r.x0, r.y0, r.x1, r.y1);
+    if (room <= 0.0) {
+        return;
+    }
+    const double some = 1e-9 * room;
+    const auto edge = [](double from, double to, auto &&hasRoom) {
+        for (int step = 0; step < 40; ++step) {
+            const double m = 0.5 * (from + to);
+            (hasRoom(m) ? to : from) = m;
+        }
+        return from;
+    };
+    const RatioRegion box = r;
+    r.x0 = edge(box.x0, box.x1, [&](double m) {
+        return freeAreaIn(box.x0, box.y0, m, box.y1) > some;
+    });
+    r.x1 = edge(box.x1, box.x0, [&](double m) {
+        return freeAreaIn(m, box.y0, box.x1, box.y1) > some;
+    });
+    r.y0 = edge(box.y0, box.y1, [&](double m) {
+        return freeAreaIn(box.x0, box.y0, box.x1, m) > some;
+    });
+    r.y1 = edge(box.y1, box.y0, [&](double m) {
+        return freeAreaIn(box.x0, m, box.x1, box.y1) > some;
+    });
+}
+
 void RatioPlacer::Impl::divide(RatioRegion r) {
     result.maxDepth = std::max(result.maxDepth, r.depth);
     if (r.cells.size() <= opts.targetLeafCells || r.depth >= opts.maxLevels) {
@@ -540,10 +614,9 @@ void RatioPlacer::Impl::divide(RatioRegion r) {
         return;
     }
 
-    const double w = r.x1 - r.x0;
-    const double h = r.y1 - r.y0;
-    const bool vertical = (w >= h);
-    const double cut = vertical ? r.x0 + 0.5 * w : r.y0 + 0.5 * h;
+    const bool vertical = (r.x1 - r.x0) >= (r.y1 - r.y0);
+    const double total = movableArea(r.cells);
+    const double cut = ratioCut(r, vertical, total);
 
     RatioRegion r0, r1;
     r0.x0 = r1.x0 = r.x0;
@@ -554,6 +627,8 @@ void RatioPlacer::Impl::divide(RatioRegion r) {
     (vertical ? r0.x1 : r0.y1) = cut;
     (vertical ? r1.x0 : r1.y0) = cut;
 
+    trimToFree(r0);
+    trimToFree(r1);
     const double free0 = freeAreaIn(r0.x0, r0.y0, r0.x1, r0.y1);
     const double free1 = freeAreaIn(r1.x0, r1.y0, r1.x1, r1.y1);
     if (free0 <= 0.0 || free1 <= 0.0) {
@@ -568,13 +643,14 @@ void RatioPlacer::Impl::divide(RatioRegion r) {
         return;
     }
 
-    const double total = movableArea(r.cells);
-    const double target = total * free0 / (free0 + free1);
     double maxCell = 0.0;
     for (const std::uint32_t c : r.cells) {
         maxCell = std::max(maxCell, cellArea[c]);
     }
-    double tol = std::max(balanceSlack * total, 2.0 * maxCell);
+    const bool overfull = total > free0 + free1;
+    const double target = overfull ? total * free0 / (free0 + free1) : 0.5 * total;
+    double tol = overfull ? balanceSlack * total : imbalanceWindow(total, free0, free1);
+    tol = std::max(tol, 2.0 * maxCell);
 
     std::vector<std::int8_t> forced;
     if (fences != nullptr && fences->numRegions() > 0) {
@@ -604,7 +680,7 @@ void RatioPlacer::Impl::divide(RatioRegion r) {
             (side[i] == 0 ? r0.cells : r1.cells).push_back(r.cells[i]);
         }
         const double a0 = movableArea(r0.cells), a1 = total - a0;
-        const bool fits = (a0 <= free0 && a1 <= free1) || total > free0 + free1;
+        const bool fits = (a0 <= free0 && a1 <= free1) || overfull;
         if (fits || attempt >= opts.maxRatioRetries || tol <= 2.0 * maxCell) {
             break;
         }
