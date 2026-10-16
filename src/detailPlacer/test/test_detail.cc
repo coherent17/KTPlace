@@ -832,8 +832,7 @@ BOOST_AUTO_TEST_CASE(a_vertical_swap_does_not_carry_cells_across_a_fence) {
     // directly above it in row 2. The member is wired to a cell in row 3 and the
     // non-member to one in row 0, so swapping the two rows shortens both nets --
     // exactly what vertical swap looks for, and it would put each cell on the
-    // wrong side of the fence. The anchors are movable cells, not pads: FastDP
-    // prices a fixed pin by its x only, so a pad could not pull vertically.
+    // wrong side of the fence.
     ktDM db;
     for (int r = 0; r < 4; ++r) {
         addRow(db, r, 100);
