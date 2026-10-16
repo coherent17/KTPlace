@@ -28,25 +28,21 @@ ktplace.log
 benchmark/*
 !benchmark/fetch_benchmarks.py
 !benchmark/README.md
-# The baseline sweep's results are small, human-readable, and the point of
-# committing them: they are the reference the console's /bench page ranks
-# against, not the downloaded benchmark data the rule above keeps out.
-!benchmark/baseline.tsv
 
 # Two designs are the exceptions, and both are deliberate: one per feature that
 # CI has to be able to test without depending on a download.
 #
-# adaptec1 is the smoke design, and the ISPD 2005 suite has no download URL that
-# still works -- the UMich mirror 404s and the UT Austin tarball 403s -- so a job
-# that has to fetch it would just be a red build waiting to happen. The suite is
-# redistributed by dozens of placement papers without a canonical home, and the
-# whole design is 5.4 MB already gzipped, which is a fair price for a smoke test
-# that cannot break on someone else's uptime. The other seven stay ignored, and
-# `output/run_ispd2005.sh` skips any design it cannot find.
+# adaptec1 is the smoke design. The whole design is 5.4 MB already gzipped, which
+# is a fair price for a smoke test that cannot break on someone else's uptime;
+# fetch_benchmarks.py downloads the other seven from the contest site. The
+# contest evaluators of 2005 and 2006 are committed too, with their wrappers.
 !benchmark/ISPD_2005/
 benchmark/ISPD_2005/*
 !benchmark/ISPD_2005/adaptec1/
 !benchmark/ISPD_2005/evaluator/
+!benchmark/ISPD06/
+benchmark/ISPD06/*
+!benchmark/ISPD06/evaluator/
 
 # ibm01 is the multi-row legalization design: 120 of its movable cells are taller
 # than a row, so it is the only benchmark here that exercises that path at all,

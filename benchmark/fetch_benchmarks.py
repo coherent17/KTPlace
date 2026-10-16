@@ -13,6 +13,10 @@ plain, uncompressed files named after the design:
     benchmark/ICCAD04/ibm01/{ibm01.nodes,ibm01.nets,ibm01.pl,ibm01.scl,...}
     benchmark/ICCAD04/dma/{dma.nodes,dma.nets,dma.pl,dma.scl,...}
     benchmark/ISPD02/ibm01/{ibm01.nodes,ibm01.nets,ibm01.pl,ibm01.scl,...}
+    benchmark/ISPD_2005/adaptec2/{adaptec2.nodes,...}   (one archive per design)
+    benchmark/ISPD06/newblue1/{newblue1.nodes,...}      (one archive per design)
+
+The contest suites' own evaluators go into <suite>/evaluator/.
 
 Only the standard library is used; archives are unpacked with `tarfile` and any
 `.gz` members are inflated so the readers see plain text. Design directories
@@ -81,6 +85,41 @@ BOOKSHELF = {
             "designs": [f"ibm{i:02d}" for i in range(1, 19)],
         },
     ],
+}
+
+ISPD05 = "https://www.ispd.cc/contests/05/ispd05-contest"
+ISPD06 = "https://www.ispd.cc/contests/06/contest"
+
+PER_DESIGN = {
+    "ISPD_2005": {
+        "adaptec1": f"{ISPD05}/adaptec1.tar.gz",
+        "adaptec2": f"{ISPD05}/benchmarks/adaptec2.tar.gz",
+        "adaptec3": f"{ISPD05}/adaptec3.tar.gz",
+        "adaptec4": f"{ISPD05}/benchmarks/adaptec4.tar.gz",
+        **{f"bigblue{i}": f"{ISPD05}/benchmarks/bigblue{i}.tar.gz" for i in range(1, 5)},
+    },
+    "ISPD06": {
+        "adaptec5": f"{ISPD06}/adaptec5.tar.gz",
+        **{f"newblue{i}": f"{ISPD06}/newblue{i}.tar.gz" for i in range(1, 8)},
+    },
+}
+
+EVALUATORS = {
+    "ISPD_2005": {
+        "hpwl.pl": f"{ISPD05}/hpwl.pl.gz",
+        "legal.pl": f"{ISPD05}/legal.pl.gz",
+        "legal2.pl": f"{ISPD05}/legal2.pl.gz",
+    },
+    "ISPD06": {
+        "hpwl.pl": f"{ISPD06}/hpwl.gz",
+        "check_legality.pl": f"{ISPD06}/check_legality.gz",
+        "check_density_target.pl": f"{ISPD06}/check_density_target.gz",
+        "check_density_target_for_nw1.pl": f"{ISPD06}/check_density_target_for_nw1.gz",
+        "transformed.list": f"{ISPD06}/transformed.list",
+    },
+    ISPD15_DIR: {
+        "placement_checker": "https://www.ispd.cc/contests/15/web/bin/placement_checker",
+    },
 }
 
 USER_AGENT = "KTPlace-benchmark-fetcher/1.0"
@@ -270,6 +309,58 @@ def fetch_ispd15(dest_root: pathlib.Path, force: bool, only: str | None = None) 
     archive.unlink(missing_ok=True)
 
 
+def fetch_per_design(suite: str, dest_root: pathlib.Path, only: str | None,
+                     force: bool) -> None:
+    dest = dest_root / suite
+    designs = PER_DESIGN[suite]
+    if only and only not in designs:
+        print(f"{suite}: unknown design '{only}'; known designs: {', '.join(designs)}")
+        return
+    for design, url in designs.items():
+        if only and design != only:
+            continue
+        target = dest / design
+        if design_is_installed(target) and not force:
+            print(f"{suite}: {design} already present, skipping.")
+            continue
+        CACHE.mkdir(parents=True, exist_ok=True)
+        archive = CACHE / f"{suite}_{design}.tar.gz"
+        print(f"Downloading {suite} / {design} ...\n  {url}")
+        download(url, archive)
+        with tempfile.TemporaryDirectory(prefix=design + "_") as tmp:
+            staging = pathlib.Path(tmp)
+            safe_extract(archive, staging)
+            shutil.rmtree(target, ignore_errors=True)
+            target.mkdir(parents=True)
+            for entry in sorted(staging.rglob(f"{design}.*")):
+                if entry.is_file():
+                    plain = inflate(entry)
+                    if plain.name.endswith(BOOKSHELF_EXTS):
+                        shutil.copy2(plain, target / plain.name)
+        archive.unlink(missing_ok=True)
+        print(f"  installed {suite}/{design}")
+
+
+def fetch_evaluator(suite: str, dest_root: pathlib.Path, force: bool) -> None:
+    dest = dest_root / suite / "evaluator"
+    dest.mkdir(parents=True, exist_ok=True)
+    for name, url in EVALUATORS[suite].items():
+        target = dest / name
+        if target.exists() and not force:
+            continue
+        print(f"Downloading {suite} evaluator {name} ...\n  {url}")
+        if url.endswith(".gz"):
+            packed = dest / (name + ".gz")
+            download(url, packed)
+            with gzip.open(packed, "rb") as src, open(target, "wb") as out:
+                shutil.copyfileobj(src, out)
+            packed.unlink()
+        else:
+            download(url, target)
+        if not name.endswith(".list"):
+            target.chmod(0o755)
+
+
 def show_sources() -> None:
     print("KTPlace benchmark sources (original publishers)\n")
     print(f"{ISPD15_DIR}  (LEF/DEF, {len(ISPD15_DESIGNS)} designs)")
@@ -278,13 +369,21 @@ def show_sources() -> None:
         print(f"\n{suite}  (Bookshelf)")
         for spec in specs:
             print(f"  {spec['label']}\n    {spec['url']}")
+    for suite, designs in PER_DESIGN.items():
+        print(f"\n{suite}  (Bookshelf, one archive per design)")
+        for design, url in designs.items():
+            print(f"  {design}\n    {url}")
+    for suite, scripts in EVALUATORS.items():
+        print(f"\n{suite} contest evaluator -> {suite}/evaluator/")
+        for name, url in scripts.items():
+            print(f"  {name}\n    {url}")
 
 
 def main() -> int:
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--list", action="store_true", help="print the source URLs and exit")
-    ap.add_argument("--suite", choices=[ISPD15_DIR, *BOOKSHELF], help="fetch only this suite")
+    ap.add_argument("--suite", choices=[ISPD15_DIR, *BOOKSHELF, *PER_DESIGN], help="fetch only this suite")
     ap.add_argument("--design", help="fetch only this design (used with --suite)")
     ap.add_argument("--dest", type=pathlib.Path, default=ROOT,
                     help="output root (default: <repo>/benchmark)")
@@ -303,6 +402,12 @@ def main() -> int:
     for suite in BOOKSHELF:
         if args.suite in (None, suite):
             fetch_bookshelf(suite, dest_root, args.design, args.force)
+    for suite in PER_DESIGN:
+        if args.suite in (None, suite):
+            fetch_per_design(suite, dest_root, args.design, args.force)
+    for suite in EVALUATORS:
+        if args.suite in (None, suite):
+            fetch_evaluator(suite, dest_root, args.force)
     return 0
 
 

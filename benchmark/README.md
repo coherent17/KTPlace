@@ -16,15 +16,12 @@ already present, so it is safe to re-run.
 ## The first vendored design: `ISPD_2005/adaptec1`
 
 `benchmark/ISPD_2005/adaptec1/` (5.4 MB, gzipped Bookshelf, dated March 2005) is
-committed. It is the CI smoke design, and it is in the tree because the ISPD 2005
-suite cannot be fetched: the
-UMich mirror has no copy and the tarball DREAMPlace points at now returns 403,
-while the suite itself is redistributed by dozens of placement papers without a
-canonical home. Vendoring one 5.4 MB design is a fair price for a smoke test
-that cannot fail on someone else's uptime. The other seven ISPD 2005 designs
-(`adaptec2`–`adaptec4`, `bigblue1`–`bigblue4`) stay ignored; `fetch_benchmarks.py`
-skips any design it cannot fetch, so a partial checkout still runs the designs it
-has.
+committed. It is the CI smoke design, in the tree so that a smoke test cannot
+fail on someone else's uptime. `fetch_benchmarks.py` downloads the other seven
+ISPD 2005 designs (`adaptec2`–`adaptec4`, `bigblue1`–`bigblue4`) from the
+[contest page](https://www.ispd.cc/contests/05/contest.htm), one archive per
+design, and the ISPD 2006 designs (`adaptec5`, `newblue1`–`newblue7`) from
+[theirs](https://www.ispd.cc/contests/06/contest.html).
 
 ## The second vendored design: `ICCAD04/ibm01`
 
@@ -96,9 +93,12 @@ marked `/FIXED` in `.pl`. Gzipped (`.gz`) inputs are read transparently.
 the organizer, Gi-Joon Nam (IBM):
 
 - `hpwl.pl`: HPWL with pin offsets, the contest's metric.
-- `legal.pl`: the legality check, the contest's final version (`legal2.pl` of
-  March 2005, renamed). It checks that terminals did not move, that every movable
-  cell is inside the rows it covers and aligned to them, and that nothing overlaps.
+- `legal2.pl`: the contest's final legality check (March 2005). It checks that
+  terminals did not move, that every movable cell is inside the rows it covers
+  and aligned to them, and that nothing overlaps.
+- `legal.pl`: the earlier legality check (January 2005), kept for reference.
+  `legal2.pl` adds the check against each row's own x-range and reports overlaps
+  as `ERROR Type3` rather than `ErrorType3`; `evaluate.sh` uses `legal2.pl`.
 
 They read plain Bookshelf files, so `evaluate.sh` unpacks a design and runs both:
 
@@ -111,3 +111,40 @@ benchmark/ISPD_2005/evaluator/evaluate.sh benchmark/ISPD_2005/adaptec1 output/ad
 It exits non-zero if the placement has any legality error. The contest did not
 allow cells to be rotated or mirrored (organizer's announcement of 21 January
 2005), and `hpwl.pl` ignores the orientation column, scoring every cell as `N`.
+
+## ISPD 2006 contest evaluator
+
+`ISPD06/evaluator/` holds the 2006 contest's scripts, unchanged apart from the
+`.pl` suffix: `hpwl.pl` and `check_legality.pl` (the 2005 scripts, lightly
+revised), `check_density_target.pl`, and the variant newblue1 needs with its
+`transformed.list`. The 2006 score is not plain HPWL. Each design has a target
+density, and the score is
+
+    scaled HPWL = HPWL * (1 + scaled overflow per bin / 100)
+
+with the overflow measured on a 120 x 120 bin grid. The placement must also be
+legal. `evaluate.sh` runs all three and prints the score; the target densities
+are the contest's (adaptec5 0.5, newblue1 0.8, newblue2 0.9, newblue3 0.8,
+newblue4 0.5, newblue5 0.5, newblue6 0.8, newblue7 0.8), and a third argument
+overrides it:
+
+```sh
+benchmark/ISPD06/evaluator/evaluate.sh benchmark/ISPD06/newblue1 output/newblue1/placed.pl
+```
+
+The contest also scaled the score by run time (up to 10%), which the script
+does not attempt.
+
+## ISPD 2015 placement checker
+
+The ISPD 2015 contest scored placements by routing them with Mentor's
+Olympus-SoC, which was never released. The only tool it published is
+`placement_checker`, which checks that a placement DEF is well formed and legal;
+`fetch_benchmarks.py` downloads it into `ISPD_2015/evaluator/`.
+
+## Fetching the evaluators
+
+`fetch_benchmarks.py` also downloads each contest's scripts into
+`<suite>/evaluator/`, skipping files that are already there, so the committed
+ISPD 2005 and 2006 copies are left alone. The ICCAD04 and ISPD02 suites are
+academic releases with no contest evaluator.

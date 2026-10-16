@@ -1,26 +1,19 @@
 #!/usr/bin/perl
 
-# 02/28/2005 Gi-Joon: modification to reflect un-aligned row configuration 
-#                     with RowDBstartX & RowDBendX array
- 
 # Written by Gi-Joon Nam (gnam@us.ibm.com) on Jan 2005
-# usage: legal.pl <nodes> <input.pl> <solution.pl> <scl> <row_num>
+# usage: is_legal.pl <nodes> <input.pl> <solution.pl> <scl> <row_num>
 #        This perl script checks the following conditions
-#        0. whether a terminal obect moved (ERROR Type0)
-#        1. whether a movable object is placed outside placement area (ERROR Type1)
-#        2. whether a object is aligned to row boundary (ERROR Type2)
-#        3. whether there is any overlap among objects (ERROR Type3)
+#        0. whether a terminal obect moved (ErrorType0)
+#        1. whether a movable object is placed outside placement area (ErrorType1)
+#        2. whether a object is aligned to row boundary (ErrorType2)
+#        3. whether there is any overlap among objects (ErrorType3)
 #
 # <row_num> defines legality-checking row window sizes (# of rows)
 # i.e., window = (image_hx - image_lx) X ROW_JUMP 
 
-$DEFAULT_ROW_HEIGHT = 12; 
-
 %ObjectDB;
 @AreaMap;
-@RowDB;        # stores row_y_low value for each row.
-@RowDBstartX;  # starting X coordinate of each row
-@RowDBendX;    # ending X coordinate of each row. RowDBs share the same index
+@RowDB;    # stores row_y_low value for each row.
 @ErrorDB;
 
 $DXINDEX=0;
@@ -60,7 +53,7 @@ open (EFILE, ">legality.error") || die "I can't open legality.error\n";
 # scl file processing
 ###########################
 $num_processed_rows = 0;
-$row_height = $DEFAULT_ROW_HEIGHT; 
+$row_height = 12; # default row-height value = 12
 while (defined($line = <SFILE>)) {
     $line =~ s/^\s+//; # removes front/end white spaces
     $line =~ s/\s+$//;
@@ -182,8 +175,6 @@ while (defined($line = <SFILE>)) {
 	if ($words[0] eq "SubrowOrigin") {
 	    $row_x = $words[2];
 	    $row_num_sites = $words[5];
-	    push(@RowDBstartX, $row_x);
-	    push(@RowDBendX, $row_x + $row_num_sites);
 	}
 	else {
 	    print EFILE "ERROR: CoreRow Processing: SubrowOrigin keyword not found\n";
@@ -393,35 +384,6 @@ foreach $key (keys (%ObjectDB)) {
 	    $ErrorDB[1] += 1;
 	}
     }
-
-    if ($move_type ne "terminal") {
-	# Row start x to end x checking
-	$hy = $ly + $dy;
-	$row_id_l = ($ly - $RowDB[0]) / $row_height;
-	$int_row_id = int (($ly - $RowDB[0]) / $row_height);	
-	if ($row_id_l != $int_row_id) {
-	    print EFILE "ERROR Type2: $key (movable) NOT aligned to row boundary dy=$dy row_id=$row_id_l\n";
-	    #$ErrorDB[2] += 1;
-	    #my_exit(0);
-	}
-
-	$row_id_h = ($hy - $RowDB[0]) / $row_height;
-	$int_row_id = int (($hy - $RowDB[0]) / $row_height);
-	if ($row_id_h != $int_row_id) {
-	    print EFILE "ERROR Type2: $key (movable) NOT aligned to row boundary dy=$dy row_id=$row_id_h\n";
-	    #$ErrorDB[2] += 1;
-	    #my_exit(0);
-	}
-	for ($this_row = $row_id_l; $this_row < $row_id_h; $this_row++) {
-	    $startX = $RowDBstartX[$this_row];
-	    $endX   = $RowDBendX[$this_row];
-	    if ($lx < $startX || $hx > $endX) {
-		print EFILE "ERROR Type1: $key($move_type) is placed outside row-boundary ($lx $ly $hx $hy)\n";
-		print EFILE "           : row $this_row ($startX $endX)\n";
-		$ErrorDB[1] += 1;
-	    }
-	}
-    }
     $num_obj++;
 }
 print "Phase 3: Type1 Checking is done with $ErrorDB[1] errors.\n";
@@ -505,7 +467,7 @@ for ($map_row_start = 0; $map_row_start < $num_rows; $map_row_start += $ROW_JUMP
 			@obj_name = @{$AreaMap[$x][$this_row]};
 			$this_row_ly = $RowDB[$this_row];
 
-			print EFILE "ERROR Type3: overlap $x $this_row_ly ($array_size)\n";
+			print EFILE "ErrorType3: overlap $x $this_row_ly ($array_size)\n";
 			for ($i = 0; $i < $array_size; $i++) {
 			    $name = ${@obj_name[$i]};
 			    $name_length = length $name;
