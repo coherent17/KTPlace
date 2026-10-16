@@ -1355,8 +1355,23 @@ SimplResult simplPlacer::Impl::run(const SimplOptions &params) {
     double gapReference = 0.0;
     double bestUpper = std::numeric_limits<double>::max();
     std::size_t stalledFor = 0;
+    const std::size_t startBins = grid.nx;
+    const double meanArea =
+        std::accumulate(area.begin(), area.end(), 0.0) / static_cast<double>(numMovable);
+    const double extent = std::max(die[2] - die[0], die[3] - die[1]);
+    const auto finestBins = std::max(
+        startBins, static_cast<std::size_t>(extent / (par.gridFloor * std::sqrt(meanArea))));
+    const auto binsAt = [&](std::size_t it) {
+        const double steps = it > par.gridDelay ? static_cast<double>(it - par.gridDelay) : 0.0;
+        const auto wanted = static_cast<std::size_t>(static_cast<double>(startBins) *
+                                                     std::pow(par.gridGrowth, steps));
+        return std::clamp(wanted, startBins, finestBins);
+    };
     for (std::size_t it = 0; it < par.maxIters; ++it) {
         res.globalIters = it + 1;
+        if (const std::size_t bins = binsAt(it); bins != grid.nx) {
+            buildGrid(bins);
+        }
         {
             ScopedTimer timer("simpl-legalize");
             upper = lower;
@@ -1370,9 +1385,10 @@ SimplResult simplPlacer::Impl::run(const SimplOptions &params) {
         const double lowerHpwl = hpwl(lower, lowerY);
         const double gap = upperHpwl - lowerHpwl;
         bounds.push_back({upperHpwl, lowerHpwl});
-        ktlog.trace("iter {:3d}: lower {:.6e} upper {:.6e} gap {:.4e} overflow {:.4f} -> {:.4f}",
-                    it, lowerHpwl, upperHpwl, gap, overflow(occupancy(lower, lowerY)),
-                    overflow(occupancy(upper, upperY)));
+        ktlog.trace(
+            "iter {:3d} ({} bins): lower {:.6e} upper {:.6e} gap {:.4e} overflow {:.4f} -> {:.4f}",
+            it, grid.nx, lowerHpwl, upperHpwl, gap, overflow(occupancy(lower, lowerY)),
+            overflow(occupancy(upper, upperY)));
         if (par.traceEvery > 0 && it % par.traceEvery == 0) {
             writeFrame("LSS", lower, lowerY,
                        std::format("LSS (linear system solve) - iteration {}", it), it,
@@ -1407,23 +1423,6 @@ SimplResult simplPlacer::Impl::run(const SimplOptions &params) {
             ScopedTimer timer("simpl-solve");
             solve(lower, lowerY, "g" + frameStep(it));
             res.solveSeconds += timer.elapsedSeconds();
-        }
-    }
-
-    if (!upper.empty() && par.refineIters > 0) {
-        const std::size_t done = res.globalIters;
-        buildGrid(grid.nx * par.refineGridFactor);
-        for (std::size_t r = 0; r < par.refineIters; ++r) {
-            const double alpha = par.alphaBase * (1.0 + static_cast<double>(done + r));
-            buildSystems(lower, lowerY, alpha, upper, upperY);
-            solve(lower, lowerY, "refine" + frameStep(r));
-            upper = lower;
-            upperY = lowerY;
-            lookAheadLegalize(upper, upperY);
-            enforceFences(upper, upperY);
-            ktlog.trace("refine {:2d} on {}x{} bins: lower {:.6e} upper {:.6e} overflow {:.4f}", r,
-                        grid.nx, grid.ny, hpwl(lower, lowerY), hpwl(upper, upperY),
-                        overflow(occupancy(upper, upperY)));
         }
     }
 

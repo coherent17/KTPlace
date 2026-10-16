@@ -30,8 +30,9 @@ struct SimplOptions {
     double gapRelaxedFrac = 0.25;
     double gapTightFrac = 0.05;
     std::size_t stallIters = 6;
-    std::size_t refineIters = 10;
-    std::size_t refineGridFactor = 3;
+    double gridGrowth = 1.06;
+    double gridFloor = 6.0;
+    std::size_t gridDelay = 5;
     std::size_t cgMaxIter = 60;
     std::size_t traceEvery = 1;
     std::size_t cgEvery = 0;
@@ -48,6 +49,9 @@ struct SimplOptions {
         visit("alpha_base", self.alphaBase);
         visit("trace_every", self.traceEvery);
         visit("cg_every", self.cgEvery);
+        visit("grid_growth", self.gridGrowth);
+        visit("grid_floor", self.gridFloor);
+        visit("grid_delay", self.gridDelay);
     }
 };
 

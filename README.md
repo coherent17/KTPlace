@@ -164,7 +164,7 @@ add_option visualizer anim 0
 | `simpl` | `trace_every` | SVG frame every N global iterations; `0` turns them off (`1`) |
 | `simpl` | `cg_every` | SVG frame every N conjugate-gradient iterates; `0` turns them off (`0`) |
 | `simpl` | `init_net` | initial placement net model: `star` (placement-independent star model), `b2b` (the paper's Bound2Bound), or `star_b2b` (`star`) |
-| `simpl` | `grid`, `cg_tol`, `init_iters`, `iters`, `seed`, `fences`, `density`, `alpha_base` | solver settings |
+| `simpl` | `grid`, `cg_tol`, `init_iters`, `iters`, `seed`, `fences`, `density`, `alpha_base`, `grid_growth`, `grid_floor`, `grid_delay` | solver settings; the LAL grid starts at `grid` bins per axis, waits `grid_delay` iterations, then grows by `grid_growth` per iteration until a bin is `grid_floor` times the mean cell side |
 | `ntuplace1` | `leaf_cells`, `max_levels`, `retries`, `verbose` | partitioner settings |
 | `abacus` | `max_row_dist`, `min_subrow_sites` | legalizer settings |
 | `abacus` | `frame_every` | SVG frame every N cells placed; `0` keeps only the first and last (`0`) |
