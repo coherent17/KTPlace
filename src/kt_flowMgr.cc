@@ -238,9 +238,9 @@ void FlowMgr::Impl::placeDesign() {
     } else if (algorithm == "ntuplace1") {
         // Build this placer's own database, run it there, commit the answer: the
         // same shape as every other stage.
-        ntuplace1::ntuplace1DM placeDB = ntuplace1::buildNtuplace1DM(*db);
-        ntuplace1::flowMgr flow(placeDB);
-        db->setGPSolution(flow.runGlobalPlacer());
+        ntuplace1::flowMgr flow(*db);
+        (void)flow.run();
+        db->setNtuplace1Solution(flow.solution());
         commit("global placement");
         return;
 

@@ -52,7 +52,7 @@ public:
     [[nodiscard]] solutionMgr getPlacementSolution() const;
 
     void setSimplSolution(const simplSolution &solution);
-    void setGPSolution(const ntuplace1Solution &solution);
+    void setNtuplace1Solution(const ntuplace1Solution &solution);
 
     /// The same, for a legalization stage. Kept as its own name so a reader can
     /// tell which stage produced the placement.
