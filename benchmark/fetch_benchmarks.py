@@ -12,7 +12,6 @@ plain, uncompressed files named after the design:
     benchmark/ISPD_2015/mgc_des_perf_a/{floorplan.def,cells.lef,tech.lef,...}
     benchmark/ICCAD04/ibm01/{ibm01.nodes,ibm01.nets,ibm01.pl,ibm01.scl,...}
     benchmark/ICCAD04/dma/{dma.nodes,dma.nets,dma.pl,dma.scl,...}
-    benchmark/ISPD02/ibm01/{ibm01.nodes,ibm01.nets,ibm01.pl,ibm01.scl,...}
     benchmark/ISPD_2005/adaptec2/{adaptec2.nodes,...}   (one archive per design)
     benchmark/ISPD06/newblue1/{newblue1.nodes,...}      (one archive per design)
 
@@ -75,14 +74,6 @@ BOOKSHELF = {
             "url": f"{UMICH}/ICCAD04bench/FARADAY_ICCAD04Bench.tar.gz",
             "layout": "faraday",
             "designs": ["dma", "dsp1", "dsp2", "risc1", "risc2"],
-        },
-    ],
-    "ISPD02": [
-        {
-            "label": "IBM-MS (ibm01-ibm18)",
-            "url": f"{UMICH}/ISPD02bench/ibmISPD02Bench_Bookshelf.tar.gz",
-            "layout": "flat",
-            "designs": [f"ibm{i:02d}" for i in range(1, 19)],
         },
     ],
 }

@@ -47,7 +47,8 @@ trade for CI. It is here for two reasons:
 | `ISPD_2015` | LEF/DEF | `mgc_*` (16) | [ispd.cc contest site](https://www.ispd.cc/contests/15/web/benchmarks/ispd_2015_contest_benchmark.tgz) |
 | `ICCAD04` | Bookshelf | `ibm01`–`ibm18` | [UMich ICCAD04bench](https://vlsicad.eecs.umich.edu/BK/ICCAD04bench/ibmMSWpinsICCAD04Bench_BOOKSHELF.tar.gz) (IBM-MSwPins) |
 | `ICCAD04` | Bookshelf | `dma`, `dsp1`, `dsp2`, `risc1`, `risc2` | [UMich ICCAD04bench](https://vlsicad.eecs.umich.edu/BK/ICCAD04bench/FARADAY_ICCAD04Bench.tar.gz) (Faraday) |
-| `ISPD02` | Bookshelf | `ibm01`–`ibm18` | [UMich ISPD02bench](https://vlsicad.eecs.umich.edu/BK/ISPD02bench/ibmISPD02Bench_Bookshelf.tar.gz) (IBM-MS) |
+| `ISPD_2005` | Bookshelf | `adaptec1`–`adaptec4`, `bigblue1`–`bigblue4` | [ISPD 2005 contest site](https://www.ispd.cc/contests/05/contest.htm), one archive per design |
+| `ISPD06` | Bookshelf | `adaptec5`, `newblue1`–`newblue7` | [ISPD 2006 contest site](https://www.ispd.cc/contests/06/contest.html), one archive per design |
 
 ## Resulting layout
 
@@ -57,7 +58,6 @@ One directory per design, holding plain text files named after the design:
 benchmark/ISPD_2015/mgc_des_perf_a/{floorplan.def, cells.lef, tech.lef, design.v, ...}
 benchmark/ICCAD04/ibm01/{ibm01.nodes.gz, ibm01.nets.gz, ibm01.pl.gz, ...}
 benchmark/ICCAD04/dma/{dma.nodes, dma.nets, dma.pl, dma.scl, dma.wts, dma.aux}
-benchmark/ISPD02/ibm01/{ibm01.nodes, ibm01.nets, ibm01.pl, ibm01.scl, ibm01.wts, ibm01.aux}
 benchmark/ISPD_2005/adaptec1/{adaptec1.nodes.gz, adaptec1.nets.gz, ...}
 ```
 
@@ -146,5 +146,5 @@ Olympus-SoC, which was never released. The only tool it published is
 
 `fetch_benchmarks.py` also downloads each contest's scripts into
 `<suite>/evaluator/`, skipping files that are already there, so the committed
-ISPD 2005 and 2006 copies are left alone. The ICCAD04 and ISPD02 suites are
-academic releases with no contest evaluator.
+ISPD 2005 and 2006 copies are left alone. ICCAD04 is an academic release with
+no contest evaluator.
