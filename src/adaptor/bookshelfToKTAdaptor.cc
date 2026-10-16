@@ -3,6 +3,7 @@
 
 #include "adaptor/bookshelfToKTAdaptor.h"
 
+#include "util/kt_gzipFile.h"
 #include "util/kt_log.h"
 #include "util/kt_scopedTimer.h"
 
@@ -14,9 +15,6 @@
 #include <unordered_map>
 
 // Boost.Iostreams - transparent gzip input
-#include <boost/iostreams/device/file.hpp>
-#include <boost/iostreams/filter/gzip.hpp>
-#include <boost/iostreams/filtering_stream.hpp>
 
 // oneTBB - parallel parsing
 #include <oneapi/tbb/blocked_range.h>
@@ -48,33 +46,21 @@ bool lowerEq(const std::string &a, const char *b) {
 }
 
 
-// Gzip-aware text file. If the path ends in ".gz" the stream is decompressed
-// on the fly with Boost.Iostreams; otherwise it is read as plain text.
+// Gzip-aware text file: a ".gz" path is decompressed as it is read, anything
+// else is read as plain text.
 class InputTextFile {
 public:
-    explicit InputTextFile(const std::string &path) {
-        // A file_source on a missing path still reports a "good" stream until
-        // the first read, so the existence check has to happen here: otherwise
-        // a missing input file looks like an empty one and parses as success.
-        exists_ = std::filesystem::exists(path);
-        if (path.size() > 3 && path.compare(path.size() - 3, 3, ".gz") == 0) {
-            in_.push(boost::iostreams::gzip_decompressor());
-            in_.push(boost::iostreams::file_source(path, std::ios::binary));
-        } else {
-            in_.push(boost::iostreams::file_source(path));
-        }
-    }
+    explicit InputTextFile(const std::string &path) : in_(path) {}
 
     std::istream &stream() {
         return in_;
     }
     explicit operator bool() const {
-        return exists_ && static_cast<bool>(in_);
+        return static_cast<bool>(in_);
     }
 
 private:
-    boost::iostreams::filtering_istream in_;
-    bool exists_ = false;
+    GzipInputFile in_;
 };
 
 // Parsed node record produced by the parallel parsing phase.
