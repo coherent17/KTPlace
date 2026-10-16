@@ -1,38 +1,32 @@
 # KTPlace benchmarks
 
-The benchmarks are **not** stored in this repository, with two exceptions
-(`adaptec1` and `ibm01`, below). `fetch_benchmarks.py` downloads them from their
-original publishers and unpacks them into the layout the ktplace adapters expect.
+The benchmark suites are committed here, gzipped (about 245 MB), grouped by
+input format: Bookshelf designs under `bookshelf/`, LEF/DEF designs under
+`lefdef/`. ktplace reads `.gz` files directly. The ISPD 2006 designs are the
+exception: only their evaluator is committed, and `fetch_benchmarks.py`
+downloads the designs. The script fetches any suite from its original publisher,
+into the same layout and also gzipped, and the contest suites' own evaluators
+into `<suite>/evaluator/`. The committed files are compressed with `pigz -11`
+(zopfli), which reads exactly as fast as ordinary gzip; the fetcher, which uses
+only the Python standard library, compresses at level 9.
 
 ```sh
-python3 benchmark/fetch_benchmarks.py            # fetch everything available
+python3 benchmark/fetch_benchmarks.py            # fetch everything missing
 python3 benchmark/fetch_benchmarks.py --list     # show the sources
 python3 benchmark/fetch_benchmarks.py --suite ICCAD04 --design ibm01
 ```
 
-The script only needs the Python standard library. It skips designs that are
-already present, so it is safe to re-run.
+The script only needs the Python standard library. It skips designs and
+evaluator files that are already present, so it is safe to re-run.
 
-## The first vendored design: `ISPD_2005/adaptec1`
+## The CI designs: `adaptec1` and `ibm01`
 
-`benchmark/ISPD_2005/adaptec1/` (5.4 MB, gzipped Bookshelf, dated March 2005) is
-committed. It is the CI smoke design, in the tree so that a smoke test cannot
-fail on someone else's uptime. `fetch_benchmarks.py` downloads the other seven
-ISPD 2005 designs (`adaptec2`–`adaptec4`, `bigblue1`–`bigblue4`) from the
-[contest page](https://www.ispd.cc/contests/05/contest.htm), one archive per
-design, and the ISPD 2006 designs (`adaptec5`, `newblue1`–`newblue7`) from
-[theirs](https://www.ispd.cc/contests/06/contest.html).
+`bookshelf/ISPD_2005/adaptec1` is the CI smoke design.
+`bookshelf/ICCAD04/ibm01` is the CI multi-row design:
 
-## The second vendored design: `ICCAD04/ibm01`
-
-`benchmark/ICCAD04/ibm01/` (436 KB gzipped Bookshelf, dated June 2004) is also
-committed. Unlike `adaptec1` its suite *is* fetchable, but it holds 23 designs,
-and pulling the whole archive on every push to exercise one of them is a bad
-trade for CI. It is here for two reasons:
-
-* It is the only benchmark in the tree with **multi-row cells** — 120 of its
-  12,380 movable cells are taller than a row — so it is the only design that
-  reaches `MultiRowLegalizer` at all. Every other benchmark goes through Abacus.
+* It is the only benchmark with **multi-row cells** — 120 of its 12,380 movable
+  cells are taller than a row — so it is the only design that reaches
+  `MultiRowLegalizer` at all. Every other benchmark goes through Abacus.
 * It is small and deterministic enough to assert legality on. Adaptec1's verdict
   moves with the machine, so CI deliberately does not gate on it; `ibm01`
   legalizes in well under a second and lands on zero overlapping pairs every
@@ -42,36 +36,32 @@ trade for CI. It is here for two reasons:
 
 | suite | format | designs | source |
 |-------|--------|---------|--------|
-| `ISPD_2005` | Bookshelf | `adaptec1` | vendored here; see above |
-| `ICCAD04` | Bookshelf | `ibm01` | vendored here; see above |
-| `ISPD_2015` | LEF/DEF | `mgc_*` (16) | [ispd.cc contest site](https://www.ispd.cc/contests/15/web/benchmarks/ispd_2015_contest_benchmark.tgz) |
-| `ICCAD04` | Bookshelf | `ibm01`–`ibm18` | [UMich ICCAD04bench](https://vlsicad.eecs.umich.edu/BK/ICCAD04bench/ibmMSWpinsICCAD04Bench_BOOKSHELF.tar.gz) (IBM-MSwPins) |
-| `ICCAD04` | Bookshelf | `dma`, `dsp1`, `dsp2`, `risc1`, `risc2` | [UMich ICCAD04bench](https://vlsicad.eecs.umich.edu/BK/ICCAD04bench/FARADAY_ICCAD04Bench.tar.gz) (Faraday) |
-| `ISPD_2005` | Bookshelf | `adaptec1`–`adaptec4`, `bigblue1`–`bigblue4` | [ISPD 2005 contest site](https://www.ispd.cc/contests/05/contest.htm), one archive per design |
-| `ISPD06` | Bookshelf | `adaptec5`, `newblue1`–`newblue7` | [ISPD 2006 contest site](https://www.ispd.cc/contests/06/contest.html), one archive per design |
+| `lefdef/ISPD_2015` | LEF/DEF | `mgc_*` (16) | [ispd.cc contest site](https://www.ispd.cc/contests/15/web/benchmarks/ispd_2015_contest_benchmark.tgz) |
+| `bookshelf/ICCAD04` | Bookshelf | `ibm01`–`ibm18` | [UMich ICCAD04bench](https://vlsicad.eecs.umich.edu/BK/ICCAD04bench/ibmMSWpinsICCAD04Bench_BOOKSHELF.tar.gz) (IBM-MSwPins) |
+| `bookshelf/ICCAD04` | Bookshelf | `dma`, `dsp1`, `dsp2`, `risc1`, `risc2` | [UMich ICCAD04bench](https://vlsicad.eecs.umich.edu/BK/ICCAD04bench/FARADAY_ICCAD04Bench.tar.gz) (Faraday) |
+| `bookshelf/ISPD_2005` | Bookshelf | `adaptec1`–`adaptec4`, `bigblue1`–`bigblue4` | [ISPD 2005 contest site](https://www.ispd.cc/contests/05/contest.htm), one archive per design |
+| `bookshelf/ISPD06` | Bookshelf | `adaptec5`, `newblue1`–`newblue7` | [ISPD 2006 contest site](https://www.ispd.cc/contests/06/contest.html), one archive per design; fetched, not committed |
 
-## Resulting layout
+## Layout
 
-One directory per design, holding plain text files named after the design:
+One directory per design, holding gzipped files named after the design:
 
 ```
-benchmark/ISPD_2015/mgc_des_perf_a/{floorplan.def, cells.lef, tech.lef, design.v, ...}
-benchmark/ICCAD04/ibm01/{ibm01.nodes.gz, ibm01.nets.gz, ibm01.pl.gz, ...}
-benchmark/ICCAD04/dma/{dma.nodes, dma.nets, dma.pl, dma.scl, dma.wts, dma.aux}
-benchmark/ISPD_2005/adaptec1/{adaptec1.nodes.gz, adaptec1.nets.gz, ...}
+benchmark/lefdef/ISPD_2015/mgc_des_perf_a/{floorplan.def.gz, cells.lef.gz, tech.lef.gz, ...}
+benchmark/bookshelf/ICCAD04/ibm01/{ibm01.nodes.gz, ibm01.nets.gz, ibm01.pl.gz, ...}
+benchmark/bookshelf/ISPD_2005/adaptec1/{adaptec1.nodes.gz, adaptec1.nets.gz, ...}
+benchmark/bookshelf/ISPD06/newblue1/{newblue1.nodes.gz, newblue1.nets.gz, ...}
 ```
 
 The upstream archives are inconsistent — the Faraday archive nests its files in
 `DMA/BOOKSHELF/dma_BS.*` with a `_BS` suffix, and some members are gzipped — so
 the script normalises all of that away. You do not need to do it by hand.
-`adaptec1` and `ibm01` are the exceptions: they are committed in gzipped form,
-which the Bookshelf reader accepts transparently.
 
 ## Running
 
 ```sh
-./build/bin/ktplace ./benchmark/ISPD_2015/mgc_des_perf_a -w ./output/mgc_des_perf_a
-./build/bin/ktplace ./benchmark/ICCAD04/ibm01 -w ./output/ibm01
+./build/bin/ktplace ./benchmark/lefdef/ISPD_2015/mgc_des_perf_a -w ./output/mgc_des_perf_a
+./build/bin/ktplace ./benchmark/bookshelf/ICCAD04/ibm01 -w ./output/ibm01
 ```
 
 The input format is auto-detected: a directory containing a `.def`/`.def.gz`
@@ -88,7 +78,7 @@ marked `/FIXED` in `.pl`. Gzipped (`.gz`) inputs are read transparently.
 
 ## ISPD 2005 contest evaluator
 
-`ISPD_2005/evaluator/` holds the contest's own scripts, unchanged, from the
+`bookshelf/ISPD_2005/evaluator/` holds the contest's own scripts, unchanged, from the
 [ISPD 2005 contest page](https://www.ispd.cc/contests/05/contest.htm), written by
 the organizer, Gi-Joon Nam (IBM):
 
@@ -103,7 +93,7 @@ the organizer, Gi-Joon Nam (IBM):
 They read plain Bookshelf files, so `evaluate.sh` unpacks a design and runs both:
 
 ```sh
-benchmark/ISPD_2005/evaluator/evaluate.sh benchmark/ISPD_2005/adaptec1 output/adaptec1/placed.pl
+benchmark/bookshelf/ISPD_2005/evaluator/evaluate.sh benchmark/bookshelf/ISPD_2005/adaptec1 output/adaptec1/placed.pl
 #          Total HPWL: 79443114
 # Legality: 0 error(s)
 ```
@@ -114,7 +104,7 @@ allow cells to be rotated or mirrored (organizer's announcement of 21 January
 
 ## ISPD 2006 contest evaluator
 
-`ISPD06/evaluator/` holds the 2006 contest's scripts, unchanged apart from the
+`bookshelf/ISPD06/evaluator/` holds the 2006 contest's scripts, unchanged apart from the
 `.pl` suffix: `hpwl.pl` and `check_legality.pl` (the 2005 scripts, lightly
 revised), `check_density_target.pl`, and the variant newblue1 needs with its
 `transformed.list`. The 2006 score is not plain HPWL. Each design has a target
@@ -129,7 +119,7 @@ newblue4 0.5, newblue5 0.5, newblue6 0.8, newblue7 0.8), and a third argument
 overrides it:
 
 ```sh
-benchmark/ISPD06/evaluator/evaluate.sh benchmark/ISPD06/newblue1 output/newblue1/placed.pl
+benchmark/bookshelf/ISPD06/evaluator/evaluate.sh benchmark/bookshelf/ISPD06/newblue1 output/newblue1/placed.pl
 ```
 
 The contest also scaled the score by run time (up to 10%), which the script
@@ -140,7 +130,7 @@ does not attempt.
 The ISPD 2015 contest scored placements by routing them with Mentor's
 Olympus-SoC, which was never released. The only tool it published is
 `placement_checker`, which checks that a placement DEF is well formed and legal;
-`fetch_benchmarks.py` downloads it into `ISPD_2015/evaluator/`.
+`fetch_benchmarks.py` downloads it into `lefdef/ISPD_2015/evaluator/`.
 
 ## Fetching the evaluators
 

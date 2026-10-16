@@ -57,7 +57,7 @@ private:
 
 /// The design directory used throughout. It does not have to exist: these tests
 /// exercise the parser, not the reader.
-const char *design = "./benchmark/ISPD_2005/adaptec1";
+const char *design = "./benchmark/bookshelf/ISPD_2005/adaptec1";
 
 std::vector<char *> argvOf(std::vector<std::string> &args) {
     std::vector<char *> argv;

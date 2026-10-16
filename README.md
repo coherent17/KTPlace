@@ -98,7 +98,7 @@ web console, settings and troubleshooting.
 
 ```sh
 ktplace <input_dir> [options]
-ktplace ./benchmark/ICCAD04/ibm01 -w ./output/ibm01
+ktplace ./benchmark/bookshelf/ICCAD04/ibm01 -w ./output/ibm01
 ```
 
 `input_dir` holds the design's files, named after the design. The format is
@@ -210,19 +210,20 @@ independent placement check, and the result is reported per stage.
 
 ## Benchmarks
 
-The suites are several GB, so almost nothing is vendored. Two designs are,
-because CI needs them:
+The suites are committed, gzipped (about 245 MB), under `benchmark/bookshelf/`
+(ISPD 2005, ICCAD04) and `benchmark/lefdef/` (ISPD 2015); the ISPD 2006 designs
+are fetched. CI runs two of them:
 
-- `ISPD_2005/adaptec1` — the end-to-end smoke design. That suite has no working
-  download URL, so a job that fetched it would be a build failing for reasons
-  that have nothing to do with the code.
-- `ICCAD04/ibm01` — the only design with cells taller than a row, so the only one
-  that reaches the multi-row legalizer.
+- `bookshelf/ISPD_2005/adaptec1` — the end-to-end smoke design.
+- `bookshelf/ICCAD04/ibm01` — the only design with cells taller than a row, so
+  the only one that reaches the multi-row legalizer.
 
-Fetch the rest from their original publishers:
+The ISPD 2005 and 2006 contests' own evaluators are in each suite's `evaluator/`
+directory. `fetch_benchmarks.py` downloads everything again from the original
+publishers:
 
 ```sh
-python3 benchmark/fetch_benchmarks.py            # everything available
+python3 benchmark/fetch_benchmarks.py            # everything missing
 python3 benchmark/fetch_benchmarks.py --list     # show the sources
 ```
 

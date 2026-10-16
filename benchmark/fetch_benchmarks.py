@@ -5,21 +5,22 @@ Every archive is downloaded from the site that originally published the suite
 (the University of Michigan VLSI CAD lab "GSRC Bookshelf" archive, or the ISPD
 contest site) -- no third-party mirror or personal repository is involved.
 Each suite is unpacked into the layout the ktplace adapters expect: one
-directory per design. The ISPD 2015 suite stays in its contest LEF/DEF form,
-while the Bookshelf archives are normalized so every design directory holds
-plain, uncompressed files named after the design:
+directory per design, under bookshelf/ or lefdef/ by input format. The ISPD 2015
+suite stays in its contest LEF/DEF form, while the Bookshelf archives are
+normalized so every design directory holds files named after the design. Every
+design file is stored gzipped; ktplace reads .gz directly:
 
-    benchmark/ISPD_2015/mgc_des_perf_a/{floorplan.def,cells.lef,tech.lef,...}
-    benchmark/ICCAD04/ibm01/{ibm01.nodes,ibm01.nets,ibm01.pl,ibm01.scl,...}
-    benchmark/ICCAD04/dma/{dma.nodes,dma.nets,dma.pl,dma.scl,...}
-    benchmark/ISPD_2005/adaptec2/{adaptec2.nodes,...}   (one archive per design)
-    benchmark/ISPD06/newblue1/{newblue1.nodes,...}      (one archive per design)
+    benchmark/lefdef/ISPD_2015/mgc_des_perf_a/{floorplan.def.gz,cells.lef.gz,tech.lef.gz,...}
+    benchmark/bookshelf/ICCAD04/ibm01/{ibm01.nodes.gz,ibm01.nets.gz,ibm01.pl.gz,...}
+    benchmark/bookshelf/ICCAD04/dma/{dma.nodes.gz,dma.nets.gz,dma.pl.gz,...}
+    benchmark/bookshelf/ISPD_2005/adaptec2/{adaptec2.nodes.gz,...}   (one archive per design)
+    benchmark/bookshelf/ISPD06/newblue1/{newblue1.nodes.gz,...}      (one archive per design)
 
 The contest suites' own evaluators go into <suite>/evaluator/.
 
-Only the standard library is used; archives are unpacked with `tarfile` and any
-`.gz` members are inflated so the readers see plain text. Design directories
-that already contain a `.nodes` file are left alone, so re-running is cheap.
+Only the standard library is used; archives are unpacked with `tarfile`.
+Design directories that already contain a `.nodes` file are left alone, so
+re-running is cheap.
 
 Usage:
     python3 benchmark/fetch_benchmarks.py            # everything available
@@ -43,6 +44,7 @@ CACHE = ROOT / ".cache"
 
 # File extensions the Bookshelf reader consumes.
 BOOKSHELF_EXTS = (".nodes", ".nets", ".pl", ".scl", ".wts", ".aux")
+DESIGN_EXTS = (*BOOKSHELF_EXTS, ".def", ".lef", ".v", ".constraints")
 
 UMICH = "https://vlsicad.eecs.umich.edu/BK"
 
@@ -117,6 +119,10 @@ USER_AGENT = "KTPlace-benchmark-fetcher/1.0"
 CHUNK = 1 << 20
 
 
+def suite_dir(dest_root: pathlib.Path, suite: str) -> pathlib.Path:
+    return dest_root / ("lefdef" if suite == ISPD15_DIR else "bookshelf") / suite
+
+
 def download(url: str, dst: pathlib.Path) -> None:
     """Stream @p url into @p dst, reporting progress for large archives."""
     request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
@@ -159,6 +165,14 @@ def inflate(path: pathlib.Path) -> pathlib.Path:
     return plain
 
 
+def compress_design(design: pathlib.Path) -> None:
+    for path in sorted(design.iterdir()):
+        if path.is_file() and path.name.endswith(DESIGN_EXTS):
+            with open(path, "rb") as src, gzip.open(f"{path}.gz", "wb", compresslevel=9) as dst:
+                shutil.copyfileobj(src, dst)
+            path.unlink()
+
+
 def bookshelf_files(design: pathlib.Path) -> list[pathlib.Path]:
     """The Bookshelf input files inside @p design, with .gz inflated."""
     found = []
@@ -197,6 +211,7 @@ def install_flat(staging: pathlib.Path, dest: pathlib.Path, spec: dict,
         target.mkdir(parents=True)
         for book in bookshelf_files(source):
             shutil.copy2(book, target / book.name)
+        compress_design(target)
         if design_is_installed(target):
             count += 1
     return count
@@ -228,6 +243,7 @@ def install_faraday(staging: pathlib.Path, dest: pathlib.Path, spec: dict,
             if stem.upper().endswith("_BS"):
                 stem = stem[:-3]
             shutil.copy2(path, target / f"{stem.lower()}{path.suffix}")
+        compress_design(target)
         if design_is_installed(target):
             count += 1
     return count
@@ -238,7 +254,7 @@ LAYOUTS = {"flat": install_flat, "faraday": install_faraday}
 
 def fetch_bookshelf(suite: str, dest_root: pathlib.Path, only: str | None,
                     force: bool) -> None:
-    dest = dest_root / suite
+    dest = suite_dir(dest_root, suite)
     dest.mkdir(parents=True, exist_ok=True)
     for spec in BOOKSHELF[suite]:
         wanted = [d for d in spec["designs"] if not only or d == only]
@@ -265,7 +281,7 @@ def fetch_ispd15(dest_root: pathlib.Path, force: bool, only: str | None = None) 
     design either way; @p only limits what gets unpacked into the tree, which
     matters because the full suite extracts to roughly 900 MiB.
     """
-    dest = dest_root / ISPD15_DIR
+    dest = suite_dir(dest_root, ISPD15_DIR)
     wanted = [only] if only else ISPD15_DESIGNS
     if only and only not in ISPD15_DESIGNS:
         print(f"{ISPD15_DIR}: unknown design '{only}'; known designs: "
@@ -295,6 +311,7 @@ def fetch_ispd15(dest_root: pathlib.Path, force: bool, only: str | None = None) 
                 continue
             shutil.rmtree(target, ignore_errors=True)
             shutil.move(str(child), str(target))
+            compress_design(target)
             count += 1
         print(f"  installed {count} design(s) into {ISPD15_DIR}/")
     archive.unlink(missing_ok=True)
@@ -302,7 +319,7 @@ def fetch_ispd15(dest_root: pathlib.Path, force: bool, only: str | None = None) 
 
 def fetch_per_design(suite: str, dest_root: pathlib.Path, only: str | None,
                      force: bool) -> None:
-    dest = dest_root / suite
+    dest = suite_dir(dest_root, suite)
     designs = PER_DESIGN[suite]
     if only and only not in designs:
         print(f"{suite}: unknown design '{only}'; known designs: {', '.join(designs)}")
@@ -329,11 +346,12 @@ def fetch_per_design(suite: str, dest_root: pathlib.Path, only: str | None,
                     if plain.name.endswith(BOOKSHELF_EXTS):
                         shutil.copy2(plain, target / plain.name)
         archive.unlink(missing_ok=True)
+        compress_design(target)
         print(f"  installed {suite}/{design}")
 
 
 def fetch_evaluator(suite: str, dest_root: pathlib.Path, force: bool) -> None:
-    dest = dest_root / suite / "evaluator"
+    dest = suite_dir(dest_root, suite) / "evaluator"
     dest.mkdir(parents=True, exist_ok=True)
     for name, url in EVALUATORS[suite].items():
         target = dest / name

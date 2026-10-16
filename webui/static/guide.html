@@ -124,7 +124,7 @@ pre { background: #0d1216; border: 1px solid var(--line); border-radius: 6px; pa
       <div class="node"><div class="t"><span class="n">3</span>Start the run</div>
         <div class="d">The engine runs in the console container, in its own directory
           <code>runs/&lt;id&gt;/</code>.</div>
-        <div class="m">CLI: <code>ktplace benchmark/ISPD_2005/adaptec1 -a simpl -w output/adaptec1</code></div></div>
+        <div class="m">CLI: <code>ktplace benchmark/bookshelf/ISPD_2005/adaptec1 -a simpl -w output/adaptec1</code></div></div>
       <div class="arrow"></div>
       <div class="node"><div class="t"><span class="n">4</span>Watch it work</div>
         <div class="d">The phase bar follows the pipeline below; the heartbeat (frames/s, CPU,
@@ -286,7 +286,7 @@ pre { background: #0d1216; border: 1px solid var(--line); border-radius: 6px; pa
       </tbody>
     </table></div>
     <pre>KTPLACE_SIMPL_ITERS=25 KTPLACE_SIMPL_SEED=1 \
-    ktplace benchmark/ISPD_2005/adaptec1 -w output/adaptec1-25it</pre>
+    ktplace benchmark/bookshelf/ISPD_2005/adaptec1 -w output/adaptec1-25it</pre>
     <p>The full list: <code>grep -rhoE 'KTPLACE_[A-Z0-9_]+' src | sort -u</code>.</p>
   </section>
 </div>
