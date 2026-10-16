@@ -72,6 +72,7 @@ struct multiRowSolution {
 struct fastdpSolution {
     std::vector<double> xs;
     std::vector<double> ys;
+    std::vector<std::size_t> mirrored;
 };
 
 /// A placement a stage produced and ktDM will accept: the positions of every

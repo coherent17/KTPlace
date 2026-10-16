@@ -142,6 +142,14 @@ const std::vector<std::size_t> &Graph::getNetPins(std::size_t netId) const {
     return netPinIds[netId];
 }
 
+void Graph::mirrorCell(std::size_t cellId) {
+    Vertex &cell = cells.at(cellId);
+    cell.mirrored = !cell.mirrored;
+    for (const std::size_t p : getCellPins(cellId)) {
+        pins[p].offsetX = cell.width - pins[p].offsetX;
+    }
+}
+
 const std::vector<std::size_t> &Graph::getCellPins(std::size_t cellId) const {
     if (cellId >= cellPinIds.size()) {
         throw std::runtime_error("Invalid vertex ID");

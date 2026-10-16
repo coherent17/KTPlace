@@ -483,6 +483,9 @@ void ktDM::setMultiRowSolution(const multiRowSolution &solution) {
 
 void ktDM::setDetailedPlaceSolution(const fastdpSolution &solution) {
     commitCells(graph, solution);
+    for (const std::size_t v : solution.mirrored) {
+        graph.mirrorCell(v);
+    }
     isLegalizePlacement();
 }
 

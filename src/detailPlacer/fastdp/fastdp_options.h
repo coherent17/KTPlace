@@ -22,6 +22,7 @@ struct FastdpOptions {
     bool verticalSwap = true;
     bool localReorder = true;
     bool clustering = true;
+    bool flip = true;
     std::size_t swapCandidates = 64;
     std::size_t verticalCandidates = 3;
     std::size_t clusterBounds = 16;
@@ -32,6 +33,7 @@ struct FastdpOptions {
         visit("wt2", self.penaltyWeight2);
         visit("max_iterations", self.maxIterations);
         visit("min_improvement", self.minImprovement);
+        visit("flip", self.flip);
     }
 };
 

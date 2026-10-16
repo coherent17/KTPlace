@@ -344,7 +344,7 @@ void FlowMgr::Impl::writeDesign(const std::string &outputPath) {
         const Vertex &vert = g.getCell(v);
         // Bookshelf .pl: "<name> <x> <y> : <orientation>"
         out << vert.name << '\t' << vert.x << '\t' << vert.y
-            << "\t: " << (vert.isFixed ? "N /FIXED" : "N") << '\n';
+            << "\t: " << (vert.isFixed ? "N /FIXED" : (vert.mirrored ? "FN" : "N")) << '\n';
     }
 }
 

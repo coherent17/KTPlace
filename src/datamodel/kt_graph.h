@@ -33,6 +33,8 @@ public:
 
     /// The placement region this cell is fenced into (constraintMgr), or -1.
     int regionId = -1;
+
+    bool mirrored = false;
 };
 
 /// A net: the signal its pins share.
@@ -102,6 +104,8 @@ public:
 
     /// Pin ids on a cell, in the order they were added.
     [[nodiscard]] const std::vector<std::size_t> &getCellPins(std::size_t cellId) const;
+
+    void mirrorCell(std::size_t cellId);
 
     void clear();
 

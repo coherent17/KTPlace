@@ -138,6 +138,7 @@ public:
     std::vector<std::size_t> mov;
     std::vector<double> cellX;
     std::vector<double> cellY;
+    std::vector<char> mirrored;
 
 private:
     struct Candidate {
@@ -175,6 +176,9 @@ private:
     void legalizeTouched();
 
     std::size_t globalSwap();
+    [[nodiscard]] double netSpanX(std::size_t c) const;
+    void mirror(std::size_t c);
+    std::size_t flipCells();
     std::size_t verticalSwap();
     std::size_t localReorder();
     std::size_t clusterSegments();
@@ -383,6 +387,52 @@ void FastDetailedPlacer::Impl::buildNetlist() {
     }
     moveOf.assign(mov.size(), noSlot);
     netStamp.assign(design.nets.size(), 0);
+}
+
+double FastDetailedPlacer::Impl::netSpanX(std::size_t c) const {
+    double total = 0.0;
+    for (const std::size_t n : cellNets[c]) {
+        double lo = inf;
+        double hi = -inf;
+        for (const NetPin &p : netPins[n]) {
+            const double x = p.slot == noSlot ? p.absX : cellX[p.slot] + p.offX;
+            lo = std::min(lo, x);
+            hi = std::max(hi, x);
+        }
+        total += hi - lo;
+    }
+    return total;
+}
+
+void FastDetailedPlacer::Impl::mirror(std::size_t c) {
+    mirrored[c] = mirrored[c] != 0 ? 0 : 1;
+    for (const std::size_t n : cellNets[c]) {
+        for (NetPin &p : netPins[n]) {
+            if (p.slot == c) {
+                p.offX = cellW[c] - p.offX;
+            }
+        }
+    }
+}
+
+std::size_t FastDetailedPlacer::Impl::flipCells() {
+    constexpr std::size_t maxPasses = 3;
+    for (std::size_t pass = 0; pass < maxPasses; ++pass) {
+        std::size_t flips = 0;
+        for (std::size_t c = 0; c < mov.size(); ++c) {
+            const double before = netSpanX(c);
+            mirror(c);
+            if (netSpanX(c) < before - 1e-9) {
+                ++flips;
+            } else {
+                mirror(c);
+            }
+        }
+        if (flips == 0) {
+            break;
+        }
+    }
+    return static_cast<std::size_t>(std::ranges::count(mirrored, 1));
 }
 
 double FastDetailedPlacer::Impl::hpwl() const {
@@ -1108,6 +1158,10 @@ DetailPlaceResult FastDetailedPlacer::Impl::place(const FastdpOptions &params) {
         }
         writeFrame("single-segment clustering", ++step);
     }
+    mirrored.assign(mov.size(), 0);
+    if (opts.flip) {
+        res.mirroredCells = flipCells();
+    }
     res.globalSeconds = globalSeconds;
     res.verticalSeconds = verticalSeconds;
     res.reorderSeconds = reorderSeconds;
@@ -1136,6 +1190,7 @@ void report(const DetailPlaceResult &r) {
     t.addRow({"vertical swaps", std::format("{} ({:.3f}s)", r.verticalSwaps, r.verticalSeconds)});
     t.addRow({"reorder moves", std::format("{} ({:.3f}s)", r.reorderMoves, r.reorderSeconds)});
     t.addRow({"cluster moves", std::format("{} ({:.3f}s)", r.clusterMoves, r.clusterSeconds)});
+    t.addRow({"mirrored cells", std::format("{}", r.mirroredCells)});
     t.addRow({"HPWL before", std::format("{:.6e}", r.hpwlBefore)});
     t.addRow({"HPWL after", std::format("{:.6e}", r.hpwlAfter)});
     t.addRow(
@@ -1172,6 +1227,9 @@ ktplace::fastdpSolution FastDetailedPlacer::solution() const {
     for (std::size_t i = 0; i < pImpl->mov.size(); ++i) {
         out.xs[pImpl->mov[i]] = pImpl->cellX[i];
         out.ys[pImpl->mov[i]] = pImpl->cellY[i];
+        if (i < pImpl->mirrored.size() && pImpl->mirrored[i] != 0) {
+            out.mirrored.push_back(pImpl->mov[i]);
+        }
     }
     return out;
 }
