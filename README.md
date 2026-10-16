@@ -38,7 +38,6 @@ All you need installed is:
 | --- | --- |
 | C++ compiler | g++ 13+ (Linux) or Apple clang 15+ (macOS), C++23 |
 | make | GNU make |
-| Boost.Test, clang-format | only for `make test` and `make format` |
 
 ## Build
 
@@ -130,6 +129,8 @@ See [benchmark/README.md](benchmark/README.md).
 
 ## Contributing
 
+Tests and formatting need Boost.Test and clang-format
+(`libboost-test-dev clang-format` on Ubuntu, `boost clang-format` on Homebrew).
 Work on a branch and open a PR; CI must pass. Enable the pre-commit hook once
 (format check and unit tests; skip with `KTPLACE_SKIP_HOOKS=1`):
 
