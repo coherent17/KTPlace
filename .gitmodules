@@ -6,3 +6,7 @@
 	path = third_party/zlib
 	url = https://github.com/madler/zlib.git
 	shallow = true
+[submodule "third_party/CImg"]
+	path = third_party/CImg
+	url = https://github.com/GreycLab/CImg.git
+	shallow = true

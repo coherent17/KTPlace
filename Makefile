@@ -23,7 +23,7 @@ check: test
 
 # Rewrite every source file in place with clang-format.
 format:
-	@git ls-files 'src/*.cc' 'src/*.h' | grep -v '^src/visualization/CImg.h$$' > /tmp/ktplace-fmt.$$
+	@git ls-files 'src/*.cc' 'src/*.h' > /tmp/ktplace-fmt.$$
 	@n=$$(wc -l < /tmp/ktplace-fmt.$$); \
 	 xargs --no-run-if-empty clang-format -i < /tmp/ktplace-fmt.$$; \
 	 rm -f /tmp/ktplace-fmt.$$; \
@@ -33,7 +33,7 @@ format:
 # Report what format would change, without touching anything. Exits non-zero if
 # anything is unformatted, so it can gate a commit or a CI job.
 format-check:
-	@git ls-files 'src/*.cc' 'src/*.h' | grep -v '^src/visualization/CImg.h$$' | \
+	@git ls-files 'src/*.cc' 'src/*.h' | \
 		xargs --no-run-if-empty clang-format --dry-run --Werror
 
 # Compilation database for clangd, so it can find the project's headers and jump

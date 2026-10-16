@@ -33,9 +33,9 @@ ktplace --version
 
 ## Dependencies
 
-Building and running needs only g++ 13+ (C++23) and make. oneTBB (v2021.11.0)
-and zlib (v1.3.1) are git submodules under `third_party/` and are compiled into
-the binary by the build, so clone with them:
+Building and running needs only g++ 13+ (C++23) and make. oneTBB (v2021.11.0),
+zlib (v1.3.1) and CImg are git submodules under `third_party/`; oneTBB and zlib
+are compiled into the binary by the build. Clone with them:
 
 ```sh
 git clone --recurse-submodules https://github.com/coherent17/KTPlace.git
@@ -49,9 +49,9 @@ Only the unit tests and formatting need packages:
 sudo apt-get install -y --no-install-recommends libboost-test-dev clang-format
 ```
 
-CImg is vendored as a single header under CeCILL-C and CeCILL; see the header in
-`src/visualization/` for its terms. oneTBB is Apache-2.0 and zlib is under the
-zlib license; see their directories under `third_party/`.
+CImg (v.4.0.6, header-only) is the third submodule. CImg is under CeCILL-C and
+CeCILL, oneTBB under Apache-2.0 and zlib under the zlib license; see their
+directories under `third_party/`.
 
 ## Build
 
@@ -122,7 +122,7 @@ Under `<work-dir>/plots/`: SVG frames for the placement stages (`simpl/`, and
 bound trace (`simpl_bounds.csv`/`.svg`), the animation (`anim/placement.gif`,
 unless `visualizer anim` is `0`), and a high-resolution still of the finished
 placement (`final/final.png`, 6144x6144 by default). All generated in C++ — no
-image library beyond the vendored CImg, no external tools.
+image library beyond CImg (header-only, in `third_party/`), no external tools.
 
 ## Configuration
 

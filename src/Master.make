@@ -20,18 +20,20 @@ ifeq ($(COVERAGE),1)
 else
   CXXFLAGS := -std=c++23 -Wall -Wextra -Wpedantic -Wshadow -O2 -g -pthread
 endif
-# oneTBB and zlib are git submodules under third_party/, built here into static
-# archives, so a clone needs only a C++23 compiler and make.
+# oneTBB, zlib and CImg are git submodules under third_party/. oneTBB and zlib are
+# built here into static archives and CImg is header-only, so a clone needs only
+# a C++23 compiler and make.
 THIRD_PARTY := $(abspath $(CURDIR)/../third_party)
 TBB_DIR := $(THIRD_PARTY)/oneTBB
 ZLIB_DIR := $(THIRD_PARTY)/zlib
-ifeq ($(and $(wildcard $(TBB_DIR)/include/oneapi/tbb.h),$(wildcard $(ZLIB_DIR)/zlib.h)),)
+CIMG_DIR := $(THIRD_PARTY)/CImg
+ifeq ($(and $(wildcard $(TBB_DIR)/include/oneapi/tbb.h),$(wildcard $(ZLIB_DIR)/zlib.h),$(wildcard $(CIMG_DIR)/CImg.h)),)
   $(error third_party/ is incomplete: run 'git submodule update --init --recursive')
 endif
 
 # All quoted includes are project-root-relative (e.g. "datamodel/kt_dm.h"). The
 # subdirectory makefiles set their own -I.. and append THIRD_PARTY_INCLUDES.
-THIRD_PARTY_INCLUDES := -isystem $(TBB_DIR)/include -isystem $(ZLIB_DIR)
+THIRD_PARTY_INCLUDES := -isystem $(TBB_DIR)/include -isystem $(ZLIB_DIR) -isystem $(CIMG_DIR)
 INCLUDES := -I. $(THIRD_PARTY_INCLUDES)
 
 # `make STATIC=1` also links the C++ runtime and glibc statically.

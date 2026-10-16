@@ -13,8 +13,8 @@ What is counted
 Executable lines in the engine's own translation units, grouped by file and by
 component directory. Two things are excluded on purpose:
 
-  * third_party / vendored headers (CImg.h), which are not our code and would
-    swamp the denominator;
+  * third_party/ (oneTBB, zlib, CImg), which is not our code and would swamp the
+    denominator;
   * system headers, which gcov also reports for a few translation units.
 
 The "lines" column is gcov's own notion of an executable line, so it is not the
@@ -46,7 +46,7 @@ REPO = Path(__file__).resolve().parent.parent
 SRC = REPO / "src"
 COV_BUILD = REPO / "build-cov"
 
-# Vendored code is not ours and would dominate the denominator.
+# Third-party headers reached through -isystem, which gcov reports by bare name.
 EXCLUDED = ("CImg.h",)
 
 # Files in these directories are third-party or generated.

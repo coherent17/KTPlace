@@ -42,6 +42,7 @@ THIRD_PARTY_INCLUDES = "-isystem %s -isystem %s" % (
     os.path.join(ROOT, "third_party", "oneTBB", "include"),
     os.path.join(ROOT, "third_party", "zlib"),
 )
+THIRD_PARTY_INCLUDES += " -isystem %s" % os.path.join(ROOT, "third_party", "CImg")
 
 
 def subdirs():

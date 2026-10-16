@@ -4,12 +4,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Build and test
 
-Plain GNU make, C++23 with g++ 13+. oneTBB and zlib are git submodules under `third_party/` (clone with `--recurse-submodules`), compiled by `src/Master.make` into `build/lib/libtbb.a` and `libz.a` and linked statically; never edit them. Formatting uses `std::format`, not fmt. The only system packages are Boost.Test (unit tests) and clang-format. CImg is vendored as `src/visualization/CImg.h`; never format or edit it.
+Plain GNU make, C++23 with g++ 13+. oneTBB, zlib and CImg are git submodules under `third_party/` (clone with `--recurse-submodules`); never edit them. `src/Master.make` compiles oneTBB and zlib into `build/lib/libtbb.a` and `libz.a` and links them statically; CImg is header-only and included as `"CImg.h"`. Formatting uses `std::format`, not fmt. The only system packages are Boost.Test (unit tests) and clang-format.
 
 ```sh
 make -j"$(nproc)"          # build/bin/ktplace, and copies ktplace.sh/.csh to the repo root
 make -j"$(nproc)" test     # build and run every Boost.Test suite (alias: make check)
-make format                # clang-format -i on every tracked src/*.cc, src/*.h (except CImg.h)
+make format                # clang-format -i on every tracked src/*.cc, src/*.h
 make format-check          # what CI checks; it fails on any unformatted file
 make compile-commands      # compile_commands.json for clangd
 make hooks                 # pre-commit: staged-file format check plus unit tests
