@@ -10,3 +10,23 @@
 	path = third_party/CImg
 	url = https://github.com/GreycLab/CImg.git
 	shallow = true
+[submodule "third_party/mt-kahypar"]
+	path = third_party/mt-kahypar
+	url = https://github.com/kahypar/mt-kahypar.git
+	shallow = true
+[submodule "third_party/kahypar-shared-resources"]
+	path = third_party/kahypar-shared-resources
+	url = https://github.com/kahypar/kahypar-shared-resources.git
+	shallow = true
+[submodule "third_party/WHFC"]
+	path = third_party/WHFC
+	url = https://github.com/larsgottesbueren/WHFC.git
+	shallow = true
+[submodule "third_party/parlaylib"]
+	path = third_party/parlaylib
+	url = https://github.com/cmuparlay/parlaylib.git
+	shallow = true
+[submodule "third_party/CLI11"]
+	path = third_party/CLI11
+	url = https://github.com/CLIUtils/CLI11.git
+	shallow = true
