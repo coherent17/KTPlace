@@ -26,7 +26,7 @@ THIRD_PARTY := $(abspath $(CURDIR)/../third_party)
 TBB_DIR := $(THIRD_PARTY)/oneTBB
 ZLIB_DIR := $(THIRD_PARTY)/zlib
 ifeq ($(and $(wildcard $(TBB_DIR)/include/oneapi/tbb.h),$(wildcard $(ZLIB_DIR)/zlib.h)),)
-  $(error third_party/ is empty: run 'git submodule update --init --recursive')
+  $(error third_party/ is incomplete: run 'git submodule update --init --recursive')
 endif
 
 # All quoted includes are project-root-relative (e.g. "datamodel/kt_dm.h").
