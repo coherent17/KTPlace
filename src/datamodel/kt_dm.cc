@@ -12,7 +12,7 @@
 
 #include <algorithm>
 #include <cmath>
-#include <fmt/format.h>
+#include <format>
 #include <iterator>
 #include <limits>
 #include <map>
@@ -235,15 +235,15 @@ void ktDM::reportUtilisation() const {
     const double withFixed = u.rowArea > 0.0 ? 100.0 * (u.cellArea + u.fixedArea) / u.rowArea : 0.0;
     ktReportTable t("Design utilisation (before placement)");
     t.setHeaders({"measure", "value"});
-    t.addRow({"movable cell area", fmt::format("{:.6e}", u.cellArea)});
-    t.addRow({"fixed cell area", fmt::format("{:.6e}", u.fixedArea)});
-    t.addRow({"row (placeable) area", fmt::format("{:.6e}", u.rowArea)});
-    t.addRow({"utilisation (movable / rows)", fmt::format("{:.2}%", util)});
-    t.addRow({"utilisation (incl. fixed cells)", fmt::format("{:.2}%", withFixed)});
-    t.addRow({"movable cells", fmt::format("{}", u.cells)});
+    t.addRow({"movable cell area", std::format("{:.6e}", u.cellArea)});
+    t.addRow({"fixed cell area", std::format("{:.6e}", u.fixedArea)});
+    t.addRow({"row (placeable) area", std::format("{:.6e}", u.rowArea)});
+    t.addRow({"utilisation (movable / rows)", std::format("{:.2}%", util)});
+    t.addRow({"utilisation (incl. fixed cells)", std::format("{:.2}%", withFixed)});
+    t.addRow({"movable cells", std::format("{}", u.cells)});
     if (u.rowHeight > 0.0) {
-        t.addRow({"row height", fmt::format("{:.3}", u.rowHeight)});
-        t.addRow({"cells taller than one row", fmt::format("{}", u.multiRow)});
+        t.addRow({"row height", std::format("{:.3}", u.rowHeight)});
+        t.addRow({"cells taller than one row", std::format("{}", u.multiRow)});
     }
     t.emit();
     if (u.rowArea > 0.0 && util > 100.0) {
@@ -561,7 +561,7 @@ void ktDM::isLegalizePlacement() const {
         check.addRow({"verdict", "PASS"});
     } else {
         for (const Defect &d : defects) {
-            check.addRow({d.what, fmt::format("{}", d.count)});
+            check.addRow({d.what, std::format("{}", d.count)});
         }
         check.addRow({"verdict", "FAIL"});
     }

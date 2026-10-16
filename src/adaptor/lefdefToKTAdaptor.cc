@@ -3,6 +3,7 @@
 
 #include "adaptor/lefdefToKTAdaptor.h"
 
+#include "util/kt_gzipFile.h"
 #include "util/kt_log.h"
 #include "util/kt_scopedTimer.h"
 
@@ -14,27 +15,16 @@
 #include <utility>
 
 // Boost.Iostreams - transparent gzip input
-#include <boost/iostreams/device/file.hpp>
-#include <boost/iostreams/filter/gzip.hpp>
-#include <boost/iostreams/filtering_stream.hpp>
 
 namespace ktplace {
 
 namespace {
 
-// Gzip-aware text file. If the path ends in ".gz" the stream is decompressed
-// on the fly with Boost.Iostreams; otherwise it is read as plain text.
+// Gzip-aware text file: a ".gz" path is decompressed as it is read, anything
+// else is read as plain text.
 class InputTextFile {
 public:
-    explicit InputTextFile(const std::string &path) {
-        const bool gz = path.size() > 3 && path.compare(path.size() - 3, 3, ".gz") == 0;
-        if (gz) {
-            in.push(boost::iostreams::gzip_decompressor());
-            in.push(boost::iostreams::file_source(path, std::ios::binary));
-        } else {
-            in.push(boost::iostreams::file_source(path));
-        }
-    }
+    explicit InputTextFile(const std::string &path) : in(path) {}
 
     std::istream &stream() {
         return in;
@@ -44,7 +34,7 @@ public:
     }
 
 private:
-    boost::iostreams::filtering_istream in;
+    GzipInputFile in;
 };
 
 // Try to parse a double, returning false on failure (avoids stod exceptions

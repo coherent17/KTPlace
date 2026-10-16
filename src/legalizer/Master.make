@@ -8,7 +8,7 @@
 
 CXX ?= g++
 CXXFLAGS ?= -std=c++23 -Wall -Wextra -O2 -g -pthread
-override INCLUDES := -I..
+override INCLUDES := -I.. $(THIRD_PARTY_INCLUDES)
 OBJ_DIR ?= ../build/obj/legalizer
 
 # Source files in this directory

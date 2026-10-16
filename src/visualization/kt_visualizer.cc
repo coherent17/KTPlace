@@ -33,7 +33,7 @@
 #define cimg_display 0
 #define cimg_use_pthread 1
 #define cimg_verbosity 0
-#include "visualization/CImg.h"
+#include "CImg.h"
 
 using cimg_library::CImg;
 using cimg_library::CImgList;

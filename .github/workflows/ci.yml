@@ -12,40 +12,35 @@ concurrency:
 
 jobs:
   build:
-    name: Format check and build
+    name: Linux / Format check and build
     runs-on: ubuntu-latest
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Install dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             g++ \
-            libtbb-dev \
-            libboost-iostreams-dev \
             libboost-test-dev \
-            zlib1g-dev \
-            libfmt-dev \
             clang-format
 
       - name: Show toolchain
         run: |
           g++ --version | head -1
           clang-format --version
-          dpkg -l | grep -E 'libtbb|libboost-test|libfmt' | awk '{print $2, $3}'
+          dpkg -l | grep -E 'libboost-test' | awk '{print $2, $3}'
+          git submodule status
 
       - name: Check formatting
         run: |
-          # Every tracked first-party source must already match .clang-format.
-          # Vendored third-party code is exempt: CImg.h is a 3.4 MB upstream
-          # single-header library, and reformatting it would bury the vendored
-          # copy in a diff that makes it impossible to compare against upstream or
-          # to update. The vendored header is also the one file the formatter
-          # target skips.
+          # Every tracked source under src/ must already match .clang-format;
+          # third-party code lives in submodules under third_party/.
           status=0
-          for f in $(git ls-files 'src/*.cc' 'src/*.h' | grep -v '^src/visualization/CImg.h$'); do
+          for f in $(git ls-files 'src/*.cc' 'src/*.h'); do
             if ! clang-format --dry-run --Werror "$f" > /dev/null 2>&1; then
               echo "::error file=$f::not clang-format clean; run clang-format -i $f"
               status=1
@@ -75,7 +70,7 @@ jobs:
           retention-days: 1
 
   unit-tests:
-    name: Unit tests
+    name: Linux / Unit tests
     needs: build
     runs-on: ubuntu-latest
 
@@ -86,11 +81,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            libtbb-dev \
-            libboost-iostreams-dev \
-            libboost-test-dev \
-            zlib1g-dev \
-            libfmt-dev
+            libboost-test-dev
 
       - uses: actions/download-artifact@v4
         with:
@@ -109,21 +100,12 @@ jobs:
           exit $fail
 
   smoke-adaptec1:
-    name: Smoke placement (adaptec1)
+    name: Linux / Smoke placement (adaptec1)
     needs: build
     runs-on: ubuntu-latest
 
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install runtime libraries
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            libtbb-dev \
-            libboost-iostreams-dev \
-            zlib1g-dev \
-            libfmt-dev
 
       - uses: actions/download-artifact@v4
         with:
@@ -208,21 +190,12 @@ jobs:
           if-no-files-found: ignore
 
   smoke-multirow:
-    name: Multi-row smoke placement (ibm01)
+    name: Linux / Multi-row smoke placement (ibm01)
     needs: build
     runs-on: ubuntu-latest
 
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install runtime libraries
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            libtbb-dev \
-            libboost-iostreams-dev \
-            zlib1g-dev \
-            libfmt-dev
 
       - uses: actions/download-artifact@v4
         with:
@@ -278,21 +251,12 @@ jobs:
           test "$(grep -c 'verdict *| *FAIL' smoke-multirow.log || true)" -eq 0
 
   determinism:
-    name: Determinism (ibm01 and adaptec1 run twice)
+    name: Linux / Determinism (ibm01 and adaptec1 run twice)
     needs: build
     runs-on: ubuntu-latest
 
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install runtime libraries
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            libtbb-dev \
-            libboost-iostreams-dev \
-            zlib1g-dev \
-            libfmt-dev
 
       - uses: actions/download-artifact@v4
         with:
@@ -322,3 +286,74 @@ jobs:
           cmp det/ibm01-a/placed.pl det/ibm01-b/placed.pl
           diff -r det/ibm01-a/plots det/ibm01-b/plots
           cmp det/adaptec1-a/placed.pl det/adaptec1-b/placed.pl
+
+          mkdir -p placements
+          cp det/ibm01-a/placed.pl placements/ibm01.pl
+          cp det/adaptec1-a/placed.pl placements/adaptec1.pl
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: placements-linux
+          path: placements
+          retention-days: 1
+
+  macos:
+    name: macOS / Build, unit tests and placement (Apple clang)
+    runs-on: macos-15
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Boost.Test
+        run: brew install boost
+
+      - name: Build
+        run: make -j"$(sysctl -n hw.ncpu)"
+
+      - name: Unit tests
+        run: make -j"$(sysctl -n hw.ncpu)" test
+
+      - name: Place ibm01 and adaptec1
+        run: |
+          set -euo pipefail
+          source ktplace.sh
+          ktplace ./benchmark/ICCAD04/ibm01 -w out/ibm01 --no-plots 2>&1 | tee ibm01.log
+          ktplace ./benchmark/ISPD_2005/adaptec1 -w out/adaptec1 --no-plots 2>&1 | tee adaptec1.log
+          for d in ibm01 adaptec1; do
+            test "$(grep -c 'verdict *| *PASS' $d.log)" -eq 2
+          done
+          mkdir -p placements
+          cp out/ibm01/placed.pl placements/ibm01.pl
+          cp out/adaptec1/placed.pl placements/adaptec1.pl
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: placements-macos
+          path: placements
+          retention-days: 1
+
+  cross-platform:
+    name: Linux vs macOS / Identical placed.pl
+    needs: [determinism, macos]
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: placements-linux
+          path: linux
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: placements-macos
+          path: macos
+
+      - name: Compare placed.pl
+        run: |
+          set -euo pipefail
+          sha256sum linux/* macos/*
+          for d in ibm01 adaptec1; do
+            cmp "linux/$d.pl" "macos/$d.pl"
+          done

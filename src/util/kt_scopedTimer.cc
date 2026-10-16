@@ -2,7 +2,7 @@
 
 #include "util/kt_reportTable.h"
 
-#include <fmt/format.h>
+#include <format>
 #include <utility>
 
 namespace ktplace {
@@ -79,13 +79,13 @@ void TimerRegistry::report() const {
     }
     const double wall = totalWallSeconds();
     const double cpu = totalCpuSeconds();
-    ktReportTable table(fmt::format("Timings (wall {:.3f}s, cpu {:.3f}s, {:.2f}x parallelism)",
+    ktReportTable table(std::format("Timings (wall {:.3f}s, cpu {:.3f}s, {:.2f}x parallelism)",
                                     wall, cpu, wall > 0.0 ? cpu / wall : 0.0));
     table.setHeaders({"phase", "wall", "cpu", "calls", "cpu/wall"});
     for (const auto &[name, entry] : all) {
-        table.addRow({name, fmt::format("{:.3f}s", entry.wallSeconds),
-                      fmt::format("{:.3f}s", entry.cpuSeconds), std::to_string(entry.calls),
-                      fmt::format("{:.2f}x", entry.parallelism())});
+        table.addRow({name, std::format("{:.3f}s", entry.wallSeconds),
+                      std::format("{:.3f}s", entry.cpuSeconds), std::to_string(entry.calls),
+                      std::format("{:.2f}x", entry.parallelism())});
     }
     table.emit();
 }

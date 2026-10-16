@@ -37,7 +37,12 @@ SRC = os.path.join(ROOT, "src")
 # spells the flag `c++2b`; clang 16 and later accept `c++23` and would not need
 # this, but `c++2b` is accepted by every version from 14 on, so it is the one that
 # works for both.
-FLAGS = "-std=c++2b -Wall -Wextra -Wpedantic -Wshadow -O2 -g -pthread"
+FLAGS = "-std=c++2b -Wall -Wextra -Wpedantic -Wshadow -O2 -g -pthread -ffp-contract=off"
+THIRD_PARTY_INCLUDES = "-isystem %s -isystem %s" % (
+    os.path.join(ROOT, "third_party", "oneTBB", "include"),
+    os.path.join(ROOT, "third_party", "zlib"),
+)
+THIRD_PARTY_INCLUDES += " -isystem %s" % os.path.join(ROOT, "third_party", "CImg")
 
 
 def subdirs():
@@ -71,7 +76,7 @@ def main():
         db.append({
             "directory": ROOT,
             "file": f,
-            "command": "g++ %s -I%s -c %s" % (FLAGS, SRC, f),
+            "command": "g++ %s -I%s %s -c %s" % (FLAGS, SRC, THIRD_PARTY_INCLUDES, f),
         })
     with open(os.path.join(ROOT, "compile_commands.json"), "w") as fh:
         json.dump(db, fh, indent=2, sort_keys=True)

@@ -99,17 +99,17 @@ namespace {
 void reportRun(const LegalizeResult &res) {
     ktReportTable table("Abacus legalization results");
     table.setHeaders({"metric", "value"});
-    table.addRow({"cells placed", fmt::format("{}", res.cellsPlaced)});
-    table.addRow({"unplaced", fmt::format("{}", res.unplaced)});
-    table.addRow({"HPWL before", fmt::format("{:.6e}", res.hpwlBefore)});
-    table.addRow({"HPWL after", fmt::format("{:.6e}", res.hpwlAfter)});
-    table.addRow({"total displacement", fmt::format("{:.6e}", res.totalSquaredDisplacement)});
-    table.addRow({"max displacement", fmt::format("{:.6}", res.maxDisplacement)});
-    table.addRow({"overlapping pairs", fmt::format("{}", res.overlappingPairs)});
-    table.addRow({"outside rows", fmt::format("{}", res.outOfRows)});
-    table.addRow({"over fixed", fmt::format("{}", res.overFixed)});
-    table.addRow({"commit failures", fmt::format("{}", res.commitFailures)});
-    table.addRow({"seconds", fmt::format("{:.3f}", res.seconds)});
+    table.addRow({"cells placed", std::format("{}", res.cellsPlaced)});
+    table.addRow({"unplaced", std::format("{}", res.unplaced)});
+    table.addRow({"HPWL before", std::format("{:.6e}", res.hpwlBefore)});
+    table.addRow({"HPWL after", std::format("{:.6e}", res.hpwlAfter)});
+    table.addRow({"total displacement", std::format("{:.6e}", res.totalSquaredDisplacement)});
+    table.addRow({"max displacement", std::format("{:.6}", res.maxDisplacement)});
+    table.addRow({"overlapping pairs", std::format("{}", res.overlappingPairs)});
+    table.addRow({"outside rows", std::format("{}", res.outOfRows)});
+    table.addRow({"over fixed", std::format("{}", res.overFixed)});
+    table.addRow({"commit failures", std::format("{}", res.commitFailures)});
+    table.addRow({"seconds", std::format("{:.3f}", res.seconds)});
     table.emit();
 }
 

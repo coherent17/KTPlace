@@ -113,7 +113,7 @@ Interval medianInterval(std::vector<double> &values) {
 }
 
 void keepCentral(std::vector<double> &bounds, std::size_t keep) {
-    std::ranges::sort(bounds);
+    std::ranges::stable_sort(bounds);
     if (bounds.size() > keep) {
         const std::size_t drop = (bounds.size() - keep) / 2;
         bounds.erase(bounds.end() - static_cast<std::ptrdiff_t>(bounds.size() - keep - drop),
@@ -231,7 +231,7 @@ void FastDetailedPlacer::Impl::collectCells(double rowHeight) {
 
 void FastDetailedPlacer::Impl::buildSpans() {
     std::vector<fastdp::RowInfo> rows(design.rows);
-    std::ranges::sort(rows, {}, &fastdp::RowInfo::coordinate);
+    std::ranges::stable_sort(rows, {}, &fastdp::RowInfo::coordinate);
     rowY_.clear();
     for (const fastdp::RowInfo &ri : rows) {
         rowY_.push_back(ri.coordinate);
@@ -264,7 +264,7 @@ void FastDetailedPlacer::Impl::buildSpans() {
         for (std::size_t r = 0; r < rows.size(); ++r) {
             const fastdp::RowInfo &ri = rows[r];
             std::vector<std::pair<double, double>> &obs = blocked[r];
-            std::ranges::sort(obs);
+            std::ranges::stable_sort(obs);
             for (const fastdp::Subrow &sub : ri.subrows) {
                 const auto emit = [&](double lo, double hi) {
                     if (hi > lo + kEps) {
@@ -328,7 +328,7 @@ void FastDetailedPlacer::Impl::assignCells() {
         }
     }
     for (Span &sp : spans_) {
-        std::ranges::sort(sp.cells, {}, [this](std::size_t c) {
+        std::ranges::stable_sort(sp.cells, {}, [this](std::size_t c) {
             return x_[c];
         });
     }
@@ -579,7 +579,7 @@ bool FastDetailedPlacer::Impl::tryGlobal(std::size_t i, const OptimalRegion &reg
     if (rows.empty()) {
         rows.push_back(nearestRow(cy));
     }
-    std::ranges::sort(rows, {}, [&](std::size_t r) {
+    std::ranges::stable_sort(rows, {}, [&](std::size_t r) {
         return std::abs(rowY_[r] - cy);
     });
 
@@ -620,7 +620,7 @@ bool FastDetailedPlacer::Impl::tryGlobal(std::size_t i, const OptimalRegion &reg
                     items.push_back({std::abs(std::clamp(cx, left, right) - cx), g, true});
                 }
             }
-            std::ranges::sort(items, {}, &Item::distance);
+            std::ranges::stable_sort(items, {}, &Item::distance);
             for (const Item &item : items) {
                 const Candidate c =
                     item.isGap ? moveInto(i, s, item.index, cx) : swapWith(i, cells[item.index]);
@@ -992,7 +992,7 @@ void FastDetailedPlacer::Impl::selfCheck(DetailPlaceResult &res) const {
     }
     std::vector<std::size_t> all(mov_.size());
     std::iota(all.begin(), all.end(), 0u);
-    std::ranges::sort(all, [&](std::size_t a, std::size_t b) {
+    std::ranges::stable_sort(all, [&](std::size_t a, std::size_t b) {
         return y_[a] != y_[b] ? y_[a] < y_[b] : x_[a] < x_[b];
     });
     for (std::size_t k = 1; k < all.size(); ++k) {
@@ -1135,19 +1135,19 @@ namespace {
 void report(const DetailPlaceResult &r) {
     ktReportTable t("Detailed placement (FastDP)");
     t.setHeaders({"metric", "value"});
-    t.addRow({"global swaps", fmt::format("{}", r.globalSwaps)});
-    t.addRow({"vertical swaps", fmt::format("{}", r.verticalSwaps)});
-    t.addRow({"reorder moves", fmt::format("{}", r.reorderMoves)});
-    t.addRow({"cluster moves", fmt::format("{}", r.clusterMoves)});
-    t.addRow({"HPWL before", fmt::format("{:.6}", r.hpwlBefore)});
-    t.addRow({"HPWL after", fmt::format("{:.6}", r.hpwlAfter)});
-    t.addRow({"HPWL change", fmt::format("{:.2}%", 100.0 * (r.hpwlAfter - r.hpwlBefore) /
+    t.addRow({"global swaps", std::format("{}", r.globalSwaps)});
+    t.addRow({"vertical swaps", std::format("{}", r.verticalSwaps)});
+    t.addRow({"reorder moves", std::format("{}", r.reorderMoves)});
+    t.addRow({"cluster moves", std::format("{}", r.clusterMoves)});
+    t.addRow({"HPWL before", std::format("{:.6}", r.hpwlBefore)});
+    t.addRow({"HPWL after", std::format("{:.6}", r.hpwlAfter)});
+    t.addRow({"HPWL change", std::format("{:.2}%", 100.0 * (r.hpwlAfter - r.hpwlBefore) /
                                                        (r.hpwlBefore > 0.0 ? r.hpwlBefore : 1.0))});
-    t.addRow({"time (s)", fmt::format("{:.6}", r.seconds)});
-    t.addRow({"overlapping pairs", fmt::format("{}", r.overlappingPairs)});
-    t.addRow({"cells off row", fmt::format("{}", r.offRow)});
-    t.addRow({"cells off site", fmt::format("{}", r.offSite)});
-    t.addRow({"cells over macro", fmt::format("{}", r.overFixed)});
+    t.addRow({"time (s)", std::format("{:.6}", r.seconds)});
+    t.addRow({"overlapping pairs", std::format("{}", r.overlappingPairs)});
+    t.addRow({"cells off row", std::format("{}", r.offRow)});
+    t.addRow({"cells off site", std::format("{}", r.offSite)});
+    t.addRow({"cells over macro", std::format("{}", r.overFixed)});
     t.emit();
     if (r.overlappingPairs != 0 || r.offRow != 0 || r.overFixed != 0) {
         ktlog.warning("detailed placement broke legality; see the counts above");

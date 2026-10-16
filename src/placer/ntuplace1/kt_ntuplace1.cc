@@ -216,7 +216,7 @@ void RatioPlacer::Impl::build() {
     }
     // Sorted by y so freeAreaIn only visits the rows a region spans, not all of
     // them on every cut.
-    std::sort(rowRects_.begin(), rowRects_.end(), [](const AreaRect &a, const AreaRect &b) {
+    std::stable_sort(rowRects_.begin(), rowRects_.end(), [](const AreaRect &a, const AreaRect &b) {
         return a.y0 < b.y0;
     });
     maxRowH_ = 0.0;
@@ -759,18 +759,18 @@ RatioPlaceResult RatioPlacer::place(const Ntuplace1Options &options) {
 void reportNtuPlace1(const RatioPlaceResult &r) {
     ktReportTable t("NTUplace1 solver results");
     t.setHeaders({"metric", "value"});
-    t.addRow({"movable cells", fmt::format("{}", r.numMovable)});
-    t.addRow({"fixed blocks", fmt::format("{}", r.numFixed)});
-    t.addRow({"hypergraph nets", fmt::format("{}", r.nets)});
-    t.addRow({"cuts accepted", fmt::format("{}", r.cuts)});
-    t.addRow({"look-ahead retries", fmt::format("{}", r.ratioRetries)});
-    t.addRow({"retries per cut", fmt::format("{:.3}", r.meanImbalance)});
-    t.addRow({"recursion depth reached", fmt::format("{}", r.maxDepth)});
-    t.addRow({"smallest leaf", fmt::format("{}", r.minLeafCells)});
-    t.addRow({"HPWL estimate (pre-legalization)", fmt::format("{:.6}", r.hpwlFinal)});
+    t.addRow({"movable cells", std::format("{}", r.numMovable)});
+    t.addRow({"fixed blocks", std::format("{}", r.numFixed)});
+    t.addRow({"hypergraph nets", std::format("{}", r.nets)});
+    t.addRow({"cuts accepted", std::format("{}", r.cuts)});
+    t.addRow({"look-ahead retries", std::format("{}", r.ratioRetries)});
+    t.addRow({"retries per cut", std::format("{:.3}", r.meanImbalance)});
+    t.addRow({"recursion depth reached", std::format("{}", r.maxDepth)});
+    t.addRow({"smallest leaf", std::format("{}", r.minLeafCells)});
+    t.addRow({"HPWL estimate (pre-legalization)", std::format("{:.6}", r.hpwlFinal)});
     if (r.fenceRegions > 0) {
-        t.addRow({"fence regions", fmt::format("{}", r.fenceRegions)});
-        t.addRow({"cells outside their fence", fmt::format("{}", r.fenceViolations)});
+        t.addRow({"fence regions", std::format("{}", r.fenceRegions)});
+        t.addRow({"cells outside their fence", std::format("{}", r.fenceViolations)});
     }
     t.emit();
 }

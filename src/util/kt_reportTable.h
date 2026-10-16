@@ -1,6 +1,6 @@
 #pragma once
 
-#include <fmt/format.h>
+#include <format>
 #include <string>
 #include <utility>
 #include <vector>
@@ -16,8 +16,8 @@ public:
     void addRow(std::vector<std::string> cells);
 
     template <typename... Args>
-    void row(fmt::format_string<Args...> fmtStr, Args &&...args) {
-        addRow({fmt::format(fmtStr, std::forward<Args>(args)...)});
+    void row(std::format_string<Args...> fmtStr, Args &&...args) {
+        addRow({std::format(fmtStr, std::forward<Args>(args)...)});
     }
 
     void add(std::string key, std::string value);

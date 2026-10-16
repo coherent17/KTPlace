@@ -4,18 +4,18 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Build and test
 
-Plain GNU make, C++23 with g++ 13+. Dependencies are system packages: oneTBB, Boost (Iostreams, Test), zlib, fmt and clang-format. CImg is vendored as `src/visualization/CImg.h`; never format or edit it.
+Plain GNU make, C++23 with g++ 13+. oneTBB, zlib and CImg are git submodules under `third_party/` (clone with `--recurse-submodules`); never edit them. `src/Master.make` compiles oneTBB and zlib into `build/lib/libtbb.a` and `libz.a` and links them statically; CImg is header-only and included as `"CImg.h"`. Formatting uses `std::format`, not fmt. The only system packages are Boost.Test (unit tests) and clang-format.
 
 ```sh
 make -j"$(nproc)"          # build/bin/ktplace, and copies ktplace.sh/.csh to the repo root
 make -j"$(nproc)" test     # build and run every Boost.Test suite (alias: make check)
-make format                # clang-format -i on every tracked src/*.cc, src/*.h (except CImg.h)
+make format                # clang-format -i on every tracked src/*.cc, src/*.h
 make format-check          # what CI checks; it fails on any unformatted file
 make compile-commands      # compile_commands.json for clangd
 make hooks                 # pre-commit: staged-file format check plus unit tests
                            #   (KTPLACE_SKIP_HOOKS=1 bypasses it; KTPLACE_HOOK_TESTS=0 skips the tests)
 python3 scripts/coverage_report.py --clean --build --min 80   # gcov line coverage (local only, not in CI)
-make STATIC=1 TBB_STATIC_ROOT=<prefix>   # fully static build-static/bin/ktplace (fmt header-only, oneTBB built from source)
+make STATIC=1           # build-static/bin/ktplace with glibc and libstdc++ linked in too
 ```
 
 Each component has its own test binary: `test_datamodel`, `test_adaptor`, `test_flow`, `test_util`, `test_constraint`, `test_option`, `test_viz`, `test_detail`, `test_ntuplace1`, `test_abacus`, `test_tcl` and `test_simpl`. To run one suite or one case, build the tests and then call Boost.Test directly:
@@ -28,7 +28,7 @@ build/bin/test_abacus --run_test=ktplace_abacus/<case>   # --list_content lists 
 
 A new test binary needs a `TEST_<name>` variable, a `TEST_BINS` entry and a link rule in `src/Master.make`. A new source file must be added to `SRCS` in its directory's `Master.make`. The build does not glob.
 
-CI (`.github/workflows/ci.yml`) has a `build` job (format check, build, test binaries; it uploads the stripped `build/bin` as an artifact) and four jobs that start after it and run in parallel: unit tests, the adaptec1 smoke placement, the ibm01 multi-row smoke placement (each configured by a small `-tcl` script), and a determinism job that runs ibm01 (animation on) and adaptec1 twice and requires byte-identical outputs. The smoke step checks the exact netlist counts in the log and the line count of `placed.pl`. Do not change those log strings by accident.
+CI (`.github/workflows/ci.yml`) has a `build` job (format check, build, test binaries; it uploads the stripped `build/bin` as an artifact) and four jobs that start after it and run in parallel: unit tests, the adaptec1 smoke placement, the ibm01 multi-row smoke placement (each configured by a small `-tcl` script), and a determinism job that runs ibm01 (animation on) and adaptec1 twice and requires byte-identical outputs. A `macos` job builds, tests and places ibm01 and adaptec1 with Apple clang, and a last job requires the Linux and macOS `placed.pl` files to be byte-identical. The smoke step checks the exact netlist counts in the log and the line count of `placed.pl`. Do not change those log strings by accident.
 
 Releases come from `.github/workflows/release.yml`: pushing a `v*` tag that matches `VERSION` in `src/kt_option.h` builds a dynamic and a fully static binary, places ibm01 and adaptec1 with each, and publishes both tarballs with checksums as a GitHub release.
 
@@ -81,6 +81,8 @@ load → report → global place → legalize → detailed place → final image
 - `util/`: logging, `KT_ASSERT`, `ScopedTimer`/`TimerRegistry`, report tables.
 
 ## Conventions
+
+- **Placements must not depend on the platform.** Linux (GCC, libstdc++) and macOS (Apple clang, libc++) must write the same `placed.pl`, and CI compares them. So in engine code: sort with `std::stable_sort`/`std::ranges::stable_sort` (an unstable sort orders ties differently per standard library), keep `-ffp-contract=off` (no FMA), avoid math functions that are not correctly rounded (`std::hypot`, `std::exp`, ...) where their result steers a decision, and keep parallel floating-point reductions in a fixed order (`deterministicSum` in SimPL).
 
 - Includes are relative to the project root (`#include "datamodel/kt_dm.h"`). `src/` is the only include path.
 - Format with `.clang-format`: Google-based style, 4-space indent, 100-column limit. CI fails on any unformatted tracked file.

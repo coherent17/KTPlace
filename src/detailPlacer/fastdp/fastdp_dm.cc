@@ -82,17 +82,17 @@ namespace {
 void reportRun(const DetailPlaceResult &res) {
     ktReportTable table("FastDP detailed placement results");
     table.setHeaders({"metric", "value"});
-    table.addRow({"global swaps", fmt::format("{}", res.globalSwaps)});
-    table.addRow({"vertical swaps", fmt::format("{}", res.verticalSwaps)});
-    table.addRow({"reorder moves", fmt::format("{}", res.reorderMoves)});
-    table.addRow({"cluster moves", fmt::format("{}", res.clusterMoves)});
-    table.addRow({"HPWL before", fmt::format("{:.6e}", res.hpwlBefore)});
-    table.addRow({"HPWL after", fmt::format("{:.6e}", res.hpwlAfter)});
-    table.addRow({"overlapping pairs", fmt::format("{}", res.overlappingPairs)});
-    table.addRow({"off row", fmt::format("{}", res.offRow)});
-    table.addRow({"off site", fmt::format("{}", res.offSite)});
-    table.addRow({"over fixed", fmt::format("{}", res.overFixed)});
-    table.addRow({"seconds", fmt::format("{:.3f}", res.seconds)});
+    table.addRow({"global swaps", std::format("{}", res.globalSwaps)});
+    table.addRow({"vertical swaps", std::format("{}", res.verticalSwaps)});
+    table.addRow({"reorder moves", std::format("{}", res.reorderMoves)});
+    table.addRow({"cluster moves", std::format("{}", res.clusterMoves)});
+    table.addRow({"HPWL before", std::format("{:.6e}", res.hpwlBefore)});
+    table.addRow({"HPWL after", std::format("{:.6e}", res.hpwlAfter)});
+    table.addRow({"overlapping pairs", std::format("{}", res.overlappingPairs)});
+    table.addRow({"off row", std::format("{}", res.offRow)});
+    table.addRow({"off site", std::format("{}", res.offSite)});
+    table.addRow({"over fixed", std::format("{}", res.overFixed)});
+    table.addRow({"seconds", std::format("{:.3f}", res.seconds)});
     table.emit();
 }
 

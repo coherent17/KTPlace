@@ -5,13 +5,23 @@
 
 #include "datamodel/kt_optionDb.h"
 
-#include <fmt/format.h>
-#include <fmt/ranges.h>
+#include <format>
 #include <optional>
+#include <string>
+#include <string_view>
 
 namespace ktplace::tcl {
 
 namespace {
+
+std::string joined(const auto &names) {
+    std::string out;
+    for (const std::string_view name : names) {
+        out += out.empty() ? "" : ", ";
+        out += name;
+    }
+    return out;
+}
 
 // A script word becomes the variant a component reads. The type comes from the
 // word's own spelling, so 64 is an int, 1e-6 a double, and a braced {64} a string
@@ -56,8 +66,8 @@ void TclMgr::installCommands() {
             const std::optional<Component> id = componentFromName(component);
             if (!id) {
                 throw tcl::Error(
-                    fmt::format("add_option: '{}' is not a known component (try one of: {})",
-                                component, fmt::join(kComponentNames, ", ")));
+                    std::format("add_option: '{}' is not a known component (try one of: {})",
+                                component, joined(kComponentNames)));
             }
             const Value value = args[3].literal ? Value::string(args[3].text)
                                                 : parseLiteral(self.substitute(args[3].text));
