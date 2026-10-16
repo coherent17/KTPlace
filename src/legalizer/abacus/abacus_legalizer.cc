@@ -679,19 +679,19 @@ namespace {
 void report(const LegalizeResult &r) {
     ktReportTable t("Legalization (Abacus)");
     t.setHeaders({"metric", "value"});
-    t.addRow({"cells placed", fmt::format("{}", r.cellsPlaced)});
-    t.addRow({"cells unplaced", fmt::format("{}", r.unplaced)});
-    t.addRow({"squared displacement", fmt::format("{:.6}", r.totalSquaredDisplacement)});
-    t.addRow({"max displacement", fmt::format("{:.6}", r.maxDisplacement)});
-    t.addRow({"HPWL before", fmt::format("{:.6}", r.hpwlBefore)});
-    t.addRow({"HPWL after", fmt::format("{:.6}", r.hpwlAfter)});
-    t.addRow({"time (s)", fmt::format("{:.6}", r.seconds)});
-    t.addRow({"overlapping pairs", fmt::format("{}", r.overlappingPairs)});
-    t.addRow({"cells off row", fmt::format("{}", r.offRow)});
-    t.addRow({"cells off site", fmt::format("{}", r.offSite)});
-    t.addRow({"cells over macro", fmt::format("{}", r.overFixed)});
-    t.addRow({"cells out of rows", fmt::format("{}", r.outOfRows)});
-    t.addRow({"commit failures", fmt::format("{}", r.commitFailures)});
+    t.addRow({"cells placed", std::format("{}", r.cellsPlaced)});
+    t.addRow({"cells unplaced", std::format("{}", r.unplaced)});
+    t.addRow({"squared displacement", std::format("{:.6}", r.totalSquaredDisplacement)});
+    t.addRow({"max displacement", std::format("{:.6}", r.maxDisplacement)});
+    t.addRow({"HPWL before", std::format("{:.6}", r.hpwlBefore)});
+    t.addRow({"HPWL after", std::format("{:.6}", r.hpwlAfter)});
+    t.addRow({"time (s)", std::format("{:.6}", r.seconds)});
+    t.addRow({"overlapping pairs", std::format("{}", r.overlappingPairs)});
+    t.addRow({"cells off row", std::format("{}", r.offRow)});
+    t.addRow({"cells off site", std::format("{}", r.offSite)});
+    t.addRow({"cells over macro", std::format("{}", r.overFixed)});
+    t.addRow({"cells out of rows", std::format("{}", r.outOfRows)});
+    t.addRow({"commit failures", std::format("{}", r.commitFailures)});
     t.emit();
 
     if (r.overlappingPairs != 0 || r.offRow != 0 || r.overFixed != 0) {

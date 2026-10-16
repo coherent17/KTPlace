@@ -4,7 +4,7 @@
 #include "util/kt_reportTable.h"
 
 #include <filesystem>
-#include <fmt/format.h>
+#include <format>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -39,7 +39,7 @@ bool kt_option::parse(int argc, char *argv[]) {
 
         const auto value = [&]() -> std::string {
             if (i + 1 >= argc) {
-                throw std::runtime_error(fmt::format("{} requires a value", arg));
+                throw std::runtime_error(std::format("{} requires a value", arg));
             }
             return argv[++i];
         };
@@ -116,11 +116,11 @@ Examples:
   ktplace benchmark/ISPD_2005/adaptec1 -w output
   ktplace benchmark/ISPD_2005/adaptec1 -w output -tcl run.tcl
 )";
-    ktlog.echo(fmt::format(kUsage, VERSION));
+    ktlog.echo(std::format(kUsage, VERSION));
 }
 
 void kt_option::printVersion() {
-    ktlog.echo(fmt::format("KTPlace v{}\nKnow Thyself Placement Engine", VERSION));
+    ktlog.echo(std::format("KTPlace v{}\nKnow Thyself Placement Engine", VERSION));
 }
 
 }  // namespace ktplace

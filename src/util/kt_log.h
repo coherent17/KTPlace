@@ -2,7 +2,7 @@
 
 #include <cstddef>
 #include <cstdlib>
-#include <fmt/format.h>
+#include <format>
 #include <fstream>
 #include <mutex>
 #include <string>
@@ -36,23 +36,23 @@ public:
     [[nodiscard]] std::size_t recordCount() const;
 
     template <typename... Args>
-    void echo(fmt::format_string<Args...> fmtStr, Args &&...args) {
-        emit(Level::Echo, fmt::format(fmtStr, std::forward<Args>(args)...));
+    void echo(std::format_string<Args...> fmtStr, Args &&...args) {
+        emit(Level::Echo, std::format(fmtStr, std::forward<Args>(args)...));
     }
 
     template <typename... Args>
-    void trace(fmt::format_string<Args...> fmtStr, Args &&...args) {
-        emit(Level::Trace, fmt::format(fmtStr, std::forward<Args>(args)...));
+    void trace(std::format_string<Args...> fmtStr, Args &&...args) {
+        emit(Level::Trace, std::format(fmtStr, std::forward<Args>(args)...));
     }
 
     template <typename... Args>
-    void warning(fmt::format_string<Args...> fmtStr, Args &&...args) {
-        emit(Level::Warning, fmt::format(fmtStr, std::forward<Args>(args)...));
+    void warning(std::format_string<Args...> fmtStr, Args &&...args) {
+        emit(Level::Warning, std::format(fmtStr, std::forward<Args>(args)...));
     }
 
     template <typename... Args>
-    [[noreturn]] void fatal(fmt::format_string<Args...> fmtStr, Args &&...args) {
-        emit(Level::Fatal, fmt::format(fmtStr, std::forward<Args>(args)...));
+    [[noreturn]] void fatal(std::format_string<Args...> fmtStr, Args &&...args) {
+        emit(Level::Fatal, std::format(fmtStr, std::forward<Args>(args)...));
         shutdown();
         std::exit(EXIT_FAILURE);
     }

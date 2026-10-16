@@ -101,18 +101,18 @@ namespace {
 void reportRun(const MultiRowLegalizeResult &res) {
     ktReportTable table("Legalization (multi-row)");
     table.setHeaders({"metric", "value"});
-    table.addRow({"movable cells", fmt::format("{}", res.movable)});
-    table.addRow({"cells placed", fmt::format("{}", res.placed)});
-    table.addRow({"cells unplaced", fmt::format("{}", res.unplaced)});
-    table.addRow({"cells taller than a row", fmt::format("{}", res.multiRow)});
-    table.addRow({"of those, placed", fmt::format("{}", res.multiRowPlaced)});
-    table.addRow({"macros legalized first", fmt::format("{}", res.macros)});
-    table.addRow({"macros placed", fmt::format("{}", res.macrosPlaced)});
-    table.addRow({"total displacement", fmt::format("{:.6e}", res.displacement)});
-    table.addRow({"max displacement", fmt::format("{:.1f}", res.maxDisplacement)});
-    table.addRow({"HPWL before", fmt::format("{:.6e}", res.hpwlBefore)});
-    table.addRow({"HPWL after", fmt::format("{:.6e}", res.hpwlAfter)});
-    table.addRow({"seconds", fmt::format("{:.3f}", res.seconds)});
+    table.addRow({"movable cells", std::format("{}", res.movable)});
+    table.addRow({"cells placed", std::format("{}", res.placed)});
+    table.addRow({"cells unplaced", std::format("{}", res.unplaced)});
+    table.addRow({"cells taller than a row", std::format("{}", res.multiRow)});
+    table.addRow({"of those, placed", std::format("{}", res.multiRowPlaced)});
+    table.addRow({"macros legalized first", std::format("{}", res.macros)});
+    table.addRow({"macros placed", std::format("{}", res.macrosPlaced)});
+    table.addRow({"total displacement", std::format("{:.6e}", res.displacement)});
+    table.addRow({"max displacement", std::format("{:.1f}", res.maxDisplacement)});
+    table.addRow({"HPWL before", std::format("{:.6e}", res.hpwlBefore)});
+    table.addRow({"HPWL after", std::format("{:.6e}", res.hpwlAfter)});
+    table.addRow({"seconds", std::format("{:.3f}", res.seconds)});
     table.emit();
     if (res.unplaced > 0) {
         ktlog.warning("{} cell(s) found no legal position and kept their global placement",

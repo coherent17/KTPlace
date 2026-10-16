@@ -87,26 +87,26 @@ void reportRun(const SimplResult &res) {
     ktReportTable table("SimPL solver results");
     table.setHeaders({"metric", "initial", "final"});
     table.addRow(
-        {"HPWL", fmt::format("{:.6e}", res.hpwlSeed), fmt::format("{:.6e}", res.hpwlFinal)});
-    table.addRow({"lower bound", "", fmt::format("{:.6e}", res.hpwlLower)});
-    table.addRow({"gap", "", fmt::format("{:.6e}", res.gap)});
+        {"HPWL", std::format("{:.6e}", res.hpwlSeed), std::format("{:.6e}", res.hpwlFinal)});
+    table.addRow({"lower bound", "", std::format("{:.6e}", res.hpwlLower)});
+    table.addRow({"gap", "", std::format("{:.6e}", res.gap)});
     // Named as it is, not "overflow": the overflow is the bin-density
     // violation scaled by the density limit, which is not the same number as
     // raw overlap, and the qualifier is what says so. CI gates on the label.
-    table.addRow({"scaled overflow (lower)", "", fmt::format("{:.6e}", res.overflowLower)});
-    table.addRow({"scaled overflow (final)", "", fmt::format("{:.6e}", res.overflowFinal)});
-    table.addRow({"movable cells", "", fmt::format("{}", res.numMovable)});
-    table.addRow({"fixed cells", "", fmt::format("{}", res.numFixed)});
-    table.addRow({"nets", "", fmt::format("{}", res.nets)});
-    table.addRow({"init iterations", "", fmt::format("{}", res.initIters)});
-    table.addRow({"global iterations", "", fmt::format("{}", res.globalIters)});
-    table.addRow({"fence regions", "", fmt::format("{}", res.fenceRegions)});
-    table.addRow({"fence clamps", "", fmt::format("{}", res.fenceClamps)});
-    table.addRow({"fence pushes", "", fmt::format("{}", res.fencePushes)});
-    table.addRow({"fence violations", "", fmt::format("{}", res.fenceViolations)});
-    table.addRow({"spread seconds", "", fmt::format("{:.3f}", res.spreadSeconds)});
-    table.addRow({"build seconds", "", fmt::format("{:.3f}", res.buildSeconds)});
-    table.addRow({"solve seconds", "", fmt::format("{:.3f}", res.solveSeconds)});
+    table.addRow({"scaled overflow (lower)", "", std::format("{:.6e}", res.overflowLower)});
+    table.addRow({"scaled overflow (final)", "", std::format("{:.6e}", res.overflowFinal)});
+    table.addRow({"movable cells", "", std::format("{}", res.numMovable)});
+    table.addRow({"fixed cells", "", std::format("{}", res.numFixed)});
+    table.addRow({"nets", "", std::format("{}", res.nets)});
+    table.addRow({"init iterations", "", std::format("{}", res.initIters)});
+    table.addRow({"global iterations", "", std::format("{}", res.globalIters)});
+    table.addRow({"fence regions", "", std::format("{}", res.fenceRegions)});
+    table.addRow({"fence clamps", "", std::format("{}", res.fenceClamps)});
+    table.addRow({"fence pushes", "", std::format("{}", res.fencePushes)});
+    table.addRow({"fence violations", "", std::format("{}", res.fenceViolations)});
+    table.addRow({"spread seconds", "", std::format("{:.3f}", res.spreadSeconds)});
+    table.addRow({"build seconds", "", std::format("{:.3f}", res.buildSeconds)});
+    table.addRow({"solve seconds", "", std::format("{:.3f}", res.solveSeconds)});
     table.emit();
 }
 

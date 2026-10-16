@@ -844,7 +844,7 @@ void simplPlacer::Impl::solve(std::vector<double> &x, std::vector<double> &y,
         const bool last = !live(ax) && !live(ay);
         if (par.cgEvery > 0 && ((it + 1) % par.cgEvery == 0 || last)) {
             writeFrame("cg_" + tag, x, y,
-                       fmt::format("CG {} iterate {}, residual x {:.3e} / y {:.3e}", tag, it + 1,
+                       std::format("CG {} iterate {}, residual x {:.3e} / y {:.3e}", tag, it + 1,
                                    ax.resid, ay.resid),
                        it + 1, par.cgMaxIter);
         }
@@ -1300,7 +1300,7 @@ SimplResult simplPlacer::Impl::run(const SimplOptions &params) {
             if ((accepted & (accepted - 1)) == 0) {
                 framed = accepted;
                 writeFrame("LSS_init", lower, lowerY,
-                           fmt::format("initial placement round {}", accepted), accepted,
+                           std::format("initial placement round {}", accepted), accepted,
                            par.initMaxIters);
             }
         }
@@ -1312,7 +1312,7 @@ SimplResult simplPlacer::Impl::run(const SimplOptions &params) {
         initialPhase(false);
     }
     if (accepted > 0 && framed != accepted) {
-        writeFrame("LSS_init", lower, lowerY, fmt::format("initial placement round {}", accepted),
+        writeFrame("LSS_init", lower, lowerY, std::format("initial placement round {}", accepted),
                    accepted, par.initMaxIters);
     }
 
@@ -1342,10 +1342,10 @@ SimplResult simplPlacer::Impl::run(const SimplOptions &params) {
                     overflow(occupancy(upper, upperY)));
         if (par.traceEvery > 0 && it % par.traceEvery == 0) {
             writeFrame("LSS", lower, lowerY,
-                       fmt::format("LSS (linear system solve) - iteration {}", it), it,
+                       std::format("LSS (linear system solve) - iteration {}", it), it,
                        par.maxIters);
             writeFrame("LAL", upper, upperY,
-                       fmt::format("LAL (look-ahead legalized) - iteration {}", it), it,
+                       std::format("LAL (look-ahead legalized) - iteration {}", it), it,
                        par.maxIters);
         }
 

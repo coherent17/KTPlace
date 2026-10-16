@@ -7,7 +7,7 @@
 #include "util/kt_reportTable.h"
 
 #include <algorithm>
-#include <fmt/format.h>
+#include <format>
 
 namespace ktplace {
 
@@ -20,7 +20,7 @@ std::string toText(const OptionValue &value) {
             if constexpr (std::same_as<Held, bool>) {
                 return held ? "1" : "0";
             } else {
-                return fmt::format("{}", held);
+                return std::format("{}", held);
             }
         },
         value);
