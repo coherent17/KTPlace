@@ -1,5 +1,6 @@
 #include "util/kt_log.h"
 
+#include <algorithm>
 #include <chrono>
 #include <cstdio>
 #include <ctime>
@@ -107,6 +108,7 @@ std::size_t Logger::recordCount() const {
 
 void Logger::emit(Level level, const std::string &message) {
     const bool isTrace = (level == Level::Trace);
+    const bool flagged = level == Level::Warning || level == Level::Fatal;
 
     std::string body = message;
     if (body.size() > kMaxRecordBytes) {
@@ -117,22 +119,50 @@ void Logger::emit(Level level, const std::string &message) {
     std::lock_guard<std::mutex> lock(mutex);
     ++records;
 
+    const std::string prefix = '[' + step + "] ";
+    const std::string tag = flagged ? std::string(levelTag(level)) + ": " : std::string();
     if (traceFile.is_open()) {
-        traceFile << '[' << levelTag(level) << "] " << body << '\n';
+        traceFile << prefix << tag << body << '\n';
         traceFile.flush();
     }
     if (!isTrace && file.is_open()) {
-        file << '[' << levelTag(level) << "] " << body << '\n';
+        file << prefix << tag << body << '\n';
         file.flush();
     }
-
     if (!isTrace || verboseEnabled) {
-        const char *color = levelColor(level);
-        if (color[0] != '\0') {
-            std::cerr << color << '[' << levelTag(level) << "] \033[0m " << body << '\n';
+        if (flagged) {
+            std::cerr << prefix << levelColor(level) << tag << "\033[0m" << body << '\n';
         } else {
-            std::cerr << body << '\n';
+            std::cerr << prefix << body << '\n';
         }
+    }
+}
+
+std::string Logger::currentStep() const {
+    std::lock_guard<std::mutex> lock(mutex);
+    return step;
+}
+
+void Logger::beginStep(std::string name) {
+    const std::size_t width = std::max<std::size_t>(60, name.size() + 4);
+    const std::size_t inside = width - 2;
+    const std::size_t left = (inside - name.size()) / 2;
+    const std::string rule(width, '#');
+    const std::string title =
+        '#' + std::string(left, ' ') + name + std::string(inside - left - name.size(), ' ') + '#';
+    std::lock_guard<std::mutex> lock(mutex);
+    step = std::move(name);
+    for (std::ostream *out :
+         {static_cast<std::ostream *>(&file), static_cast<std::ostream *>(&traceFile),
+          static_cast<std::ostream *>(&std::cerr)}) {
+        if (out == &file && !file.is_open()) {
+            continue;
+        }
+        if (out == &traceFile && !traceFile.is_open()) {
+            continue;
+        }
+        *out << rule << '\n' << title << '\n' << rule << '\n';
+        out->flush();
     }
 }
 

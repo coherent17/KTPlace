@@ -10,8 +10,6 @@
 namespace ktplace::ntuplace1 {
 
 ntuplace1Solution flowMgr::runGlobalPlacer() {
-    ktlog.echo("Running NTUPlace1 global placement (ratio partitioning)...");
-
     RatioPlacer placer(dm.design());
     const RatioPlaceResult result = placer.place(dm.options());
     reportNtuPlace1(result);

@@ -1018,7 +1018,7 @@ void FastDetailedPlacer::Impl::selfCheck(DetailPlaceResult &res) const {
 
 DetailPlaceResult FastDetailedPlacer::Impl::place(const FastdpOptions &params) {
     DetailPlaceResult res;
-    ScopedTimer timer("detail-place");
+    ScopedTimer timer("fastdp");
     opts_ = params;
     mov_.clear();
     w_.clear();
@@ -1104,23 +1104,16 @@ DetailPlaceResult FastDetailedPlacer::Impl::place(const FastdpOptions &params) {
         }
         writeFrame("single-segment clustering", ++step);
     }
-    ktlog.echo("  detail-place global      {:>8.3f}s", globalSeconds);
-    ktlog.echo("  detail-place vertical    {:>8.3f}s", verticalSeconds);
-    ktlog.echo("  detail-place reorder     {:>8.3f}s", reorderSeconds);
-    ktlog.echo("  detail-place cluster     {:>8.3f}s", clusterSeconds);
+    res.globalSeconds = globalSeconds;
+    res.verticalSeconds = verticalSeconds;
+    res.reorderSeconds = reorderSeconds;
+    res.clusterSeconds = clusterSeconds;
 
     res.hpwlAfter = hpwl();
     selfCheck(res);
     res.seconds = timer.elapsedSeconds();
-    ktlog.echo(
-        "FastDP: {:.3f}s, HPWL {:.6e} -> {:.6e} ({:+.2f}%), swaps {} global / {} vertical, "
-        "reorder {}, cluster {}",
-        res.seconds, res.hpwlBefore, res.hpwlAfter,
-        res.hpwlBefore > 0.0 ? 100.0 * (res.hpwlAfter - res.hpwlBefore) / res.hpwlBefore : 0.0,
-        res.globalSwaps, res.verticalSwaps, res.reorderMoves, res.clusterMoves);
     if (tallSkipped_ > 0) {
-        ktlog.echo("  detail-place left {} multi-row cell(s) where legalization put them",
-                   tallSkipped_);
+        ktlog.echo("left {} multi-row cell(s) where legalization put them", tallSkipped_);
     }
     return res;
 }
@@ -1135,15 +1128,16 @@ namespace {
 void report(const DetailPlaceResult &r) {
     ktReportTable t("Detailed placement (FastDP)");
     t.setHeaders({"metric", "value"});
-    t.addRow({"global swaps", std::format("{}", r.globalSwaps)});
-    t.addRow({"vertical swaps", std::format("{}", r.verticalSwaps)});
-    t.addRow({"reorder moves", std::format("{}", r.reorderMoves)});
-    t.addRow({"cluster moves", std::format("{}", r.clusterMoves)});
-    t.addRow({"HPWL before", std::format("{:.6}", r.hpwlBefore)});
-    t.addRow({"HPWL after", std::format("{:.6}", r.hpwlAfter)});
-    t.addRow({"HPWL change", std::format("{:.2}%", 100.0 * (r.hpwlAfter - r.hpwlBefore) /
-                                                       (r.hpwlBefore > 0.0 ? r.hpwlBefore : 1.0))});
-    t.addRow({"time (s)", std::format("{:.6}", r.seconds)});
+    t.addRow({"global swaps", std::format("{} ({:.3f}s)", r.globalSwaps, r.globalSeconds)});
+    t.addRow({"vertical swaps", std::format("{} ({:.3f}s)", r.verticalSwaps, r.verticalSeconds)});
+    t.addRow({"reorder moves", std::format("{} ({:.3f}s)", r.reorderMoves, r.reorderSeconds)});
+    t.addRow({"cluster moves", std::format("{} ({:.3f}s)", r.clusterMoves, r.clusterSeconds)});
+    t.addRow({"HPWL before", std::format("{:.6e}", r.hpwlBefore)});
+    t.addRow({"HPWL after", std::format("{:.6e}", r.hpwlAfter)});
+    t.addRow(
+        {"HPWL change", std::format("{:+.2f}%", 100.0 * (r.hpwlAfter - r.hpwlBefore) /
+                                                    (r.hpwlBefore > 0.0 ? r.hpwlBefore : 1.0))});
+    t.addRow({"seconds", std::format("{:.3f}", r.seconds)});
     t.addRow({"overlapping pairs", std::format("{}", r.overlappingPairs)});
     t.addRow({"cells off row", std::format("{}", r.offRow)});
     t.addRow({"cells off site", std::format("{}", r.offSite)});

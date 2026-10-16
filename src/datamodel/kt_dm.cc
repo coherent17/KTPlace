@@ -577,13 +577,13 @@ void ktDM::isLegalizePlacement() const {
 
 namespace ktplace {
 
-std::uint64_t ktDM::checksum() const {
-    std::uint64_t h = 1469598103934665603ULL;
+std::uint32_t ktDM::checksum() const {
+    std::uint32_t h = 2166136261U;
     const auto mix = [&h](const auto &value) {
         unsigned char bytes[sizeof(value)];
         std::memcpy(bytes, &value, sizeof(value));
         for (const unsigned char b : bytes) {
-            h = (h ^ b) * 1099511628211ULL;
+            h = (h ^ b) * 16777619U;
         }
     };
     const Graph &g = getGraph();

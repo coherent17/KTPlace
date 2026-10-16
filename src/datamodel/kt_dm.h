@@ -152,9 +152,9 @@ public:
     void reportStatistics() const;
     void reportUtilisation() const;
 
-    /// FNV-1a over every cell's position, size and fixed flag and every pin's
+    /// 32-bit FNV-1a over every cell's position, size and fixed flag and every pin's
     /// cell, net and offset: equal checksums mean the same design and placement.
-    [[nodiscard]] std::uint64_t checksum() const;
+    [[nodiscard]] std::uint32_t checksum() const;
 
 private:
     [[nodiscard]] std::pair<std::size_t, std::size_t> getStats() const;

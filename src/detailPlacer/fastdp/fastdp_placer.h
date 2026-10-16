@@ -31,6 +31,10 @@ struct DetailPlaceResult {
     std::size_t offSite = 0;
     std::size_t overFixed = 0;
     double seconds = 0.0;
+    double globalSeconds = 0.0;
+    double verticalSeconds = 0.0;
+    double reorderSeconds = 0.0;
+    double clusterSeconds = 0.0;
 };
 
 class FastDetailedPlacer {

@@ -23,8 +23,8 @@ int main(int argc, char *argv[]) {
 
         ktlog.configure(options.getLogFile(), options.verbose);
         ktlog.trace("ktplace start: argc={}", argc);
+        ktlog.beginStep("setup");
         ktlog.echo("KTPlace - Know Thyself Placement Engine v{}", VERSION);
-        ktlog.echo("========================================");
         std::string command = argv[0];
         for (int i = 1; i < argc; ++i) {
             command += ' ';
@@ -35,7 +35,6 @@ int main(int argc, char *argv[]) {
         options.report();
 
         FlowMgr flowMgr;
-        ktlog.echo("Starting placement flow...");
         flowMgr.run(options);
         ktlog.echo("Placement completed successfully!");
         ktlog.echo("Results written to: {}", options.getOutputPath());

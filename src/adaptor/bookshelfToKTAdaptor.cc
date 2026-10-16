@@ -183,7 +183,7 @@ bool BookshelfInputAdapter::readFromFiles(const std::string &nodesFile, const st
     {
         ScopedTimer timer("bookshelf-nodes");
         if (!parseNodesFile(nodesFile)) {
-            ktlog.echo("cannot parse the nodes file: {}", nodesFile);
+            ktlog.warning("cannot parse the nodes file: {}", nodesFile);
             return false;
         }
     }
@@ -198,7 +198,7 @@ bool BookshelfInputAdapter::readFromFiles(const std::string &nodesFile, const st
     {
         ScopedTimer timer("bookshelf-nets");
         if (!parseNetsFile(netsFile)) {
-            ktlog.echo("cannot parse the nets file: {}", netsFile);
+            ktlog.warning("cannot parse the nets file: {}", netsFile);
             return false;
         }
     }
@@ -224,7 +224,7 @@ bool BookshelfInputAdapter::readFromFiles(const std::string &nodesFile, const st
 bool BookshelfInputAdapter::parseNodesFile(const std::string &filePath) {
     InputTextFile file(filePath);
     if (!file) {
-        ktlog.echo("cannot open the nodes file: {}", filePath);
+        ktlog.warning("cannot open the nodes file: {}", filePath);
         return false;
     }
 
@@ -293,7 +293,7 @@ bool BookshelfInputAdapter::parseNodesFile(const std::string &filePath) {
                 db->setCellFixed(id, true);
             }
         } catch (const std::exception &e) {
-            ktlog.echo("cannot add cell {}: {}", rec.name, e.what());
+            ktlog.warning("cannot add cell {}: {}", rec.name, e.what());
         }
     }
 
@@ -303,7 +303,7 @@ bool BookshelfInputAdapter::parseNodesFile(const std::string &filePath) {
 bool BookshelfInputAdapter::parseNetsFile(const std::string &filePath) {
     InputTextFile file(filePath);
     if (!file) {
-        ktlog.echo("cannot open the nets file: {}", filePath);
+        ktlog.warning("cannot open the nets file: {}", filePath);
         return false;
     }
 

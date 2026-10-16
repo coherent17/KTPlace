@@ -70,7 +70,7 @@ ntuplace1DM buildNtuplace1DM(const ktDM &db) {
     const StageCounts counts = countStage(design);
     ntuplace1DM result(std::move(design));
     result.opts = loadOptions<Ntuplace1Options>();
-    reportStageBuild("NTUPlace1", counts, db.checksum(), result.opts);
+    reportStageBuild(counts, db.checksum(), result.opts);
     return result;
 }
 

@@ -90,45 +90,16 @@ abacusDM buildAbacusDM(const ktDM &db) {
     const StageCounts counts = countStage(design);
     abacusDM result(std::move(design));
     result.opts = loadOptions<AbacusOptions>();
-    reportStageBuild("Abacus", counts, db.checksum(), result.opts);
+    reportStageBuild(counts, db.checksum(), result.opts);
     return result;
 }
 
-namespace {
-
-/// The pass's own summary, emitted from the run that produced the numbers rather
-/// than by the caller. Nothing outside Abacus can act on these, so they are
-/// printed here and not returned.
-void reportRun(const LegalizeResult &res) {
-    ktReportTable table("Abacus legalization results");
-    table.setHeaders({"metric", "value"});
-    table.addRow({"cells placed", std::format("{}", res.cellsPlaced)});
-    table.addRow({"unplaced", std::format("{}", res.unplaced)});
-    table.addRow({"HPWL before", std::format("{:.6e}", res.hpwlBefore)});
-    table.addRow({"HPWL after", std::format("{:.6e}", res.hpwlAfter)});
-    table.addRow({"total displacement", std::format("{:.6e}", res.totalSquaredDisplacement)});
-    table.addRow({"max displacement", std::format("{:.6}", res.maxDisplacement)});
-    table.addRow({"overlapping pairs", std::format("{}", res.overlappingPairs)});
-    table.addRow({"outside rows", std::format("{}", res.outOfRows)});
-    table.addRow({"over fixed", std::format("{}", res.overFixed)});
-    table.addRow({"commit failures", std::format("{}", res.commitFailures)});
-    table.addRow({"seconds", std::format("{:.3f}", res.seconds)});
-    table.emit();
-}
-
-}  // namespace
 
 abacusDM::abacusDM(Design design) : d(std::move(design)) {}
 
 abacusSolution abacusDM::run() {
-    ScopedTimer timer("legalize");
-
     AbacusLegalizer legalizer(d);
-    const LegalizeResult result = legalizer.legalize(opts);
-    reportRun(result);
-
-    // Only the placement crosses the boundary. The statistics are printed above
-    // and dropped here, so the flow only ever sees where the cells went.
+    (void)legalizer.legalize(opts);
     return legalizer.solution();
 }
 

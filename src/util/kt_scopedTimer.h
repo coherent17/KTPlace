@@ -30,6 +30,11 @@ public:
 
     void record(std::string name, double wallSeconds, double cpuSeconds);
 
+    /// Called when a timer starts and stops, so the report can list timers in the
+    /// order they first ran, each indented under the timer it ran inside.
+    void started(const std::string &name);
+    void stopped();
+
     [[nodiscard]] bool isEnabled(const std::string &name) const;
 
     [[nodiscard]] const TimerStats *find(const std::string &name) const;
@@ -50,6 +55,12 @@ private:
     mutable std::mutex mutex;
     std::map<std::string, TimerStats> stats;
     std::map<std::string, bool> enabled;
+    struct FirstRun {
+        std::size_t order = 0;
+        std::size_t depth = 0;
+    };
+    std::map<std::string, FirstRun> firstRun;
+    std::size_t depth = 0;
 };
 
 class ScopedTimer {

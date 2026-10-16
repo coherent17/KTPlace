@@ -77,7 +77,7 @@ simplDM buildSimplDM(const ktDM &db) {
     const StageCounts counts = countGraph(design.graph, design.rows.size());
     simplDM out(std::move(design));
     out.opts = loadOptions<SimplOptions>();
-    reportStageBuild("SimPL", counts, db.checksum(), out.opts);
+    reportStageBuild(counts, db.checksum(), out.opts);
     return out;
 }
 
@@ -98,18 +98,14 @@ void reportRun(const SimplResult &res) {
     // raw overlap, and the qualifier is what says so. CI gates on the label.
     table.addRow({"scaled overflow (lower)", "", std::format("{:.6e}", res.overflowLower)});
     table.addRow({"scaled overflow (final)", "", std::format("{:.6e}", res.overflowFinal)});
-    table.addRow({"movable cells", "", std::format("{}", res.numMovable)});
-    table.addRow({"fixed cells", "", std::format("{}", res.numFixed)});
-    table.addRow({"nets", "", std::format("{}", res.nets)});
     table.addRow({"init iterations", "", std::format("{}", res.initIters)});
     table.addRow({"global iterations", "", std::format("{}", res.globalIters)});
-    table.addRow({"fence regions", "", std::format("{}", res.fenceRegions)});
-    table.addRow({"fence clamps", "", std::format("{}", res.fenceClamps)});
-    table.addRow({"fence pushes", "", std::format("{}", res.fencePushes)});
-    table.addRow({"fence violations", "", std::format("{}", res.fenceViolations)});
-    table.addRow({"spread seconds", "", std::format("{:.3f}", res.spreadSeconds)});
-    table.addRow({"build seconds", "", std::format("{:.3f}", res.buildSeconds)});
-    table.addRow({"solve seconds", "", std::format("{:.3f}", res.solveSeconds)});
+    if (res.fenceRegions > 0) {
+        table.addRow({"fence regions", "", std::format("{}", res.fenceRegions)});
+        table.addRow({"fence clamps", "", std::format("{}", res.fenceClamps)});
+        table.addRow({"fence pushes", "", std::format("{}", res.fencePushes)});
+        table.addRow({"fence violations", "", std::format("{}", res.fenceViolations)});
+    }
     table.emit();
 }
 
@@ -118,8 +114,6 @@ void reportRun(const SimplResult &res) {
 simplDM::simplDM(Design design) : d(std::move(design)) {}
 
 simplSolution simplDM::run() {
-    ScopedTimer timer("simpl");
-
     simplPlacer placer(d);
     const SimplResult result = placer.place(opts);
     reportRun(result);

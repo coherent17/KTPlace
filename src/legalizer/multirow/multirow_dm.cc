@@ -92,7 +92,7 @@ multirowDM buildMultiRowDM(const ktDM &db) {
     const StageCounts counts = countStage(design);
     multirowDM result(std::move(design));
     result.opts = loadOptions<MultiRowOptions>();
-    reportStageBuild("Multi-row", counts, db.checksum(), result.opts);
+    reportStageBuild(counts, db.checksum(), result.opts);
     return result;
 }
 
@@ -128,8 +128,6 @@ void reportRun(const MultiRowLegalizeResult &res) {
 multirowDM::multirowDM(Design design) : d(std::move(design)) {}
 
 multiRowSolution multirowDM::run() {
-    ScopedTimer timer("legalize");
-
     MultiRowLegalizer legalizer(d);
     const MultiRowLegalizeResult result = legalizer.legalize(opts);
     reportRun(result);

@@ -234,7 +234,7 @@ jobs:
           test "$(wc -l < "$PL")" -eq 12752
 
           # The multi-row legalizer must be the path taken, not Abacus.
-          grep -q "Running multi-row legalization (246 cell(s) taller than a row)" \
+          grep -q "multi-row legalization (246 cell(s) taller than a row)" \
             smoke-multirow.log
 
           # Every cell placed, and the 246 tall ones among them.

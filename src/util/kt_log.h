@@ -72,6 +72,11 @@ public:
         std::exit(EXIT_FAILURE);
     }
 
+    /// Start a step of the run: print its banner and prefix every later line
+    /// with its name until the next step begins.
+    void beginStep(std::string name);
+    [[nodiscard]] std::string currentStep() const;
+
     void shutdown();
 
 private:
@@ -91,6 +96,7 @@ private:
     std::ofstream traceFile;
     bool verboseEnabled = false;
     bool reportedOpenFailure = false;
+    std::string step = "ktplace";
     std::size_t records = 0;
 };
 

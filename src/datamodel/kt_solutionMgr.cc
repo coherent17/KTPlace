@@ -21,13 +21,12 @@ double netlistHPWL(const Graph &graph, const std::vector<double> &x, const std::
         double yhi = -std::numeric_limits<double>::max();
         for (const std::size_t pinId : pins) {
             const Pin &pin = graph.getPin(pinId);
-            const Vertex &cell = graph.getCell(pin.cellId);
-            // The cell's far edge, not just the pin: the offset says where the pin
-            // sits on the cell, and the wire ends at the cell's other side.
-            xlo = std::min(xlo, x[pin.cellId] + pin.offsetX);
-            xhi = std::max(xhi, x[pin.cellId] + pin.offsetX + cell.width);
-            ylo = std::min(ylo, y[pin.cellId] + pin.offsetY);
-            yhi = std::max(yhi, y[pin.cellId] + pin.offsetY + cell.height);
+            const double px = x[pin.cellId] + pin.offsetX;
+            const double py = y[pin.cellId] + pin.offsetY;
+            xlo = std::min(xlo, px);
+            xhi = std::max(xhi, px);
+            ylo = std::min(ylo, py);
+            yhi = std::max(yhi, py);
         }
         total += (xhi - xlo) + (yhi - ylo);
     }

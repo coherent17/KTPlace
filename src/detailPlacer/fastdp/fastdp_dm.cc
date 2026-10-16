@@ -73,45 +73,16 @@ fastdpDM buildFastdpDM(const ktDM &db) {
     const StageCounts counts = countStage(design);
     fastdpDM result(std::move(design));
     result.opts = loadOptions<FastdpOptions>();
-    reportStageBuild("FastDP", counts, db.checksum(), result.opts);
+    reportStageBuild(counts, db.checksum(), result.opts);
     return result;
 }
 
-namespace {
-
-/// The pass's own summary, emitted from the run that produced the numbers rather
-/// than by the caller. Nothing outside FastDP can act on these, so they are
-/// printed here and not returned.
-void reportRun(const DetailPlaceResult &res) {
-    ktReportTable table("FastDP detailed placement results");
-    table.setHeaders({"metric", "value"});
-    table.addRow({"global swaps", std::format("{}", res.globalSwaps)});
-    table.addRow({"vertical swaps", std::format("{}", res.verticalSwaps)});
-    table.addRow({"reorder moves", std::format("{}", res.reorderMoves)});
-    table.addRow({"cluster moves", std::format("{}", res.clusterMoves)});
-    table.addRow({"HPWL before", std::format("{:.6e}", res.hpwlBefore)});
-    table.addRow({"HPWL after", std::format("{:.6e}", res.hpwlAfter)});
-    table.addRow({"overlapping pairs", std::format("{}", res.overlappingPairs)});
-    table.addRow({"off row", std::format("{}", res.offRow)});
-    table.addRow({"off site", std::format("{}", res.offSite)});
-    table.addRow({"over fixed", std::format("{}", res.overFixed)});
-    table.addRow({"seconds", std::format("{:.3f}", res.seconds)});
-    table.emit();
-}
-
-}  // namespace
 
 fastdpDM::fastdpDM(Design design) : d(std::move(design)) {}
 
 fastdpSolution fastdpDM::run() {
-    ScopedTimer timer("detailplace");
-
     FastDetailedPlacer placer(d);
-    const DetailPlaceResult result = placer.place(opts);
-    reportRun(result);
-
-    // Only the placement crosses the boundary. The statistics are printed above
-    // and dropped here, so the flow only ever sees where the cells went.
+    (void)placer.place(opts);
     return placer.solution();
 }
 

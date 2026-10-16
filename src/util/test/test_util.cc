@@ -106,7 +106,7 @@ BOOST_AUTO_TEST_CASE(warning_is_yellow_on_console_and_plain_in_the_transcript) {
     BOOST_TEST(console.find("cell 7 is taller than one row") != std::string::npos);
 
     const std::string file = log.contents();
-    BOOST_TEST(file.find("[warning]") != std::string::npos);
+    BOOST_TEST(file.find("warning: ") != std::string::npos);
     BOOST_TEST(file.find("cell 7 is taller than one row") != std::string::npos);
     BOOST_TEST(file.find('\033') == std::string::npos);
     ktlog.configure("", false);
@@ -166,7 +166,7 @@ BOOST_AUTO_TEST_CASE(fatal_is_red_and_exits) {
     BOOST_TEST(console.find("cannot open x.nodes") != std::string::npos);
 
     const std::string file = log.contents();
-    BOOST_TEST(file.find("[fatal]") != std::string::npos);
+    BOOST_TEST(file.find("fatal: ") != std::string::npos);
     BOOST_TEST(file.find("cannot open x.nodes") != std::string::npos);
     BOOST_TEST(file.find('\033') == std::string::npos);
     ktlog.configure("", false);
@@ -187,8 +187,26 @@ BOOST_AUTO_TEST_CASE(the_trace_log_holds_every_level_and_the_log_all_but_trace) 
     trace << in.rdbuf();
     std::filesystem::remove(Logger::tracePathFor(log.str()));
 
-    BOOST_TEST(log.contents() == "[echo] an echo\n[warning] a warning\n");
-    BOOST_TEST(trace.str() == "[echo] an echo\n[warning] a warning\n[trace] a trace\n");
+    BOOST_TEST(log.contents() == "[ktplace] an echo\n[ktplace] warning: a warning\n");
+    BOOST_TEST(trace.str() ==
+               "[ktplace] an echo\n[ktplace] warning: a warning\n[ktplace] a trace\n");
+}
+
+BOOST_AUTO_TEST_CASE(a_step_prints_a_centred_banner_and_prefixes_its_lines) {
+    TempLog log;
+    ktlog.configure(log.str(), false);
+    {
+        CaptureCerr cap;
+        ktlog.beginStep("load");
+        ktlog.echo("reading");
+    }
+    ktlog.configure("", false);
+    ktlog.beginStep("ktplace");
+    std::filesystem::remove(Logger::tracePathFor(log.str()));
+
+    const std::string rule(60, '#');
+    const std::string title = '#' + std::string(27, ' ') + "load" + std::string(27, ' ') + '#';
+    BOOST_TEST(log.contents() == rule + "\n" + title + "\n" + rule + "\n[load] reading\n");
 }
 
 BOOST_AUTO_TEST_CASE(record_count_includes_warnings) {

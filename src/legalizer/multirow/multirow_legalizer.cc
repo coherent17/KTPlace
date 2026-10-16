@@ -614,7 +614,7 @@ std::uint32_t MultiRowLegalizer::Impl::insert(std::uint32_t cell, const Slot &sl
 }
 
 MultiRowLegalizeResult MultiRowLegalizer::Impl::run(const MultiRowOptions &params) {
-    ScopedTimer timer("multirow-legalize");
+    ScopedTimer timer("multirow");
     MultiRowLegalizeResult res;
 
     rows = design.rows;

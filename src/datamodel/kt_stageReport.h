@@ -9,7 +9,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
-#include <string_view>
+#include <string>
 
 namespace ktplace {
 
@@ -41,12 +41,12 @@ template <typename StageGraph>
 }
 
 template <typename Options>
-void reportStageBuild(std::string_view stage, const StageCounts &n, std::uint64_t checksum,
-                      const Options &options) {
+void reportStageBuild(const StageCounts &n, std::uint32_t checksum, const Options &options) {
+    ktlog.beginStep(std::string(toString(Options::kComponent)));
     ktlog.echo(
-        "{} database built from ktDM (checksum {:016x}): {} cells ({} movable, {} fixed), {} "
-        "nets, {} pins, {} rows",
-        stage, checksum, n.cells, n.movable, n.cells - n.movable, n.nets, n.pins, n.rows);
+        "database built from ktDM {:08x}: {} cells ({} movable, {} fixed), {} nets, {} pins, {} "
+        "rows",
+        checksum, n.cells, n.movable, n.cells - n.movable, n.nets, n.pins, n.rows);
     reportOptions(options);
 }
 

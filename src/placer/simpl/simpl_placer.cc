@@ -1284,11 +1284,8 @@ SimplResult simplPlacer::Impl::run(const SimplOptions &params) {
     std::vector<double> lowerY;
     seedUniform(lower, lowerY);
     res.hpwlSeed = hpwl(lower, lowerY);
-    ktlog.echo(
-        "SimPL: {} movable cells, {} fixed, {} nets; grid {}x{}, available area {:.4g}, "
-        "density limit g = {:.2f}; uniform seed {} (HPWL {:.6e})",
-        numMovable, res.numFixed, res.nets, grid.nx, grid.ny, grid.totalAvail, g, par.seed,
-        res.hpwlSeed);
+    ktlog.echo("grid {}x{}, available area {:.4g}, density limit g = {:.2f}, seed {} (HPWL {:.6e})",
+               grid.nx, grid.ny, grid.totalAvail, g, par.seed, res.hpwlSeed);
     writeFrame("LSS_init_seed", lower, lowerY, "initial placement: uniform seed", 0,
                par.initMaxIters);
 
