@@ -286,3 +286,74 @@ jobs:
           cmp det/ibm01-a/placed.pl det/ibm01-b/placed.pl
           diff -r det/ibm01-a/plots det/ibm01-b/plots
           cmp det/adaptec1-a/placed.pl det/adaptec1-b/placed.pl
+
+          mkdir -p placements
+          cp det/ibm01-a/placed.pl placements/ibm01.pl
+          cp det/adaptec1-a/placed.pl placements/adaptec1.pl
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: placements-linux
+          path: placements
+          retention-days: 1
+
+  macos:
+    name: macOS (Apple clang)
+    runs-on: macos-15
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Boost.Test
+        run: brew install boost
+
+      - name: Build
+        run: make -j"$(sysctl -n hw.ncpu)"
+
+      - name: Unit tests
+        run: make -j"$(sysctl -n hw.ncpu)" test
+
+      - name: Place ibm01 and adaptec1
+        run: |
+          set -euo pipefail
+          source ktplace.sh
+          ktplace ./benchmark/ICCAD04/ibm01 -w out/ibm01 --no-plots 2>&1 | tee ibm01.log
+          ktplace ./benchmark/ISPD_2005/adaptec1 -w out/adaptec1 --no-plots 2>&1 | tee adaptec1.log
+          for d in ibm01 adaptec1; do
+            test "$(grep -c 'verdict *| *PASS' $d.log)" -eq 2
+          done
+          mkdir -p placements
+          cp out/ibm01/placed.pl placements/ibm01.pl
+          cp out/adaptec1/placed.pl placements/adaptec1.pl
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: placements-macos
+          path: placements
+          retention-days: 1
+
+  cross-platform:
+    name: Linux and macOS place identically
+    needs: [determinism, macos]
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: placements-linux
+          path: linux
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: placements-macos
+          path: macos
+
+      - name: Compare placed.pl
+        run: |
+          set -euo pipefail
+          sha256sum linux/* macos/*
+          for d in ibm01 adaptec1; do
+            cmp "linux/$d.pl" "macos/$d.pl"
+          done

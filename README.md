@@ -4,7 +4,7 @@ An open-source know thyself placement engine.
 ![SimPL global placement, legalization and detailed placement of adaptec1](docs/images/adaptec1.gif)
 
 adaptec1 (ISPD 2005) with the default flow: SimPL global placement, Abacus
-legalization and FastDP detailed placement, ending at an HPWL of 8.00e7. The
+legalization and FastDP detailed placement, ending at an HPWL of 8.04e7. The
 animation was drawn with
 
 ```tcl
@@ -33,7 +33,8 @@ ktplace --version
 
 ## Dependencies
 
-Building and running needs only g++ 13+ (C++23) and make. oneTBB (v2021.11.0),
+Building and running needs only a C++23 compiler (g++ 13+ on Linux, Apple clang
+15+ on macOS) and make. oneTBB (v2021.11.0),
 zlib (v1.3.1) and CImg are git submodules under `third_party/`; oneTBB and zlib
 are compiled into the binary by the build. Clone with them:
 
@@ -46,8 +47,13 @@ git submodule update --init --recursive
 Only the unit tests and formatting need packages:
 
 ```sh
-sudo apt-get install -y --no-install-recommends libboost-test-dev clang-format
+sudo apt-get install -y --no-install-recommends libboost-test-dev clang-format   # Linux
+brew install boost clang-format                                                  # macOS
 ```
+
+Linux and macOS (Apple Silicon) produce byte-identical placements; CI checks it.
+On macOS, build and test with Apple clang (the default): Homebrew's Boost is
+built against libc++ and does not link with GCC.
 
 CImg (v.4.0.6, header-only) is the third submodule. CImg is under CeCILL-C and
 CeCILL, oneTBB under Apache-2.0 and zlib under the zlib license; see their
