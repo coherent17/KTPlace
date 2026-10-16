@@ -96,7 +96,9 @@ marked `/FIXED` in `.pl`. Gzipped (`.gz`) inputs are read transparently.
 the organizer, Gi-Joon Nam (IBM):
 
 - `hpwl.pl`: HPWL with pin offsets, the contest's metric.
-- `legal2.pl`: the final legality check (March 2005); `legal.pl` is the earlier one.
+- `legal.pl`: the legality check, the contest's final version (`legal2.pl` of
+  March 2005, renamed). It checks that terminals did not move, that every movable
+  cell is inside the rows it covers and aligned to them, and that nothing overlaps.
 
 They read plain Bookshelf files, so `evaluate.sh` unpacks a design and runs both:
 

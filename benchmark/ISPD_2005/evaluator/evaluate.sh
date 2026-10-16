@@ -23,7 +23,7 @@ done
 
 cd "$work"
 perl "$here/hpwl.pl" "$name.nodes" "$name.pl" "$solution" "$name.nets" | grep "Total HPWL"
-perl "$here/legal2.pl" "$name.nodes" "$name.pl" "$solution" "$name.scl" > /dev/null
+perl "$here/legal.pl" "$name.nodes" "$name.pl" "$solution" "$name.scl" > /dev/null
 errors=$(grep -c "ERROR" legality.error || true)
 echo "Legality: $errors error(s)"
 [[ "$errors" -eq 0 ]]
