@@ -130,43 +130,14 @@ See [benchmark/README.md](benchmark/README.md).
 
 ## Contributing
 
-Work on a branch and open a pull request; CI must pass before it is merged.
-
-**Pre-commit hook.** Enable it once per clone:
-
-```sh
-make hooks    # git config core.hooksPath .githooks
-```
-
-On every commit it checks that the staged `.cc`/`.h` files are clang-formatted
-and runs the unit tests. `KTPLACE_HOOK_TESTS=0 git commit ...` skips the tests;
-`KTPLACE_SKIP_HOOKS=1` skips the hook entirely.
-
-**Before opening a PR**
+Work on a branch and open a PR; CI must pass. Enable the pre-commit hook once
+(format check and unit tests; skip with `KTPLACE_SKIP_HOOKS=1`):
 
 ```sh
-make format              # clang-format every source file
-make test                # all unit suites
-make compile-commands    # then: clang-tidy -p . <file>  (rules in .clang-tidy)
+make hooks
 ```
 
-**Regression.** Placements are deterministic, and CI checks it: every run of a
-design gives the same `placed.pl`, on Linux and macOS alike. So a change that
-should not affect results must leave `placed.pl` byte-identical:
-
-```sh
-ktplace benchmark/bookshelf/ISPD_2005/adaptec1 -w out/a1 --no-plots
-ktplace benchmark/bookshelf/ICCAD04/ibm01 -w out/ibm01 --no-plots
-sha256sum out/a1/placed.pl out/ibm01/placed.pl   # compare with the same runs on main
-```
-
-A change that is meant to move results should say by how much: check the
-placement with the contest evaluator
-(`benchmark/bookshelf/ISPD_2005/evaluator/evaluate.sh <design dir> <placed.pl>`)
-and update [`benchmark/bm_status.md`](benchmark/bm_status.md).
-
-**Code.** Names are camelBack with no prefixes or suffixes (enum values are
-CamelCase), the code carries no comments beyond a non-obvious *why*, and a new
-setting is a component option set with `add_option` in a Tcl script, never an
-environment variable. [CLAUDE.md](CLAUDE.md) describes the architecture and
-each stage's shape.
+Placements are deterministic, so a change that should not move results must
+leave `placed.pl` byte-identical on adaptec1 and ibm01 against main. A change
+that does should say by how much in [`benchmark/bm_status.md`](benchmark/bm_status.md).
+Conventions are in [CLAUDE.md](CLAUDE.md).
