@@ -40,7 +40,7 @@ struct Span {
     std::vector<std::size_t> cells;
 
     [[nodiscard]] double width() const noexcept {
-        return xhi - xlo;
+        return std::floor(xhi / site + eps) * site - std::ceil(xlo / site - eps) * site;
     }
     [[nodiscard]] bool contains(double px, double pw) const noexcept {
         return px >= xlo - eps && px + pw <= xhi + eps;

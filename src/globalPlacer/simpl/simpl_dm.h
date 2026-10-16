@@ -1,39 +1,182 @@
-// @file simpl_dm.h
-// SimPL's own database.
-//
-// SimPL does not read ktDM and does not write to it. It reads a simpl::Design
-// and keeps its own working state here, so a run leaves the shared database
-// untouched until the flow commits the answer.
-
 #pragma once
 
 #include "datamodel/kt_solutionMgr.h"
-#include "globalPlacer/simpl/simpl_design.h"
+#include "globalPlacer/simpl/simpl_graph.h"
 #include "globalPlacer/simpl/simpl_options.h"
 
+#include <array>
+#include <cstddef>
+#include <functional>
+#include <span>
+#include <string>
+#include <utility>
+#include <vector>
+
 namespace ktplace {
-
 class ktDM;
+}  // namespace ktplace
 
-namespace simpl {
+namespace ktplace::simpl {
 
-/// SimPL's design plus the state of the current run.
+struct Rect {
+    double xlo = 0.0;
+    double ylo = 0.0;
+    double xhi = 0.0;
+    double yhi = 0.0;
+
+    [[nodiscard]] bool contains(double x, double y) const noexcept {
+        return x >= xlo && x <= xhi && y >= ylo && y <= yhi;
+    }
+    [[nodiscard]] double width() const noexcept {
+        return xhi - xlo;
+    }
+    [[nodiscard]] double height() const noexcept {
+        return yhi - ylo;
+    }
+};
+
+struct Region {
+    std::string name;
+    std::vector<Rect> rects;
+    double minX = 0.0;
+    double minY = 0.0;
+    double maxX = 0.0;
+    double maxY = 0.0;
+
+    [[nodiscard]] bool contains(double x, double y) const {
+        if (x < minX || x > maxX || y < minY || y > maxY) {
+            return false;
+        }
+        for (const Rect &r : rects) {
+            if (r.contains(x, y)) {
+                return true;
+            }
+        }
+        return false;
+    }
+    void seal();
+};
+
+class Fences {
+public:
+    static constexpr int noRegion = -1;
+
+    [[nodiscard]] std::size_t numRegions() const noexcept {
+        return regions.size();
+    }
+    [[nodiscard]] const Region &region(int id) const {
+        return regions.at(static_cast<std::size_t>(id));
+    }
+
+    bool clampToRegion(int id, double &x, double &y) const;
+
+    bool pushOutOfRegions(double &x, double &y, double dieMinX, double dieMinY, double maxX,
+                          double maxY) const;
+
+    [[nodiscard]] std::size_t countViolations(const std::vector<double> &positions,
+                                              const std::vector<int> &regionIds) const;
+
+    void addRegion(Region r) {
+        regions.push_back(std::move(r));
+    }
+
+private:
+    std::vector<Region> regions;
+};
+
+struct Subrow {
+    double xlo = 0.0;
+    double xhi = 0.0;
+};
+
+struct RowInfo {
+    double coordinate = 0.0;
+    double height = 0.0;
+    double sitePitch = 0.0;
+
+    [[nodiscard]] double pitch() const noexcept {
+        return sitePitch;
+    }
+    std::vector<Subrow> subrows;
+};
+
+using DieBox = std::array<double, 4>;
+
+struct FrameInfo {
+    std::string note;
+    std::string series;
+    std::size_t step = 0;
+    std::size_t numSteps = 0;
+    double hpwl = 0.0;
+    double hpwlInitial = 0.0;
+    double overflow = 0.0;
+    bool mandatory = false;
+};
+
+using FrameHook = std::function<void(const std::vector<float> &xs, const std::vector<float> &ys,
+                                     const FrameInfo &info)>;
+
+struct BoundsPoint {
+    double upper = 0.0;
+    double lower = 0.0;
+};
+
+using BoundsHook = std::function<void(std::span<const BoundsPoint> curve)>;
+
+struct Design {
+    Graph graph;
+    std::vector<RowInfo> rows;
+    DieBox die{};
+    Fences fences;
+    FrameHook onFrame;
+    BoundsHook onBounds;
+};
+
+struct SimplResult {
+    std::size_t numMovable = 0;
+    std::size_t numFixed = 0;
+    std::size_t nets = 0;
+
+    std::size_t initIters = 0;
+    std::size_t globalIters = 0;
+
+    std::size_t binsX = 0;
+    std::size_t binsY = 0;
+
+    double hpwlSeed = 0.0;
+    double hpwlInit = 0.0;
+    double hpwlLower = 0.0;
+    double hpwlFinal = 0.0;
+    double gap = 0.0;
+
+    double overflowLower = 0.0;
+    double overflowFinal = 0.0;
+
+    std::size_t fenceRegions = 0;
+    std::size_t fenceClamps = 0;
+    std::size_t fencePushes = 0;
+    std::size_t fenceViolations = 0;
+
+    double spreadSeconds = 0.0;
+    double buildSeconds = 0.0;
+    double solveSeconds = 0.0;
+};
+
+
 class simplDM {
 public:
-    /// Takes ownership of the design the adaptor built.
-    explicit simplDM(Design design);
+    simplDM(Design design, SimplOptions options);
 
     [[nodiscard]] const SimplOptions &options() const noexcept {
+        return opts;
+    }
+    [[nodiscard]] SimplOptions &options() noexcept {
         return opts;
     }
     [[nodiscard]] const Design &design() const noexcept {
         return d;
     }
-    [[nodiscard]] Design &design() noexcept {
-        return d;
-    }
 
-    /// Install the host's frame hook. SimPL never draws on its own.
     void setFrameHook(FrameHook hook) {
         d.onFrame = std::move(hook);
     }
@@ -41,25 +184,14 @@ public:
         d.onBounds = std::move(hook);
     }
 
-    /// Run global placement and return where every cell ended up. The solver's
-    /// statistics are reported from inside the run; they are not returned, because
-    /// nothing outside the solver can act on them. Nothing is written outside this
-    /// object.
-    simplSolution run();
-
-    friend simplDM buildSimplDM(const ktDM &db);
+    SimplResult run();
+    [[nodiscard]] simplSolution solution() const;
 
 private:
     Design d;
     SimplOptions opts;
 };
 
-/// ktDM -> SimPL's own database.
-///
-/// The whole of SimPL's contact with the shared database, in one place. It
-/// returns a plain value: SimPL keeps no reference back to ktDM, so a stale
-/// design cannot be mistaken for a current one.
 [[nodiscard]] simplDM buildSimplDM(const ktDM &db);
 
-}  // namespace simpl
-}  // namespace ktplace
+}  // namespace ktplace::simpl

@@ -12,7 +12,7 @@
 #define BOOST_TEST_MODULE ktplace_abacus
 #define BOOST_TEST_DYN_LINK
 
-#include "constraint/kt_constraintMgr.h"
+#include "datamodel/kt_constraintMgr.h"
 #include "datamodel/kt_dm.h"
 #include "datamodel/kt_optionDb.h"
 #include "legalizer/abacus/abacus_dm.h"

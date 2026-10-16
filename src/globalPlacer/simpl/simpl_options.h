@@ -1,6 +1,3 @@
-// @file simpl_options.h
-// SimPL's options
-
 #pragma once
 
 #include "datamodel/kt_optionDb.h"

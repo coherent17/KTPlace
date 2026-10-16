@@ -13,10 +13,11 @@
 #define BOOST_TEST_MODULE ktplace_simpl
 #define BOOST_TEST_DYN_LINK
 
-#include "constraint/kt_constraintMgr.h"
+#include "datamodel/kt_constraintMgr.h"
 #include "datamodel/kt_dm.h"
 #include "datamodel/kt_optionDb.h"
 #include "globalPlacer/simpl/simpl_dm.h"
+#include "globalPlacer/simpl/simpl_flowMgr.h"
 #include "globalPlacer/simpl/simpl_placer.h"
 
 #include <boost/test/unit_test.hpp>
@@ -106,13 +107,12 @@ Built buildDesign(ktDM &db, bool withFence, bool pullOthersIn = false) {
 /// Run SimPL and commit its answer.
 SimplResult place(ktDM &db, bool useFences) {
     // No plots: this checks the solver, not what it draws.
-    simpl::simplDM dm = simpl::buildSimplDM(db);
-    simplPlacer placer(dm.design());
-    SimplOptions options;
-    options.maxIters = 30;
-    options.fences = useFences;
-    const SimplResult res = placer.place(options);
-    db.setGPSolution(placer.solution());
+    simpl::flowMgr flow(db);
+    flow.dm().options() = SimplOptions{};
+    flow.dm().options().maxIters = 30;
+    flow.dm().options().fences = useFences;
+    const SimplResult res = flow.run();
+    db.setSimplSolution(flow.solution());
     return res;
 }
 
@@ -150,10 +150,8 @@ Offered offered() {
     dm.setBoundsHook([&n](std::span<const simpl::BoundsPoint> curve) {
         n.bounds = curve.size();
     });
-    SimplOptions options = dm.options();
-    options.maxIters = 30;
-    simplPlacer placer(dm.design());
-    (void)placer.place(options);
+    dm.options().maxIters = 30;
+    (void)dm.run();
     return n;
 }
 

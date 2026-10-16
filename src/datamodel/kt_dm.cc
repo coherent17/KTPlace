@@ -3,7 +3,7 @@
 
 #include "datamodel/kt_dm.h"
 
-#include "constraint/kt_constraintMgr.h"
+#include "datamodel/kt_constraintMgr.h"
 #include "datamodel/kt_graph.h"
 #include "datamodel/kt_solutionMgr.h"
 #include "util/kt_log.h"
@@ -35,6 +35,10 @@ std::size_t ktDM::addCell(const std::string &name, double width, double height, 
     v.height = height;
     v.isTerminal = isTerminal;
     return id;
+}
+
+void ktDM::markIoPin(const std::string &name) {
+    graph.getCell(graph.getCellId(name)).isIoPin = true;
 }
 
 bool ktDM::hasCell(const std::string &name) const {
@@ -300,6 +304,7 @@ std::vector<ktDM::Defect> ktDM::verify() const {
     const std::array<double, 4> box = placementDieBox();
     std::size_t outOfDie = 0;
     std::size_t offFence = 0;
+    std::size_t inForeignFence = 0;
     const std::size_t nv = g.getNumCells();
     // Row height, for deciding what counts as a tall cell below.
     double rowHeight = 0.0;
@@ -314,12 +319,15 @@ std::vector<ktDM::Defect> ktDM::verify() const {
         if (vert.x < box[0] - eps || vert.y < box[1] - eps || vert.x + vert.width > box[2] + eps ||
             vert.y + vert.height > box[3] + eps) {
             ++outOfDie;
+        }
+        if (!hasFences()) {
             continue;
         }
-        if (hasFences() && vert.regionId != constraintMgr::noRegion) {
-            std::vector<double> flat{vert.x, vert.y};
-            std::vector<int> ids{vert.regionId};
-            offFence += constraints().countViolations(flat, ids);
+        const Rect footprint{{vert.x, vert.y}, {vert.x + vert.width, vert.y + vert.height}};
+        if (vert.regionId != constraintMgr::noRegion) {
+            offFence += constraints().containsBox(vert.regionId, footprint) ? 0 : 1;
+        } else if (!vert.isFixed && !vert.isTerminal) {
+            inForeignFence += constraints().overlapsAnyRegion(footprint) ? 1 : 0;
         }
     }
 
@@ -375,8 +383,9 @@ std::vector<ktDM::Defect> ktDM::verify() const {
         const auto hits = [&](std::size_t a, std::size_t b) {
             const Vertex &p = g.getCell(a);
             const Vertex &q = g.getCell(b);
-            // Two fixed cells overlapping is the input's business, not ours.
-            if (p.isFixed && q.isFixed) {
+            // Two fixed cells overlapping is the input's business, not ours, and an I/O pin
+            // is a routing-layer shape that blocks no placement site.
+            if ((p.isFixed && q.isFixed) || p.isIoPin || q.isIoPin) {
                 return false;
             }
             return p.x < q.x + q.width - eps && q.x < p.x + p.width - eps &&
@@ -434,6 +443,9 @@ std::vector<ktDM::Defect> ktDM::verify() const {
     if (offFence > 0) {
         defects.push_back({"cells outside their fence", offFence});
     }
+    if (inForeignFence > 0) {
+        defects.push_back({"non-member cells inside a fence", inForeignFence});
+    }
     return defects;
 }
 
@@ -442,7 +454,7 @@ void ktDM::setPlacementSolution(const solutionMgr &solution) {
 }
 
 
-void ktDM::setGPSolution(const simplSolution &solution) {
+void ktDM::setSimplSolution(const simplSolution &solution) {
     const std::size_t n = std::min({solution.xs.size(), solution.ys.size(), graph.getNumCells()});
     for (std::size_t v = 0; v < n; ++v) {
         setCellPosition(v, solution.xs[v], solution.ys[v]);
@@ -559,6 +571,7 @@ void ktDM::isLegalizePlacement() const {
         check.addRow({"overlapping cell pairs", "0"});
         check.addRow({"cells outside the die", "0"});
         check.addRow({"cells outside their fence", hasFences() ? "0" : "n/a"});
+        check.addRow({"non-member cells inside a fence", hasFences() ? "0" : "n/a"});
         check.addRow({"verdict", "PASS"});
     } else {
         for (const Defect &d : defects) {

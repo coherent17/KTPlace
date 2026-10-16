@@ -1,33 +1,23 @@
-// @file simpl_flowMgr.h
-// Runs one SimPL placement.
-//
-// This is the stage as the rest of KTPlace sees it: build a simpl::DM, run it,
-// hand back the answer. It knows about plotting and timing because those are
-// flow concerns; it does not know about ktDM, which is the adaptor's job.
-
 #pragma once
 
 #include "datamodel/kt_solutionMgr.h"
 #include "globalPlacer/simpl/simpl_dm.h"
 
-
 namespace ktplace::simpl {
 
-/// One global-placement run.
 class flowMgr {
 public:
-    /// Runs against a database the caller owns, normally one the adaptor built.
-    explicit flowMgr(simplDM &db) : dm(db) {}
+    explicit flowMgr(const ktDM &db);
 
-    /// Place, and return where every cell ended up. Drawing follows the design:
-    /// a design with no frame sink writes nothing.
-    ///
-    /// Reports the solver's statistics from inside the run and returns only the
-    /// placement, so the flow has one thing to do with the result: commit it.
-    simplSolution runGlobalPlacer();
+    [[nodiscard]] simplDM &dm() noexcept {
+        return simplDb;
+    }
+
+    SimplResult run();
+    [[nodiscard]] simplSolution solution() const;
 
 private:
-    simplDM &dm;
+    simplDM simplDb;
 };
 
 }  // namespace ktplace::simpl

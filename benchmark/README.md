@@ -76,6 +76,13 @@ Bookshelf circuits ship as `.nodes` (cells), `.nets` (connectivity), `.pl`
 (manifest). Terminals in `.nodes` are the die I/O pads; they are fixed and are
 marked `/FIXED` in `.pl`. Gzipped (`.gz`) inputs are read transparently.
 
+## Benchmark status
+
+[`bm_status.md`](bm_status.md) lists our HPWL, legality verdict and runtime per
+design next to published results: SimPL (IEEE TCAD 2012) on ISPD 2005, and
+Eh?Placer, NTUplace4dr and DREAMPlace 3.0 (ICCAD 2020) on the fenced ISPD 2015
+designs.
+
 ## ISPD 2005 contest evaluator
 
 `bookshelf/ISPD_2005/evaluator/` holds the contest's own scripts, unchanged, from the

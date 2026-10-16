@@ -10,7 +10,7 @@
 #pragma once
 
 #include "adaptor/kt_inputReader.h"
-#include "constraint/kt_constraintMgr.h"
+#include "datamodel/kt_constraintMgr.h"
 #include "datamodel/kt_dm.h"
 
 #include <memory>

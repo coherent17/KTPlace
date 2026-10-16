@@ -2,8 +2,14 @@
 
 namespace ktplace::simpl {
 
-simplSolution flowMgr::runGlobalPlacer() {
-    return dm.run();
+flowMgr::flowMgr(const ktDM &db) : simplDb(buildSimplDM(db)) {}
+
+SimplResult flowMgr::run() {
+    return simplDb.run();
+}
+
+simplSolution flowMgr::solution() const {
+    return simplDb.solution();
 }
 
 }  // namespace ktplace::simpl

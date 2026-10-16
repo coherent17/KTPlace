@@ -60,3 +60,5 @@ compile_commands.json
 # directory, so these land in the repo root.
 placed.pl
 plots/
+
+benchmark/bm_status.py

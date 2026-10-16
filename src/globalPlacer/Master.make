@@ -18,8 +18,8 @@ override INCLUDES := -I.. $(THIRD_PARTY_INCLUDES)
 OBJ_DIR ?= ../build/obj/globalPlacer
 
 # Source files in this directory
-SRCS := simpl/simpl_placer.cc simpl/simpl_fence.cc simpl/simpl_dm.cc \
-        simpl/simpl_flowMgr.cc \
+SRCS := simpl/simpl_placer.cc simpl/simpl_dm.cc simpl/simpl_flowMgr.cc \
+        simpl/simpl_lal.cc simpl/simpl_lss.cc \
         ntuplace1/kt_ntuplace1.cc \
         ntuplace1/ntuplace1_dm.cc ntuplace1/ntuplace1_flowMgr.cc
 
