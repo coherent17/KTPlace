@@ -91,7 +91,6 @@ private:
                             double p2, double target, double tol,
                             const std::vector<std::int8_t> &forced,
                             std::vector<std::uint8_t> &side);
-    void placeLeaf(const RatioRegion &r);
     void setRegionCentre(const RatioRegion &r);
     void writeFrame(std::size_t depth, const char *note) const;
 
@@ -470,22 +469,6 @@ void RatioPlacer::Impl::setRegionCentre(const RatioRegion &r) {
     }
 }
 
-void RatioPlacer::Impl::placeLeaf(const RatioRegion &r) {
-    const std::size_t k = r.cells.size();
-    if (k == 0) {
-        return;
-    }
-    const double w = std::max(r.x1 - r.x0, 1e-9), h = std::max(r.y1 - r.y0, 1e-9);
-    const std::size_t cols =
-        std::max<std::size_t>(1, static_cast<std::size_t>(std::ceil(std::sqrt(k * w / h))));
-    const std::size_t rowsN = (k + cols - 1) / cols;
-    for (std::size_t q = 0; q < k; ++q) {
-        const std::size_t cx = q % cols, cy = q / cols;
-        posX[r.cells[q]] = r.x0 + w * (static_cast<double>(cx) + 0.5) / static_cast<double>(cols);
-        posY[r.cells[q]] = r.y0 + h * (static_cast<double>(cy) + 0.5) / static_cast<double>(rowsN);
-    }
-}
-
 void RatioPlacer::Impl::writeFrame(std::size_t depth, const char *note) const {
     if (!design.onFrame) {
         return;
@@ -695,7 +678,7 @@ void RatioPlacer::Impl::divide(RatioRegion r) {
                                       ? r.cells.size()
                                       : std::min(result.minLeafCells, r.cells.size());
         }
-        placeLeaf(r);
+        setRegionCentre(r);
         return;
     }
 
@@ -727,7 +710,7 @@ void RatioPlacer::Impl::divide(RatioRegion r) {
         free1 = freeAreaIn(r1.x0, r1.y0, r1.x1, r1.y1);
         if (attempt == 0 && (free0 <= 0.0 || free1 <= 0.0)) {
             if (free0 <= 0.0 && free1 <= 0.0) {
-                placeLeaf(r);
+                setRegionCentre(r);
                 return;
             }
             RatioRegion &keep = (free0 > 0.0) ? r0 : r1;
