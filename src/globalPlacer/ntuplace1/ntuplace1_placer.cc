@@ -40,6 +40,7 @@ double overlap(const AreaRect &a, double x0, double y0, double x1, double y1) {
 constexpr std::uint32_t noIndex = 0xFFFFFFFFu;
 constexpr int maxPasses = 8;
 constexpr double balanceSlack = 0.02;
+constexpr double lookAheadStep = 0.05;
 
 double imbalanceWindow(double total, double cap0, double cap1) {
     const auto maxImbalance = [total](double cap) {
@@ -82,6 +83,8 @@ private:
     void divide(RatioRegion r);
     [[nodiscard]] double ratioCut(const RatioRegion &r, bool vertical, double total) const;
     void trimToFree(RatioRegion &r) const;
+    [[nodiscard]] bool firstFit(const std::vector<std::uint32_t> &cells,
+                                const RatioRegion &r) const;
     [[nodiscard]] int forcedSide(int region, const RatioRegion &r0, const RatioRegion &r1) const;
     std::size_t applyFences();
     std::size_t bipartition(const std::vector<std::uint32_t> &cells, bool vertical, double p1,
@@ -94,7 +97,9 @@ private:
 
     Design &design;
     std::vector<std::uint32_t> mov;  // movable, non-terminal vertex ids
-    std::vector<double> cellArea;    // area of each movable
+    std::vector<double> cellArea;
+    std::vector<double> cellW;
+    std::vector<double> cellH;  // area of each movable
     std::vector<int> cellRegion;
     std::vector<HyperNet> hyperNets;
     std::vector<std::vector<std::uint32_t>> cellNets;
@@ -128,6 +133,8 @@ void RatioPlacer::Impl::build() {
         }
         mov.push_back(static_cast<std::uint32_t>(v));
         cellArea.push_back(vert.width * vert.height);
+        cellW.push_back(vert.width);
+        cellH.push_back(vert.height);
         cellRegion.push_back(vert.region);
     }
     result.numMovable = mov.size();
@@ -602,6 +609,84 @@ void RatioPlacer::Impl::trimToFree(RatioRegion &r) const {
     });
 }
 
+bool RatioPlacer::Impl::firstFit(const std::vector<std::uint32_t> &cells,
+                                 const RatioRegion &r) const {
+    std::vector<double> room;
+    for (const AreaRect &row : rowRects) {
+        const double mid = 0.5 * (row.y0 + row.y1);
+        if (mid < r.y0 || mid >= r.y1) {
+            continue;
+        }
+        const double a = std::max(row.x0, r.x0);
+        const double b = std::min(row.x1, r.x1);
+        if (b <= a) {
+            continue;
+        }
+        std::vector<std::pair<double, double>> blocked;
+        for (const AreaRect &f : fixedRects) {
+            if (f.y1 > row.y0 && f.y0 < row.y1 && f.x1 > a && f.x0 < b) {
+                blocked.emplace_back(std::max(f.x0, a), std::min(f.x1, b));
+            }
+        }
+        std::ranges::stable_sort(blocked);
+        double cursor = a;
+        for (const auto &[x0, x1] : blocked) {
+            if (x0 > cursor) {
+                room.push_back(x0 - cursor);
+            }
+            cursor = std::max(cursor, x1);
+        }
+        if (b > cursor) {
+            room.push_back(b - cursor);
+        }
+    }
+    if (room.empty()) {
+        return cells.empty();
+    }
+
+    std::size_t leaves = 1;
+    while (leaves < room.size()) {
+        leaves *= 2;
+    }
+    std::vector<double> best(2 * leaves, -1.0);
+    for (std::size_t i = 0; i < room.size(); ++i) {
+        best[leaves + i] = room[i];
+    }
+    for (std::size_t i = leaves - 1; i > 0; --i) {
+        best[i] = std::max(best[2 * i], best[2 * i + 1]);
+    }
+    const auto take = [&](double w) {
+        if (best[1] < w) {
+            return false;
+        }
+        std::size_t i = 1;
+        while (i < leaves) {
+            i = best[2 * i] >= w ? 2 * i : 2 * i + 1;
+        }
+        best[i] -= w;
+        for (i /= 2; i > 0; i /= 2) {
+            best[i] = std::max(best[2 * i], best[2 * i + 1]);
+        }
+        return true;
+    };
+
+    std::vector<std::uint32_t> order(cells);
+    std::ranges::stable_sort(order, std::greater<>{}, [&](std::uint32_t c) {
+        return cellW[c];
+    });
+    const double rowH = maxRowH > 0.0 ? maxRowH : 1.0;
+    for (const std::uint32_t c : order) {
+        const auto pieces =
+            std::max<std::size_t>(1, static_cast<std::size_t>(std::lround(cellH[c] / rowH)));
+        for (std::size_t k = 0; k < pieces; ++k) {
+            if (!take(cellW[c])) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
 void RatioPlacer::Impl::divide(RatioRegion r) {
     result.maxDepth = std::max(result.maxDepth, r.depth);
     if (r.cells.size() <= opts.targetLeafCells || r.depth >= opts.maxLevels) {
@@ -616,76 +701,81 @@ void RatioPlacer::Impl::divide(RatioRegion r) {
 
     const bool vertical = (r.x1 - r.x0) >= (r.y1 - r.y0);
     const double total = movableArea(r.cells);
-    const double cut = ratioCut(r, vertical, total);
-
-    RatioRegion r0, r1;
-    r0.x0 = r1.x0 = r.x0;
-    r0.y0 = r1.y0 = r.y0;
-    r0.x1 = r1.x1 = r.x1;
-    r0.y1 = r1.y1 = r.y1;
-    r0.depth = r1.depth = r.depth + 1;
-    (vertical ? r0.x1 : r0.y1) = cut;
-    (vertical ? r1.x0 : r1.y0) = cut;
-
-    trimToFree(r0);
-    trimToFree(r1);
-    const double free0 = freeAreaIn(r0.x0, r0.y0, r0.x1, r0.y1);
-    const double free1 = freeAreaIn(r1.x0, r1.y0, r1.x1, r1.y1);
-    if (free0 <= 0.0 || free1 <= 0.0) {
-        RatioRegion &keep = (free0 > 0.0) ? r0 : r1;
-        if (free0 <= 0.0 && free1 <= 0.0) {
-            placeLeaf(r);
-            return;
-        }
-        keep.cells = std::move(r.cells);
-        setRegionCentre(keep);
-        divide(std::move(keep));
-        return;
-    }
-
+    const double lo = vertical ? r.x0 : r.y0;
+    const double hi = vertical ? r.x1 : r.y1;
+    const double step = lookAheadStep * (hi - lo);
+    double cut = ratioCut(r, vertical, total);
     double maxCell = 0.0;
     for (const std::uint32_t c : r.cells) {
         maxCell = std::max(maxCell, cellArea[c]);
     }
-    const bool overfull = total > free0 + free1;
-    const double target = overfull ? total * free0 / (free0 + free1) : 0.5 * total;
-    double tol = overfull ? balanceSlack * total : imbalanceWindow(total, free0, free1);
-    tol = std::max(tol, 2.0 * maxCell);
 
-    std::vector<std::int8_t> forced;
-    if (fences != nullptr && fences->numRegions() > 0) {
-        bool any = false;
-        forced.assign(r.cells.size(), -1);
-        for (std::size_t i = 0; i < r.cells.size(); ++i) {
-            const int reg = cellRegion[r.cells[i]];
-            if (reg != constraintMgr::noRegion) {
-                forced[i] = static_cast<std::int8_t>(forcedSide(reg, r0, r1));
-                any = any || forced[i] >= 0;
-            }
-        }
-        if (!any) {
-            forced.clear();
-        }
-    }
-
+    RatioRegion r0;
+    RatioRegion r1;
+    double free0 = 0.0;
+    double free1 = 0.0;
     std::vector<std::uint8_t> side;
     std::size_t cutNets = 0;
     for (std::size_t attempt = 0;; ++attempt) {
+        r0 = RatioRegion{r.x0, r.y0, r.x1, r.y1, {}, r.depth + 1};
+        r1 = r0;
+        (vertical ? r0.x1 : r0.y1) = cut;
+        (vertical ? r1.x0 : r1.y0) = cut;
+        trimToFree(r0);
+        trimToFree(r1);
+        free0 = freeAreaIn(r0.x0, r0.y0, r0.x1, r0.y1);
+        free1 = freeAreaIn(r1.x0, r1.y0, r1.x1, r1.y1);
+        if (attempt == 0 && (free0 <= 0.0 || free1 <= 0.0)) {
+            if (free0 <= 0.0 && free1 <= 0.0) {
+                placeLeaf(r);
+                return;
+            }
+            RatioRegion &keep = (free0 > 0.0) ? r0 : r1;
+            keep.cells = std::move(r.cells);
+            setRegionCentre(keep);
+            divide(std::move(keep));
+            return;
+        }
+
+        const bool overfull = total > free0 + free1;
+        const double target = overfull ? total * free0 / (free0 + free1) : 0.5 * total;
+        const double tol = std::max(
+            overfull ? balanceSlack * total : imbalanceWindow(total, free0, free1), 2.0 * maxCell);
+
+        std::vector<std::int8_t> forced;
+        if (fences != nullptr && fences->numRegions() > 0) {
+            bool any = false;
+            forced.assign(r.cells.size(), -1);
+            for (std::size_t i = 0; i < r.cells.size(); ++i) {
+                const int reg = cellRegion[r.cells[i]];
+                if (reg != constraintMgr::noRegion) {
+                    forced[i] = static_cast<std::int8_t>(forcedSide(reg, r0, r1));
+                    any = any || forced[i] >= 0;
+                }
+            }
+            if (!any) {
+                forced.clear();
+            }
+        }
+
         const double p1 = vertical ? 0.5 * (r0.x0 + r0.x1) : 0.5 * (r0.y0 + r0.y1);
         const double p2 = vertical ? 0.5 * (r1.x0 + r1.x1) : 0.5 * (r1.y0 + r1.y1);
         cutNets = bipartition(r.cells, vertical, p1, p2, target, tol, forced, side);
-        r0.cells.clear();
-        r1.cells.clear();
         for (std::size_t i = 0; i < r.cells.size(); ++i) {
             (side[i] == 0 ? r0.cells : r1.cells).push_back(r.cells[i]);
         }
-        const double a0 = movableArea(r0.cells), a1 = total - a0;
-        const bool fits = (a0 <= free0 && a1 <= free1) || overfull;
-        if (fits || attempt >= opts.maxRatioRetries || tol <= 2.0 * maxCell) {
+        const bool legal = overfull || (firstFit(r0.cells, r0) && firstFit(r1.cells, r1));
+        if (legal || attempt >= opts.maxRatioRetries) {
             break;
         }
         ++result.ratioRetries;
-        tol = std::max(0.5 * tol, 2.0 * maxCell);
+        const double use0 = movableArea(r0.cells) / free0;
+        const double use1 = movableArea(r1.cells) / free1;
+        const double moved = use0 > use1 ? cut + step : cut - step;
+        if (moved <= lo + step || moved >= hi - step) {
+            break;
+        }
+        cut = moved;
     }
 
     ++result.cuts;
