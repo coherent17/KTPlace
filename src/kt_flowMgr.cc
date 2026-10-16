@@ -258,11 +258,11 @@ void FlowMgr::Impl::legalizeDesign() {
     }
 
     if (const std::size_t tall = db->multiRowCells(); tall > 0) {
-        multirow::multirowDM multiDB = multirow::buildMultiRowDM(*db);
+        multirow::flowMgr flow(*db);
         ktlog.echo("multi-row legalization ({} cell(s) taller than a row)", tall);
-        recordStage(multiDB, snapshots.get(), {"legalize_multi", "", 0});
-        multirow::flowMgr flow(multiDB);
-        db->setMultiRowSolution(flow.runLegalizer());
+        recordStage(flow.dm(), snapshots.get(), {"legalize_multi", "", 0});
+        (void)flow.run();
+        db->setMultiRowSolution(flow.solution());
         commit("legalization");
         return;
     }
