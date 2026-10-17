@@ -4,7 +4,8 @@ An open-source know thyself placement engine.
 ![SimPL global placement, legalization and detailed placement of adaptec1](docs/images/adaptec1.gif)
 
 adaptec1 (ISPD 2005) with the default flow: SimPL global placement, Abacus
-legalization and FastDP detailed placement, ending at an HPWL of 7.94e7.
+legalization and FastDP detailed placement, ending at an HPWL of 7.94e7. Drawn
+with `anim_zoom 1`, `anim_blend 1`, `simpl trace_every 3` and `abacus frames 16`.
 
 ## Install a release
 
