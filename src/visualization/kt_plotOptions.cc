@@ -17,7 +17,6 @@ PlotOptions PlotOptions::fromOptions(const std::string &plotDir) {
     out.frameBudget = opts.animMaxFrames;
     out.frameZoom = opts.animZoom;
     out.finalZoom = opts.finalZoom;
-    out.writePpm = opts.finalPpm;
     out.blendFrames = opts.animBlend;
     out.keepSnapshots = opts.keepSnapshots;
     out.svgFrames = opts.svgFrames;

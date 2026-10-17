@@ -184,9 +184,9 @@ jobs:
             output/adaptec1/placed.pl
             smoke.log
             evaluate.log
-            output/adaptec1/plots/final/final.png
-            output/adaptec1/plots/final/final.svg
-            output/adaptec1/plots/anim/placement.gif
+            output/adaptec1/plots/placement.png
+            output/adaptec1/plots/placement.gif
+            output/adaptec1/plots/simpl_convergence.png
           if-no-files-found: ignore
 
   smoke-multirow:

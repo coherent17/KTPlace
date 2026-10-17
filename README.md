@@ -65,8 +65,8 @@ Bookshelf; gzipped inputs are read directly.
 | `-tcl, --tcl <file>` | Tcl script that configures the run |
 | `-v, --verbose` | also echo the trace log to the console |
 
-Everything a run writes goes under `-w`: `placed.pl`, `plots/` (the GIF and the
-final PNG and SVG), `ktplace.log` and `ktplace_trace.log`. stdout is never
+Everything a run writes goes under `-w`: `placed.pl`, `plots/` (`placement.gif`,
+the final `placement.png` and SimPL's `simpl_convergence.png`), `ktplace.log` and `ktplace_trace.log`. stdout is never
 written.
 
 ## Configuration
@@ -89,7 +89,6 @@ add_option visualizer anim 0
 | `visualizer` | `anim_zoom` | frame scale, vs 768x768 (`2`) |
 | `visualizer` | `anim_blend` | GIF frames per placement step: the snapshot plus N-1 frames interpolated from the previous one; `1` turns blending off (`3`) |
 | `visualizer` | `final_zoom` | final still scale, vs 768x768 (`8`) |
-| `visualizer` | `final_ppm` | also write the lossless PPM beside the PNG (`0`) |
 | `visualizer` | `keep_snapshots` | keep `plots/snapshots.ktsnap` after the pictures are drawn (`0`) |
 | `visualizer` | `svg_frames` | also write every frame as an SVG under `plots/` (`0`) |
 | `simpl` | `trace_every` | frame every N global iterations; `0` turns them off (`3`) |

@@ -83,12 +83,6 @@ void writeFinalFrameRaster(const std::string &path, const Graph &g,
                            const constraintMgr *constraints = nullptr, double zoom = 4.0,
                            double hpwl = 0.0);
 
-/// The finished placement as vector SVG: the picture to open when a region has
-/// to be looked at closely, and the exact record of the drawing -- one rectangle
-/// element per cell, so "every cell is in the picture" is a count.
-void writeFinalFrameSvg(const std::string &path, const Graph &g,
-                        const constraintMgr *constraints = nullptr, double hpwl = 0.0);
-
 /// Assemble the per-iteration raster stills in @p dir into one animated GIF.
 ///
 /// Self-contained: the GIF89a container, its LZW compression and the palette are
@@ -103,7 +97,7 @@ void writeFinalFrameSvg(const std::string &path, const Graph &g,
 /// Once the GIF is written the stills are deleted: they are the encoder's scratch
 /// space. If the encode fails they are left alone, since they are then the only
 /// record of the run's frames.
-[[nodiscard]] bool writeAnimatedGif(const std::string &dir, const std::string &gifName,
+[[nodiscard]] bool writeAnimatedGif(const std::string &dir, const std::string &gifPath,
                                     int delayCs = 60);
 
 /// One snapshot a stage wants drawn.
@@ -143,6 +137,10 @@ struct BoundsSample {
     double lower = 0.0;
 };
 
+/// Draw a convergence curve, both bounds against the iteration, as a PNG.
+[[nodiscard]] bool writeBoundsPng(const std::string &path, std::string_view title,
+                                  std::span<const BoundsSample> curve);
+
 class Visualizer {
 public:
     static Visualizer &instance() noexcept;
@@ -175,8 +173,7 @@ public:
     void boundsCurve(std::string_view name, std::string_view title,
                      std::span<const BoundsSample> curve);
 
-    /// The finished placement, at the run's final resolution: a PNG, the vector
-    /// form, and on request the raw raster.
+    /// The finished placement, at the run's final resolution, as a PNG.
     void finalImage(const Graph &graph, const constraintMgr *fences, double hpwl);
 
     /// Rasterise the placement as the next frame of the run. A no-op when the

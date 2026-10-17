@@ -53,7 +53,7 @@ then builds no snapshot at all.
 Rules a stage follows:
 
 - It hands over **numbers, never pictures or paths**. SimPL's bounds curve is a vector, and
-  `Visualizer::boundsCurve` writes the CSV and SVG.
+  `Visualizer::boundsCurve` echoes it as a table and draws `simpl_convergence.png`.
 - Its `build*DM` installs **no** hooks. What a run draws is the flow's decision.
 - It decides **how often** to offer a snapshot, because it knows how long its loops are. That
   cadence is the stage's own option: `simpl trace_every`, `simpl cg_every`,

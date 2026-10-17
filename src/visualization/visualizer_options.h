@@ -17,7 +17,6 @@ struct VisualizerOptions {
     std::size_t animMaxFrames = 1200;
     double animZoom = 2.0;
     double finalZoom = 8.0;
-    bool finalPpm = false;
     int animBlend = 3;
     bool keepSnapshots = false;
     bool svgFrames = false;
@@ -28,7 +27,6 @@ struct VisualizerOptions {
         visit("anim_max_frames", self.animMaxFrames);
         visit("anim_zoom", self.animZoom);
         visit("final_zoom", self.finalZoom);
-        visit("final_ppm", self.finalPpm);
         visit("anim_blend", self.animBlend);
         visit("keep_snapshots", self.keepSnapshots);
         visit("svg_frames", self.svgFrames);

@@ -583,13 +583,13 @@ def artifacts(run: Run) -> list[dict]:
     """Key files the run wrote, with browser-sensible titles."""
     want = [
         ("placement gallery", run.work / "plots" / "index.html", "Open the SVG frame gallery and HPWL curve"),
-        ("final placement image", run.work / "plots" / "final" / "final.png",
+        ("final placement image", run.work / "plots" / "placement.png",
          "High-resolution still of the finished placement"),
         ("placed cells", run.work / "placed.pl", "Bookshelf .pl of the result"),
         ("transcript", run.work / "ktplace.log", "Plain-text run log, as it streamed live"),
         ("trace log", run.work / "ktplace_trace.log",
          "Per-iteration diagnostics the engine writes alongside the transcript"),
-        ("animation", run.work / "plots" / "anim" / "placement.gif", "Animated run, when enabled"),
+        ("animation", run.work / "plots" / "placement.gif", "Animated run, when enabled"),
     ]
     out = []
     for title, path, note in want:
@@ -709,7 +709,7 @@ def export_zip(run: Run, buf) -> None:
             ("ktplace_trace.log", run.work / "ktplace_trace.log"),
             ("placed.pl", run.work / "placed.pl"),
             ("request.json", run.work / "request.json"),
-            ("final.png", run.work / "plots" / "final" / "final.png"),
+            ("final.png", run.work / "plots" / "placement.png"),
         ):
             if path.is_file():
                 z.write(path, arcname=name)
@@ -1148,7 +1148,7 @@ class Handler(BaseHTTPRequestHandler):
             "summary": summary(run),
             # The engine's HTML gallery is gone (726dae3); the finished image is
             # the placement picture /bench links, and only when it exists.
-            "finalImage": (run.work / "plots" / "final" / "final.png").is_file(),
+            "finalImage": (run.work / "plots" / "placement.png").is_file(),
         }
         if run.status == "running":
             scan_progress(run)

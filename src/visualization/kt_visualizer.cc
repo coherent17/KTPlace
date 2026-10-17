@@ -1,11 +1,13 @@
 #include "visualization/kt_visualizer.h"
 
 #include "util/kt_log.h"
+#include "util/kt_reportTable.h"
 #include "util/kt_scopedTimer.h"
 #include "visualization/kt_gif.h"
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
@@ -19,6 +21,7 @@
 #include <limits>
 #include <map>
 #include <oneapi/tbb/parallel_for.h>
+#include <span>
 #include <sstream>
 #include <stdexcept>
 #include <system_error>
@@ -40,6 +43,11 @@ using cimg_library::CImgList;
 
 namespace ktplace {
 namespace {
+
+constexpr const char *animationName = "placement.gif";
+constexpr const char *finalImageName = "placement.png";
+constexpr std::size_t pngBands = 64;
+constexpr int pngLevel = 6;
 
 /// Zero-padded so directory order is frame order. Matches the GIF writer's
 /// expectation of "frame_NNNN.ppm".
@@ -137,7 +145,7 @@ void Visualizer::configure(const std::string &outDir, const PlotOptions &options
     // above one honours the request, so a byte cap that leaves room for only a
     // handful is respected rather than quietly rounded up.
     maxFrames = std::max<std::size_t>(1, std::min(opts.frameBudget, sizeCapFrames));
-    animDir = opts.sub("anim");
+    animDir = opts.sub("frames");
     (void)ensureDir(animDir.string());
     delayCs = opts.frameDelayCs;
     blendSteps = opts.blendFrames;
@@ -207,54 +215,15 @@ void Visualizer::boundsCurve(std::string_view name, std::string_view title,
     if (!enabled()) {
         return;
     }
-    const std::string base = dir + "/" + std::string(name);
-    std::ofstream csv(base + ".csv");
-    csv << "iter,hpwl_upper,hpwl_lower,gap\n";
+    ktReportTable table{std::string(title)};
+    table.setHeaders({"iteration", "lower bound", "upper bound", "gap"});
     for (std::size_t i = 0; i < curve.size(); ++i) {
-        csv << i << ',' << curve[i].upper << ',' << curve[i].lower << ','
-            << curve[i].upper - curve[i].lower << '\n';
+        table.addRow({std::to_string(i), std::format("{:.6e}", curve[i].lower),
+                      std::format("{:.6e}", curve[i].upper),
+                      std::format("{:.6e}", curve[i].upper - curve[i].lower)});
     }
-
-    double top = 1e-12;
-    for (const BoundsSample &sample : curve) {
-        top = std::max({top, sample.upper, sample.lower});
-    }
-    constexpr double chartW = 780.0;
-    constexpr double chartH = 340.0;
-    constexpr double pad = 60.0;
-    const auto px = [&](std::size_t i) {
-        return pad + (chartW - 2 * pad) *
-                         (curve.size() < 2
-                              ? 0.0
-                              : static_cast<double>(i) / static_cast<double>(curve.size() - 1));
-    };
-    const auto py = [&](double v) {
-        return chartH - pad - (chartH - 2 * pad) * std::clamp(v / top, 0.0, 1.0);
-    };
-    const auto line = [&](double BoundsSample::*bound, std::string_view colour) {
-        std::ostringstream s;
-        s << "<polyline fill='none' stroke='" << colour << "' stroke-width='2' points='";
-        for (std::size_t i = 0; i < curve.size(); ++i) {
-            s << px(i) << ',' << py(curve[i].*bound) << ' ';
-        }
-        s << "'/>\n";
-        return s.str();
-    };
-    std::ofstream svg(base + ".svg");
-    svg << "<svg xmlns='http://www.w3.org/2000/svg' width='" << chartW << "' height='" << chartH
-        << "'>\n"
-        << "<rect width='100%' height='100%' fill='white'/>\n"
-        << "<text x='" << pad << "' y='24' font-family='monospace' font-size='14'>" << title
-        << "</text>\n"
-        << "<line x1='" << pad << "' y1='" << chartH - pad << "' x2='" << chartW - pad << "' y2='"
-        << chartH - pad << "' stroke='#333'/>\n"
-        << "<line x1='" << pad << "' y1='" << pad << "' x2='" << pad << "' y2='" << chartH - pad
-        << "' stroke='#333'/>\n"
-        << line(&BoundsSample::lower, "#2471a3") << line(&BoundsSample::upper, "#c0392b")
-        << "<text x='" << chartW - pad - 130 << "' y='" << pad + 12
-        << "' font-family='monospace' font-size='12' fill='#2471a3'>"
-        << "lower bound</text>\n<text x='" << chartW - pad - 130 << "' y='" << pad + 28
-        << "' font-family='monospace' font-size='12' fill='#c0392b'>upper bound</text>\n</svg>\n";
+    table.emit();
+    (void)writeBoundsPng(dir + "/" + std::string(name) + ".png", title, curve);
 }
 
 void Visualizer::finalImage(const Graph &graph, const constraintMgr *fences, double hpwl) {
@@ -264,26 +233,10 @@ void Visualizer::finalImage(const Graph &graph, const constraintMgr *fences, dou
     flush();
     const double zoom = std::max(1.0, opts.finalZoom);
     ScopedTimer timer("final-image");
-
-    const std::string finalDir = opts.sub("final");
-    if (!ensureDir(finalDir)) {
-        return;
-    }
-
-    // PNG, not PPM: no viewer opens a PPM, and flat colour compresses to a
-    // couple of megabytes at this resolution.
-    writeFinalFrameRaster(finalDir + "/final.png", graph, fences, zoom, hpwl);
-    // The vector form, and the one to open when a region needs looking at
-    // closely. One <rect> per cell, so "every cell is in the picture" is a
-    // count, which is what the CI smoke test checks.
-    writeFinalFrameSvg(finalDir + "/final.svg", graph, fences, hpwl);
-    // 113 MB of raw pixels at this size, so only on request: the PNG is the
-    // artefact anyone looks at.
-    if (opts.writePpm) {
-        writeFinalFrameRaster(finalDir + "/final.ppm", graph, fences, zoom, hpwl);
-    }
+    const std::string path = dir + "/" + finalImageName;
+    writeFinalFrameRaster(path, graph, fences, zoom, hpwl);
     const auto px = static_cast<int>(std::lround(zoom * 768.0));
-    ktlog.echo("final high-resolution image: {}/final.png ({}x{})", finalDir, px, px);
+    ktlog.echo("final placement image: {} ({}x{})", path, px, px);
 }
 
 bool Visualizer::finish(const Graph &graph, const std::vector<float> &x,
@@ -311,7 +264,12 @@ bool Visualizer::finish(const Graph &graph, const std::vector<float> &x,
                     /*mandatory=*/true);
     }
 
-    return writeAnimatedGif(animDir, "placement.gif", delayCs);
+    const bool written = writeAnimatedGif(animDir.string(), dir + "/" + animationName, delayCs);
+    if (written) {
+        std::error_code ec;
+        std::filesystem::remove(animDir, ec);
+    }
+    return written;
 }
 
 /// Rasterise the placement as the next framesKept of the run. A no-op when the run
@@ -1348,32 +1306,65 @@ bool writePng(const std::string &path, int w, int h, const std::vector<std::uint
     if (w <= 0 || h <= 0 || rgb.size() < static_cast<std::size_t>(w) * h * 3) {
         return false;
     }
-    // Raw scanlines, each prefixed with its filter byte. One filter byte and one
-    // byte of horizontal difference is all that separates this from the source
-    // layout, so the copy is a single pass rather than a per-pixel reindex.
     const std::size_t stride = static_cast<std::size_t>(w) * 3;
-    std::vector<std::uint8_t> raw(static_cast<std::size_t>(h) * (stride + 1));
+    const std::size_t line = stride + 1;
+    std::vector<std::uint8_t> raw(static_cast<std::size_t>(h) * line);
     for (int y = 0; y < h; ++y) {
-        std::uint8_t *dst = raw.data() + static_cast<std::size_t>(y) * (stride + 1);
-        *dst++ = 0;  // filter: None
+        std::uint8_t *dst = raw.data() + static_cast<std::size_t>(y) * line;
+        *dst++ = 0;
         std::memcpy(dst, rgb.data() + static_cast<std::size_t>(y) * stride, stride);
     }
 
-    uLongf bound = compressBound(static_cast<uLong>(raw.size()));
-    std::vector<std::uint8_t> idat(bound);
-    if (compress2(idat.data(), &bound, raw.data(), static_cast<uLong>(raw.size()),
-                  Z_BEST_COMPRESSION) != Z_OK) {
+    const std::size_t bands = std::min<std::size_t>(static_cast<std::size_t>(h), pngBands);
+    std::vector<std::vector<std::uint8_t>> parts(bands);
+    std::vector<uLong> checksums(bands);
+    std::vector<std::size_t> lengths(bands);
+    std::atomic<bool> failed{false};
+    tbb::parallel_for(std::size_t{0}, bands, [&](std::size_t band) {
+        const std::size_t first = static_cast<std::size_t>(h) * band / bands * line;
+        const std::size_t last = static_cast<std::size_t>(h) * (band + 1) / bands * line;
+        const std::size_t length = last - first;
+        lengths[band] = length;
+        checksums[band] =
+            adler32(adler32(0L, Z_NULL, 0), raw.data() + first, static_cast<uInt>(length));
+        z_stream stream{};
+        if (deflateInit2(&stream, pngLevel, Z_DEFLATED, -15, 8, Z_DEFAULT_STRATEGY) != Z_OK) {
+            failed = true;
+            return;
+        }
+        std::vector<std::uint8_t> &out = parts[band];
+        out.resize(deflateBound(&stream, static_cast<uLong>(length)) + 64);
+        stream.next_in = raw.data() + first;
+        stream.avail_in = static_cast<uInt>(length);
+        stream.next_out = out.data();
+        stream.avail_out = static_cast<uInt>(out.size());
+        const int flush = band + 1 == bands ? Z_FINISH : Z_FULL_FLUSH;
+        const int status = deflate(&stream, flush);
+        if (status != (flush == Z_FINISH ? Z_STREAM_END : Z_OK) || stream.avail_in != 0) {
+            failed = true;
+        }
+        out.resize(stream.total_out);
+        deflateEnd(&stream);
+    });
+    if (failed) {
         return false;
     }
-    idat.resize(bound);
 
-    // IHDR carries the image header: size, then the format parameters. Width and
-    // height are big-endian, the five format bytes are single bytes.
+    std::vector<std::uint8_t> idat{0x78, 0x9c};
+    uLong checksum = checksums[0];
+    for (std::size_t band = 0; band < bands; ++band) {
+        idat.insert(idat.end(), parts[band].begin(), parts[band].end());
+        if (band > 0) {
+            checksum =
+                adler32_combine(checksum, checksums[band], static_cast<z_off_t>(lengths[band]));
+        }
+    }
+    putBe32(idat, static_cast<std::uint32_t>(checksum));
+
     std::vector<std::uint8_t> ihdr;
     putBe32(ihdr, static_cast<std::uint32_t>(w));
     putBe32(ihdr, static_cast<std::uint32_t>(h));
-    ihdr.insert(ihdr.end(),
-                {8, 2, 0, 0, 0});  // depth 8, truecolour RGB, deflate, adaptive, no interlace
+    ihdr.insert(ihdr.end(), {8, 2, 0, 0, 0});
 
     std::vector<std::uint8_t> png{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n'};
     putChunk(png, "IHDR", ihdr.data(), ihdr.size());
@@ -1386,6 +1377,75 @@ bool writePng(const std::string &path, int w, int h, const std::vector<std::uint
     }
     out.write(reinterpret_cast<const char *>(png.data()), static_cast<std::streamsize>(png.size()));
     return out.good();
+}
+
+bool writeImagePng(const std::string &path, const CImg<unsigned char> &img) {
+    const auto w = static_cast<std::size_t>(img.width());
+    std::vector<std::uint8_t> rgb(w * static_cast<std::size_t>(img.height()) * 3);
+    tbb::parallel_for(0, img.height(), [&](int py) {
+        std::uint8_t *out = rgb.data() + static_cast<std::size_t>(py) * w * 3;
+        for (int ch = 0; ch < 3; ++ch) {
+            const unsigned char *in = img.data(0, py, 0, ch);
+            for (std::size_t px = 0; px < w; ++px) {
+                out[px * 3 + ch] = in[px];
+            }
+        }
+    });
+    return writePng(path, img.width(), img.height(), rgb);
+}
+
+bool writeBoundsPng(const std::string &path, std::string_view title,
+                    std::span<const BoundsSample> curve) {
+    constexpr int chartW = 900;
+    constexpr int chartH = 420;
+    constexpr int left = 110;
+    constexpr int right = 30;
+    constexpr int top = 50;
+    constexpr int bottom = 50;
+    const unsigned char ink[] = {40, 40, 40};
+    const unsigned char grid[] = {225, 225, 225};
+    const unsigned char lowerInk[] = {36, 113, 163};
+    const unsigned char upperInk[] = {192, 57, 43};
+
+    double highest = 1e-12;
+    for (const BoundsSample &sample : curve) {
+        highest = std::max({highest, sample.upper, sample.lower});
+    }
+    const auto px = [&](std::size_t i) {
+        const double t =
+            curve.size() < 2 ? 0.0 : static_cast<double>(i) / static_cast<double>(curve.size() - 1);
+        return static_cast<int>(std::lround(left + t * (chartW - left - right)));
+    };
+    const auto py = [&](double v) {
+        const double t = std::clamp(v / highest, 0.0, 1.0);
+        return static_cast<int>(std::lround(chartH - bottom - t * (chartH - top - bottom)));
+    };
+
+    CImg<unsigned char> img(chartW, chartH, 1, 3, 255);
+    for (int k = 0; k <= 4; ++k) {
+        const double v = highest * k / 4.0;
+        img.draw_line(left, py(v), chartW - right, py(v), grid);
+        const std::string label = std::format("{:.3e}", v);
+        img.draw_text(8, py(v) - 7, label.c_str(), ink, 0, 1.0f, 14);
+    }
+    img.draw_line(left, chartH - bottom, chartW - right, chartH - bottom, ink);
+    img.draw_line(left, top, left, chartH - bottom, ink);
+    for (std::size_t i = 1; i < curve.size(); ++i) {
+        for (int thick = 0; thick < 2; ++thick) {
+            img.draw_line(px(i - 1), py(curve[i - 1].lower) + thick, px(i),
+                          py(curve[i].lower) + thick, lowerInk);
+            img.draw_line(px(i - 1), py(curve[i - 1].upper) + thick, px(i),
+                          py(curve[i].upper) + thick, upperInk);
+        }
+    }
+    const std::string heading(title);
+    img.draw_text(left, 14, heading.c_str(), ink, 0, 1.0f, 20);
+    const std::string axis =
+        std::format("iteration (0 .. {})", curve.empty() ? 0 : curve.size() - 1);
+    img.draw_text(left, chartH - bottom + 14, axis.c_str(), ink, 0, 1.0f, 14);
+    img.draw_text(chartW - right - 150, top + 6, "lower bound", lowerInk, 0, 1.0f, 16);
+    img.draw_text(chartW - right - 150, top + 26, "upper bound", upperInk, 0, 1.0f, 16);
+    return writeImagePng(path, img);
 }
 
 bool ensureDir(const std::string &dir) {
@@ -1714,16 +1774,7 @@ void writeFrameRaster(const std::string &path, const Graph &g, const std::vector
     // and need no external library. ".png" is written here rather than handed to
     // CImg, whose PNG support needs libpng headers this build does not have.
     if (path.size() >= 4 && path.compare(path.size() - 4, 4, ".png") == 0) {
-        std::vector<std::uint8_t> rgb(static_cast<std::size_t>(img.width()) * img.height() * 3);
-        std::size_t i = 0;
-        cimg_forXY(img, px, py) {
-            for (int ch = 0; ch < 3; ++ch) {
-                rgb[i++] = img(px, py, 0, ch);
-            }
-        }
-        // PNG goes through our own encoder, which is the only one that works
-        // here: CImg writes PNG through libpng, whose headers are not installed.
-        if (!writePng(path, img.width(), img.height(), rgb)) {
+        if (!writeImagePng(path, img)) {
             ktlog.warning("cannot write '{}'", path);
         }
         return;
@@ -1748,21 +1799,6 @@ void writeFinalFrameRaster(const std::string &path, const Graph &g,
     // passed: the caption then shows one number instead of repeating one.
     writeFrameRaster(path, g, x, y, die, 0, 1, hpwl, /*hpwlInitial=*/0.0, 0.0, "final placement",
                      constraints, /*fixedView=*/true, zoom);
-}
-
-void writeFinalFrameSvg(const std::string &path, const Graph &g, const constraintMgr *constraints,
-                        double hpwl) {
-    const std::size_t nv = g.getNumCells();
-    std::vector<float> x(nv), y(nv);
-    for (std::size_t v = 0; v < nv; ++v) {
-        x[v] = static_cast<float>(g.getCell(v).x);
-        y[v] = static_cast<float>(g.getCell(v).y);
-    }
-    // Same picture as the raster still, so the two can be compared directly.
-    // worldUnits: the die is the viewBox and coordinates are world units, so the
-    // file is exact rather than a 768-wide picture of the placement.
-    writeFrameSvg(path, g, x, y, fixedCellBBox(g), 0, 1, hpwl, /*hpwlInitial=*/0.0, 0.0,
-                  "final placement", constraints, /*fixedView=*/true, /*worldUnits=*/true);
 }
 
 namespace {
@@ -1797,7 +1833,7 @@ std::vector<std::string> collectFrames(const std::string &dir) {
 }
 }  // namespace
 
-bool writeAnimatedGif(const std::string &dir, const std::string &gifName, int delayCs) {
+bool writeAnimatedGif(const std::string &dir, const std::string &gifPath, int delayCs) {
     const std::vector<std::string> frames = collectFrames(dir);
     if (frames.empty()) {
         return false;
@@ -1924,7 +1960,6 @@ bool writeAnimatedGif(const std::string &dir, const std::string &gifName, int de
         canvases.emplace_back(f.w, f.h, f.idx, palRgb);
     }
 
-    const std::string gifPath = (std::filesystem::path(dir) / gifName).string();
     if (!writeGif(gifPath, canvases, delayCs)) {
         return false;
     }
