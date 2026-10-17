@@ -1054,11 +1054,12 @@ CImg<unsigned char> renderFrameCImg(const Graph &g, const std::vector<float> &x,
                 img.draw_rectangle(x0, y0, x1, y1, pal.ptr(flat), 1.0f);
                 outlineRect(img, x0, y0, x1, y1, pal.ptr(edge));
             }
-            img.draw_text(static_cast<int>(toPxX(vp, reg.minX)) + static_cast<int>(3 * zoom),
-                          static_cast<int>(toPxY(vp, reg.minY)) - static_cast<int>(3 * zoom),
-                          reg.name.c_str(), pal.ptr(edge), 0, 1.0f,
-                          &CImgList<unsigned char>::font(
-                              static_cast<unsigned int>(std::lround(13.0 * zoom))));
+            img.draw_text(
+                static_cast<int>(toPxX(vp, reg.minX)) + static_cast<int>(3 * zoom),
+                static_cast<int>(toPxY(vp, reg.minY)) - static_cast<int>(3 * zoom), "%s",
+                pal.ptr(edge), 0, 1.0f,
+                &CImgList<unsigned char>::font(static_cast<unsigned int>(std::lround(13.0 * zoom))),
+                reg.name.c_str());
         }
     }
 
@@ -1166,13 +1167,13 @@ CImg<unsigned char> renderFrameCImg(const Graph &g, const std::vector<float> &x,
     const int left = px(margin);
     const int right = px(imageW - margin);
 
-    img.draw_text(left, px(14), heading.c_str(), ink(textPrimary), 0, 1.0f, &titleFont);
-    img.draw_text(left, px(40), note.c_str(), ink(textSecondary), 0, 1.0f, &font);
+    img.draw_text(left, px(14), "%s", ink(textPrimary), 0, 1.0f, &titleFont, heading.c_str());
+    img.draw_text(left, px(40), "%s", ink(textSecondary), 0, 1.0f, &font, note.c_str());
 
     if (hpwl > 0.0) {
         const std::string wl = std::format("HPWL {:.4e}", hpwl);
-        img.draw_text(right - textWidth(titleFont, wl.c_str()), px(14), wl.c_str(),
-                      ink(textPrimary), 0, 1.0f, &titleFont);
+        img.draw_text(right - textWidth(titleFont, wl.c_str()), px(14), "%s", ink(textPrimary), 0,
+                      1.0f, &titleFont, wl.c_str());
         std::string detail;
         if (hpwlInitial > 0.0) {
             const double change = 100.0 * (hpwl - hpwlInitial) / hpwlInitial;
@@ -1182,8 +1183,8 @@ CImg<unsigned char> renderFrameCImg(const Graph &g, const std::vector<float> &x,
             detail += std::format("{}overflow {:.1f}%", detail.empty() ? "" : "   ", 100.0 * resid);
         }
         if (!detail.empty()) {
-            img.draw_text(right - textWidth(font, detail.c_str()), px(40), detail.c_str(),
-                          ink(textSecondary), 0, 1.0f, &font);
+            img.draw_text(right - textWidth(font, detail.c_str()), px(40), "%s", ink(textSecondary),
+                          0, 1.0f, &font, detail.c_str());
         }
     }
 
@@ -1206,7 +1207,7 @@ CImg<unsigned char> renderFrameCImg(const Graph &g, const std::vector<float> &x,
         const auto entry = [&](Rgb24 colour, const std::string &label) {
             img.draw_rectangle(cx, swatchY, cx + swatch, swatchY + swatch, pal.ptr(colour), 1.0f);
             cx += swatch + px(7);
-            img.draw_text(cx, legendY, label.c_str(), ink(textSecondary), 0, 1.0f, &font);
+            img.draw_text(cx, legendY, "%s", ink(textSecondary), 0, 1.0f, &font, label.c_str());
             cx += textWidth(font, label.c_str()) + px(22);
         };
         entry(blendOnBg(hexColor("#4fc3f7"), 0.92), "Movable cells " + grouped(movable));
@@ -1426,7 +1427,7 @@ bool writeBoundsPng(const std::string &path, std::string_view title,
         const double v = highest * k / 4.0;
         img.draw_line(left, py(v), chartW - right, py(v), grid);
         const std::string label = std::format("{:.3e}", v);
-        img.draw_text(8, py(v) - 7, label.c_str(), ink, 0, 1.0f, 14);
+        img.draw_text(8, py(v) - 7, "%s", ink, 0, 1.0f, 14, label.c_str());
     }
     img.draw_line(left, chartH - bottom, chartW - right, chartH - bottom, ink);
     img.draw_line(left, top, left, chartH - bottom, ink);
@@ -1439,12 +1440,12 @@ bool writeBoundsPng(const std::string &path, std::string_view title,
         }
     }
     const std::string heading(title);
-    img.draw_text(left, 14, heading.c_str(), ink, 0, 1.0f, 20);
+    img.draw_text(left, 14, "%s", ink, 0, 1.0f, 20, heading.c_str());
     const std::string axis =
         std::format("iteration (0 .. {})", curve.empty() ? 0 : curve.size() - 1);
-    img.draw_text(left, chartH - bottom + 14, axis.c_str(), ink, 0, 1.0f, 14);
-    img.draw_text(chartW - right - 150, top + 6, "lower bound", lowerInk, 0, 1.0f, 16);
-    img.draw_text(chartW - right - 150, top + 26, "upper bound", upperInk, 0, 1.0f, 16);
+    img.draw_text(left, chartH - bottom + 14, "%s", ink, 0, 1.0f, 14, axis.c_str());
+    img.draw_text(chartW - right - 150, top + 6, "%s", lowerInk, 0, 1.0f, 16, "lower bound");
+    img.draw_text(chartW - right - 150, top + 26, "%s", upperInk, 0, 1.0f, 16, "upper bound");
     return writeImagePng(path, img);
 }
 

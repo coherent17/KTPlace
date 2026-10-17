@@ -577,6 +577,15 @@ BOOST_AUTO_TEST_CASE(a_raster_frame_is_a_binary_ppm_that_reads_back) {
     BOOST_TEST(bytes.size() - header > 3);
 }
 
+BOOST_AUTO_TEST_CASE(caption_text_is_drawn_literally_not_as_a_format) {
+    const ScratchDir dir("percent");
+    const Graph g = sampleGraph();
+    const std::string path = (dir.file("frame_0000.ppm")).string();
+    writeFrameRaster(path, g, sampleX(g), sampleY(g), fixedCellBBox(g), 10.0, 20.0, 0.1,
+                     "100% done %s %s %n %%", nullptr, false, 1.0, false, "%s heading %d");
+    BOOST_TEST(readAll(dir.file("frame_0000.ppm")).starts_with("P6"));
+}
+
 BOOST_AUTO_TEST_CASE(frames_are_collected_in_numeric_not_lexicographic_order) {
     // frame_10 must not be played before frame_9. This is the one ordering bug
     // in a zero-padded naming scheme that a small test catches and a big run
