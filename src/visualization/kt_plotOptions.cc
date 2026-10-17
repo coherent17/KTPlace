@@ -5,15 +5,14 @@
 
 #include "visualization/visualizer_options.h"
 
-#include <cstdlib>
+#include <string>
 
 namespace ktplace {
 
-namespace {}  // namespace
-
-PlotOptions PlotOptions::fromOptions() {
+PlotOptions PlotOptions::fromOptions(const std::string &plotDir) {
     PlotOptions out;
     const auto opts = loadOptions<VisualizerOptions>();
+    out.dir = opts.plot ? plotDir : std::string();
     out.animate = opts.anim;
     out.frameBudget = opts.animMaxFrames;
     out.frameZoom = opts.animZoom;

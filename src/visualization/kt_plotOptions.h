@@ -31,7 +31,7 @@ struct PlotOptions {
     bool svgFrames = false;
 
     // The defaults, with the run's visualizer options applied over them.
-    [[nodiscard]] static PlotOptions fromOptions();
+    [[nodiscard]] static PlotOptions fromOptions(const std::string &plotDir);
 
     [[nodiscard]] bool enabled() const {
         return !dir.empty();

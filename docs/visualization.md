@@ -65,7 +65,7 @@ Rules a stage follows:
 `FlowMgr` (`src/kt_flowMgr.cc`):
 
 1. When plots are on, configures the `Visualizer` and opens a `SnapshotWriter` on
-   `<work-dir>/plots/snapshots.ktsnap`. With `--no-plots` neither happens and no hook is installed,
+   `<work-dir>/plots/snapshots.ktsnap`. With `add_option visualizer plot 0` neither happens and no hook is installed,
    so no snapshot is built.
 2. Before each stage, records `beginStage` (`simpl`, `legalize`, `legalize_multi`,
    `detailplace`) and installs the stage's frame hook through `recordStage()`, which converts

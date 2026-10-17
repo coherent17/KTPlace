@@ -115,8 +115,7 @@ void FlowMgr::run(const kt_option &options) {
 
 void FlowMgr::Impl::run(const kt_option &options) {
     parseTcl(options);
-    plot = options.plot ? PlotOptions::fromOptions() : PlotOptions{};
-    plot.dir = options.getPlotDir();
+    plot = PlotOptions::fromOptions(options.getPlotDir());
 
     loadDesign(options.inputPath);
     placeDesign();

@@ -74,7 +74,8 @@ jobs:
           "$BIN" ./benchmark/bookshelf/ICCAD04/ibm01 -w smoke/ibm01 2>&1 | tee ibm01.log
           test "$(grep -c 'verdict *| *PASS' ibm01.log)" -eq 2
           test -s smoke/ibm01/plots/anim/placement.gif
-          "$BIN" ./benchmark/bookshelf/ISPD_2005/adaptec1 -w smoke/adaptec1 --no-plots 2>&1 | tee adaptec1.log
+          echo 'add_option visualizer plot 0' > noplot.tcl
+          "$BIN" ./benchmark/bookshelf/ISPD_2005/adaptec1 -w smoke/adaptec1 -tcl noplot.tcl 2>&1 | tee adaptec1.log
           test "$(grep -c 'Placement completed successfully' adaptec1.log)" -eq 1
           test "$(wc -l < smoke/adaptec1/placed.pl)" -eq 211447
 

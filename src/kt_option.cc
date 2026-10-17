@@ -48,8 +48,6 @@ bool kt_option::parse(int argc, char *argv[]) {
             workDir = value();
         } else if (arg == "-v" || arg == "--verbose") {
             verbose = true;
-        } else if (arg == "--no-plots") {
-            plot = false;
         } else if (arg == "-tcl" || arg == "--tcl") {
             tclFile = value();
         } else {
@@ -92,7 +90,6 @@ Arguments:
 Options:
   -w, --work-dir <dir>      Where to write everything; created if missing
                             (default: the current directory)
-  --no-plots                Draw nothing; skip every frame and picture
   -tcl, --tcl <file>        Tcl script configuring the run, through
                             add_option <component> <key> <value>
   -v, --verbose             Also send trace diagnostics to the console.
@@ -108,8 +105,8 @@ ktplace.log. Logging goes to that file and stderr; stdout is never written to.
 Everything a run is made of is chosen in that script, including the placer:
 `add_option flow algorithm ntuplace1`, where simpl is the default. The picture
 settings -- animation on or off, frame budget, zoom levels -- are options too, so
-tuning a run does not need a flag each; `add_option visualizer anim 0` is the
--tcl spelling of --no-plots.
+tuning a run does not need a flag each; `add_option visualizer plot 0` draws
+nothing at all.
 
 Examples:
   ktplace benchmark/bookshelf/ISPD_2005/adaptec1
