@@ -208,14 +208,9 @@ BOOST_AUTO_TEST_CASE(stop_ends_the_run_before_it_writes) {
     const fs::path work = dir.file("work");
     Recorded recorded;
     QObject context;
-    std::unique_ptr<Runner> runner;
-    Runner::Callbacks callbacks = recordInto(recorded);
-    callbacks.frame = [&recorded, &runner](LayoutFrame frame) {
-        recorded.frames.push_back(std::move(frame));
-        runner->stop();
-    };
-    runner = std::make_unique<Runner>(&context, std::move(callbacks));
-    BOOST_REQUIRE(runner->start({dir.design(), work.string(), ""}));
+    Runner runner(&context, recordInto(recorded));
+    BOOST_REQUIRE(runner.start({dir.design(), work.string(), ""}));
+    runner.stop();
     BOOST_REQUIRE(waitUntil([&recorded] {
         return recorded.result.has_value();
     }));
