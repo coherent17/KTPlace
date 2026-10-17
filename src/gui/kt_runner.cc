@@ -66,13 +66,13 @@ public:
 
 RunResult Runner::Impl::place(const RunRequest &request) {
     OptionDb::instance().clear();
+    OptionDb::instance().set(Component::Visualizer, "plot", OptionValue{0});
     TimerRegistry::instance().reset();
 
     kt_option options;
     options.inputPath = request.design;
     options.workDir = request.workDir;
     options.tclFile = request.script;
-    options.plot = false;
 
     std::error_code ec;
     std::filesystem::create_directories(options.workDir, ec);

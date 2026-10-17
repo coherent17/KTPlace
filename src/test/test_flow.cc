@@ -456,8 +456,8 @@ BOOST_AUTO_TEST_CASE(keep_snapshots_leaves_the_snapshot_file) {
 BOOST_AUTO_TEST_CASE(an_observer_sees_every_commit_and_the_stage_frames_without_plots) {
     const ScratchDir dir("observed");
     writeBookshelfDesign(dir);
-    kt_option options = optionsFor(dir, designDir(dir).string());
-    options.plot = false;
+    const kt_option options = optionsFor(dir, designDir(dir).string());
+    OptionDb::instance().set(Component::Visualizer, "plot", OptionValue{0});
 
     std::vector<std::string> stages;
     std::size_t cells = 0;
@@ -476,6 +476,7 @@ BOOST_AUTO_TEST_CASE(an_observer_sees_every_commit_and_the_stage_frames_without_
                           frameSize = std::min(x.size(), y.size());
                       }});
     flow.run(options);
+    OptionDb::instance().clear();
 
     const std::vector<std::string> expected{"load", "global placement", "legalization",
                                             "detailed placement"};
@@ -490,8 +491,8 @@ BOOST_AUTO_TEST_CASE(an_observer_sees_every_commit_and_the_stage_frames_without_
 BOOST_AUTO_TEST_CASE(an_observer_that_throws_stops_the_run_before_it_writes) {
     const ScratchDir dir("stopped");
     writeBookshelfDesign(dir);
-    kt_option options = optionsFor(dir, designDir(dir).string());
-    options.plot = false;
+    const kt_option options = optionsFor(dir, designDir(dir).string());
+    OptionDb::instance().set(Component::Visualizer, "plot", OptionValue{0});
 
     struct Stop {};
     FlowMgr flow;
@@ -501,5 +502,6 @@ BOOST_AUTO_TEST_CASE(an_observer_that_throws_stops_the_run_before_it_writes) {
                       throw Stop{};
                   }});
     BOOST_CHECK_THROW(flow.run(options), Stop);
+    OptionDb::instance().clear();
     BOOST_TEST(!fs::exists(options.getOutputPath()));
 }

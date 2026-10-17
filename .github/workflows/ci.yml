@@ -413,6 +413,7 @@ jobs:
           window=$!
           for _ in $(seq 1 120); do
             grep -qs 'Placement completed successfully' out/gui/ktplace.log && break
+            grep -qs 'fatal' out/gui/ktplace.log gui.log && break
             sleep 1
           done
           kill "$window"

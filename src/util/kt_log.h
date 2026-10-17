@@ -44,6 +44,7 @@ public:
 
     [[nodiscard]] std::size_t recordCount() const;
 
+    // Called with the logger locked, so a sink must not log.
     void setSink(Sink sink);
 
     void throwOnFatal(bool enabled) {
