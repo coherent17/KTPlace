@@ -70,11 +70,10 @@ void writeFrameSvg(const std::string &path, const Graph &g, const std::vector<fl
 /// writeFrameSvg(). Draws the same layout; the output format follows the
 /// extension of @p path.
 void writeFrameRaster(const std::string &path, const Graph &g, const std::vector<float> &x,
-                      const std::vector<float> &y, const BBox &dieBox, std::size_t step,
-                      std::size_t numSteps, double hpwl, double hpwlInitial, double resid,
-                      const std::string &note, const constraintMgr *constraints = nullptr,
-                      bool fixedView = false, double zoom = 1.0, bool drawRows = false,
-                      const std::string &heading = {});
+                      const std::vector<float> &y, const BBox &dieBox, double hpwl,
+                      double hpwlInitial, double resid, const std::string &note,
+                      const constraintMgr *constraints = nullptr, bool fixedView = false,
+                      double zoom = 1.0, bool drawRows = false, const std::string &heading = {});
 
 /// The finished placement as a high-resolution still, at @p zoom times the frame
 /// resolution (768x768 at zoom 1). This is the "look at the result" image: the

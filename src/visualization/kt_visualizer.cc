@@ -350,13 +350,12 @@ void Visualizer::record(const Graph &g, const std::vector<float> &x, const std::
         if (inBackground) {
             render([path, &g, ix, iy, die, step, total, hpwl, hpwlInitial, resid, note, constraints,
                     zoom = frameZoom, title = heading(note)] {
-                writeFrameRaster(path, g, ix, iy, die, step, total, hpwl, hpwlInitial, resid, note,
-                                 constraints, /*fixedView=*/true, zoom, /*drawRows=*/false, title);
+                writeFrameRaster(path, g, ix, iy, die, hpwl, hpwlInitial, resid, note, constraints,
+                                 /*fixedView=*/true, zoom, /*drawRows=*/false, title);
             });
         } else {
-            writeFrameRaster(path, g, ix, iy, die, step, total, hpwl, hpwlInitial, resid, note,
-                             constraints, /*fixedView=*/true, frameZoom, /*drawRows=*/false,
-                             heading(note));
+            writeFrameRaster(path, g, ix, iy, die, hpwl, hpwlInitial, resid, note, constraints,
+                             /*fixedView=*/true, frameZoom, /*drawRows=*/false, heading(note));
         }
         ++framesKept;
         return framesKept < limit;
@@ -407,8 +406,6 @@ constexpr double imageH = 768.0;
 
 constexpr const char *textPrimary = "#e6edf3";
 constexpr const char *textSecondary = "#9aa7b4";
-constexpr const char *accentColor = "#4fc3f7";
-constexpr const char *trackColor = "#2a313a";
 
 std::string grouped(std::size_t n) {
     std::string digits = std::to_string(n);
@@ -986,8 +983,7 @@ void fillCellRect(CImg<unsigned char> &img, double x0, double yTop, double x1, d
 }  // namespace
 
 CImg<unsigned char> renderFrameCImg(const Graph &g, const std::vector<float> &x,
-                                    const std::vector<float> &y, const BBox &dieBox,
-                                    std::size_t step, std::size_t numSteps, double hpwl,
+                                    const std::vector<float> &y, const BBox &dieBox, double hpwl,
                                     double hpwlInitial, double resid, const std::string &note,
                                     const constraintMgr *constraints, bool fixedView,
                                     GifPalette &pal, double zoom, bool drawRows,
@@ -1223,16 +1219,6 @@ CImg<unsigned char> renderFrameCImg(const Graph &g, const std::vector<float> &x,
         if (!rows.empty()) {
             entry(blendOnBg(hexColor("#5c6b7a"), 0.9), "Rows " + grouped(rows.size()));
         }
-    }
-
-    if (numSteps > 1) {
-        const double done =
-            std::clamp(static_cast<double>(step) / static_cast<double>(numSteps - 1), 0.0, 1.0);
-        const int barY = px(headerH - 22);
-        const int barH = std::max(2, px(3));
-        img.draw_rectangle(left, barY, right, barY + barH, ink(trackColor), 1.0f);
-        img.draw_rectangle(left, barY, left + static_cast<int>(std::lround(done * (right - left))),
-                           barY + barH, ink(accentColor), 1.0f);
     }
 
     return img;
@@ -1774,16 +1760,16 @@ void writeFrameSvg(const std::string &path, const Graph &g, const std::vector<fl
 }
 
 void writeFrameRaster(const std::string &path, const Graph &g, const std::vector<float> &x,
-                      const std::vector<float> &y, const BBox &dieBox, std::size_t step,
-                      std::size_t numSteps, double hpwl, double hpwlInitial, double resid,
-                      const std::string &note, const constraintMgr *constraints, bool fixedView,
-                      double zoom, bool drawRows, const std::string &heading) {
+                      const std::vector<float> &y, const BBox &dieBox, double hpwl,
+                      double hpwlInitial, double resid, const std::string &note,
+                      const constraintMgr *constraints, bool fixedView, double zoom, bool drawRows,
+                      const std::string &heading) {
     // A throwaway palette is fine for a single still; writeAnimatedGif() is the
     // path that needs one palette shared by every frame.
     GifPalette pal;
     const CImg<unsigned char> img =
-        renderFrameCImg(g, x, y, dieBox, step, numSteps, hpwl, hpwlInitial, resid, note,
-                        constraints, fixedView, pal, zoom, drawRows, heading);
+        renderFrameCImg(g, x, y, dieBox, hpwl, hpwlInitial, resid, note, constraints, fixedView,
+                        pal, zoom, drawRows, heading);
     // Dispatch on the extension. ".ppm" and ".bmp" are handled natively by CImg
     // and need no external library. ".png" is written here rather than handed to
     // CImg, whose PNG support needs libpng headers this build does not have.
@@ -1811,7 +1797,7 @@ void writeFinalFrameRaster(const std::string &path, const Graph &g,
     // right frame: the anchor scene the whole run has been using.
     // The finished placement has no "initial" to compare against, so none is
     // passed: the caption then shows one number instead of repeating one.
-    writeFrameRaster(path, g, x, y, die, 0, 1, hpwl, /*hpwlInitial=*/0.0, 0.0,
+    writeFrameRaster(path, g, x, y, die, hpwl, /*hpwlInitial=*/0.0, 0.0,
                      "Legalized and detail-placed", constraints, /*fixedView=*/true, zoom,
                      /*drawRows=*/true, "Final placement");
 }

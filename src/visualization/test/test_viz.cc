@@ -565,8 +565,7 @@ BOOST_AUTO_TEST_CASE(a_raster_frame_is_a_binary_ppm_that_reads_back) {
     const ScratchDir dir("ppm");
     const Graph g = sampleGraph();
     const std::string path = (dir.file("frame_0000.ppm")).string();
-    writeFrameRaster(path, g, sampleX(g), sampleY(g), fixedCellBBox(g), 2, 5, 10.0, 20.0, 0.1,
-                     "iter 2");
+    writeFrameRaster(path, g, sampleX(g), sampleY(g), fixedCellBBox(g), 10.0, 20.0, 0.1, "iter 2");
 
     const std::string bytes = readAll(dir.file("frame_0000.ppm"));
     // P6: "P6" then two dimensions then maxval 255, all whitespace separated.
@@ -588,7 +587,7 @@ BOOST_AUTO_TEST_CASE(frames_are_collected_in_numeric_not_lexicographic_order) {
         char name[64];
         std::snprintf(name, sizeof(name), "frame_%04d.ppm", i);
         writeFrameRaster((dir.file(name)).string(), g, sampleX(g), sampleY(g), fixedCellBBox(g),
-                         static_cast<std::size_t>(i), 12, 1.0, 1.0, 0.0, "");
+                         1.0, 1.0, 0.0, "");
     }
     BOOST_TEST(writeAnimatedGif(dir.str(), dir.file("anim.gif").string(), 5));
     BOOST_TEST(contains(readAll(dir.file("anim.gif")), "GIF89a"));
@@ -610,7 +609,7 @@ BOOST_AUTO_TEST_CASE(a_written_gif_takes_its_stills_with_it) {
         char name[64];
         std::snprintf(name, sizeof(name), "frame_%04d.ppm", i);
         writeFrameRaster((dir.file(name)).string(), g, sampleX(g), sampleY(g), fixedCellBBox(g),
-                         static_cast<std::size_t>(i), 3, 1.0, 1.0, 0.0, "");
+                         1.0, 1.0, 0.0, "");
     }
     BOOST_TEST(writeAnimatedGif(dir.str(), dir.file("anim.gif").string(), 5));
     BOOST_TEST(std::filesystem::exists(dir.file("anim.gif")));
@@ -672,8 +671,8 @@ BOOST_AUTO_TEST_CASE(a_raster_frame_can_be_written_as_a_png) {
     const ScratchDir dir("png");
     const Graph g = sampleGraph();
     const std::string path = (dir.file("final.png")).string();
-    writeFrameRaster(path, g, sampleX(g), sampleY(g), fixedCellBBox(g), 0, 1, 1.0, 1.0, 0.0,
-                     "final", nullptr, /*fixedView=*/true, /*zoom=*/2.0);
+    writeFrameRaster(path, g, sampleX(g), sampleY(g), fixedCellBBox(g), 1.0, 1.0, 0.0, "final",
+                     nullptr, /*fixedView=*/true, /*zoom=*/2.0);
 
     const std::string png = readAll(dir.file("final.png"));
     BOOST_TEST(png.size() > 8u);
@@ -699,9 +698,9 @@ BOOST_AUTO_TEST_CASE(a_higher_zoom_makes_a_bigger_frame_not_a_stretched_one) {
     const ScratchDir dir("zoom");
     const Graph g = sampleGraph();
     writeFrameRaster((dir.file("small.ppm")).string(), g, sampleX(g), sampleY(g), fixedCellBBox(g),
-                     0, 1, 1.0, 1.0, 0.0, "", nullptr, true, 1.0);
-    writeFrameRaster((dir.file("big.ppm")).string(), g, sampleX(g), sampleY(g), fixedCellBBox(g), 0,
-                     1, 1.0, 1.0, 0.0, "", nullptr, true, 3.0);
+                     1.0, 1.0, 0.0, "", nullptr, true, 1.0);
+    writeFrameRaster((dir.file("big.ppm")).string(), g, sampleX(g), sampleY(g), fixedCellBBox(g),
+                     1.0, 1.0, 0.0, "", nullptr, true, 3.0);
 
     const std::string small = readAll(dir.file("small.ppm"));
     const std::string big = readAll(dir.file("big.ppm"));
@@ -744,8 +743,8 @@ BOOST_AUTO_TEST_CASE(a_legal_row_is_drawn_at_its_true_size_and_not_wider) {
         v.width = cellW;
         v.height = cellH;
     }
-    writeFrameRaster((dir.file("row.ppm")).string(), g, sampleX(g), sampleY(g), fixedCellBBox(g), 0,
-                     1, 1.0, 1.0, 0.0, "", nullptr, /*fixedView=*/true, /*zoom=*/1.0);
+    writeFrameRaster((dir.file("row.ppm")).string(), g, sampleX(g), sampleY(g), fixedCellBBox(g),
+                     1.0, 1.0, 0.0, "", nullptr, /*fixedView=*/true, /*zoom=*/1.0);
 
     const std::string ppm = readAll(dir.file("row.ppm"));
     BOOST_TEST(contains(ppm, "768 768"));
@@ -880,8 +879,8 @@ BOOST_AUTO_TEST_CASE(every_cell_reaches_every_frame) {
 
     // And the raster frame draws the same number: each cell contributes at least
     // the flat fill colour, so the colour histogram has to hold all of them.
-    writeFrameRaster((dir.file("all.ppm")).string(), g, sampleX(g), sampleY(g), fixedCellBBox(g), 0,
-                     1, 1.0, 1.0, 0.0, "", nullptr, /*fixedView=*/true, /*zoom=*/4.0);
+    writeFrameRaster((dir.file("all.ppm")).string(), g, sampleX(g), sampleY(g), fixedCellBBox(g),
+                     1.0, 1.0, 0.0, "", nullptr, /*fixedView=*/true, /*zoom=*/4.0);
     const std::string ppm = readAll(dir.file("all.ppm"));
     BOOST_TEST(contains(ppm, "3072 3072"));
 }
@@ -892,9 +891,9 @@ BOOST_AUTO_TEST_CASE(assembling_a_gif_from_stills_of_different_sizes_works) {
     const ScratchDir dir("sizes");
     const Graph g = sampleGraph();
     writeFrameRaster((dir.file("frame_0000.ppm")).string(), g, sampleX(g), sampleY(g),
-                     fixedCellBBox(g), 0, 2, 1.0, 1.0, 0.0, "");
+                     fixedCellBBox(g), 1.0, 1.0, 0.0, "");
     writeFrameRaster((dir.file("frame_0001.ppm")).string(), g, sampleX(g), sampleY(g),
-                     fixedCellBBox(g), 1, 2, 1.0, 1.0, 0.0, "");
+                     fixedCellBBox(g), 1.0, 1.0, 0.0, "");
     BOOST_TEST(writeAnimatedGif(dir.str(), dir.file("anim.gif").string(), 5));
     BOOST_TEST(contains(readAll(dir.file("anim.gif")), "GIF89a"));
 }
