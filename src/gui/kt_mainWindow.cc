@@ -37,6 +37,7 @@ class MainWindow::Impl {
 public:
     Impl(MainWindow &window, RunRequest request)
         : window(window),
+          keepWorkDir(request.design.empty() && !request.workDir.empty()),
           request(std::move(request)),
           view(new LayoutView(&window)),
           log(new LogView(&window)),
@@ -52,6 +53,7 @@ public:
                                }}) {}
 
     MainWindow &window;
+    bool keepWorkDir;
     RunRequest request;
     LayoutView *view;
     LogView *log;
@@ -187,7 +189,9 @@ void MainWindow::openDesign(const QString &design) {
         return;
     }
     pImpl->request.design = design.toStdString();
-    pImpl->request.workDir = defaultWorkDir(design);
+    if (!pImpl->keepWorkDir) {
+        pImpl->request.workDir = defaultWorkDir(design);
+    }
     pImpl->view->setFrame({});
     pImpl->stage->clear();
     pImpl->refresh();

@@ -8,6 +8,7 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace ktplace {
 
@@ -26,22 +27,33 @@ bool kt_option::parse(int argc, char *argv[]) {
         }
     }
 
-    if (argc < 2) {
+    std::vector<std::string> args;
+    for (int i = 1; i < argc; ++i) {
+        if (std::string_view(argv[i]) == "--gui") {
+            gui = true;
+        } else {
+            args.emplace_back(argv[i]);
+        }
+    }
+
+    std::size_t first = 0;
+    if (!args.empty() && !(gui && args.front().starts_with('-'))) {
+        inputPath = args.front();
+        first = 1;
+    } else if (!gui) {
         ktlog.echo("");
         printUsage();
         ktlog.fatal("Insufficient command-line arguments");
     }
 
-    inputPath = argv[1];
-
-    for (int i = 2; i < argc; ++i) {
-        const std::string arg = argv[i];
+    for (std::size_t i = first; i < args.size(); ++i) {
+        const std::string &arg = args[i];
 
         const auto value = [&]() -> std::string {
-            if (i + 1 >= argc) {
+            if (i + 1 >= args.size()) {
                 throw std::runtime_error(std::format("{} requires a value", arg));
             }
-            return argv[++i];
+            return args[++i];
         };
 
         if (arg == "-w" || arg == "--work-dir") {
@@ -84,6 +96,7 @@ void kt_option::report() const {
 void kt_option::printUsage() {
     constexpr const char *usage = R"(KTPlace - Know Thyself Placement Engine v{}
 Usage: ktplace <input_dir> [options]
+       ktplace --gui [<input_dir>] [options]
 
 Arguments:
   input_dir        Directory holding the design's input files, which are named
@@ -97,6 +110,8 @@ Options:
                             add_option <component> <key> <value>
   -v, --verbose             Also send trace diagnostics to the console.
                             <log>_trace.log is always written either way
+  --gui                     Open the Qt window instead, placing <input_dir> if
+                            given (needs a build with make GUI=1)
 
 
   -h, --help                Show this help message

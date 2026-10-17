@@ -57,6 +57,11 @@ jobs:
       - name: Build the unit tests
         run: make -C src -f Master.make -j"$(nproc)" test-build
 
+      - name: Without GUI=1, ktplace --gui says how to get the window
+        run: |
+          if build/bin/ktplace --gui 2> gui.err; then exit 1; fi
+          grep -q "make GUI=1" gui.err
+
       - name: Pack the binaries
         # Debug info is most of the 450 MB; the jobs below only run the binaries.
         run: |
@@ -391,8 +396,22 @@ jobs:
         if: runner.os == 'macOS'
         run: brew install boost qt
 
-      - name: Build ktplace-gui
-        run: make -j"$(getconf _NPROCESSORS_ONLN)" gui
+      - name: Build ktplace with the GUI
+        run: make -j"$(getconf _NPROCESSORS_ONLN)" GUI=1
 
       - name: GUI tests
         run: make gui-test
+
+      - name: ktplace --gui places a design
+        # The window places the design given on the command line as soon as it
+        # opens, so its placed.pl appearing is the window having run the flow.
+        run: |
+          QT_QPA_PLATFORM=offscreen build/bin/ktplace --gui \
+            benchmark/bookshelf/ICCAD04/ibm01 -w out/gui > gui.log 2>&1 &
+          window=$!
+          for _ in $(seq 1 120); do
+            grep -qs 'Placement completed successfully' out/gui/ktplace.log && break
+            sleep 1
+          done
+          kill "$window"
+          test "$(wc -l < out/gui/placed.pl)" -eq 12752

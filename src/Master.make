@@ -91,7 +91,23 @@ LIBS := $(STATIC_LDFLAGS) $(BUNDLED_LIBS) -pthread
 SUBDIRS := datamodel adaptor globalPlacer legalizer detailPlacer visualization util tcl
 
 # Source files in current directory
-LOCAL_SRCS := kt_flowMgr.cc kt_place.cc kt_option.cc
+LOCAL_SRCS := kt_flowMgr.cc kt_place.cc kt_option.cc kt_noGui.cc
+
+GUI ?= 0
+ifeq ($(GUI)$(STATIC),11)
+  $(error GUI=1 cannot be combined with STATIC=1: Qt is not linked statically)
+endif
+
+# Qt only for GUI=1 and gui-test (see the GUI section below).
+QT_MODULES := Qt6Widgets
+QT_CFLAGS = $(shell pkg-config --cflags $(QT_MODULES)) -fPIC -DQT_NO_KEYWORDS
+QT_LIBS = $(shell pkg-config --libs $(QT_MODULES))
+
+GUI_SRCS := gui/kt_layout.cc gui/kt_layoutView.cc gui/kt_logView.cc gui/kt_runner.cc \
+            gui/kt_mainWindow.cc
+GUI_OBJS := $(GUI_SRCS:%.cc=$(OBJ_DIR)/%.o)
+GUI_ENTRY_OBJ := $(OBJ_DIR)/gui/kt_gui.o
+TEST_gui := gui/test/test_gui.cc
 
 # ============================================================================
 # Derived variables
@@ -120,7 +136,18 @@ STATIC_LIB := $(LIB_DIR)/libktplace.a
 
 # Engine objects without the entry point, so the library and the unit tests
 # can link against them (kt_place.cc owns main()).
-LIB_OBJS := $(filter-out $(OBJ_DIR)/kt_place.o,$(ALL_OBJS))
+LIB_OBJS := $(filter-out $(OBJ_DIR)/kt_place.o $(OBJ_DIR)/kt_noGui.o,$(ALL_OBJS))
+
+# The executable is the engine plus main() plus one front end for --gui. A
+# stamp holding GUI relinks it when GUI changes and nothing else did.
+GUI_STAMP := $(OBJ_DIR)/gui.stamp
+$(shell mkdir -p $(OBJ_DIR) && (echo $(GUI) | cmp -s - $(GUI_STAMP) || echo $(GUI) > $(GUI_STAMP)))
+ifeq ($(GUI),1)
+  FRONT_OBJS = $(GUI_OBJS) $(GUI_ENTRY_OBJ)
+  FRONT_LIBS = $(QT_LIBS)
+else
+  FRONT_OBJS = $(OBJ_DIR)/kt_noGui.o
+endif
 
 # ============================================================================
 # Phony targets
@@ -153,9 +180,9 @@ $(SUBDIRS):
 	@$(MAKE) -C $@ -f Master.make OBJ_DIR=$(OBJ_DIR)/$@ INCLUDES="$(INCLUDES)" THIRD_PARTY_INCLUDES="$(THIRD_PARTY_INCLUDES)" CXX="$(CXX)" CXXFLAGS="$(CXXFLAGS)"
 
 # Main executable
-$(TARGET): $(ALL_OBJS) $(BUNDLED_LIBS) | dirs
+$(TARGET): $(LIB_OBJS) $(OBJ_DIR)/kt_place.o $(FRONT_OBJS) $(BUNDLED_LIBS) $(GUI_STAMP) | dirs
 	@echo "Linking $@..."
-	@$(CXX) $(CXXFLAGS) -o $@ $(ALL_OBJS) $(LIBS) $(COVERAGE_LDFLAGS)
+	@$(CXX) $(CXXFLAGS) -o $@ $(LIB_OBJS) $(OBJ_DIR)/kt_place.o $(FRONT_OBJS) $(LIBS) $(FRONT_LIBS) $(COVERAGE_LDFLAGS)
 	@echo "Build complete: $@"
 
 # Environment helper scripts.
@@ -329,45 +356,28 @@ $(BIN_DIR)/test_tcl: $(TEST_tcl) $(LIB_OBJS) $(BUNDLED_LIBS) | dirs
 		$(LIB_OBJS) $(LIBS) $(COVERAGE_LDFLAGS) $(TEST_LIBS)
 
 # ============================================================================
-# GUI: `make gui` builds ktplace-gui, `make gui-test` runs its suite offscreen.
-# Neither is part of `all` or `test`, so only these targets need Qt 6, found
+# GUI: `make GUI=1` links the Qt window into ktplace for `ktplace --gui`;
+# without it ktplace links kt_noGui.cc, and --gui says how to get the window.
+# `make gui-test` runs the GUI suite offscreen. Only these need Qt 6, found
 # through pkg-config. Qt's headers require position-independent code, and its
 # `emit` keyword would rename Logger::emit.
 # ============================================================================
 
-QT_MODULES := Qt6Widgets
-QT_CFLAGS = $(shell pkg-config --cflags $(QT_MODULES)) -fPIC -DQT_NO_KEYWORDS
-QT_LIBS = $(shell pkg-config --libs $(QT_MODULES))
-
-GUI_SRCS := gui/kt_layout.cc gui/kt_layoutView.cc gui/kt_logView.cc gui/kt_runner.cc \
-            gui/kt_mainWindow.cc
-GUI_OBJS := $(GUI_SRCS:%.cc=$(OBJ_DIR)/%.o)
-GUI_MAIN_OBJ := $(OBJ_DIR)/gui/kt_gui.o
-GUI_TARGET := $(BIN_DIR)/ktplace-gui
-TEST_gui := gui/test/test_gui.cc
-
-.PHONY: gui gui-test
-gui: all $(GUI_TARGET)
-
-gui-test: all $(BIN_DIR)/test_gui
+.PHONY: gui-test
+gui-test: $(BIN_DIR)/test_gui
 	@QT_QPA_PLATFORM=offscreen $(BIN_DIR)/test_gui --log_level=test_suite
 
-$(GUI_OBJS) $(GUI_MAIN_OBJ): $(OBJ_DIR)/gui/%.o: gui/%.cc
+$(GUI_OBJS) $(GUI_ENTRY_OBJ): $(OBJ_DIR)/gui/%.o: gui/%.cc
 	@mkdir -p $(dir $@)
 	@echo "Compiling $<..."
 	@$(CXX) $(CXXFLAGS) $(INCLUDES) $(QT_CFLAGS) -MMD -MP -c $< -o $@
-
-$(GUI_TARGET): $(GUI_OBJS) $(GUI_MAIN_OBJ) $(LIB_OBJS) $(BUNDLED_LIBS) | dirs
-	@echo "Linking $@..."
-	@$(CXX) $(CXXFLAGS) -o $@ $(GUI_OBJS) $(GUI_MAIN_OBJ) $(LIB_OBJS) $(LIBS) $(QT_LIBS)
-	@echo "Build complete: $@"
 
 $(BIN_DIR)/test_gui: $(TEST_gui) $(GUI_OBJS) $(LIB_OBJS) $(BUNDLED_LIBS) | dirs
 	@echo "  Building test_gui..."
 	@$(CXX) $(CXXFLAGS) $(INCLUDES) $(TEST_INCLUDES) $(QT_CFLAGS) -o $@ $(TEST_gui) $(GUI_OBJS) \
 		$(LIB_OBJS) $(LIBS) $(QT_LIBS) $(TEST_LIBS)
 
--include $(GUI_OBJS:.o=.d) $(GUI_MAIN_OBJ:.o=.d)
+-include $(GUI_OBJS:.o=.d) $(GUI_ENTRY_OBJ:.o=.d)
 
 # ============================================================================
 # Line coverage

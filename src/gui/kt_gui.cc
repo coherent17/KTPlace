@@ -1,3 +1,5 @@
+#include "gui/kt_gui.h"
+
 #include "kt_option.h"
 
 #include "gui/kt_mainWindow.h"
@@ -5,30 +7,21 @@
 
 #include <QApplication>
 #include <QTimer>
-#include <cstdlib>
+#include <filesystem>
 
-using namespace ktplace;
+namespace ktplace {
 
-int main(int argc, char *argv[]) {
+int runGui(const kt_option &options, int &argc, char *argv[]) {
     QApplication app(argc, argv);
     QApplication::setApplicationName(QStringLiteral("KTPlace"));
     QApplication::setApplicationVersion(
         QString::fromUtf8(version.data(), static_cast<qsizetype>(version.size())));
     ktlog.throwOnFatal(true);
 
-    gui::RunRequest request;
-    if (argc > 1) {
-        kt_option options;
-        try {
-            if (!options.parse(argc, argv)) {
-                return EXIT_SUCCESS;
-            }
-        } catch (const FatalError &) {
-            return EXIT_FAILURE;
-        }
-        request = {options.inputPath, options.workDir, options.tclFile};
-    }
-
+    const bool workDirGiven = options.workDir != std::filesystem::current_path().string();
+    gui::RunRequest request{options.inputPath,
+                            options.inputPath.empty() && !workDirGiven ? "" : options.workDir,
+                            options.tclFile};
     gui::MainWindow window(request);
     window.show();
     if (!request.design.empty()) {
@@ -38,3 +31,5 @@ int main(int argc, char *argv[]) {
     }
     return QApplication::exec();
 }
+
+}  // namespace ktplace

@@ -51,16 +51,17 @@ source ktplace.sh   # written by the build: puts ktplace on PATH
 
 ### Desktop GUI (optional)
 
-`ktplace-gui` runs the same flow in a Qt window: open a design directory,
+`ktplace --gui` runs the same flow in a Qt window: open a design directory,
 optionally pick a Tcl script, press Run, and watch each stage move the cells
-while the log streams below. It needs Qt 6 Widgets, found through `pkg-config`
-(`brew install qt` on macOS, `qt6-base-dev` on Ubuntu); nothing else in the
-build does.
+while the log streams below. The window is linked in only by `make GUI=1`,
+which needs Qt 6 Widgets through `pkg-config` (`brew install qt` on macOS,
+`qt6-base-dev` on Ubuntu). A plain `make` stays free of Qt, and its `--gui`
+says how to get the window.
 
 ```sh
-make gui        # build/bin/ktplace-gui
-make gui-test   # its suite, on Qt's offscreen platform
-build/bin/ktplace-gui [<input_dir> -w <dir> -tcl <file>]   # arguments as for ktplace
+make GUI=1      # build/bin/ktplace, with --gui
+make gui-test   # the GUI suite, on Qt's offscreen platform
+ktplace --gui [<input_dir>] [-w <dir>] [-tcl <file>]   # given a design, it starts placing it
 ```
 
 ## Usage

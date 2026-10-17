@@ -28,6 +28,7 @@ public:
 
     bool plot = true;
     std::string tclFile;
+    bool gui = false;
 
     bool parse(int argc, char *argv[]);
 

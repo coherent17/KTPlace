@@ -1,7 +1,7 @@
 # KTPlace Top-level Makefile
 # This is the entry point for building the entire project
 
-.PHONY: all clean rebuild test check gui gui-test help format format-check clang-format hooks compile-commands
+.PHONY: all clean rebuild test check gui-test help format format-check clang-format hooks compile-commands
 
 # Default target - build from src directory
 all:
@@ -20,9 +20,6 @@ test:
 	@$(MAKE) -C src -f Master.make test
 
 check: test
-
-gui:
-	@$(MAKE) -C src -f Master.make gui
 
 gui-test:
 	@$(MAKE) -C src -f Master.make gui-test
