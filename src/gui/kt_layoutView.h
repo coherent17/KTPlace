@@ -4,7 +4,9 @@
 
 #include <QPointF>
 #include <QWidget>
+#include <cstdint>
 #include <memory>
+#include <optional>
 
 namespace ktplace::gui {
 
@@ -20,6 +22,8 @@ public:
     [[nodiscard]] const LayoutFrame &frame() const;
 
     void zoomFit();
+    void selectAt(QPointF screen);
+    [[nodiscard]] std::optional<std::uint32_t> selectedCell() const;
     void zoomBy(double factor, QPointF anchor);
 
     [[nodiscard]] QPointF worldToScreen(QPointF world) const;

@@ -27,6 +27,7 @@ std::shared_ptr<const LayoutGeometry> LayoutGeometry::of(const ktDM &db) {
     auto geometry = std::make_shared<LayoutGeometry>();
     const Graph &graph = db.getGraph();
     const std::size_t n = graph.getNumCells();
+    geometry->name.reserve(n);
     geometry->width.reserve(n);
     geometry->height.reserve(n);
     geometry->kind.reserve(n);
@@ -35,6 +36,7 @@ std::shared_ptr<const LayoutGeometry> LayoutGeometry::of(const ktDM &db) {
     std::vector<float> movableHeights;
     for (std::size_t v = 0; v < n; ++v) {
         const Vertex &cell = graph.getCell(v);
+        geometry->name.push_back(cell.name);
         geometry->width.push_back(static_cast<float>(cell.width));
         geometry->height.push_back(static_cast<float>(cell.height));
         geometry->kind.push_back(cell.isFixed ? CellKind::Macro : CellKind::Movable);
@@ -58,6 +60,29 @@ std::shared_ptr<const LayoutGeometry> LayoutGeometry::of(const ktDM &db) {
                                   static_cast<float>(row.xhi())});
     }
     geometry->die = db.placementDieBox();
+
+    geometry->netPinStart.push_back(0);
+    for (std::size_t net = 0; net < graph.getNumNets(); ++net) {
+        for (const std::size_t pinId : graph.getNetPins(net)) {
+            const Pin &pin = graph.getPin(pinId);
+            geometry->pinCell.push_back(static_cast<std::uint32_t>(pin.cellId));
+            geometry->pinDx.push_back(static_cast<float>(pin.offsetX));
+            geometry->pinDy.push_back(static_cast<float>(pin.offsetY));
+        }
+        geometry->netPinStart.push_back(static_cast<std::uint32_t>(geometry->pinCell.size()));
+    }
+    geometry->cellNetStart.push_back(0);
+    for (std::size_t v = 0; v < n; ++v) {
+        const std::size_t first = geometry->cellNet.size();
+        for (const std::size_t pinId : graph.getCellPins(v)) {
+            const auto net = static_cast<std::uint32_t>(graph.getPin(pinId).netId);
+            if (std::find(geometry->cellNet.begin() + static_cast<std::ptrdiff_t>(first),
+                          geometry->cellNet.end(), net) == geometry->cellNet.end()) {
+                geometry->cellNet.push_back(net);
+            }
+        }
+        geometry->cellNetStart.push_back(static_cast<std::uint32_t>(geometry->cellNet.size()));
+    }
     return geometry;
 }
 

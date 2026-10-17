@@ -235,6 +235,29 @@ BOOST_AUTO_TEST_CASE(the_layout_view_draws_cells_inside_the_die) {
     BOOST_TEST((image.pixelColor(5, 5) == QColor(0x10, 0x14, 0x18)));
 }
 
+BOOST_AUTO_TEST_CASE(clicking_a_cell_selects_it_and_its_nets_are_known) {
+    const ScratchDir dir("select");
+    const std::unique_ptr<ktDM> db = readDesign(dir.design());
+    const auto geometry = LayoutGeometry::of(*db);
+    BOOST_REQUIRE_EQUAL(geometry->netPinStart.size(), 3U);
+    BOOST_TEST(geometry->netPinStart[2] == 8U);
+    BOOST_TEST(geometry->cellNetStart[1] - geometry->cellNetStart[0] == 2U);
+    BOOST_TEST(geometry->name[6] == "block");
+
+    LayoutView view;
+    view.resize(400, 200);
+    view.setFrame(LayoutFrame::committed(geometry, *db, "load"));
+    view.selectAt(view.worldToScreen({16.0, 5.0}));
+    BOOST_REQUIRE(view.selectedCell().has_value());
+    BOOST_TEST(*view.selectedCell() == 6U);
+    const QImage image = view.grab().toImage();
+    const QColor outline = image.pixelColor(view.worldToScreen({12.0, 5.0}).toPoint());
+    BOOST_TEST(outline.red() > 0xe0);
+
+    view.selectAt({2.0, 2.0});
+    BOOST_TEST(!view.selectedCell().has_value());
+}
+
 BOOST_AUTO_TEST_CASE(the_window_runs_a_design_and_logs_it) {
     const ScratchDir dir("window");
     const fs::path work = dir.file("work");

@@ -6,6 +6,7 @@
 #include <QSurfaceFormat>
 #include <algorithm>
 #include <cstdint>
+#include <utility>
 
 namespace ktplace::gui {
 

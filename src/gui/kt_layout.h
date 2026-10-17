@@ -22,9 +22,16 @@ struct LayoutGeometry {
         float xhi = 0.0F;
     };
 
+    std::vector<std::string> name;
     std::vector<float> width;
     std::vector<float> height;
     std::vector<CellKind> kind;
+    std::vector<std::uint32_t> cellNetStart;
+    std::vector<std::uint32_t> cellNet;
+    std::vector<std::uint32_t> netPinStart;
+    std::vector<std::uint32_t> pinCell;
+    std::vector<float> pinDx;
+    std::vector<float> pinDy;
     std::vector<Row> rows;
     std::array<double, 4> die{};
     float typicalWidth = 1.0F;
