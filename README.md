@@ -4,7 +4,8 @@ An open-source know thyself placement engine.
 ![SimPL global placement, legalization and detailed placement of adaptec1](docs/images/adaptec1.gif)
 
 adaptec1 (ISPD 2005) with the default flow: SimPL global placement, Abacus
-legalization and FastDP detailed placement, ending at an HPWL of 7.94e7.
+legalization and FastDP detailed placement, ending at an HPWL of 7.94e7. Drawn
+with `anim_zoom 1`, `anim_blend 1`, `simpl trace_every 3` and `abacus frames 16`.
 
 ## Install a release
 
@@ -63,11 +64,10 @@ Bookshelf; gzipped inputs are read directly.
 | --- | --- |
 | `-w, --work-dir <dir>` | where everything is written (default: cwd) |
 | `-tcl, --tcl <file>` | Tcl script that configures the run |
-| `--no-plots` | draw nothing |
 | `-v, --verbose` | also echo the trace log to the console |
 
-Everything a run writes goes under `-w`: `placed.pl`, `plots/` (SVG frames, the
-GIF and a final PNG), `ktplace.log` and `ktplace_trace.log`. stdout is never
+Everything a run writes goes under `-w`: `placed.pl`, `plots/` (`placement.gif`,
+the final `placement.png` and SimPL's `simpl_convergence.png`), `ktplace.log` and `ktplace_trace.log`. stdout is never
 written.
 
 ## Configuration
@@ -84,25 +84,29 @@ add_option visualizer anim 0
 | component | key | effect (default) |
 | --- | --- | --- |
 | `flow` | `algorithm` | global placer: `simpl` or `ntuplace1` (`simpl`) |
+| `visualizer` | `plot` | draw anything at all: frames, GIF, final still; `0` draws nothing (`1`) |
 | `visualizer` | `anim` | record frames and assemble the GIF (`1`) |
 | `visualizer` | `anim_max_frames` | frame budget for the run (`1200`) |
 | `visualizer` | `anim_zoom` | frame scale, vs 768x768 (`2`) |
 | `visualizer` | `anim_blend` | GIF frames per placement step: the snapshot plus N-1 frames interpolated from the previous one; `1` turns blending off (`3`) |
 | `visualizer` | `final_zoom` | final still scale, vs 768x768 (`8`) |
-| `visualizer` | `final_ppm` | also write the lossless PPM beside the PNG (`0`) |
 | `visualizer` | `keep_snapshots` | keep `plots/snapshots.ktsnap` after the pictures are drawn (`0`) |
-| `simpl` | `trace_every` | SVG frame every N global iterations; `0` turns them off (`1`) |
-| `simpl` | `cg_every` | SVG frame every N conjugate-gradient iterates; `0` turns them off (`0`) |
+| `visualizer` | `svg_frames` | also write every frame as an SVG under `plots/` (`0`) |
+| `simpl` | `trace_every` | frame every N global iterations; `0` turns them off (`2`) |
+| `simpl` | `trace_series` | which placement those frames show: `lss` (the solver's, spreading out smoothly), `lal` (the look-ahead legalized one), or `both` (`lss`) |
+| `simpl` | `report_every` | a row of the convergence table (lower and upper bound, gap, overflow) every N iterations; `0` turns it off (`5`) |
+| `simpl` | `cg_every` | frame every N conjugate-gradient iterates of global placement; `0` turns them off (`0`) |
+| `simpl` | `init_cg_every` | frame every N conjugate-gradient iterates of the first initial-placement solve; `0` turns them off (`4`) |
 | `simpl` | `init_net` | initial placement net model: `star` (placement-independent star model), `b2b` (the paper's Bound2Bound), or `star_b2b` (`star`) |
 | `simpl` | `grid`, `cg_tol`, `init_iters`, `iters`, `seed`, `fences`, `density`, `alpha_base` | solver settings |
 | `ntuplace1` | `leaf_cells`, `max_levels`, `retries`, `verbose` | partitioner settings |
 | `abacus` | `max_row_dist`, `min_subrow_sites` | legalizer settings |
-| `abacus` | `frame_every` | SVG frame every N cells placed; `0` keeps only the first and last (`0`) |
+| `abacus`, `multirow` | `frames` | frames while legalizing, showing the cells placed so far at their legal positions; `0` keeps only the first and last (`24`) |
 | `multirow` | `macro_rows` | cells spanning more rows than this are legalized first as blocks, before the standard cells are legalized around them (`3`) |
 | `fastdp` | `window`, `wt1`, `wt2`, `max_iterations`, `min_improvement` | detailed placer: local re-ordering window (`3`), overlap penalty weights (`0.1`, `1`), iteration limit and stop threshold |
 
 Each component's keys and defaults are in its `*_options.h`. On a large design,
-`--no-plots` (or `simpl trace_every 0`) saves most of the drawing time.
+`add_option visualizer plot 0` saves all of the drawing time.
 
 ## The algorithm
 

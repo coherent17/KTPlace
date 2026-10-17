@@ -5,6 +5,7 @@
 #include "globalPlacer/simpl/simpl_lss.h"
 #include "globalPlacer/simpl/simpl_parallel.h"
 #include "util/kt_log.h"
+#include "util/kt_reportTable.h"
 #include "util/kt_scopedTimer.h"
 
 #include <algorithm>
@@ -70,7 +71,8 @@ private:
     [[nodiscard]] LinearSystems linearSystems() {
         return {.netlist = netlist, .sysX = sysX, .sysY = sysY, .floorX = floorX, .floorY = floorY};
     }
-    void solve(std::vector<double> &x, std::vector<double> &y, const std::string &tag);
+    void solve(std::vector<double> &x, std::vector<double> &y, const std::string &tag,
+               const std::string &label, std::size_t frameEvery);
     [[nodiscard]] double hpwl(const std::vector<double> &x, const std::vector<double> &y) const;
 
     [[nodiscard]] double centre(const std::vector<double> &pos, std::uint32_t i,
@@ -251,12 +253,13 @@ void simplPlacer::Impl::seedUniform(std::vector<double> &x, std::vector<double> 
 
 
 void simplPlacer::Impl::solve(std::vector<double> &x, std::vector<double> &y,
-                              const std::string &tag) {
+                              const std::string &tag, const std::string &label,
+                              std::size_t frameEvery) {
     const auto observe = [&](std::size_t iterate, const Residuals &residuals, bool last) {
-        if (opts.cgEvery > 0 && (iterate % opts.cgEvery == 0 || last)) {
+        if (frameEvery > 0 && (iterate % frameEvery == 0 || last)) {
             writeFrame("cg_" + tag, x, y,
-                       std::format("CG {} iterate {}, residual x {:.3e} / y {:.3e}", tag, iterate,
-                                   residuals.x, residuals.y),
+                       std::format("{} - CG iterate {}, residual {:.1e}", label, iterate,
+                                   std::max(residuals.x, residuals.y)),
                        iterate, opts.cgMaxIter);
         }
     };
@@ -360,7 +363,7 @@ void simplPlacer::Impl::writeFrame(const std::string &series, const std::vector<
     info.step = step;
     info.numSteps = total;
     info.hpwl = hpwl(x, y);
-    info.hpwlInitial = result.hpwlSeed;
+    info.hpwlInitial = 0.0;
     info.overflow = overflow(occupancy(x, y));
     info.mandatory = true;
     design.onFrame(fx, fy, info);
@@ -402,8 +405,7 @@ Positions simplPlacer::Impl::initialPlacement() {
     result.hpwlSeed = hpwl(lower.x, lower.y);
     ktlog.echo("grid {}x{}, available area {:.4g}, density limit g = {:.2f}, seed {} (HPWL {:.6e})",
                grid.nx, grid.ny, grid.totalAvail, densityLimit, opts.seed, result.hpwlSeed);
-    writeFrame("LSS_init_seed", lower.x, lower.y, "initial placement: uniform seed", 0,
-               opts.initMaxIters);
+    writeFrame("LSS_init_seed", lower.x, lower.y, "Initial placement - random seed", 0, 0);
 
     result.hpwlInit = result.hpwlSeed;
     InitialRounds rounds;
@@ -415,8 +417,8 @@ Positions simplPlacer::Impl::initialPlacement() {
     }
     if (rounds.accepted > 0 && rounds.framed != rounds.accepted) {
         writeFrame("LSS_init", lower.x, lower.y,
-                   std::format("initial placement round {}", rounds.accepted), rounds.accepted,
-                   opts.initMaxIters);
+                   std::format("Initial placement - round {}", rounds.accepted), rounds.accepted,
+                   0);
     }
     return lower;
 }
@@ -438,7 +440,8 @@ void simplPlacer::Impl::initialRounds(Positions &lower, NetModel model, InitialR
         if (!star) {
             linearSystems().buildB2B(next.x, next.y, 0.0, noAnchors, noAnchors);
         }
-        solve(next.x, next.y, "init" + frameStep(result.initIters));
+        solve(next.x, next.y, "init" + frameStep(result.initIters), "Initial placement",
+              result.initIters == 0 ? opts.initCgEvery : 0);
         if (star) {
             extended = next;
             next.x.resize(netlist.numMovable);
@@ -458,8 +461,8 @@ void simplPlacer::Impl::initialRounds(Positions &lower, NetModel model, InitialR
         if ((rounds.accepted & (rounds.accepted - 1)) == 0) {
             rounds.framed = rounds.accepted;
             writeFrame("LSS_init", lower.x, lower.y,
-                       std::format("initial placement round {}", rounds.accepted), rounds.accepted,
-                       opts.initMaxIters);
+                       std::format("Initial placement - round {}", rounds.accepted),
+                       rounds.accepted, 0);
         }
     }
 }
@@ -481,6 +484,8 @@ Positions simplPlacer::Impl::globalPlacement(Positions &lower) {
     Positions upper;
     std::vector<BoundsPoint> bounds;
     Convergence convergence;
+    ktReportTable convergenceTable("convergence");
+    convergenceTable.setHeaders({"iteration", "lower bound", "upper bound", "gap", "overflow"});
     for (std::size_t it = 0; it < opts.maxIters; ++it) {
         result.globalIters = it + 1;
         {
@@ -494,20 +499,32 @@ Positions simplPlacer::Impl::globalPlacement(Positions &lower) {
         const double upperHpwl = hpwl(upper.x, upper.y);
         const double lowerHpwl = hpwl(lower.x, lower.y);
         const double gap = upperHpwl - lowerHpwl;
+        const double upperOverflow = overflow(occupancy(upper.x, upper.y));
         bounds.push_back({upperHpwl, lowerHpwl});
         ktlog.trace("iter {:3d}: lower {:.6e} upper {:.6e} gap {:.4e} overflow {:.4f} -> {:.4f}",
                     it, lowerHpwl, upperHpwl, gap, overflow(occupancy(lower.x, lower.y)),
-                    overflow(occupancy(upper.x, upper.y)));
+                    upperOverflow);
         if (opts.traceEvery > 0 && it % opts.traceEvery == 0) {
-            writeFrame("LSS", lower.x, lower.y,
-                       std::format("LSS (linear system solve) - iteration {}", it), it,
-                       opts.maxIters);
-            writeFrame("LAL", upper.x, upper.y,
-                       std::format("LAL (look-ahead legalized) - iteration {}", it), it,
-                       opts.maxIters);
+            if (opts.traceSeries != "lal") {
+                writeFrame("LSS", lower.x, lower.y,
+                           std::format("Linear system solve (lower bound) - iteration {}", it), it,
+                           0);
+            }
+            if (opts.traceSeries != "lss") {
+                writeFrame("LAL", upper.x, upper.y,
+                           std::format("Look-ahead legalization (upper bound) - iteration {}", it),
+                           it, 0);
+            }
         }
 
-        if (convergence.update(it + 1, gap, upperHpwl, opts)) {
+        const bool converged = convergence.update(it + 1, gap, upperHpwl, opts);
+        if (opts.reportEvery > 0 &&
+            (it % opts.reportEvery == 0 || converged || it + 1 == opts.maxIters)) {
+            convergenceTable.addRow({std::to_string(it), std::format("{:.6e}", lowerHpwl),
+                                     std::format("{:.6e}", upperHpwl), std::format("{:.6e}", gap),
+                                     std::format("{:.4f}", upperOverflow)});
+        }
+        if (converged) {
             ktlog.trace("converged at iteration {}: gap {:.4e}, reference {:.4e}", it, gap,
                         convergence.gapReference);
             break;
@@ -521,11 +538,15 @@ Positions simplPlacer::Impl::globalPlacement(Positions &lower) {
         }
         {
             ScopedTimer timer("simpl-solve");
-            solve(lower.x, lower.y, "g" + frameStep(it));
+            solve(lower.x, lower.y, "g" + frameStep(it), std::format("Iteration {}", it),
+                  opts.cgEvery);
             result.solveSeconds += timer.elapsedSeconds();
         }
     }
 
+    if (opts.reportEvery > 0) {
+        convergenceTable.emit();
+    }
     if (!upper.x.empty() && opts.refineIters > 0) {
         refine(lower, upper);
     }
@@ -543,7 +564,8 @@ void simplPlacer::Impl::refine(Positions &lower, Positions &upper) {
     for (std::size_t r = 0; r < opts.refineIters; ++r) {
         const double alpha = opts.alphaBase * (1.0 + static_cast<double>(done + r));
         linearSystems().buildB2B(lower.x, lower.y, alpha, upper.x, upper.y);
-        solve(lower.x, lower.y, "refine" + frameStep(r));
+        solve(lower.x, lower.y, "refine" + frameStep(r), std::format("Refinement {}", r),
+              opts.cgEvery);
         upper = lower;
         lookAheadLegalize(upper.x, upper.y);
         enforceFences(upper.x, upper.y);
@@ -573,7 +595,7 @@ void simplPlacer::Impl::finish(const Positions &lower, const Positions &upper) {
         design.graph.setPosition(netlist.movVertex[i], upper.x[i], upper.y[i]);
     }
 
-    writeFrame("FINAL_LAL", upper.x, upper.y, "FINAL = last LAL (look-ahead legalized) placement",
+    writeFrame("FINAL_LAL", upper.x, upper.y, "Result - look-ahead legalized placement",
                result.globalIters, std::max<std::size_t>(result.globalIters, 1));
 }
 

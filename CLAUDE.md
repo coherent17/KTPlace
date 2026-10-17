@@ -36,7 +36,7 @@ Releases come from `.github/workflows/release.yml`: pushing a `v*` tag that matc
 
 ```sh
 source ktplace.sh
-ktplace benchmark/bookshelf/ICCAD04/ibm01 -w output/ibm01 [-tcl run.tcl] [--no-plots] [-v]
+ktplace benchmark/bookshelf/ICCAD04/ibm01 -w output/ibm01 [-tcl run.tcl] [-v]
 ```
 
 `ibm01` is small and the only design with multi-row cells. `adaptec1` is large. The suites are committed gzipped under `benchmark/bookshelf/` and `benchmark/lefdef/`, except the ISPD 2006 designs; `python3 benchmark/fetch_benchmarks.py` downloads any of them. The ISPD 2005 contest evaluator is in `benchmark/bookshelf/ISPD_2005/evaluator/` (`evaluate.sh <design dir> <placed.pl>`). Everything a run writes goes under `-w`: `placed.pl`, `plots/`, `ktplace.log` and `ktplace_trace.log`. **stdout is never written.** Logging goes through `ktlog` (`util/kt_log.h`) to the log file and stderr; `ktplace_trace.log` gets every level (trace, echo, warning, fatal). A stage's `build<Stage>DM` reports what it copied and its options through `reportStageBuild` (`datamodel/kt_stageReport.h`), the flow prints `ktDM::checksum()` after each stage commits, and `ScopedTimer(name, true)` announces a stage's time when it ends.

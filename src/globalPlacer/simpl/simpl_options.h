@@ -30,8 +30,11 @@ struct SimplOptions {
     std::size_t refineIters = 10;
     std::size_t refineGridFactor = 3;
     std::size_t cgMaxIter = 60;
-    std::size_t traceEvery = 1;
+    std::size_t traceEvery = 2;
+    std::string traceSeries = "lss";
+    std::size_t reportEvery = 5;
     std::size_t cgEvery = 0;
+    std::size_t initCgEvery = 4;
 
     static void fields(auto &self, auto &&visit) {
         visit("grid", self.binsPerAxis);
@@ -44,7 +47,10 @@ struct SimplOptions {
         visit("density", self.densityLimit);
         visit("alpha_base", self.alphaBase);
         visit("trace_every", self.traceEvery);
+        visit("trace_series", self.traceSeries);
+        visit("report_every", self.reportEvery);
         visit("cg_every", self.cgEvery);
+        visit("init_cg_every", self.initCgEvery);
     }
 };
 

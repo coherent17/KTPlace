@@ -66,7 +66,8 @@ void recordSimplBounds(simpl::simplDM &dm, SnapshotWriter &snapshots) {
         for (const simpl::BoundsPoint &point : curve) {
             samples.push_back({point.upper, point.lower});
         }
-        snapshots.boundsCurve("simpl_bounds", "SimPL: HPWL of the lower and upper bounds", samples);
+        snapshots.boundsCurve("simpl_convergence",
+                              "SimPL convergence: HPWL of the lower and upper bounds", samples);
     });
 }
 
@@ -115,8 +116,7 @@ void FlowMgr::run(const kt_option &options) {
 
 void FlowMgr::Impl::run(const kt_option &options) {
     parseTcl(options);
-    plot = options.plot ? PlotOptions::fromOptions() : PlotOptions{};
-    plot.dir = options.getPlotDir();
+    plot = PlotOptions::fromOptions(options.getPlotDir());
 
     loadDesign(options.inputPath);
     placeDesign();
@@ -319,7 +319,7 @@ void FlowMgr::Impl::finishAnimation() {
                                     db->placementDieBox(), &db->constraints(), db->hpwl());
     if (written) {
         ktlog.echo(
-            "animation: {} frames -> {}/anim/placement.gif (global placement, then "
+            "animation: {} frames -> {}/placement.gif (global placement, then "
             "legalization, then detailed placement)",
             viz.frameCount(), viz.directory());
     } else {
