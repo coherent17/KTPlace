@@ -1,5 +1,7 @@
 #include "gui/kt_layoutView.h"
 
+#include "gui/kt_glCanvas.h"
+
 #include <QImage>
 #include <QKeyEvent>
 #include <QMouseEvent>
@@ -43,6 +45,7 @@ public:
     explicit Impl(LayoutView &view) : view(view) {}
 
     LayoutView &view;
+    GlCanvas *gpu = nullptr;
     LayoutFrame frame;
     QImage cache;
     bool dirty = true;
@@ -53,6 +56,10 @@ public:
     bool panning = false;
 
     void invalidate() {
+        if (gpu != nullptr) {
+            gpu->setCamera(center, scale);
+            return;
+        }
         dirty = true;
         view.update();
     }
@@ -179,6 +186,9 @@ LayoutView::LayoutView(QWidget *parent) : QWidget(parent), pImpl(std::make_uniqu
     setFocusPolicy(Qt::StrongFocus);
     setMinimumSize(200, 150);
     setAttribute(Qt::WA_OpaquePaintEvent);
+    if (GlCanvas::available()) {
+        pImpl->gpu = new GlCanvas(this);
+    }
 }
 
 LayoutView::~LayoutView() = default;
@@ -187,6 +197,9 @@ void LayoutView::setFrame(LayoutFrame frame) {
     const bool refit = !pImpl->frame.drawable() || !frame.drawable() ||
                        pImpl->frame.geometry->die != frame.geometry->die;
     pImpl->frame = std::move(frame);
+    if (pImpl->gpu != nullptr) {
+        pImpl->gpu->setFrame(pImpl->frame);
+    }
     if (refit) {
         zoomFit();
     } else {
@@ -234,6 +247,9 @@ QPointF LayoutView::screenToWorld(QPointF screen) const {
 }
 
 void LayoutView::paintEvent(QPaintEvent *) {
+    if (pImpl->gpu != nullptr) {
+        return;
+    }
     if (pImpl->dirty) {
         pImpl->render();
     }
@@ -247,7 +263,10 @@ void LayoutView::paintEvent(QPaintEvent *) {
 }
 
 void LayoutView::resizeEvent(QResizeEvent *) {
-    if (pImpl->frame.drawable() && pImpl->cache.isNull()) {
+    if (pImpl->gpu != nullptr) {
+        pImpl->gpu->setGeometry(rect());
+    }
+    if (pImpl->frame.drawable() && pImpl->cache.isNull() && pImpl->gpu == nullptr) {
         zoomFit();
     } else {
         pImpl->invalidate();
