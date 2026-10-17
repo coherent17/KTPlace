@@ -228,11 +228,11 @@ BOOST_AUTO_TEST_CASE(the_layout_view_draws_cells_inside_the_die) {
 
     const QPointF macroCentre = view.worldToScreen({16.0, 5.0});
     const QColor macro = image.pixelColor(macroCentre.toPoint());
-    BOOST_TEST(macro.red() == 0x6e);
+    BOOST_TEST(macro.red() == 0xd9);
     const QPointF cellCentre = view.worldToScreen({2.5, 1.0});
     const QColor cell = image.pixelColor(cellCentre.toPoint());
     BOOST_TEST(cell.blue() > cell.red() + 0x40);
-    BOOST_TEST((image.pixelColor(5, 5) == QColor(0x1e, 0x1e, 0x1e)));
+    BOOST_TEST((image.pixelColor(5, 5) == QColor(0x10, 0x14, 0x18)));
 }
 
 BOOST_AUTO_TEST_CASE(the_window_runs_a_design_and_logs_it) {

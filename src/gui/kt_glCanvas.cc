@@ -61,7 +61,7 @@ void main() {
     vec4 f = fill[kind];
     float e = min(min(local.x, drawn.x - local.x), min(local.y, drawn.y - local.y));
     float smallest = min(drawn.x, drawn.y);
-    bool outline = kind == 5 || (kind == 0 && smallest > 4.0 * edgePx) ||
+    bool outline = kind == 5 || ((kind == 0 || kind == 2) && smallest > 4.0 * edgePx) ||
                    (kind == 1 && outlineCells > 0.5 && smallest > 3.0 * edgePx);
     if (outline && e < edgePx) {
         f = edge[kind];
@@ -81,6 +81,7 @@ QSurfaceFormat canvasFormat() {
     format.setVersion(3, 3);
     format.setProfile(QSurfaceFormat::CoreProfile);
     format.setSamples(4);
+    format.setAlphaBufferSize(0);
     return format;
 }
 
@@ -265,7 +266,7 @@ void GlCanvas::drawRange(const Range &range, unsigned previous) {
 }
 
 void GlCanvas::paintGL() {
-    glClearColor(0x1e / 255.0F, 0x1e / 255.0F, 0x1e / 255.0F, 1.0F);
+    glClearColor(0x10 / 255.0F, 0x14 / 255.0F, 0x18 / 255.0F, 1.0F);
     glClear(GL_COLOR_BUFFER_BIT);
     if (!ready || !geometry) {
         return;
@@ -287,7 +288,7 @@ void GlCanvas::paintGL() {
     const qreal dpr = devicePixelRatioF();
     const double deviceScale = scale * dpr;
     glEnable(GL_BLEND);
-    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ZERO, GL_ONE);
     program->bind();
     program->setUniformValue(
         "center", QVector2D(static_cast<float>(center.x()), static_cast<float>(center.y())));
@@ -299,11 +300,10 @@ void GlCanvas::paintGL() {
     program->setUniformValue("edgePx", static_cast<float>(dpr));
     program->setUniformValue("outlineCells",
                              typicalWidth * deviceScale >= outlinedCellPx * dpr ? 1.0F : 0.0F);
-    const std::array<QVector4D, kinds> fills{rgba(0x6e6e6e), rgba(0x4a90d9, 0.92F),
-                                             rgba(0xe08a2a), rgba(0x262626),
-                                             rgba(0x333333), rgba(0x000000, 0.0F)};
-    const std::array<QVector4D, kinds> edges{rgba(0xa8a8a8), rgba(0x8cc0f2), rgba(0xe08a2a),
-                                             rgba(0x262626), rgba(0x333333), rgba(0x808080)};
+    const std::array<QVector4D, kinds> fills{rgba(0xd94d4a), rgba(0x4ab5e5), rgba(0xd94d4a),
+                                             rgba(0x101418), rgba(0x3b454e), rgba(0x000000, 0.0F)};
+    const std::array<QVector4D, kinds> edges{rgba(0x9c3735), rgba(0x3582a5), rgba(0x9c3735),
+                                             rgba(0x101418), rgba(0x3b454e), rgba(0x8b97a3)};
     program->setUniformValueArray("fill", fills.data(), kinds);
     program->setUniformValueArray("edge", edges.data(), kinds);
 
