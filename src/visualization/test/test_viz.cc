@@ -19,6 +19,7 @@
 #include <span>
 #include <string>
 #include <vector>
+#include <zlib.h>
 
 using namespace ktplace;
 
@@ -564,8 +565,7 @@ BOOST_AUTO_TEST_CASE(a_raster_frame_is_a_binary_ppm_that_reads_back) {
     const ScratchDir dir("ppm");
     const Graph g = sampleGraph();
     const std::string path = (dir.file("frame_0000.ppm")).string();
-    writeFrameRaster(path, g, sampleX(g), sampleY(g), fixedCellBBox(g), 2, 5, 10.0, 20.0, 0.1,
-                     "iter 2");
+    writeFrameRaster(path, g, sampleX(g), sampleY(g), fixedCellBBox(g), 10.0, 20.0, 0.1, "iter 2");
 
     const std::string bytes = readAll(dir.file("frame_0000.ppm"));
     // P6: "P6" then two dimensions then maxval 255, all whitespace separated.
@@ -575,6 +575,15 @@ BOOST_AUTO_TEST_CASE(a_raster_frame_is_a_binary_ppm_that_reads_back) {
     // Header + width*height*3, so the payload must actually be there.
     const std::size_t header = bytes.find('\n', bytes.find("255")) + 1;
     BOOST_TEST(bytes.size() - header > 3);
+}
+
+BOOST_AUTO_TEST_CASE(caption_text_is_drawn_literally_not_as_a_format) {
+    const ScratchDir dir("percent");
+    const Graph g = sampleGraph();
+    const std::string path = (dir.file("frame_0000.ppm")).string();
+    writeFrameRaster(path, g, sampleX(g), sampleY(g), fixedCellBBox(g), 10.0, 20.0, 0.1,
+                     "100% done %s %s %n %%", nullptr, false, 1.0, false, "%s heading %d");
+    BOOST_TEST(readAll(dir.file("frame_0000.ppm")).starts_with("P6"));
 }
 
 BOOST_AUTO_TEST_CASE(frames_are_collected_in_numeric_not_lexicographic_order) {
@@ -587,15 +596,15 @@ BOOST_AUTO_TEST_CASE(frames_are_collected_in_numeric_not_lexicographic_order) {
         char name[64];
         std::snprintf(name, sizeof(name), "frame_%04d.ppm", i);
         writeFrameRaster((dir.file(name)).string(), g, sampleX(g), sampleY(g), fixedCellBBox(g),
-                         static_cast<std::size_t>(i), 12, 1.0, 1.0, 0.0, "");
+                         1.0, 1.0, 0.0, "");
     }
-    BOOST_TEST(writeAnimatedGif(dir.str(), "anim.gif", 5));
+    BOOST_TEST(writeAnimatedGif(dir.str(), dir.file("anim.gif").string(), 5));
     BOOST_TEST(contains(readAll(dir.file("anim.gif")), "GIF89a"));
 }
 
 BOOST_AUTO_TEST_CASE(assembling_a_gif_from_no_stills_fails_cleanly) {
     const ScratchDir dir("nostills");
-    BOOST_TEST(!writeAnimatedGif(dir.str(), "anim.gif", 5));
+    BOOST_TEST(!writeAnimatedGif(dir.str(), dir.file("anim.gif").string(), 5));
     BOOST_TEST(!std::filesystem::exists(dir.file("anim.gif")));
 }
 
@@ -609,9 +618,9 @@ BOOST_AUTO_TEST_CASE(a_written_gif_takes_its_stills_with_it) {
         char name[64];
         std::snprintf(name, sizeof(name), "frame_%04d.ppm", i);
         writeFrameRaster((dir.file(name)).string(), g, sampleX(g), sampleY(g), fixedCellBBox(g),
-                         static_cast<std::size_t>(i), 3, 1.0, 1.0, 0.0, "");
+                         1.0, 1.0, 0.0, "");
     }
-    BOOST_TEST(writeAnimatedGif(dir.str(), "anim.gif", 5));
+    BOOST_TEST(writeAnimatedGif(dir.str(), dir.file("anim.gif").string(), 5));
     BOOST_TEST(std::filesystem::exists(dir.file("anim.gif")));
     for (int i = 0; i < 3; ++i) {
         char name[64];
@@ -625,10 +634,43 @@ BOOST_AUTO_TEST_CASE(failed_gif_assembly_keeps_the_stills) {
     // after the encode rather than before it: if the encode failed, the stills
     // are the only record left of the run's frames.
     const ScratchDir dir("keepstills");
-    BOOST_TEST(!writeAnimatedGif(dir.str(), "anim.gif", 5));
+    BOOST_TEST(!writeAnimatedGif(dir.str(), dir.file("anim.gif").string(), 5));
     // Nothing was collected, so there was nothing to keep either; the check is
     // that a failed assembly does not remove anything it did not produce.
     BOOST_TEST(!std::filesystem::exists(dir.file("anim.gif")));
+}
+
+BOOST_AUTO_TEST_CASE(a_png_written_in_parallel_bands_decodes_to_its_pixels) {
+    const ScratchDir dir("pngbands");
+    constexpr int w = 97;
+    constexpr int h = 211;
+    std::vector<std::uint8_t> rgb(static_cast<std::size_t>(w) * h * 3);
+    for (std::size_t i = 0; i < rgb.size(); ++i) {
+        rgb[i] = static_cast<std::uint8_t>((i * 7 + i / 300) & 0xff);
+    }
+    BOOST_REQUIRE(writePng(dir.file("bands.png").string(), w, h, rgb));
+
+    const std::string png = readAll(dir.file("bands.png"));
+    const std::size_t at = 8 + 25;
+    BOOST_REQUIRE(png.compare(at + 4, 4, "IDAT") == 0);
+    const auto byte = [&](std::size_t k) {
+        return static_cast<std::uint32_t>(static_cast<unsigned char>(png[k]));
+    };
+    const std::uint32_t length =
+        byte(at) << 24 | byte(at + 1) << 16 | byte(at + 2) << 8 | byte(at + 3);
+    std::vector<std::uint8_t> raw(static_cast<std::size_t>(h) * (w * 3 + 1));
+    uLongf rawSize = raw.size();
+    BOOST_REQUIRE(uncompress(raw.data(), &rawSize,
+                             reinterpret_cast<const Bytef *>(png.data() + at + 8), length) == Z_OK);
+    BOOST_REQUIRE(rawSize == raw.size());
+    bool same = true;
+    for (int y = 0; y < h; ++y) {
+        const std::uint8_t *line = raw.data() + static_cast<std::size_t>(y) * (w * 3 + 1);
+        same = same && line[0] == 0 &&
+               std::equal(line + 1, line + 1 + w * 3,
+                          rgb.data() + static_cast<std::size_t>(y) * w * 3);
+    }
+    BOOST_TEST(same);
 }
 
 BOOST_AUTO_TEST_CASE(a_raster_frame_can_be_written_as_a_png) {
@@ -638,8 +680,8 @@ BOOST_AUTO_TEST_CASE(a_raster_frame_can_be_written_as_a_png) {
     const ScratchDir dir("png");
     const Graph g = sampleGraph();
     const std::string path = (dir.file("final.png")).string();
-    writeFrameRaster(path, g, sampleX(g), sampleY(g), fixedCellBBox(g), 0, 1, 1.0, 1.0, 0.0,
-                     "final", nullptr, /*fixedView=*/true, /*zoom=*/2.0);
+    writeFrameRaster(path, g, sampleX(g), sampleY(g), fixedCellBBox(g), 1.0, 1.0, 0.0, "final",
+                     nullptr, /*fixedView=*/true, /*zoom=*/2.0);
 
     const std::string png = readAll(dir.file("final.png"));
     BOOST_TEST(png.size() > 8u);
@@ -665,9 +707,9 @@ BOOST_AUTO_TEST_CASE(a_higher_zoom_makes_a_bigger_frame_not_a_stretched_one) {
     const ScratchDir dir("zoom");
     const Graph g = sampleGraph();
     writeFrameRaster((dir.file("small.ppm")).string(), g, sampleX(g), sampleY(g), fixedCellBBox(g),
-                     0, 1, 1.0, 1.0, 0.0, "", nullptr, true, 1.0);
-    writeFrameRaster((dir.file("big.ppm")).string(), g, sampleX(g), sampleY(g), fixedCellBBox(g), 0,
-                     1, 1.0, 1.0, 0.0, "", nullptr, true, 3.0);
+                     1.0, 1.0, 0.0, "", nullptr, true, 1.0);
+    writeFrameRaster((dir.file("big.ppm")).string(), g, sampleX(g), sampleY(g), fixedCellBBox(g),
+                     1.0, 1.0, 0.0, "", nullptr, true, 3.0);
 
     const std::string small = readAll(dir.file("small.ppm"));
     const std::string big = readAll(dir.file("big.ppm"));
@@ -710,8 +752,8 @@ BOOST_AUTO_TEST_CASE(a_legal_row_is_drawn_at_its_true_size_and_not_wider) {
         v.width = cellW;
         v.height = cellH;
     }
-    writeFrameRaster((dir.file("row.ppm")).string(), g, sampleX(g), sampleY(g), fixedCellBBox(g), 0,
-                     1, 1.0, 1.0, 0.0, "", nullptr, /*fixedView=*/true, /*zoom=*/1.0);
+    writeFrameRaster((dir.file("row.ppm")).string(), g, sampleX(g), sampleY(g), fixedCellBBox(g),
+                     1.0, 1.0, 0.0, "", nullptr, /*fixedView=*/true, /*zoom=*/1.0);
 
     const std::string ppm = readAll(dir.file("row.ppm"));
     BOOST_TEST(contains(ppm, "768 768"));
@@ -846,8 +888,8 @@ BOOST_AUTO_TEST_CASE(every_cell_reaches_every_frame) {
 
     // And the raster frame draws the same number: each cell contributes at least
     // the flat fill colour, so the colour histogram has to hold all of them.
-    writeFrameRaster((dir.file("all.ppm")).string(), g, sampleX(g), sampleY(g), fixedCellBBox(g), 0,
-                     1, 1.0, 1.0, 0.0, "", nullptr, /*fixedView=*/true, /*zoom=*/4.0);
+    writeFrameRaster((dir.file("all.ppm")).string(), g, sampleX(g), sampleY(g), fixedCellBBox(g),
+                     1.0, 1.0, 0.0, "", nullptr, /*fixedView=*/true, /*zoom=*/4.0);
     const std::string ppm = readAll(dir.file("all.ppm"));
     BOOST_TEST(contains(ppm, "3072 3072"));
 }
@@ -858,10 +900,10 @@ BOOST_AUTO_TEST_CASE(assembling_a_gif_from_stills_of_different_sizes_works) {
     const ScratchDir dir("sizes");
     const Graph g = sampleGraph();
     writeFrameRaster((dir.file("frame_0000.ppm")).string(), g, sampleX(g), sampleY(g),
-                     fixedCellBBox(g), 0, 2, 1.0, 1.0, 0.0, "");
+                     fixedCellBBox(g), 1.0, 1.0, 0.0, "");
     writeFrameRaster((dir.file("frame_0001.ppm")).string(), g, sampleX(g), sampleY(g),
-                     fixedCellBBox(g), 1, 2, 1.0, 1.0, 0.0, "");
-    BOOST_TEST(writeAnimatedGif(dir.str(), "anim.gif", 5));
+                     fixedCellBBox(g), 1.0, 1.0, 0.0, "");
+    BOOST_TEST(writeAnimatedGif(dir.str(), dir.file("anim.gif").string(), 5));
     BOOST_TEST(contains(readAll(dir.file("anim.gif")), "GIF89a"));
 }
 
@@ -962,8 +1004,8 @@ BOOST_AUTO_TEST_CASE(recording_writes_numbered_stills_and_counts_them) {
                                        0.0, "iter1");
     BOOST_TEST(Visualizer::instance().frameCount() == 2u);
     // Zero-padded so directory order is frame order.
-    BOOST_TEST(std::filesystem::exists(dir.file("anim/frame_0000.ppm")));
-    BOOST_TEST(std::filesystem::exists(dir.file("anim/frame_0001.ppm")));
+    BOOST_TEST(std::filesystem::exists(dir.file("frames/frame_0000.ppm")));
+    BOOST_TEST(std::filesystem::exists(dir.file("frames/frame_0001.ppm")));
     freshAnimator();
 }
 
@@ -989,7 +1031,7 @@ BOOST_AUTO_TEST_CASE(blending_emits_in_between_frames_that_arrive_at_the_new_pla
     // placement itself.
     Visualizer::instance().recordFrame(g, x2, y, fixedCellBBox(g), 1, 2, 1.0, 1.0, 0.0, "b");
     BOOST_TEST(Visualizer::instance().frameCount() == 4u);
-    BOOST_TEST(std::filesystem::exists(dir.file("anim/frame_0003.ppm")));
+    BOOST_TEST(std::filesystem::exists(dir.file("frames/frame_0003.ppm")));
     freshAnimator();
 }
 
@@ -1022,8 +1064,8 @@ BOOST_AUTO_TEST_CASE(the_frame_cap_stops_recording_and_is_reported) {
     BOOST_TEST(Visualizer::instance().capped());
     BOOST_TEST(Visualizer::instance().budget() == 0u);
     // The stills left behind are a browsable record of what was captured.
-    BOOST_TEST(std::filesystem::exists(dir.file("anim/frame_0001.ppm")));
-    BOOST_TEST(!std::filesystem::exists(dir.file("anim/frame_0002.ppm")));
+    BOOST_TEST(std::filesystem::exists(dir.file("frames/frame_0001.ppm")));
+    BOOST_TEST(!std::filesystem::exists(dir.file("frames/frame_0002.ppm")));
     freshAnimator();
 }
 
@@ -1090,7 +1132,7 @@ BOOST_AUTO_TEST_CASE(finish_assembles_the_stills_into_a_looping_gif) {
     Visualizer::instance().recordFrame(g, sampleX(g), sampleY(g), fixedCellBBox(g), 1, 2, 1.0, 1.0,
                                        0.0, "b");
     BOOST_TEST(Visualizer::instance().finish(g, sampleX(g), sampleY(g), fixedCellBBox(g)));
-    const std::string gif = readAll(dir.file("anim/placement.gif"));
+    const std::string gif = readAll(dir.file("placement.gif"));
     BOOST_TEST(contains(gif, "GIF89a"));
     BOOST_TEST(contains(gif, "NETSCAPE2.0"));
     freshAnimator();
@@ -1150,11 +1192,10 @@ BOOST_AUTO_TEST_CASE(bounds_curve_records_every_iteration_and_plots_both_bounds)
     const std::vector<BoundsSample> curve{{3.0, 1.0}, {2.0, 1.5}};
     Visualizer::instance().boundsCurve("b", "the title", curve);
 
-    BOOST_TEST(readAll(dir.file("b.csv")) ==
-               "iter,hpwl_upper,hpwl_lower,gap\n0,3,1,2\n1,2,1.5,0.5\n");
-    const std::string svg = readAll(dir.file("b.svg"));
-    BOOST_TEST(contains(svg, ">the title</text>"));
-    BOOST_TEST(countOf(svg, "<polyline") == 2u);
+    const std::string png = readAll(dir.file("b.png"));
+    BOOST_TEST(png.starts_with("\x89PNG"));
+    BOOST_TEST(!std::filesystem::exists(dir.file("b.csv")));
+    BOOST_TEST(!std::filesystem::exists(dir.file("b.svg")));
     freshAnimator();
 }
 
@@ -1164,7 +1205,7 @@ BOOST_AUTO_TEST_CASE(bounds_curve_with_drawing_off_writes_nothing) {
     BOOST_TEST(!Visualizer::instance().enabled());
     const std::vector<BoundsSample> curve{{1.0, 0.5}};
     BOOST_CHECK_NO_THROW(Visualizer::instance().boundsCurve("b", "t", curve));
-    BOOST_TEST(!std::filesystem::exists("/b.csv"));
+    BOOST_TEST(!std::filesystem::exists("/b.png"));
     freshAnimator();
 }
 
@@ -1209,7 +1250,8 @@ void sampleRun(Sink &&frameTo, const std::function<void(StageVisual)> &beginStag
 BOOST_AUTO_TEST_CASE(replayed_snapshots_draw_the_files_drawing_directly_does) {
     const Graph g = sampleGraph();
     const std::array<double, 4> die = fixedCellBBox(g);
-    const PlotOptions opts = animOptions(10, 5, 1);
+    PlotOptions opts = animOptions(10, 5, 1);
+    opts.svgFrames = true;
     Visualizer &viz = Visualizer::instance();
 
     freshAnimator();

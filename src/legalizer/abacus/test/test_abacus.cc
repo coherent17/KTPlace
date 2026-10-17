@@ -149,7 +149,7 @@ BOOST_AUTO_TEST_CASE(an_unfenced_design_is_legalized_as_before) {
     (void)cells;
 }
 
-BOOST_AUTO_TEST_CASE(frame_cadence_is_abacus_own_option) {
+BOOST_AUTO_TEST_CASE(frame_count_is_abacus_own_option) {
     const auto framesOffered = [] {
         ktDM db;
         addRows(db);
@@ -163,9 +163,12 @@ BOOST_AUTO_TEST_CASE(frame_cadence_is_abacus_own_option) {
         (void)dm.run();
         return frames;
     };
-    const std::size_t byDefault = framesOffered();
-    const ScopedOption every(Component::Abacus, "frame_every", OptionValue{10});
-    BOOST_TEST(framesOffered() == byDefault + 3u);
+    {
+        const ScopedOption none(Component::Abacus, "frames", OptionValue{0});
+        BOOST_TEST(framesOffered() == 2u);
+    }
+    const ScopedOption five(Component::Abacus, "frames", OptionValue{5});
+    BOOST_TEST(framesOffered() == 2u + 5u);
 }
 
 BOOST_AUTO_TEST_SUITE_END()

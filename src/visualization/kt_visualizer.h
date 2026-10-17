@@ -70,10 +70,10 @@ void writeFrameSvg(const std::string &path, const Graph &g, const std::vector<fl
 /// writeFrameSvg(). Draws the same layout; the output format follows the
 /// extension of @p path.
 void writeFrameRaster(const std::string &path, const Graph &g, const std::vector<float> &x,
-                      const std::vector<float> &y, const BBox &dieBox, std::size_t step,
-                      std::size_t numSteps, double hpwl, double hpwlInitial, double resid,
-                      const std::string &note, const constraintMgr *constraints = nullptr,
-                      bool fixedView = false, double zoom = 1.0);
+                      const std::vector<float> &y, const BBox &dieBox, double hpwl,
+                      double hpwlInitial, double resid, const std::string &note,
+                      const constraintMgr *constraints = nullptr, bool fixedView = false,
+                      double zoom = 1.0, bool drawRows = false, const std::string &heading = {});
 
 /// The finished placement as a high-resolution still, at @p zoom times the frame
 /// resolution (768x768 at zoom 1). This is the "look at the result" image: the
@@ -82,12 +82,6 @@ void writeFrameRaster(const std::string &path, const Graph &g, const std::vector
 void writeFinalFrameRaster(const std::string &path, const Graph &g,
                            const constraintMgr *constraints = nullptr, double zoom = 4.0,
                            double hpwl = 0.0);
-
-/// The finished placement as vector SVG: the picture to open when a region has
-/// to be looked at closely, and the exact record of the drawing -- one rectangle
-/// element per cell, so "every cell is in the picture" is a count.
-void writeFinalFrameSvg(const std::string &path, const Graph &g,
-                        const constraintMgr *constraints = nullptr, double hpwl = 0.0);
 
 /// Assemble the per-iteration raster stills in @p dir into one animated GIF.
 ///
@@ -103,7 +97,7 @@ void writeFinalFrameSvg(const std::string &path, const Graph &g,
 /// Once the GIF is written the stills are deleted: they are the encoder's scratch
 /// space. If the encode fails they are left alone, since they are then the only
 /// record of the run's frames.
-[[nodiscard]] bool writeAnimatedGif(const std::string &dir, const std::string &gifName,
+[[nodiscard]] bool writeAnimatedGif(const std::string &dir, const std::string &gifPath,
                                     int delayCs = 60);
 
 /// One snapshot a stage wants drawn.
@@ -143,6 +137,10 @@ struct BoundsSample {
     double lower = 0.0;
 };
 
+/// Draw a convergence curve, both bounds against the iteration, as a PNG.
+[[nodiscard]] bool writeBoundsPng(const std::string &path, std::string_view title,
+                                  std::span<const BoundsSample> curve);
+
 class Visualizer {
 public:
     static Visualizer &instance() noexcept;
@@ -166,6 +164,8 @@ public:
         return dir;
     }
 
+    [[nodiscard]] std::string heading(const std::string &note) const;
+
     /// Draw one snapshot: a vector still, and a frame for the run's animation.
     /// `x` and `y` hold one entry per cell.
     void frame(const Graph &graph, const std::vector<float> &x, const std::vector<float> &y,
@@ -175,8 +175,7 @@ public:
     void boundsCurve(std::string_view name, std::string_view title,
                      std::span<const BoundsSample> curve);
 
-    /// The finished placement, at the run's final resolution: a PNG, the vector
-    /// form, and on request the raw raster.
+    /// The finished placement, at the run's final resolution, as a PNG.
     void finalImage(const Graph &graph, const constraintMgr *fences, double hpwl);
 
     /// Rasterise the placement as the next frame of the run. A no-op when the

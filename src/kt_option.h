@@ -19,14 +19,13 @@ public:
     }
 
     std::string getPlotDir() const {
-        return plot ? (std::filesystem::path(workDir) / "plots").string() : std::string();
+        return (std::filesystem::path(workDir) / "plots").string();
     }
 
     std::string getLogFile() const {
         return (std::filesystem::path(workDir) / "ktplace.log").string();
     }
 
-    bool plot = true;
     std::string tclFile;
     bool gui = false;
 

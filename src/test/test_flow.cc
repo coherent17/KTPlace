@@ -269,17 +269,19 @@ BOOST_AUTO_TEST_CASE(flow_places_a_bookshelf_design_and_writes_pl) {
 BOOST_AUTO_TEST_CASE(flow_writes_visualization_output_when_asked) {
     const ScratchDir dir("plots");
     writeBookshelfDesign(dir);
+    OptionDb::instance().set(Component::Visualizer, "svg_frames", OptionValue{1});
     const kt_option opt = optionsFor(dir, designDir(dir).string());
     const fs::path plots = opt.getPlotDir();
 
-    FlowMgr flow;
-    flow.run(opt);
+    {
+        FlowMgr flow;
+        flow.run(opt);
+    }
+    OptionDb::instance().clear();
 
     // SimPL plots the LSS/HPWL bound it converges against, not the raw
     // per-iteration HPWL series the quadratic placer emitted.
-    BOOST_REQUIRE(fs::exists(plots / "simpl_bounds.csv"));
-    BOOST_REQUIRE(fs::exists(plots / "simpl_bounds.svg"));
-    BOOST_TEST(countNonEmptyLines(plots / "simpl_bounds.csv") > 0);
+    BOOST_REQUIRE(fs::exists(plots / "simpl_convergence.png"));
 
     std::size_t stills = 0;
     // SimPL's default stills are SVG (simpl_*.svg) under <plotDir>/simpl, nested
@@ -431,8 +433,10 @@ BOOST_AUTO_TEST_CASE(a_run_draws_its_recorded_pictures_and_removes_the_snapshot_
         flow.run(options);
     }
     const fs::path plots = options.getPlotDir();
-    BOOST_TEST(fs::exists(plots / "final" / "final.png"));
-    BOOST_TEST(!fs::is_empty(plots / "simpl"));
+    BOOST_TEST(fs::exists(plots / "placement.png"));
+    BOOST_TEST(fs::exists(plots / "placement.gif"));
+    BOOST_TEST(!fs::exists(plots / "frames"));
+    BOOST_TEST(!fs::exists(plots / "simpl"));
     BOOST_TEST(!fs::exists(plots / "snapshots.ktsnap"));
 }
 

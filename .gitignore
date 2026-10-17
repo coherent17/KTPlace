@@ -41,7 +41,6 @@ logs/
 # Development notes are ignored; the curated write-ups are tracked.
 docs/*
 !docs/simpl.md
-!docs/docker.md
 !docs/visualization.md
 !docs/images/
 ref/

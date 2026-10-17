@@ -53,18 +53,19 @@ then builds no snapshot at all.
 Rules a stage follows:
 
 - It hands over **numbers, never pictures or paths**. SimPL's bounds curve is a vector, and
-  `Visualizer::boundsCurve` writes the CSV and SVG.
+  `Visualizer::boundsCurve` echoes it as a table and draws `simpl_convergence.png`.
 - Its `build*DM` installs **no** hooks. What a run draws is the flow's decision.
 - It decides **how often** to offer a snapshot, because it knows how long its loops are. That
   cadence is the stage's own option: `simpl trace_every`, `simpl cg_every`,
-  `abacus frame_every`.
+  `simpl init_cg_every`, `abacus frames`, `multirow frames`. Per-frame SVGs are written only
+  with `visualizer svg_frames 1`; by default a frame goes only into the GIF.
 
 ## The flow
 
 `FlowMgr` (`src/kt_flowMgr.cc`):
 
 1. When plots are on, configures the `Visualizer` and opens a `SnapshotWriter` on
-   `<work-dir>/plots/snapshots.ktsnap`. With `--no-plots` neither happens and no hook is installed,
+   `<work-dir>/plots/snapshots.ktsnap`. With `add_option visualizer plot 0` neither happens and no hook is installed,
    so no snapshot is built.
 2. Before each stage, records `beginStage` (`simpl`, `legalize`, `legalize_multi`,
    `detailplace`) and installs the stage's frame hook through `recordStage()`, which converts
@@ -110,7 +111,7 @@ drawing during the run made. This is checked by:
 
 ## Cost
 
-adaptec1 (SimPL, Abacus, FastDP, animation on), dev container:
+adaptec1 (SimPL, Abacus, FastDP, animation on):
 
 | | global placement | legalize | detailed place | draw | whole run |
 | --- | ---: | ---: | ---: | ---: | ---: |
@@ -140,5 +141,3 @@ new tag) and its case in `replaySnapshots()`.
   left as its own decision.
 - **The snapshot file stores every cell, in full precision.** Fixed cells repeat in every frame.
   Dropping them would shrink the snapshot file several times.
-- **The web console's liveness check counts SVG frames** (`webui/server.py`). Frames now appear
-  only at the end of the run, so during placement the console has only CPU use to go on.

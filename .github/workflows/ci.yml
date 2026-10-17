@@ -189,9 +189,9 @@ jobs:
             output/adaptec1/placed.pl
             smoke.log
             evaluate.log
-            output/adaptec1/plots/final/final.png
-            output/adaptec1/plots/final/final.svg
-            output/adaptec1/plots/anim/placement.gif
+            output/adaptec1/plots/placement.png
+            output/adaptec1/plots/placement.gif
+            output/adaptec1/plots/simpl_convergence.png
           if-no-files-found: ignore
 
   smoke-multirow:
@@ -280,11 +280,12 @@ jobs:
           add_option visualizer anim_zoom 1
           add_option visualizer final_zoom 1
           TCL
+          echo 'add_option visualizer plot 0' > noplot.tcl
 
           for run in a b; do
             ktplace ./benchmark/bookshelf/ICCAD04/ibm01 -w "det/ibm01-$run" -tcl anim.tcl \
               > /dev/null 2>&1
-            ktplace ./benchmark/bookshelf/ISPD_2005/adaptec1 -w "det/adaptec1-$run" --no-plots \
+            ktplace ./benchmark/bookshelf/ISPD_2005/adaptec1 -w "det/adaptec1-$run" -tcl noplot.tcl \
               > /dev/null 2>&1
           done
 
@@ -324,8 +325,9 @@ jobs:
         run: |
           set -euo pipefail
           source ktplace.sh
-          ktplace ./benchmark/bookshelf/ICCAD04/ibm01 -w out/ibm01 --no-plots 2>&1 | tee ibm01.log
-          ktplace ./benchmark/bookshelf/ISPD_2005/adaptec1 -w out/adaptec1 --no-plots 2>&1 | tee adaptec1.log
+          echo 'add_option visualizer plot 0' > noplot.tcl
+          ktplace ./benchmark/bookshelf/ICCAD04/ibm01 -w out/ibm01 -tcl noplot.tcl 2>&1 | tee ibm01.log
+          ktplace ./benchmark/bookshelf/ISPD_2005/adaptec1 -w out/adaptec1 -tcl noplot.tcl 2>&1 | tee adaptec1.log
           for d in ibm01 adaptec1; do
             test "$(grep -c 'verdict *| *PASS' $d.log)" -eq 2
           done
