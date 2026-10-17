@@ -44,19 +44,28 @@ std::string snapshotFile(const std::string &plotDir) {
     return (std::filesystem::path(plotDir) / "snapshots.ktsnap").string();
 }
 
-bool recordStage(auto &dm, SnapshotWriter *snapshots, const StageVisual &stage) {
-    if (snapshots == nullptr) {
+bool recordStage(auto &dm, SnapshotWriter *snapshots, const FlowObserver &observer,
+                 const StageVisual &stage) {
+    if (snapshots == nullptr && !observer.frame) {
         return false;
     }
-    snapshots->beginStage(stage);
-    dm.setFrameHook([snapshots, die = dm.design().die](const std::vector<float> &xs,
-                                                       const std::vector<float> &ys,
-                                                       const auto &info) {
-        snapshots->frame(xs, ys, die, true,
-                         VisualFrame{info.series, info.step, info.numSteps, info.note, info.hpwl,
-                                     info.hpwlInitial, info.overflow, info.mandatory});
-    });
-    return true;
+    if (snapshots != nullptr) {
+        snapshots->beginStage(stage);
+    }
+    dm.setFrameHook(
+        [snapshots, frame = observer.frame, name = stage.stage, die = dm.design().die](
+            const std::vector<float> &xs, const std::vector<float> &ys, const auto &info) {
+            if (snapshots != nullptr) {
+                snapshots->frame(
+                    xs, ys, die, true,
+                    VisualFrame{info.series, info.step, info.numSteps, info.note, info.hpwl,
+                                info.hpwlInitial, info.overflow, info.mandatory});
+            }
+            if (frame) {
+                frame(name, xs, ys, info.hpwl);
+            }
+        });
+    return snapshots != nullptr;
 }
 
 void recordSimplBounds(simpl::simplDM &dm, SnapshotWriter &snapshots) {
@@ -75,6 +84,8 @@ void recordSimplBounds(simpl::simplDM &dm, SnapshotWriter &snapshots) {
 class FlowMgr::Impl {
 public:
     void run(const kt_option &options);
+
+    FlowObserver observer;
 
 private:
     std::unique_ptr<ktDM> db;
@@ -110,6 +121,10 @@ FlowMgr &FlowMgr::operator=(FlowMgr &&) noexcept = default;
 
 void FlowMgr::run(const kt_option &options) {
     pImpl->run(options);
+}
+
+void FlowMgr::observe(FlowObserver observer) {
+    pImpl->observer = std::move(observer);
 }
 
 
@@ -173,6 +188,9 @@ void FlowMgr::Impl::commit(std::string_view stage) {
     committed.push_back({std::string(stage), ktlog.currentStep(), db->hpwl(), db->checksum()});
     ktlog.echo("committed to ktDM: HPWL {:.6e}, checksum {:08x}", committed.back().hpwl,
                committed.back().checksum);
+    if (observer.committed) {
+        observer.committed(stage, *db);
+    }
 }
 
 void FlowMgr::Impl::reportSummary() const {
@@ -224,7 +242,7 @@ void FlowMgr::Impl::placeDesign() {
 
     if (algorithm == "simpl") {
         simpl::flowMgr flow(*db);
-        if (recordStage(flow.dm(), snapshots.get(), {"simpl", "simpl", 0})) {
+        if (recordStage(flow.dm(), snapshots.get(), observer, {"simpl", "simpl", 0})) {
             recordSimplBounds(flow.dm(), *snapshots);
         }
         if (!flow.dm().options().fences) {
@@ -260,7 +278,7 @@ void FlowMgr::Impl::legalizeDesign() {
     if (const std::size_t tall = db->multiRowCells(); tall > 0) {
         multirow::flowMgr flow(*db);
         ktlog.echo("multi-row legalization ({} cell(s) taller than a row)", tall);
-        recordStage(flow.dm(), snapshots.get(), {"legalize_multi", "", 0});
+        recordStage(flow.dm(), snapshots.get(), observer, {"legalize_multi", "", 0});
         (void)flow.run();
         db->setMultiRowSolution(flow.solution());
         commit("legalization");
@@ -268,7 +286,7 @@ void FlowMgr::Impl::legalizeDesign() {
     }
 
     abacus::flowMgr flow(*db);
-    recordStage(flow.dm(), snapshots.get(), {"legalize", "", 0});
+    recordStage(flow.dm(), snapshots.get(), observer, {"legalize", "", 0});
     (void)flow.run();
     db->setAbacusSolution(flow.solution());
     commit("legalization");
@@ -278,7 +296,7 @@ void FlowMgr::Impl::legalizeDesign() {
 void FlowMgr::Impl::detailPlaceDesign() {
     ScopedTimer timer("detailed placement", true);
     fastdp::flowMgr flow(*db);
-    recordStage(flow.dm(), snapshots.get(), {"detailplace", "", 0});
+    recordStage(flow.dm(), snapshots.get(), observer, {"detailplace", "", 0});
     (void)flow.run();
     db->setFastdpSolution(flow.solution());
     commit("detailed placement");
