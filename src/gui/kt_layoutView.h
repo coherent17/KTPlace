@@ -4,6 +4,7 @@
 
 #include <QPointF>
 #include <QWidget>
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <optional>
@@ -24,6 +25,8 @@ public:
     void zoomFit();
     void selectAt(QPointF screen);
     [[nodiscard]] std::optional<std::uint32_t> selectedCell() const;
+    void showCongestion(bool on, std::size_t binsAcross = 256);
+    [[nodiscard]] bool showingCongestion() const;
     void zoomBy(double factor, QPointF anchor);
 
     [[nodiscard]] QPointF worldToScreen(QPointF world) const;
@@ -37,6 +40,7 @@ protected:
     void mouseMoveEvent(QMouseEvent *event) override;
     void mouseReleaseEvent(QMouseEvent *event) override;
     void keyPressEvent(QKeyEvent *event) override;
+    void contextMenuEvent(QContextMenuEvent *event) override;
 
 private:
     class Impl;
