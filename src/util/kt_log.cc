@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <cstdlib>
 #include <ctime>
 #include <iostream>
 
@@ -105,6 +106,20 @@ std::size_t Logger::recordCount() const {
     return records;
 }
 
+void Logger::setSink(Sink newSink) {
+    std::lock_guard<std::mutex> lock(mutex);
+    sink = std::move(newSink);
+}
+
+void Logger::fail(const std::string &message) {
+    emit(Level::Fatal, message);
+    if (throwFatal) {
+        throw FatalError(message);
+    }
+    shutdown();
+    std::exit(EXIT_FAILURE);
+}
+
 void Logger::emit(Level level, const std::string &message) {
     const bool isTrace = (level == Level::Trace);
     const bool flagged = level == Level::Warning || level == Level::Fatal;
@@ -134,6 +149,9 @@ void Logger::emit(Level level, const std::string &message) {
         } else {
             std::cerr << prefix << body << '\n';
         }
+    }
+    if (sink) {
+        sink(level, prefix + tag + body);
     }
 }
 

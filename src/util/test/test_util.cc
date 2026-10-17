@@ -11,8 +11,11 @@
 #include <iostream>
 #include <sstream>
 #include <string>
+#include <string_view>
 #include <sys/wait.h>
 #include <unistd.h>
+#include <utility>
+#include <vector>
 
 using namespace ktplace;
 
@@ -172,6 +175,39 @@ BOOST_AUTO_TEST_CASE(fatal_is_red_and_exits) {
     ktlog.configure("", false);
 }
 
+BOOST_AUTO_TEST_CASE(a_sink_receives_every_record_with_its_level_and_step) {
+    CaptureCerr console;
+    std::vector<std::pair<Logger::Level, std::string>> records;
+    ktlog.setSink([&records](Logger::Level level, std::string_view line) {
+        records.emplace_back(level, std::string(line));
+    });
+    ktlog.beginStep("sinkstep");
+    ktlog.echo("hello {}", 1);
+    ktlog.trace("detail");
+    ktlog.warning("careful");
+    ktlog.setSink(nullptr);
+    ktlog.echo("after");
+
+    BOOST_REQUIRE_EQUAL(records.size(), 3U);
+    BOOST_TEST((records[0].first == Logger::Level::Echo));
+    BOOST_TEST(records[0].second == "[sinkstep] hello 1");
+    BOOST_TEST((records[1].first == Logger::Level::Trace));
+    BOOST_TEST((records[2].first == Logger::Level::Warning));
+    BOOST_TEST(records[2].second == "[sinkstep] warning: careful");
+    ktlog.beginStep("ktplace");
+}
+
+BOOST_AUTO_TEST_CASE(fatal_throws_instead_of_exiting_when_asked) {
+    CaptureCerr console;
+    ktlog.throwOnFatal(true);
+    BOOST_CHECK_EXCEPTION(ktlog.fatal("cannot open {}", "y.nodes"), FatalError,
+                          [](const FatalError &e) {
+                              return std::string(e.what()) == "cannot open y.nodes";
+                          });
+    ktlog.throwOnFatal(false);
+    BOOST_TEST(console.str().find("cannot open y.nodes") != std::string::npos);
+}
+
 BOOST_AUTO_TEST_CASE(the_trace_log_holds_every_level_and_the_log_all_but_trace) {
     TempLog log;
     ktlog.configure(log.str(), false);
@@ -248,8 +284,12 @@ BOOST_AUTO_TEST_CASE(repeated_intervals_accumulate_under_one_name) {
 
 BOOST_AUTO_TEST_CASE(timer_totals_cover_every_recorded_name) {
     TimerRegistry::instance().reset();
-    { const ScopedTimer a("unit-timer-c"); }
-    { const ScopedTimer b("unit-timer-d"); }
+    {
+        const ScopedTimer a("unit-timer-c");
+    }
+    {
+        const ScopedTimer b("unit-timer-d");
+    }
     TimerRegistry &registry = TimerRegistry::instance();
     const auto snapshot = registry.snapshot();
     BOOST_TEST(snapshot.size() == 2U);
@@ -262,7 +302,9 @@ BOOST_AUTO_TEST_CASE(timer_totals_cover_every_recorded_name) {
 
 BOOST_AUTO_TEST_CASE(reset_clears_statistics_but_keeps_names_known) {
     TimerRegistry::instance().reset();
-    { const ScopedTimer timer("unit-timer-e"); }
+    {
+        const ScopedTimer timer("unit-timer-e");
+    }
     BOOST_TEST(TimerRegistry::instance().find("unit-timer-e") != nullptr);
     TimerRegistry::instance().reset();
     BOOST_TEST(TimerRegistry::instance().find("unit-timer-e") == nullptr);
