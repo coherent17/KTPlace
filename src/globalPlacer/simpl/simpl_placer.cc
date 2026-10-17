@@ -439,7 +439,8 @@ void simplPlacer::Impl::initialRounds(Positions &lower, NetModel model, InitialR
         if (!star) {
             linearSystems().buildB2B(next.x, next.y, 0.0, noAnchors, noAnchors);
         }
-        solve(next.x, next.y, "init" + frameStep(result.initIters), opts.initCgEvery);
+        solve(next.x, next.y, "init" + frameStep(result.initIters),
+              result.initIters == 0 ? opts.initCgEvery : 0);
         if (star) {
             extended = next;
             next.x.resize(netlist.numMovable);

@@ -177,6 +177,7 @@ private:
 
     void selfCheck(FastdpResult &res) const;
     void writeFrame(const char *note, std::size_t step = 0) const;
+    double hpwlInput = 0.0;
 
     FastdpOptions opts;
     std::vector<double> cellW;
@@ -965,7 +966,7 @@ void FastDetailedPlacer::Impl::writeFrame(const char *note, std::size_t step) co
     info.note = note;
     info.step = step;
     info.hpwl = hpwl();
-    info.hpwlInitial = info.hpwl;
+    info.hpwlInitial = hpwlInput;
     info.mandatory = true;
     design.onFrame(fx, fy, info);
 }
@@ -1047,6 +1048,7 @@ FastdpResult FastDetailedPlacer::Impl::place(const FastdpOptions &params) {
     indexFixed();
     buildNetlist();
     res.hpwlBefore = hpwl();
+    hpwlInput = res.hpwlBefore;
     writeFrame("legalized input");
 
     double globalSeconds = 0.0;
@@ -1078,18 +1080,20 @@ FastdpResult FastDetailedPlacer::Impl::place(const FastdpOptions &params) {
             res.globalSwaps += timed(globalSeconds, [&] {
                 return globalSwap();
             });
+            writeFrame("global swap", ++step);
         }
         if (opts.verticalSwap) {
             res.verticalSwaps += timed(verticalSeconds, [&] {
                 return verticalSwap();
             });
+            writeFrame("vertical swap", ++step);
         }
         if (opts.localReorder) {
             res.reorderMoves += timed(reorderSeconds, [&] {
                 return localReorder();
             });
+            writeFrame("local re-ordering", ++step);
         }
-        writeFrame("global swap, vertical swap, local re-ordering", ++step);
         if (!improvedEnough(before)) {
             break;
         }
@@ -1098,11 +1102,11 @@ FastdpResult FastDetailedPlacer::Impl::place(const FastdpOptions &params) {
         for (std::size_t iteration = 0; iteration < opts.maxIterations; ++iteration) {
             const double before = hpwl();
             cluster();
+            writeFrame("single-segment clustering", ++step);
             if (!improvedEnough(before)) {
                 break;
             }
         }
-        writeFrame("single-segment clustering", ++step);
     }
     res.globalSeconds = globalSeconds;
     res.verticalSeconds = verticalSeconds;

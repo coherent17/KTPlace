@@ -14,7 +14,7 @@ struct AbacusOptions {
 
     std::size_t maxRowDistance = 0;
     std::size_t minSubrowSites = 1;
-    std::size_t frames = 40;
+    std::size_t frames = 24;
 
     static void fields(auto &self, auto &&visit) {
         visit("max_row_dist", self.maxRowDistance);

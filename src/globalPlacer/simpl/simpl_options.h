@@ -30,9 +30,9 @@ struct SimplOptions {
     std::size_t refineIters = 10;
     std::size_t refineGridFactor = 3;
     std::size_t cgMaxIter = 60;
-    std::size_t traceEvery = 1;
+    std::size_t traceEvery = 3;
     std::size_t cgEvery = 0;
-    std::size_t initCgEvery = 3;
+    std::size_t initCgEvery = 4;
 
     static void fields(auto &self, auto &&visit) {
         visit("grid", self.binsPerAxis);
