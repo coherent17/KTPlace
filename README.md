@@ -39,6 +39,7 @@ All you need installed is:
 | --- | --- |
 | C++ compiler | g++ 13+ (Linux) or Apple clang 15+ (macOS), C++23 |
 | make | GNU make |
+| Qt 6 Widgets, pkg-config | only for the optional GUI (`make GUI=1`), see below |
 
 ## Build
 
@@ -55,11 +56,12 @@ source ktplace.sh   # written by the build: puts ktplace on PATH
 `ktplace --gui` runs the same flow in a Qt window: open a design directory,
 optionally pick a Tcl script, press Run, and watch each stage move the cells
 while the log streams below. The window is linked in only by `make GUI=1`,
-which needs Qt 6 Widgets through `pkg-config` (`brew install qt` on macOS,
-`qt6-base-dev` on Ubuntu). A plain `make` stays free of Qt, and its `--gui`
-says how to get the window.
+which needs Qt 6 Widgets, found through `pkg-config`. A plain `make` stays free
+of Qt, and its `--gui` says how to get the window.
 
 ```sh
+sudo apt-get install qt6-base-dev pkg-config   # Ubuntu 24.04+
+brew install qt pkg-config                     # macOS
 make GUI=1      # build/bin/ktplace, with --gui
 make gui-test   # the GUI suite, on Qt's offscreen platform
 ktplace --gui [<input_dir>] [-w <dir>] [-tcl <file>]   # given a design, it starts placing it
