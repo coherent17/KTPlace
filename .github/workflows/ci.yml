@@ -57,6 +57,11 @@ jobs:
       - name: Build the unit tests
         run: make -C src -f Master.make -j"$(nproc)" test-build
 
+      - name: Without GUI=1, ktplace --gui says how to get the window
+        run: |
+          if build/bin/ktplace --gui 2> gui.err; then exit 1; fi
+          grep -q "make GUI=1" gui.err
+
       - name: Pack the binaries
         # Debug info is most of the 450 MB; the jobs below only run the binaries.
         run: |
@@ -359,3 +364,57 @@ jobs:
           for d in ibm01 adaptec1; do
             cmp "linux/$d.pl" "macos/$d.pl"
           done
+
+  gui:
+    # Its own job, so nothing else needs Qt. Headless on Qt's offscreen platform.
+    name: ${{ matrix.name }} / GUI build and tests
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux
+            os: ubuntu-latest
+          - name: macOS
+            os: macos-15
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            g++ \
+            libboost-test-dev \
+            qt6-base-dev \
+            pkg-config \
+            fonts-dejavu-core
+
+      - name: Install dependencies (macOS)
+        if: runner.os == 'macOS'
+        run: brew install boost qt
+
+      - name: Build ktplace with the GUI
+        run: make -j"$(getconf _NPROCESSORS_ONLN)" GUI=1
+
+      - name: GUI tests
+        run: make gui-test
+
+      - name: ktplace --gui places a design
+        # The window places the design given on the command line as soon as it
+        # opens, so its placed.pl appearing is the window having run the flow.
+        run: |
+          QT_QPA_PLATFORM=offscreen build/bin/ktplace --gui \
+            benchmark/bookshelf/ICCAD04/ibm01 -w out/gui > gui.log 2>&1 &
+          window=$!
+          for _ in $(seq 1 120); do
+            grep -qs 'Placement completed successfully' out/gui/ktplace.log && break
+            grep -qs 'fatal' out/gui/ktplace.log gui.log && break
+            sleep 1
+          done
+          kill "$window"
+          test "$(wc -l < out/gui/placed.pl)" -eq 12752

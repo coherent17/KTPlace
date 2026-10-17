@@ -1,18 +1,28 @@
 #pragma once
 
+#include <atomic>
 #include <cstddef>
-#include <cstdlib>
 #include <format>
 #include <fstream>
+#include <functional>
 #include <mutex>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <utility>
 
 namespace ktplace {
 
+class FatalError : public std::runtime_error {
+public:
+    using std::runtime_error::runtime_error;
+};
+
 class Logger {
 public:
+    enum class Level { Echo, Trace, Warning, Fatal };
+    using Sink = std::function<void(Level, std::string_view)>;
+
     static constexpr std::size_t maxRecordBytes = 8000;
 
     static Logger &instance();
@@ -34,6 +44,13 @@ public:
 
     [[nodiscard]] std::size_t recordCount() const;
 
+    // Called with the logger locked, so a sink must not log.
+    void setSink(Sink sink);
+
+    void throwOnFatal(bool enabled) {
+        throwFatal = enabled;
+    }
+
     template <typename... Args>
     void echo(std::format_string<Args...> fmtStr, Args &&...args) {
         emit(Level::Echo, std::format(fmtStr, std::forward<Args>(args)...));
@@ -51,9 +68,7 @@ public:
 
     template <typename... Args>
     [[noreturn]] void fatal(std::format_string<Args...> fmtStr, Args &&...args) {
-        emit(Level::Fatal, std::format(fmtStr, std::forward<Args>(args)...));
-        shutdown();
-        std::exit(EXIT_FAILURE);
+        fail(std::format(fmtStr, std::forward<Args>(args)...));
     }
 
     void echo(std::string_view message) {
@@ -66,9 +81,7 @@ public:
         emit(Level::Warning, std::string(message));
     }
     [[noreturn]] void fatal(std::string_view message) {
-        emit(Level::Fatal, std::string(message));
-        shutdown();
-        std::exit(EXIT_FAILURE);
+        fail(std::string(message));
     }
 
     /// Start a step of the run: print its banner and prefix every later line
@@ -79,11 +92,10 @@ public:
     void shutdown();
 
 private:
-    enum class Level { Echo, Trace, Warning, Fatal };
-
     Logger() = default;
 
     void emit(Level level, const std::string &message);
+    [[noreturn]] void fail(const std::string &message);
     static const char *levelTag(Level level);
     static const char *levelColor(Level level);
     void closeFiles();
@@ -97,6 +109,8 @@ private:
     bool reportedOpenFailure = false;
     std::string step = "ktplace";
     std::size_t records = 0;
+    Sink sink;
+    std::atomic<bool> throwFatal = false;
 };
 
 inline Logger &ktlog = Logger::instance();

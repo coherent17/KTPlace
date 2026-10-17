@@ -135,6 +135,28 @@ BOOST_AUTO_TEST_CASE(the_input_directory_is_the_only_positional) {
     BOOST_TEST(opt.verbose);
 }
 
+BOOST_AUTO_TEST_CASE(the_cli_is_not_the_gui_unless_asked) {
+    BOOST_TEST(!parse({"ktplace", design}).gui);
+}
+
+BOOST_AUTO_TEST_CASE(gui_takes_no_input_directory_or_one_anywhere_in_the_line) {
+    const kt_option bare = parse({"ktplace", "--gui"});
+    BOOST_TEST(bare.gui);
+    BOOST_TEST(bare.inputPath.empty());
+
+    const ScratchDir dir("gui");
+    const std::string work = dir.file("run").string();
+    const kt_option flagsOnly = parse({"ktplace", "--gui", "-w", work, "-tcl", "run.tcl"});
+    BOOST_TEST(flagsOnly.inputPath.empty());
+    BOOST_TEST(flagsOnly.workDir == work);
+    BOOST_TEST(flagsOnly.tclFile == "run.tcl");
+
+    const kt_option trailing = parse({"ktplace", design, "-w", work, "--gui"});
+    BOOST_TEST(trailing.gui);
+    BOOST_TEST(trailing.inputPath == design);
+    BOOST_TEST(trailing.workDir == work);
+}
+
 BOOST_AUTO_TEST_CASE(every_artifact_is_derived_from_the_work_dir) {
     const ScratchDir dir("derive");
     const std::string work = dir.file("run").string();

@@ -8,8 +8,10 @@
 #include "kt_flowMgr.h"
 #include "kt_option.h"
 
+#include "datamodel/kt_dm.h"
 #include "datamodel/kt_optionDb.h"
 
+#include <algorithm>
 #include <boost/test/unit_test_suite.hpp>
 #include <cstdio>
 #include <cstdlib>
@@ -18,8 +20,10 @@
 #include <functional>
 #include <sstream>
 #include <string>
+#include <string_view>
 #include <sys/wait.h>
 #include <unistd.h>
+#include <vector>
 
 using namespace ktplace;
 namespace fs = std::filesystem;
@@ -447,4 +451,57 @@ BOOST_AUTO_TEST_CASE(keep_snapshots_leaves_the_snapshot_file) {
     }
     OptionDb::instance().clear();
     BOOST_TEST(fs::exists(fs::path(options.getPlotDir()) / "snapshots.ktsnap"));
+}
+
+BOOST_AUTO_TEST_CASE(an_observer_sees_every_commit_and_the_stage_frames_without_plots) {
+    const ScratchDir dir("observed");
+    writeBookshelfDesign(dir);
+    const kt_option options = optionsFor(dir, designDir(dir).string());
+    OptionDb::instance().set(Component::Visualizer, "plot", OptionValue{0});
+
+    std::vector<std::string> stages;
+    std::size_t cells = 0;
+    std::size_t frames = 0;
+    std::size_t frameSize = 0;
+    FlowMgr flow;
+    flow.observe({.committed =
+                      [&](std::string_view stage, const ktDM &db) {
+                          stages.emplace_back(stage);
+                          cells = db.getNumCells();
+                      },
+                  .frame =
+                      [&](std::string_view, const std::vector<float> &x,
+                          const std::vector<float> &y, double) {
+                          ++frames;
+                          frameSize = std::min(x.size(), y.size());
+                      }});
+    flow.run(options);
+    OptionDb::instance().clear();
+
+    const std::vector<std::string> expected{"load", "global placement", "legalization",
+                                            "detailed placement"};
+    BOOST_TEST(stages == expected, boost::test_tools::per_element());
+    BOOST_TEST(cells == 6U);
+    BOOST_TEST(frames > 0U);
+    BOOST_TEST(frameSize == 6U);
+    BOOST_TEST(fs::exists(options.getOutputPath()));
+    BOOST_TEST(!fs::exists(dir.file("plots")));
+}
+
+BOOST_AUTO_TEST_CASE(an_observer_that_throws_stops_the_run_before_it_writes) {
+    const ScratchDir dir("stopped");
+    writeBookshelfDesign(dir);
+    const kt_option options = optionsFor(dir, designDir(dir).string());
+    OptionDb::instance().set(Component::Visualizer, "plot", OptionValue{0});
+
+    struct Stop {};
+    FlowMgr flow;
+    flow.observe({.committed = {},
+                  .frame = [](std::string_view, const std::vector<float> &,
+                              const std::vector<float> &, double) {
+                      throw Stop{};
+                  }});
+    BOOST_CHECK_THROW(flow.run(options), Stop);
+    OptionDb::instance().clear();
+    BOOST_TEST(!fs::exists(options.getOutputPath()));
 }

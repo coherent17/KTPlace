@@ -11,8 +11,11 @@
 #include <iostream>
 #include <sstream>
 #include <string>
+#include <string_view>
 #include <sys/wait.h>
 #include <unistd.h>
+#include <utility>
+#include <vector>
 
 using namespace ktplace;
 
@@ -170,6 +173,42 @@ BOOST_AUTO_TEST_CASE(fatal_is_red_and_exits) {
     BOOST_TEST(file.find("cannot open x.nodes") != std::string::npos);
     BOOST_TEST(file.find('\033') == std::string::npos);
     ktlog.configure("", false);
+}
+
+BOOST_AUTO_TEST_CASE(a_sink_receives_every_record_with_its_level_and_step) {
+    CaptureCerr console;
+    std::vector<std::pair<Logger::Level, std::string>> records;
+    ktlog.setSink([&records](Logger::Level level, std::string_view line) {
+        records.emplace_back(level, std::string(line));
+    });
+    ktlog.beginStep("sinkstep");
+    ktlog.echo("hello {}", 1);
+    ktlog.trace("detail");
+    ktlog.warning("careful");
+    ktlog.setSink(nullptr);
+    ktlog.echo("after");
+
+    BOOST_REQUIRE_EQUAL(records.size(), 3U);
+    BOOST_TEST((records[0].first == Logger::Level::Echo));
+    BOOST_TEST(records[0].second == "[sinkstep] hello 1");
+    BOOST_TEST((records[1].first == Logger::Level::Trace));
+    BOOST_TEST((records[2].first == Logger::Level::Warning));
+    BOOST_TEST(records[2].second == "[sinkstep] warning: careful");
+    ktlog.beginStep("ktplace");
+}
+
+BOOST_AUTO_TEST_CASE(fatal_throws_instead_of_exiting_when_asked) {
+    CaptureCerr console;
+    ktlog.throwOnFatal(true);
+    std::string thrown;
+    try {
+        ktlog.fatal("cannot open {}", "y.nodes");
+    } catch (const FatalError &e) {
+        thrown = e.what();
+    }
+    ktlog.throwOnFatal(false);
+    BOOST_TEST(thrown == "cannot open y.nodes");
+    BOOST_TEST(console.str().find("cannot open y.nodes") != std::string::npos);
 }
 
 BOOST_AUTO_TEST_CASE(the_trace_log_holds_every_level_and_the_log_all_but_trace) {

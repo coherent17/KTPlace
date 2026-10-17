@@ -1,6 +1,7 @@
 #include "kt_flowMgr.h"
 #include "kt_option.h"
 
+#include "gui/kt_gui.h"
 #include "util/kt_log.h"
 #include "util/kt_scopedTimer.h"
 
@@ -19,6 +20,9 @@ int main(int argc, char *argv[]) {
         if (!options.parse(argc, argv)) {
             ktlog.shutdown();
             return 0;
+        }
+        if (options.gui) {
+            return runGui(options, argc, argv);
         }
 
         ktlog.configure(options.getLogFile(), options.verbose);
