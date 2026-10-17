@@ -1,5 +1,6 @@
 #include "globalPlacer/ntuplace1/ntuplace1_placer.h"
 
+#include "globalPlacer/ntuplace1/ntuplace1_mtkahypar.h"
 #include "util/kt_log.h"
 
 #include <algorithm>
@@ -7,6 +8,7 @@
 #include <cmath>
 #include <cstdint>
 #include <limits>
+#include <memory>
 #include <numeric>
 #include <queue>
 #include <utility>
@@ -41,6 +43,8 @@ constexpr std::uint32_t noIndex = 0xFFFFFFFFu;
 constexpr int maxPasses = 8;
 constexpr double balanceSlack = 0.02;
 constexpr double lookAheadStep = 0.05;
+constexpr double partitionEdgeScale = 1000.0;
+constexpr double partitionAreaScale = 1.0e6;
 
 double imbalanceWindow(double total, double cap0, double cap1) {
     const auto maxImbalance = [total](double cap) {
@@ -83,6 +87,12 @@ private:
     void divide(RatioRegion r);
     [[nodiscard]] double ratioCut(const RatioRegion &r, bool vertical, double total) const;
     void trimToFree(RatioRegion &r) const;
+    std::size_t countCut(const std::vector<std::uint32_t> &cells,
+                         const std::vector<std::uint8_t> &side);
+    void mtkahyparBipartition(const std::vector<std::uint32_t> &cells, double target, double tol,
+                              const std::vector<std::int8_t> &forced,
+                              std::vector<std::uint8_t> &side);
+    void startPartitioner();
     [[nodiscard]] bool firstFit(const std::vector<std::uint32_t> &cells,
                                 const RatioRegion &r) const;
     [[nodiscard]] int forcedSide(int region, const RatioRegion &r0, const RatioRegion &r1) const;
@@ -116,7 +126,8 @@ private:
     std::vector<std::uint32_t> netGen;             // per net
     std::vector<std::uint8_t> anchor;              // per net: bit s = a fixed pin on side s
     std::vector<std::array<std::uint32_t, 2>> sideCount;
-    std::vector<double> netWeight;  // per net: pins on each side
+    std::vector<double> netWeight;
+    std::unique_ptr<MtKahypar> partitioner;
     std::vector<std::uint32_t> regionNets;
 };
 
@@ -293,6 +304,11 @@ std::size_t RatioPlacer::Impl::bipartition(const std::vector<std::uint32_t> &cel
         }
     }
 
+    if (partitioner) {
+        mtkahyparBipartition(cells, target, tol, forced, side);
+        return countCut(cells, side);
+    }
+
     const bool anyForced = !forced.empty();
     double a0 = 0.0;
     if (anyForced) {
@@ -443,11 +459,16 @@ std::size_t RatioPlacer::Impl::bipartition(const std::vector<std::uint32_t> &cel
         }
     }
 
+    return countCut(cells, side);
+}
+
+std::size_t RatioPlacer::Impl::countCut(const std::vector<std::uint32_t> &cells,
+                                        const std::vector<std::uint8_t> &side) {
     for (const std::uint32_t e : regionNets) {
         sideCount[e] = {static_cast<std::uint32_t>((anchor[e] & 1) ? 1 : 0),
                         static_cast<std::uint32_t>((anchor[e] & 2) ? 1 : 0)};
     }
-    for (std::uint32_t i = 0; i < n; ++i) {
+    for (std::size_t i = 0; i < cells.size(); ++i) {
         for (const std::uint32_t e : cellNets[cells[i]]) {
             ++sideCount[e][side[i]];
         }
@@ -459,6 +480,70 @@ std::size_t RatioPlacer::Impl::bipartition(const std::vector<std::uint32_t> &cel
         }
     }
     return cutNets;
+}
+
+void RatioPlacer::Impl::mtkahyparBipartition(const std::vector<std::uint32_t> &cells, double target,
+                                             double tol, const std::vector<std::int8_t> &forced,
+                                             std::vector<std::uint8_t> &side) {
+    const std::size_t n = cells.size();
+    const std::uint64_t dummy0 = n;
+    const std::uint64_t dummy1 = n + 1;
+
+    double heaviest = 0.0;
+    for (const std::uint32_t e : regionNets) {
+        if (anchor[e] != 3) {
+            heaviest = std::max(heaviest, netWeight[e]);
+        }
+    }
+    Bisection problem;
+    for (const std::uint32_t e : regionNets) {
+        if (anchor[e] == 3) {
+            continue;
+        }
+        const std::size_t first = problem.pins.size();
+        for (const std::uint32_t c : hyperNets[e].cells) {
+            if (localGen[c] == gen) {
+                problem.pins.push_back(localOf[c]);
+            }
+        }
+        if ((anchor[e] & 1) != 0) {
+            problem.pins.push_back(dummy0);
+        }
+        if ((anchor[e] & 2) != 0) {
+            problem.pins.push_back(dummy1);
+        }
+        if (problem.pins.size() - first < 2) {
+            problem.pins.resize(first);
+            continue;
+        }
+        problem.edgeOffsets.push_back(problem.pins.size());
+        problem.edgeWeights.push_back(static_cast<std::int32_t>(
+            std::max(1L, std::lround(partitionEdgeScale * netWeight[e] / heaviest))));
+    }
+
+    double total = 0.0;
+    for (const std::uint32_t c : cells) {
+        total += cellArea[c];
+    }
+    const double unit = total / partitionAreaScale;
+    for (const std::uint32_t c : cells) {
+        problem.vertexWeights.push_back(
+            static_cast<std::int32_t>(std::max(1L, std::lround(cellArea[c] / unit))));
+    }
+    problem.vertexWeights.push_back(1);
+    problem.vertexWeights.push_back(1);
+    problem.capacity = {static_cast<std::int32_t>(std::floor((target + tol) / unit)) + 1,
+                        static_cast<std::int32_t>(std::floor((total - target + tol) / unit)) + 1};
+
+    problem.fixedBlock.assign(n + 2, -1);
+    for (std::size_t i = 0; i < n && !forced.empty(); ++i) {
+        problem.fixedBlock[i] = forced[i];
+    }
+    problem.fixedBlock[dummy0] = 0;
+    problem.fixedBlock[dummy1] = 1;
+
+    side = partitioner->bisect(problem);
+    side.resize(n);
 }
 
 void RatioPlacer::Impl::setRegionCentre(const RatioRegion &r) {
@@ -772,6 +857,15 @@ void RatioPlacer::Impl::divide(RatioRegion r) {
     divide(std::move(r1));
 }
 
+void RatioPlacer::Impl::startPartitioner() {
+    if (opts.partitioner == "mtkahypar") {
+        partitioner = std::make_unique<MtKahypar>();
+    } else if (opts.partitioner != "fm") {
+        ktlog.fatal("unknown ntuplace1 partitioner '{}'; expected fm or mtkahypar",
+                    opts.partitioner);
+    }
+}
+
 Ntuplace1Result RatioPlacer::Impl::place(const Ntuplace1Options &params) {
     opts = params;
     fences = &design.fences;
@@ -781,6 +875,7 @@ Ntuplace1Result RatioPlacer::Impl::place(const Ntuplace1Options &params) {
     }
     ktlog.trace("  ratio build: {} movable cells, {} fixed blocks, {} hypernets", result.numMovable,
                 result.numFixed, result.nets);
+    startPartitioner();
 
     RatioRegion root;
     root.x0 = rowBox[0];

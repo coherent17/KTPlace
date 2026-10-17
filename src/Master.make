@@ -27,13 +27,14 @@ THIRD_PARTY := $(abspath $(CURDIR)/../third_party)
 TBB_DIR := $(THIRD_PARTY)/oneTBB
 ZLIB_DIR := $(THIRD_PARTY)/zlib
 CIMG_DIR := $(THIRD_PARTY)/CImg
-ifeq ($(and $(wildcard $(TBB_DIR)/include/oneapi/tbb.h),$(wildcard $(ZLIB_DIR)/zlib.h),$(wildcard $(CIMG_DIR)/CImg.h)),)
+ifeq ($(and $(wildcard $(TBB_DIR)/include/oneapi/tbb.h),$(wildcard $(ZLIB_DIR)/zlib.h),$(wildcard $(CIMG_DIR)/CImg.h),$(wildcard $(THIRD_PARTY)/mt-kahypar/include/mtkahypar.h),$(wildcard $(THIRD_PARTY)/WHFC/README.md)),)
   $(error third_party/ is incomplete: run 'git submodule update --init --recursive')
 endif
 
 # All quoted includes are project-root-relative (e.g. "datamodel/kt_dm.h"). The
 # subdirectory makefiles set their own -I.. and append THIRD_PARTY_INCLUDES.
-THIRD_PARTY_INCLUDES := -isystem $(TBB_DIR)/include -isystem $(ZLIB_DIR) -isystem $(CIMG_DIR)
+THIRD_PARTY_INCLUDES := -isystem $(TBB_DIR)/include -isystem $(ZLIB_DIR) -isystem $(CIMG_DIR) \
+                        -isystem $(THIRD_PARTY)/mt-kahypar/include
 INCLUDES := -I. $(THIRD_PARTY_INCLUDES)
 
 # `make STATIC=1` also links the C++ runtime and glibc statically.
@@ -82,9 +83,30 @@ ZLIB_SRCS := adler32 compress crc32 deflate gzclose gzlib gzread gzwrite infback
 ZLIB_OBJS := $(ZLIB_SRCS:%=$(OBJ_DIR)/third_party/zlib/%.o)
 ZLIB_FLAGS := -O2 -w -D_LARGEFILE64_SOURCE=1 -DHAVE_UNISTD_H -DHAVE_STDARG_H
 
+TBBMALLOC_SRCS := backend backref frontend large_objects tbbmalloc
+TBBMALLOC_OBJS := $(TBBMALLOC_SRCS:%=$(OBJ_DIR)/third_party/tbbmalloc/%.o)
+TBBMALLOC_FLAGS := $(filter-out -D__TBB_BUILD,$(TBB_FLAGS)) -D__TBBMALLOC_BUILD
+
+MTK_DIR := $(THIRD_PARTY)/mt-kahypar
+MTK_GEN := $(OBJ_DIR)/third_party/mt-kahypar-gen
+MTK_SRCS := $(shell cd $(MTK_DIR) && find mt-kahypar -name '*.cpp' -not -path '*/application/*' | sort) \
+            lib/mtkahypar.cpp
+MTK_OBJS := $(MTK_SRCS:%.cpp=$(OBJ_DIR)/third_party/mt-kahypar/%.o)
+MTK_INCLUDES := -isystem $(MTK_DIR)/include
+MTK_FLAGS := -std=c++20 -O3 -w -pthread -ffp-contract=off -DNDEBUG \
+             -DMT_KAHYPAR_LIBRARY_MODE -DMT_KAHYPAR_BUILD_STATIC -DKAHYPAR_DISABLE_HWLOC -DPARLAY_TBB \
+             -DKAHYPAR_ENABLE_LARGE_K_PARTITIONING_FEATURES -DKAHYPAR_ENABLE_HIGHEST_QUALITY_FEATURES \
+             -DKAHYPAR_ENABLE_GRAPH_PARTITIONING_FEATURES -DKAHYPAR_ENABLE_SOED_METRIC \
+             -DKAHYPAR_ENABLE_STEINER_TREE_METRIC \
+             -I$(MTK_DIR) -I$(MTK_GEN) -I$(MTK_DIR)/include \
+             -isystem $(THIRD_PARTY)/kahypar-shared-resources -isystem $(THIRD_PARTY) \
+             -isystem $(THIRD_PARTY)/parlaylib/include -isystem $(THIRD_PARTY)/CLI11/include \
+             -isystem $(TBB_DIR)/include
+
 TBB_LIB := $(LIB_DIR)/libtbb.a
 ZLIB_LIB := $(LIB_DIR)/libz.a
-BUNDLED_LIBS := $(TBB_LIB) $(ZLIB_LIB)
+MTK_LIB := $(LIB_DIR)/libmtkahypar.a
+BUNDLED_LIBS := $(MTK_LIB) $(TBB_LIB) $(ZLIB_LIB)
 LIBS := $(STATIC_LDFLAGS) $(BUNDLED_LIBS) -pthread
 
 # Subdirectories
@@ -211,7 +233,26 @@ $(OBJ_DIR)/third_party/zlib/%.o: $(ZLIB_DIR)/%.c
 	@echo "Compiling zlib $(notdir $<)..."
 	@$(CC) $(ZLIB_FLAGS) -MMD -MP -c $< -o $@
 
-$(TBB_LIB): $(TBB_OBJS)
+$(OBJ_DIR)/third_party/tbbmalloc/%.o: $(TBB_DIR)/src/tbbmalloc/%.cpp
+	@mkdir -p $(dir $@)
+	@echo "Compiling tbbmalloc $(notdir $<)..."
+	@$(CXX) $(TBBMALLOC_FLAGS) -MMD -MP -c $< -o $@
+
+$(MTK_GEN)/mt-kahypar/io/version.h: $(MTK_DIR)/mt-kahypar/io/version.h.in
+	@mkdir -p $(dir $@)
+	@sed -e 's/@MT_KAHYPAR_AUTOGEN_WARNING@//' \
+	     -e "s/@PROJECT_VERSION@/$$(sed -n 's/^set(MT_KAHYPAR_VERSION \"\(.*\)\")/\1/p' $(MTK_DIR)/CMakeLists.txt)/" $< > $@
+
+$(OBJ_DIR)/third_party/mt-kahypar/%.o: $(MTK_DIR)/%.cpp | $(MTK_GEN)/mt-kahypar/io/version.h
+	@mkdir -p $(dir $@)
+	@echo "Compiling Mt-KaHyPar $(notdir $<)..."
+	@$(CXX) $(MTK_FLAGS) -MMD -MP -c $< -o $@
+
+$(TBB_LIB): $(TBB_OBJS) $(TBBMALLOC_OBJS)
+	@mkdir -p $(dir $@)
+	@ar rcs $@ $^
+
+$(MTK_LIB): $(MTK_OBJS)
 	@mkdir -p $(dir $@)
 	@ar rcs $@ $^
 
@@ -220,7 +261,7 @@ $(ZLIB_LIB): $(ZLIB_OBJS)
 	@ar rcs $@ $^
 
 # Include dependency files
--include $(DEPS) $(TBB_OBJS:.o=.d) $(ZLIB_OBJS:.o=.d)
+-include $(DEPS) $(TBB_OBJS:.o=.d) $(TBBMALLOC_OBJS:.o=.d) $(ZLIB_OBJS:.o=.d) $(MTK_OBJS:.o=.d)
 
 # ============================================================================
 # Unit tests (Boost.Test)

@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Build and test
 
-Plain GNU make, C++23 with g++ 13+. oneTBB, zlib and CImg are git submodules under `third_party/` (clone with `--recurse-submodules`); never edit them. `src/Master.make` compiles oneTBB and zlib into `build/lib/libtbb.a` and `libz.a` and links them statically; CImg is header-only and included as `"CImg.h"`. Formatting uses `std::format`, not fmt. The only system packages are Boost.Test (unit tests) and clang-format.
+Plain GNU make, C++23 with g++ 13+. oneTBB, zlib, CImg and Mt-KaHyPar (with its header-only dependencies kahypar-shared-resources, WHFC, parlaylib and CLI11) are git submodules under `third_party/` (clone with `--recurse-submodules`); never edit them. `src/Master.make` compiles oneTBB (with tbbmalloc), zlib and Mt-KaHyPar into `build/lib/libtbb.a`, `libz.a` and `libmtkahypar.a` and links them statically, so no CMake is needed; Mt-KaHyPar's generated `version.h` goes under the build tree, not the submodule; CImg is header-only and included as `"CImg.h"`. Formatting uses `std::format`, not fmt. The only system packages are Boost.Test (unit tests) and clang-format.
 
 ```sh
 make -j"$(nproc)"          # build/bin/ktplace, and copies ktplace.sh/.csh to the repo root
@@ -76,7 +76,7 @@ load → report → global place → legalize → detailed place → final image
   SimPL's files: `simpl_dm` (data model: design, fences, result, `buildSimplDM`), `simpl_flowMgr` (the four steps), `simpl_placer` (netlist and the iteration loop), `simpl_lss` (linear system solve: B2B and star systems, conjugate gradient), `simpl_lal` (look-ahead legalization), `simpl_grid` (bin grid and free space), `simpl_parallel.h` (TBB helpers with deterministic reductions), `simpl_graph`, `simpl_options`.
 - **Stages:**
   - `globalPlacer/simpl`: default quadratic placer with B2B net model and look-ahead legalization, fence-aware. `docs/simpl.md` explains how it differs from the published SimPL.
-  - `globalPlacer/ntuplace1`: alternative global placer, ratio partitioning (Chen, Hsu, Jiang, Chang, ISPD 2005).
+  - `globalPlacer/ntuplace1`: alternative global placer, ratio partitioning (Chen, Hsu, Jiang, Chang, ISPD 2005). Each cut is a min-cut bisection by the built-in flat FM or, with `partitioner mtkahypar`, by Mt-KaHyPar in-process (`ntuplace1_mtkahypar`).
   - `legalizer/abacus`: single-row legalizer, fence-aware.
   - `legalizer/multirow`: used instead of Abacus when the design has cells taller than one row.
   - `detailPlacer/fastdp`: detailed placement, following Pan, Viswanathan and Chu (ICCAD 2005): single-segment clustering, then global swap, vertical swap and 3-cell local re-ordering until the gain is small, then clustering again.

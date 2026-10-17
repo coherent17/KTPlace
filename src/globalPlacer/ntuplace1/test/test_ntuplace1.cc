@@ -17,6 +17,7 @@
 #include "globalPlacer/ntuplace1/ntuplace1_dm.h"
 #include "globalPlacer/ntuplace1/ntuplace1_flowMgr.h"
 
+#include <array>
 #include <boost/test/unit_test.hpp>
 #include <string>
 #include <utility>
@@ -93,11 +94,14 @@ void expectInRows(const Placed &placed, const std::vector<std::size_t> &ids) {
 
 /// Small leaves, so the recursion goes deep enough on a toy design to show
 /// where it sends things.
-Ntuplace1Options smallLeaves() {
+Ntuplace1Options smallLeaves(const std::string &partitioner = "fm") {
     Ntuplace1Options p;
     p.targetLeafCells = 4;
+    p.partitioner = partitioner;
     return p;
 }
+
+const std::array<std::string, 2> partitioners{"fm", "mtkahypar"};
 
 }  // namespace
 
@@ -150,19 +154,23 @@ BOOST_AUTO_TEST_CASE(cells_follow_their_pads) {
         addNet(db, "pb" + std::to_string(i), {"padR", "b" + std::to_string(i)});
     }
 
-    const Placed placed = place(db, smallLeaves());
+    for (const std::string &partitioner : partitioners) {
+        BOOST_TEST_CONTEXT("partitioner " << partitioner) {
+            const Placed placed = place(db, smallLeaves(partitioner));
 
-    double meanA = 0.0, meanB = 0.0;
-    for (const std::size_t id : a) {
-        meanA += placed.at(id).first / 16.0;
+            double meanA = 0.0, meanB = 0.0;
+            for (const std::size_t id : a) {
+                meanA += placed.at(id).first / 16.0;
+            }
+            for (const std::size_t id : b) {
+                meanB += placed.at(id).first / 16.0;
+            }
+            BOOST_TEST(meanA < 35.0);
+            BOOST_TEST(meanB > 65.0);
+            expectInRows(placed, a);
+            expectInRows(placed, b);
+        }
     }
-    for (const std::size_t id : b) {
-        meanB += placed.at(id).first / 16.0;
-    }
-    BOOST_TEST(meanA < 35.0);
-    BOOST_TEST(meanB > 65.0);
-    expectInRows(placed, a);
-    expectInRows(placed, b);
 }
 
 BOOST_AUTO_TEST_CASE(cells_stay_off_a_quarter_macro_and_in_rows) {
@@ -225,22 +233,26 @@ BOOST_AUTO_TEST_CASE(fenced_cells_are_placed_in_their_region_and_others_kept_out
         db.setConstraints(std::move(mgr));
     }
 
-    const Placed placed = place(db, smallLeaves());
-    const ntuplace1::Ntuplace1Result &res = placed.result;
+    for (const std::string &partitioner : partitioners) {
+        BOOST_TEST_CONTEXT("partitioner " << partitioner) {
+            const Placed placed = place(db, smallLeaves(partitioner));
+            const ntuplace1::Ntuplace1Result &res = placed.result;
 
-    BOOST_TEST(res.fenceRegions == 1u);
-    BOOST_TEST(res.fenceViolations == 0u);
-    // The engine's own containment test is on the lower-left corner, and that is
-    // what global placement promises; whole cells are the legalizer's job.
-    const auto inside = [&](std::size_t id) {
-        const auto [x, y] = placed.at(id);
-        return x >= fx0 && x <= fx1 && y >= fy0 && y <= fy1;
-    };
-    for (const std::size_t id : members) {
-        BOOST_TEST(inside(id), "member " << id << " outside its fence");
-    }
-    for (const std::size_t id : others) {
-        BOOST_TEST(!inside(id), "non-member " << id << " inside the fence");
+            BOOST_TEST(res.fenceRegions == 1u);
+            BOOST_TEST(res.fenceViolations == 0u);
+            // The engine's own containment test is on the lower-left corner, and that is
+            // what global placement promises; whole cells are the legalizer's job.
+            const auto inside = [&](std::size_t id) {
+                const auto [x, y] = placed.at(id);
+                return x >= fx0 && x <= fx1 && y >= fy0 && y <= fy1;
+            };
+            for (const std::size_t id : members) {
+                BOOST_TEST(inside(id), "member " << id << " outside its fence");
+            }
+            for (const std::size_t id : others) {
+                BOOST_TEST(!inside(id), "non-member " << id << " inside the fence");
+            }
+        }
     }
 }
 
