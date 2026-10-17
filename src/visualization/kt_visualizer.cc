@@ -152,7 +152,8 @@ void Visualizer::beginStage(StageVisual s) {
     if (!enabled() || stage.stage.empty()) {
         return;
     }
-    drawingNow = ensureDir(dir + (stage.subdir.empty() ? "" : "/" + stage.subdir));
+    drawingNow =
+        !opts.svgFrames || ensureDir(dir + (stage.subdir.empty() ? "" : "/" + stage.subdir));
 }
 
 bool Visualizer::enabled() const noexcept {
@@ -186,10 +187,12 @@ void Visualizer::frame(const Graph &graph, const std::vector<float> &x, const st
 
     // Every framesKept of a sequence is drawn at the same die-relative scale, so step
     // 7 and step 8 are comparable instead of being auto-zoomed apart.
-    render([path = framePath(what), &graph, x, y, dieBox, what, fences] {
-        writeFrameSvg(path, graph, x, y, dieBox, what.step, what.numSteps, what.hpwl,
-                      what.hpwlInitial, what.overflow, what.note, fences, /*fixedView=*/true);
-    });
+    if (opts.svgFrames) {
+        render([path = framePath(what), &graph, x, y, dieBox, what, fences] {
+            writeFrameSvg(path, graph, x, y, dieBox, what.step, what.numSteps, what.hpwl,
+                          what.hpwlInitial, what.overflow, what.note, fences, /*fixedView=*/true);
+        });
+    }
 
     // And into the run's animation, so the GIF shows what this stage did rather
     // than cutting straight from the stage before to the stage after.
@@ -1186,7 +1189,8 @@ CImg<unsigned char> renderFrameCImg(const Graph &g, const std::vector<float> &x,
     const int tx = static_cast<int>(zoom * margin / 3);
     const int lineH = static_cast<int>(std::lround(20.0 * zoom));
     const std::string title =
-        "CG step " + std::to_string(step) + " / " + std::to_string(numSteps - 1) + " - " + note;
+        "step " + std::to_string(step) +
+        (numSteps > 0 ? " / " + std::to_string(numSteps - 1) : std::string()) + " - " + note;
     img.draw_text(tx, static_cast<int>(std::lround(16.0 * zoom)), title.c_str(),
                   pal.ptr(hexColor("#ffffff")), 0, 1.0f, &font);
 
@@ -1631,8 +1635,9 @@ void writeFrameSvg(const std::string &path, const Graph &g, const std::vector<fl
     out << "</g>\n";
 
     out << "<text x=\"" << margin / 3
-        << R"(" y="24" fill="#ffffff" font-family="monospace" font-size="14">)" << "CG step "
-        << step << " / " << (numSteps - 1) << " — " << note << "</text>\n";
+        << R"(" y="24" fill="#ffffff" font-family="monospace" font-size="14">)" << "step " << step
+        << (numSteps > 0 ? " / " + std::to_string(numSteps - 1) : std::string()) << " — " << note
+        << "</text>\n";
     // Omitted when unmeasured, for the same reason as the raster caption.
     if (hpwl > 0.0) {
         out << "<text x=\"" << margin / 3

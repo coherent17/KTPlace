@@ -66,8 +66,8 @@ Bookshelf; gzipped inputs are read directly.
 | `--no-plots` | draw nothing |
 | `-v, --verbose` | also echo the trace log to the console |
 
-Everything a run writes goes under `-w`: `placed.pl`, `plots/` (SVG frames, the
-GIF and a final PNG), `ktplace.log` and `ktplace_trace.log`. stdout is never
+Everything a run writes goes under `-w`: `placed.pl`, `plots/` (the GIF and the
+final PNG and SVG), `ktplace.log` and `ktplace_trace.log`. stdout is never
 written.
 
 ## Configuration
@@ -91,13 +91,15 @@ add_option visualizer anim 0
 | `visualizer` | `final_zoom` | final still scale, vs 768x768 (`8`) |
 | `visualizer` | `final_ppm` | also write the lossless PPM beside the PNG (`0`) |
 | `visualizer` | `keep_snapshots` | keep `plots/snapshots.ktsnap` after the pictures are drawn (`0`) |
+| `visualizer` | `svg_frames` | also write every frame as an SVG under `plots/` (`0`) |
 | `simpl` | `trace_every` | SVG frame every N global iterations; `0` turns them off (`1`) |
-| `simpl` | `cg_every` | SVG frame every N conjugate-gradient iterates; `0` turns them off (`0`) |
+| `simpl` | `cg_every` | frame every N conjugate-gradient iterates of global placement; `0` turns them off (`0`) |
+| `simpl` | `init_cg_every` | frame every N conjugate-gradient iterates of initial placement; `0` turns them off (`3`) |
 | `simpl` | `init_net` | initial placement net model: `star` (placement-independent star model), `b2b` (the paper's Bound2Bound), or `star_b2b` (`star`) |
 | `simpl` | `grid`, `cg_tol`, `init_iters`, `iters`, `seed`, `fences`, `density`, `alpha_base` | solver settings |
 | `ntuplace1` | `leaf_cells`, `max_levels`, `retries`, `verbose` | partitioner settings |
 | `abacus` | `max_row_dist`, `min_subrow_sites` | legalizer settings |
-| `abacus` | `frame_every` | SVG frame every N cells placed; `0` keeps only the first and last (`0`) |
+| `abacus`, `multirow` | `frames` | frames while legalizing, showing the cells placed so far at their legal positions; `0` keeps only the first and last (`40`) |
 | `multirow` | `macro_rows` | cells spanning more rows than this are legalized first as blocks, before the standard cells are legalized around them (`3`) |
 | `fastdp` | `window`, `wt1`, `wt2`, `max_iterations`, `min_improvement` | detailed placer: local re-ordering window (`3`), overlap penalty weights (`0.1`, `1`), iteration limit and stop threshold |
 

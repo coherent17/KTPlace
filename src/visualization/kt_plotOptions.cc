@@ -21,6 +21,7 @@ PlotOptions PlotOptions::fromOptions() {
     out.writePpm = opts.finalPpm;
     out.blendFrames = opts.animBlend;
     out.keepSnapshots = opts.keepSnapshots;
+    out.svgFrames = opts.svgFrames;
     reportOptions(opts);
     return out;
 }

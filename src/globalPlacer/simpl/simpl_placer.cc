@@ -70,7 +70,8 @@ private:
     [[nodiscard]] LinearSystems linearSystems() {
         return {.netlist = netlist, .sysX = sysX, .sysY = sysY, .floorX = floorX, .floorY = floorY};
     }
-    void solve(std::vector<double> &x, std::vector<double> &y, const std::string &tag);
+    void solve(std::vector<double> &x, std::vector<double> &y, const std::string &tag,
+               std::size_t frameEvery);
     [[nodiscard]] double hpwl(const std::vector<double> &x, const std::vector<double> &y) const;
 
     [[nodiscard]] double centre(const std::vector<double> &pos, std::uint32_t i,
@@ -251,9 +252,9 @@ void simplPlacer::Impl::seedUniform(std::vector<double> &x, std::vector<double> 
 
 
 void simplPlacer::Impl::solve(std::vector<double> &x, std::vector<double> &y,
-                              const std::string &tag) {
+                              const std::string &tag, std::size_t frameEvery) {
     const auto observe = [&](std::size_t iterate, const Residuals &residuals, bool last) {
-        if (opts.cgEvery > 0 && (iterate % opts.cgEvery == 0 || last)) {
+        if (frameEvery > 0 && (iterate % frameEvery == 0 || last)) {
             writeFrame("cg_" + tag, x, y,
                        std::format("CG {} iterate {}, residual x {:.3e} / y {:.3e}", tag, iterate,
                                    residuals.x, residuals.y),
@@ -438,7 +439,7 @@ void simplPlacer::Impl::initialRounds(Positions &lower, NetModel model, InitialR
         if (!star) {
             linearSystems().buildB2B(next.x, next.y, 0.0, noAnchors, noAnchors);
         }
-        solve(next.x, next.y, "init" + frameStep(result.initIters));
+        solve(next.x, next.y, "init" + frameStep(result.initIters), opts.initCgEvery);
         if (star) {
             extended = next;
             next.x.resize(netlist.numMovable);
@@ -521,7 +522,7 @@ Positions simplPlacer::Impl::globalPlacement(Positions &lower) {
         }
         {
             ScopedTimer timer("simpl-solve");
-            solve(lower.x, lower.y, "g" + frameStep(it));
+            solve(lower.x, lower.y, "g" + frameStep(it), opts.cgEvery);
             result.solveSeconds += timer.elapsedSeconds();
         }
     }
@@ -543,7 +544,7 @@ void simplPlacer::Impl::refine(Positions &lower, Positions &upper) {
     for (std::size_t r = 0; r < opts.refineIters; ++r) {
         const double alpha = opts.alphaBase * (1.0 + static_cast<double>(done + r));
         linearSystems().buildB2B(lower.x, lower.y, alpha, upper.x, upper.y);
-        solve(lower.x, lower.y, "refine" + frameStep(r));
+        solve(lower.x, lower.y, "refine" + frameStep(r), opts.cgEvery);
         upper = lower;
         lookAheadLegalize(upper.x, upper.y);
         enforceFences(upper.x, upper.y);

@@ -19,6 +19,7 @@ struct VisualizerOptions {
     bool finalPpm = false;
     int animBlend = 3;
     bool keepSnapshots = false;
+    bool svgFrames = false;
 
     static void fields(auto &self, auto &&visit) {
         visit("anim", self.anim);
@@ -28,6 +29,7 @@ struct VisualizerOptions {
         visit("final_ppm", self.finalPpm);
         visit("anim_blend", self.animBlend);
         visit("keep_snapshots", self.keepSnapshots);
+        visit("svg_frames", self.svgFrames);
     }
 };
 

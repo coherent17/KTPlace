@@ -57,7 +57,8 @@ Rules a stage follows:
 - Its `build*DM` installs **no** hooks. What a run draws is the flow's decision.
 - It decides **how often** to offer a snapshot, because it knows how long its loops are. That
   cadence is the stage's own option: `simpl trace_every`, `simpl cg_every`,
-  `abacus frame_every`.
+  `simpl init_cg_every`, `abacus frames`, `multirow frames`. Per-frame SVGs are written only
+  with `visualizer svg_frames 1`; by default a frame goes only into the GIF.
 
 ## The flow
 

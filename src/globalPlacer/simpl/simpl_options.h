@@ -32,6 +32,7 @@ struct SimplOptions {
     std::size_t cgMaxIter = 60;
     std::size_t traceEvery = 1;
     std::size_t cgEvery = 0;
+    std::size_t initCgEvery = 3;
 
     static void fields(auto &self, auto &&visit) {
         visit("grid", self.binsPerAxis);
@@ -45,6 +46,7 @@ struct SimplOptions {
         visit("alpha_base", self.alphaBase);
         visit("trace_every", self.traceEvery);
         visit("cg_every", self.cgEvery);
+        visit("init_cg_every", self.initCgEvery);
     }
 };
 

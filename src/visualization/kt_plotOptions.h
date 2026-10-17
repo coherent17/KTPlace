@@ -28,6 +28,7 @@ struct PlotOptions {
     std::size_t finalHold = 8;           // extra frames the finished placement is held
     bool writePpm = false;               // also write the lossless raster, 113 MB at 8x
     bool keepSnapshots = false;          // leave plots/snapshots.ktsnap after drawing
+    bool svgFrames = false;
 
     // The defaults, with the run's visualizer options applied over them.
     [[nodiscard]] static PlotOptions fromOptions();

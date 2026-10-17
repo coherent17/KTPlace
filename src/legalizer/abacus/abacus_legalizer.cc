@@ -101,11 +101,14 @@ private:
         std::size_t placed = 0;
         double movement = 0.0;
     };
-    [[nodiscard]] Pass legalizePass(const AbacusOptions &params, bool mirrored);
+    [[nodiscard]] Pass legalizePass(const AbacusOptions &params, bool mirrored,
+                                    std::size_t frameInterval);
+    void placedPositions(bool mirrored, std::vector<double> &xs, std::vector<double> &ys) const;
     [[nodiscard]] Trial trial(const Segment &sr, double grid, std::size_t i) const;
     void commit(Segment &sr, std::size_t i, const Trial &t);
     [[nodiscard]] double hpwlOf(const std::vector<double> &x, const std::vector<double> &y) const;
-    void writeFrame(const std::string &note, std::size_t step, std::size_t total) const;
+    void writeFrame(const std::vector<double> &xs, const std::vector<double> &ys,
+                    const std::string &note, std::size_t step, std::size_t total) const;
     void selfCheck(AbacusResult &res) const;
 
     static constexpr std::size_t noRow = std::numeric_limits<std::size_t>::max();
@@ -294,7 +297,8 @@ double AbacusLegalizer::Impl::hpwlOf(const std::vector<double> &x,
     return total;
 }
 
-void AbacusLegalizer::Impl::writeFrame(const std::string &note, std::size_t step,
+void AbacusLegalizer::Impl::writeFrame(const std::vector<double> &xs, const std::vector<double> &ys,
+                                       const std::string &note, std::size_t step,
                                        std::size_t total) const {
     const std::size_t nv = design.cells.size();
     std::vector<float> fx(nv), fy(nv);
@@ -303,16 +307,16 @@ void AbacusLegalizer::Impl::writeFrame(const std::string &note, std::size_t step
         fy[v] = static_cast<float>(design.cells[v].y);
     }
     for (std::size_t i = 0; i < mov.size(); ++i) {
-        fx[mov[i]] = static_cast<float>(liveX[i]);
-        fy[mov[i]] = static_cast<float>(liveY[i]);
+        fx[mov[i]] = static_cast<float>(xs[i]);
+        fy[mov[i]] = static_cast<float>(ys[i]);
     }
     if (design.onFrame) {
         FrameInfo info;
         info.note = note;
         info.step = step;
         info.numSteps = total;
-        info.hpwl = hpwlOf(liveX, liveY);
-        info.hpwlInitial = hpwlOf(liveX, liveY);
+        info.hpwl = hpwlOf(xs, ys);
+        info.hpwlInitial = hpwlOf(targetX, targetY);
         info.mandatory = true;
         design.onFrame(fx, fy, info);
     }
@@ -444,17 +448,20 @@ AbacusResult AbacusLegalizer::Impl::run(const AbacusOptions &params) {
     dieBox = design.die;
 
     if (design.onFrame) {
-        writeFrame("input placement", 0, mov.size());
+        writeFrame(liveX, liveY, "input placement", 0, mov.size());
     }
 
-    Pass forward = legalizePass(params, false);
-    Pass backward = legalizePass(params, true);
+    Pass forward = legalizePass(params, false, 0);
+    Pass backward = legalizePass(params, true, 0);
     const bool useBackward =
         backward.placed > forward.placed ||
         (backward.placed == forward.placed && backward.movement < forward.movement);
     ktlog.trace("  abacus: movement {:.6e} increasing x, {:.6e} decreasing x; using {}",
                 forward.movement, backward.movement, useBackward ? "decreasing" : "increasing");
     Pass &chosen = useBackward ? backward : forward;
+    if (design.onFrame && params.frames > 0) {
+        (void)legalizePass(params, useBackward, (mov.size() + params.frames - 1) / params.frames);
+    }
     liveX = std::move(chosen.xs);
     liveY = std::move(chosen.ys);
     buildRows(false);
@@ -473,15 +480,33 @@ AbacusResult AbacusLegalizer::Impl::run(const AbacusOptions &params) {
     }
     res.unplaced = mov.size() - chosen.placed;
     if (design.onFrame) {
-        writeFrame("legal placement", chosen.placed, mov.size());
+        writeFrame(liveX, liveY, "legal placement", chosen.placed, mov.size());
     }
     selfCheck(res);
     res.seconds = timer.elapsedSeconds();
     return res;
 }
 
+void AbacusLegalizer::Impl::placedPositions(bool mirrored, std::vector<double> &xs,
+                                            std::vector<double> &ys) const {
+    for (const RowTrack &track : tracks) {
+        for (const Segment &sr : track.subrows) {
+            for (const Cluster &c : sr.clusters) {
+                double off = 0.0;
+                for (const std::size_t m : c.members) {
+                    const double x = c.x + off;
+                    xs[m] = mirrored ? -(x + cellW[m]) : x;
+                    ys[m] = track.y;
+                    off += cellW[m];
+                }
+            }
+        }
+    }
+}
+
 AbacusLegalizer::Impl::Pass AbacusLegalizer::Impl::legalizePass(const AbacusOptions &params,
-                                                                bool mirrored) {
+                                                                bool mirrored,
+                                                                std::size_t frameInterval) {
     buildRows(mirrored);
     sortKey.resize(mov.size());
     for (std::size_t i = 0; i < mov.size(); ++i) {
@@ -576,25 +601,15 @@ AbacusLegalizer::Impl::Pass AbacusLegalizer::Impl::legalizePass(const AbacusOpti
         }
         commit(tracks[bestRow].subrows[bestSub], i, best);
         ++pass.placed;
-        if (!mirrored && design.onFrame && params.frameEvery > 0 &&
-            pass.placed % params.frameEvery == 0) {
-            writeFrame("legalizing", pass.placed, mov.size());
+        if (frameInterval > 0 && pass.placed % frameInterval == 0) {
+            std::vector<double> xs = targetX;
+            std::vector<double> ys = targetY;
+            placedPositions(mirrored, xs, ys);
+            writeFrame(xs, ys, "legalizing", pass.placed, mov.size());
         }
     }
 
-    for (const RowTrack &track : tracks) {
-        for (const Segment &sr : track.subrows) {
-            for (const Cluster &c : sr.clusters) {
-                double off = 0.0;
-                for (const std::size_t m : c.members) {
-                    const double x = c.x + off;
-                    pass.xs[m] = mirrored ? -(x + cellW[m]) : x;
-                    pass.ys[m] = track.y;
-                    off += cellW[m];
-                }
-            }
-        }
-    }
+    placedPositions(mirrored, pass.xs, pass.ys);
     for (std::size_t i = 0; i < mov.size(); ++i) {
         pass.movement += std::sqrt((pass.xs[i] - targetX[i]) * (pass.xs[i] - targetX[i]) +
                                    (pass.ys[i] - targetY[i]) * (pass.ys[i] - targetY[i]));

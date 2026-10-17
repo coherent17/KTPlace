@@ -129,8 +129,14 @@ private:
     void setParent(std::uint32_t cell, std::uint32_t parent, double delta);
     void rollback();
     void forget();
+    void resolvePlaced(const std::vector<std::uint32_t> &placed,
+                       const std::vector<std::size_t> &bottomRow, std::vector<double> &px,
+                       std::vector<double> &py) const;
+    void writeFrame(const std::vector<double> &px, const std::vector<double> &py,
+                    const std::string &note, std::size_t step, std::size_t total) const;
 
     Design &design;
+    double hpwlInput = 0.0;
     double rowHeight = 0.0;
     std::vector<RowInfo> rows;
     std::vector<Box> blocked;
@@ -651,6 +657,9 @@ MultiRowResult MultiRowLegalizer::Impl::run(const MultiRowOptions &params) {
     }
     res.macros = macros.size();
     res.hpwlBefore = netlistHPWL(design.cells, design.nets, design.pins, xs, ys);
+    hpwlInput = res.hpwlBefore;
+    const std::size_t total = cells.size() + macros.size();
+    writeFrame(xs, ys, "input placement", 0, total);
     if (rows.empty()) {
         res.unplaced = res.movable;
         res.hpwlAfter = res.hpwlBefore;
@@ -658,6 +667,9 @@ MultiRowResult MultiRowLegalizer::Impl::run(const MultiRowOptions &params) {
     }
 
     legalizeMacros(macros, res);
+    if (!macros.empty()) {
+        writeFrame(xs, ys, "macros legalized", macros.size(), total);
+    }
     buildLanes();
 
     parent.assign(n, none);
@@ -677,6 +689,9 @@ MultiRowResult MultiRowLegalizer::Impl::run(const MultiRowOptions &params) {
     std::vector<std::uint32_t> placedCells;
     std::vector<std::uint32_t> pending;
     std::vector<std::size_t> bottomRow(n, 0);
+    const std::size_t frameInterval = design.onFrame && params.frames > 0
+                                          ? (cells.size() + params.frames - 1) / params.frames
+                                          : 0;
     for (const std::uint32_t v : cells) {
         const Cell &cell = design.cells[v];
         const std::size_t span = spanOf(cell.height);
@@ -755,24 +770,15 @@ MultiRowResult MultiRowLegalizer::Impl::run(const MultiRowOptions &params) {
         if (cell.height > 1.5 * rowHeight) {
             ++res.multiRowPlaced;
         }
+        if (frameInterval > 0 && placedCells.size() % frameInterval == 0) {
+            std::vector<double> px = xs;
+            std::vector<double> py = ys;
+            resolvePlaced(placedCells, bottomRow, px, py);
+            writeFrame(px, py, "legalizing", macros.size() + placedCells.size(), total);
+        }
     }
 
-    std::vector<double> clusterX(n, 0.0);
-    for (const Cluster &c : clusters) {
-        if (c.n > 0.0) {
-            clusterX[c.root] = c.x;
-        }
-    }
-    for (const std::uint32_t v : placedCells) {
-        std::uint32_t root = v;
-        double sum = 0.0;
-        for (std::uint32_t c = v; c != none; c = parent[c]) {
-            sum += delta[c];
-            root = c;
-        }
-        xs[v] = clusterX[root] + sum;
-        ys[v] = rows[bottomRow[v]].coordinate;
-    }
+    resolvePlaced(placedCells, bottomRow, xs, ys);
 
     for (const std::uint32_t v : fillGaps(pending, placedCells, bottomRow)) {
         ++res.placed;
@@ -794,12 +800,53 @@ MultiRowResult MultiRowLegalizer::Impl::run(const MultiRowOptions &params) {
         }
     }
     res.hpwlAfter = netlistHPWL(design.cells, design.nets, design.pins, xs, ys);
+    writeFrame(xs, ys, "legal placement", res.placed, total);
     for (std::uint32_t v = 0; v < n; ++v) {
         design.cells[v].x = xs[v];
         design.cells[v].y = ys[v];
     }
     res.seconds = timer.elapsedSeconds();
     return res;
+}
+
+void MultiRowLegalizer::Impl::resolvePlaced(const std::vector<std::uint32_t> &placed,
+                                            const std::vector<std::size_t> &bottomRow,
+                                            std::vector<double> &px,
+                                            std::vector<double> &py) const {
+    std::vector<double> clusterX(px.size(), 0.0);
+    for (const Cluster &c : clusters) {
+        if (c.n > 0.0) {
+            clusterX[c.root] = c.x;
+        }
+    }
+    for (const std::uint32_t v : placed) {
+        std::uint32_t root = v;
+        double sum = 0.0;
+        for (std::uint32_t c = v; c != none; c = parent[c]) {
+            sum += delta[c];
+            root = c;
+        }
+        px[v] = clusterX[root] + sum;
+        py[v] = rows[bottomRow[v]].coordinate;
+    }
+}
+
+void MultiRowLegalizer::Impl::writeFrame(const std::vector<double> &px,
+                                         const std::vector<double> &py, const std::string &note,
+                                         std::size_t step, std::size_t total) const {
+    if (!design.onFrame) {
+        return;
+    }
+    const std::vector<float> fx(px.begin(), px.end());
+    const std::vector<float> fy(py.begin(), py.end());
+    FrameInfo info;
+    info.note = note;
+    info.step = step;
+    info.numSteps = total;
+    info.hpwl = netlistHPWL(design.cells, design.nets, design.pins, px, py);
+    info.hpwlInitial = hpwlInput;
+    info.mandatory = true;
+    design.onFrame(fx, fy, info);
 }
 
 MultiRowLegalizer::MultiRowLegalizer(Design &design) : pImpl(std::make_unique<Impl>(design)) {}

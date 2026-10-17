@@ -1209,7 +1209,8 @@ void sampleRun(Sink &&frameTo, const std::function<void(StageVisual)> &beginStag
 BOOST_AUTO_TEST_CASE(replayed_snapshots_draw_the_files_drawing_directly_does) {
     const Graph g = sampleGraph();
     const std::array<double, 4> die = fixedCellBBox(g);
-    const PlotOptions opts = animOptions(10, 5, 1);
+    PlotOptions opts = animOptions(10, 5, 1);
+    opts.svgFrames = true;
     Visualizer &viz = Visualizer::instance();
 
     freshAnimator();
