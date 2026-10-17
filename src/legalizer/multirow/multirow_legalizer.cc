@@ -659,7 +659,7 @@ MultiRowResult MultiRowLegalizer::Impl::run(const MultiRowOptions &params) {
     res.hpwlBefore = netlistHPWL(design.cells, design.nets, design.pins, xs, ys);
     hpwlInput = res.hpwlBefore;
     const std::size_t total = cells.size() + macros.size();
-    writeFrame(xs, ys, "input placement", 0, total);
+    writeFrame(xs, ys, "Input - global placement", 0, total);
     if (rows.empty()) {
         res.unplaced = res.movable;
         res.hpwlAfter = res.hpwlBefore;
@@ -668,7 +668,7 @@ MultiRowResult MultiRowLegalizer::Impl::run(const MultiRowOptions &params) {
 
     legalizeMacros(macros, res);
     if (!macros.empty()) {
-        writeFrame(xs, ys, "macros legalized", macros.size(), total);
+        writeFrame(xs, ys, "Macros placed", macros.size(), total);
     }
     buildLanes();
 
@@ -774,7 +774,8 @@ MultiRowResult MultiRowLegalizer::Impl::run(const MultiRowOptions &params) {
             std::vector<double> px = xs;
             std::vector<double> py = ys;
             resolvePlaced(placedCells, bottomRow, px, py);
-            writeFrame(px, py, "legalizing", macros.size() + placedCells.size(), total);
+            writeFrame(px, py, "Placing cells into rows", macros.size() + placedCells.size(),
+                       total);
         }
     }
 
@@ -800,7 +801,7 @@ MultiRowResult MultiRowLegalizer::Impl::run(const MultiRowOptions &params) {
         }
     }
     res.hpwlAfter = netlistHPWL(design.cells, design.nets, design.pins, xs, ys);
-    writeFrame(xs, ys, "legal placement", res.placed, total);
+    writeFrame(xs, ys, "Legal placement", res.placed, total);
     for (std::uint32_t v = 0; v < n; ++v) {
         design.cells[v].x = xs[v];
         design.cells[v].y = ys[v];

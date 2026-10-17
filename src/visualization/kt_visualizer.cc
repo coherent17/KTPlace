@@ -44,6 +44,7 @@ namespace ktplace {
 namespace {
 
 constexpr const char *animationName = "placement.gif";
+constexpr const char *finalNote = "Detailed placement result";
 constexpr const char *finalImageName = "placement.png";
 constexpr std::size_t pngBands = 64;
 constexpr int pngLevel = 6;
@@ -184,6 +185,21 @@ std::string Visualizer::framePath(const VisualFrame &shot) const {
            (shot.series.empty() ? "" : "_" + shot.series) + "_" + buf + ".svg";
 }
 
+std::string Visualizer::heading(const std::string &note) const {
+    if (note == finalNote) {
+        return "Final placement";
+    }
+    static const std::map<std::string, std::string> titles{
+        {"simpl", "Global placement - SimPL"},
+        {"ntuplace1", "Global placement - NTUPlace"},
+        {"legalize", "Legalization - Abacus"},
+        {"legalize_multi", "Legalization - multi-row"},
+        {"detailplace", "Detailed placement - FastDP"},
+    };
+    const auto found = titles.find(stage.stage);
+    return found != titles.end() ? found->second : stage.stage;
+}
+
 void Visualizer::frame(const Graph &graph, const std::vector<float> &x, const std::vector<float> &y,
                        const std::array<double, 4> &die, const constraintMgr *fences,
                        const VisualFrame &what) {
@@ -250,8 +266,7 @@ bool Visualizer::finish(const Graph &graph, const std::vector<float> &x,
     // costs one placement pass.
     const BBox dieBox{die[0], die[1], die[2], die[3]};
     for (std::size_t i = 0; i < opts.finalHold; ++i) {
-        recordFrame(graph, x, y, dieBox, framesKept, framesKept, hpwl, 0.0, 0.0, "final placement",
-                    fences,
+        recordFrame(graph, x, y, dieBox, framesKept, 0, hpwl, 0.0, 0.0, finalNote, fences,
                     /*mandatory=*/true);
     }
 
@@ -334,13 +349,14 @@ void Visualizer::record(const Graph &g, const std::vector<float> &x, const std::
         // required to respect.
         if (inBackground) {
             render([path, &g, ix, iy, die, step, total, hpwl, hpwlInitial, resid, note, constraints,
-                    zoom = frameZoom] {
+                    zoom = frameZoom, title = heading(note)] {
                 writeFrameRaster(path, g, ix, iy, die, step, total, hpwl, hpwlInitial, resid, note,
-                                 constraints, /*fixedView=*/true, zoom);
+                                 constraints, /*fixedView=*/true, zoom, /*drawRows=*/false, title);
             });
         } else {
             writeFrameRaster(path, g, ix, iy, die, step, total, hpwl, hpwlInitial, resid, note,
-                             constraints, /*fixedView=*/true, frameZoom);
+                             constraints, /*fixedView=*/true, frameZoom, /*drawRows=*/false,
+                             heading(note));
         }
         ++framesKept;
         return framesKept < limit;
@@ -389,6 +405,19 @@ constexpr double headerH = 116.0;
 constexpr double imageW = 768.0;  // frame image size
 constexpr double imageH = 768.0;
 
+constexpr const char *textPrimary = "#e6edf3";
+constexpr const char *textSecondary = "#9aa7b4";
+constexpr const char *accentColor = "#4fc3f7";
+constexpr const char *trackColor = "#2a313a";
+
+std::string grouped(std::size_t n) {
+    std::string digits = std::to_string(n);
+    for (std::size_t at = digits.size(); at > 3; at -= 3) {
+        digits.insert(at - 3, ",");
+    }
+    return digits;
+}
+
 /// Filename stem of the per-iteration stills that writeAnimatedGif() collects.
 constexpr const char *framePrefix = "frame_";
 
@@ -409,8 +438,9 @@ std::string sci(double v) {
 struct ViewPort {
     double minX = 0.0, minY = 0.0, maxX = 1.0, maxY = 1.0;
     double sx = 1.0, sy = 1.0;  // units -> px
-    double margin = margin;     // px, scaled by the frame's zoom
-    double height = imageH;     // px, scaled by the frame's zoom
+    double offsetX = 0.0;
+    double margin = margin;  // px, scaled by the frame's zoom
+    double height = imageH;  // px, scaled by the frame's zoom
 };
 
 /// Scale that fits a spanX-by-spanY die into the drawing area: the full width less
@@ -474,7 +504,7 @@ ViewPort dieViewPort(const BBox &dieBox, double zoom) {
 }
 
 double toPxX(const ViewPort &vp, double v) {
-    return vp.margin + (v - vp.minX) * vp.sx;
+    return vp.margin + vp.offsetX + (v - vp.minX) * vp.sx;
 }
 double toPxY(const ViewPort &vp, double v) {
     // Offset by the header so the die starts below the caption instead of under it.
@@ -960,10 +990,15 @@ CImg<unsigned char> renderFrameCImg(const Graph &g, const std::vector<float> &x,
                                     std::size_t step, std::size_t numSteps, double hpwl,
                                     double hpwlInitial, double resid, const std::string &note,
                                     const constraintMgr *constraints, bool fixedView,
-                                    GifPalette &pal, double zoom, bool drawRows) {
+                                    GifPalette &pal, double zoom, bool drawRows,
+                                    const std::string &heading) {
     zoom = std::max(zoom, 1.0);
     const std::size_t nv = g.getNumCells();
-    const ViewPort vp = fixedView ? dieViewPort(dieBox, zoom) : makeViewPort(g, x, y, dieBox, zoom);
+    ViewPort vp = fixedView ? dieViewPort(dieBox, zoom) : makeViewPort(g, x, y, dieBox, zoom);
+    if (fixedView) {
+        const double drawn = 1.02 * std::max(dieBox[2] - dieBox[0], 1.0) * vp.sx;
+        vp.offsetX = std::max(0.0, 0.5 * (zoom * imageW - 2.0 * vp.margin - drawn));
+    }
 
     const int imgW = static_cast<int>(std::lround(zoom * imageW));
     const int imgH = static_cast<int>(std::lround(zoom * imageH));
@@ -1003,16 +1038,8 @@ CImg<unsigned char> renderFrameCImg(const Graph &g, const std::vector<float> &x,
         // because a border is exactly the thing the eye uses to judge whether the
         // placement inside it is aligned, and a staircase there is very visible.
         strokeRectAA(img, x0 - 1, y0 - 1, x1 + 1, y1 + 1, 1.0, pal.ptr(hexColor("#000000")), 1.0);
-        strokeRectAA(img, gx0, gy0, gx1, gy1, std::max(1.0, 2.0 * zoom),
-                     pal.ptr(hexColor("#f5f5f5")), 1.0);
-        // Corner ticks, the convention on a die drawing, and they survive the
-        // palette quantisation that a GIF imposes better than a long thin line.
-        const int tick = std::max(static_cast<int>(std::lround(6.0 * zoom)), (gx1 - gx0) / 24);
-        const std::uint8_t *c = pal.ptr(hexColor("#ffeb3b"));
-        img.draw_rectangle(gx0, gy0, gx0 + tick, gy0, c);
-        img.draw_rectangle(gx0, gy1 - 1, gx0 + tick, gy1, c);
-        img.draw_rectangle(gx1 - tick, gy0, gx1, gy0, c);
-        img.draw_rectangle(gx1 - tick, gy1 - 1, gx1, gy1, c);
+        strokeRectAA(img, gx0, gy0, gx1, gy1, std::max(1.0, 1.25 * zoom),
+                     pal.ptr(hexColor("#8b97a3")), 1.0);
     }
 
     // Fence regions, under the cells so the placement stays readable.
@@ -1132,43 +1159,39 @@ CImg<unsigned char> renderFrameCImg(const Graph &g, const std::vector<float> &x,
         }
     }
 
-    // Captions.
-    const int tx = static_cast<int>(zoom * margin / 3);
-    const int lineH = static_cast<int>(std::lround(20.0 * zoom));
-    const std::string title =
-        "step " + std::to_string(step) +
-        (numSteps > 0 ? " / " + std::to_string(numSteps - 1) : std::string()) + " - " + note;
-    img.draw_text(tx, static_cast<int>(std::lround(16.0 * zoom)), title.c_str(),
-                  pal.ptr(hexColor("#ffffff")), 0, 1.0f, &font);
+    const auto px = [zoom](double v) {
+        return static_cast<int>(std::lround(v * zoom));
+    };
+    const auto ink = [&pal](const char *hex) {
+        return pal.ptr(hexColor(hex));
+    };
+    const CImgList<unsigned char> &titleFont =
+        CImgList<unsigned char>::font(static_cast<unsigned int>(std::lround(19.0 * zoom)));
+    const int left = px(margin);
+    const int right = px(imageW - margin);
 
-    // The initial figure is shown only when there is a meaningful one. A finished
-    // placement has no initial, and printing "HPWL = 4.9e+08 (initial 4.9e+08)"
-    // is worse than printing nothing: it reads like a broken number rather than
-    // like the absence of a comparison.
-    // A non-positive HPWL means "not measured for this frame", not zero, so the
-    // line is left out rather than printed as 0.000: a frame that says its
-    // wirelength is zero is a frame that looks broken.
+    img.draw_text(left, px(14), heading.c_str(), ink(textPrimary), 0, 1.0f, &titleFont);
+    img.draw_text(left, px(40), note.c_str(), ink(textSecondary), 0, 1.0f, &font);
+
     if (hpwl > 0.0) {
-        const std::string wl = "HPWL = " + fmt(hpwl, 3) +
-                               (hpwlInitial > 0.0 ? "  (initial " + fmt(hpwlInitial, 3) + ")" : "");
-        img.draw_text(tx, static_cast<int>(std::lround(36.0 * zoom)), wl.c_str(),
-                      pal.ptr(hexColor("#90caf9")), 0, 1.0f, &font);
+        const std::string wl = std::format("HPWL {:.4e}", hpwl);
+        img.draw_text(right - textWidth(titleFont, wl.c_str()), px(14), wl.c_str(),
+                      ink(textPrimary), 0, 1.0f, &titleFont);
+        std::string detail;
+        if (hpwlInitial > 0.0) {
+            const double change = 100.0 * (hpwl - hpwlInitial) / hpwlInitial;
+            detail = std::format("{:+.2f}% vs stage input", change);
+        }
+        if (resid > 0.0) {
+            detail += std::format("{}overflow {:.1f}%", detail.empty() ? "" : "   ", 100.0 * resid);
+        }
+        if (!detail.empty()) {
+            img.draw_text(right - textWidth(font, detail.c_str()), px(40), detail.c_str(),
+                          ink(textSecondary), 0, 1.0f, &font);
+        }
     }
 
-    int legendY = static_cast<int>(std::lround(56.0 * zoom));
-    if (resid > 0.0) {
-        img.draw_text(tx, legendY, ("density overflow = " + sci(resid)).c_str(),
-                      pal.ptr(hexColor("#ffeb3b")), 0, 1.0f, &font);
-        legendY += lineH;
-    }
-
-    // Legend: a swatch and a count for each category of cell, so the picture says
-    // how much of what is in it, and a swatch for the row lines.
     {
-        const int barH = static_cast<int>(std::lround(11.0 * zoom));
-        const int swatchW = static_cast<int>(std::lround(20.0 * zoom));
-        const int barY = legendY + static_cast<int>(2 * zoom);
-        int cx = tx;
         std::size_t movable = 0, fixed = 0, pads = 0;
         for (std::size_t v = 0; v < nv; ++v) {
             const Vertex &vert = g.getCell(v);
@@ -1180,34 +1203,36 @@ CImg<unsigned char> renderFrameCImg(const Graph &g, const std::vector<float> &x,
                 ++movable;
             }
         }
-        const auto swatch = [&](const char *hex, double alpha, const std::string &label,
-                                std::size_t count) {
-            img.draw_rectangle(cx, barY, cx + swatchW, barY + barH,
-                               pal.ptr(blendOnBg(hexColor(hex), alpha)), 1.0f);
-            cx += swatchW + static_cast<int>(6 * zoom);
-            const std::string text = label + " " + std::to_string(count);
-            img.draw_text(cx, legendY, text.c_str(), pal.ptr(hexColor("#90caf9")), 0, 1.0f, &font);
-            cx += textWidth(font, text.c_str()) + static_cast<int>(18 * zoom);
+        const int legendY = px(68);
+        const int swatch = px(10);
+        const int swatchY = legendY + (font[0]._height - swatch) / 2;
+        int cx = left;
+        const auto entry = [&](Rgb24 colour, const std::string &label) {
+            img.draw_rectangle(cx, swatchY, cx + swatch, swatchY + swatch, pal.ptr(colour), 1.0f);
+            cx += swatch + px(7);
+            img.draw_text(cx, legendY, label.c_str(), ink(textSecondary), 0, 1.0f, &font);
+            cx += textWidth(font, label.c_str()) + px(22);
         };
-        swatch("#4fc3f7", 0.92, "movable", movable);
-        // A category with nothing in it is not a legend entry; a design whose
-        // terminals are all fixed has no I/O pads of its own, and listing them as
-        // zero is clutter that says the drawing is broken.
+        entry(blendOnBg(hexColor("#4fc3f7"), 0.92), "Movable cells " + grouped(movable));
         if (fixed > 0) {
-            swatch("#ef5350", 0.9, "fixed macro", fixed);
+            entry(blendOnBg(hexColor("#ef5350"), 0.9), "Fixed macros " + grouped(fixed));
         }
         if (pads > 0) {
-            swatch("#ef5350", 0.9, "I/O pad", pads);
+            entry(blendOnBg(hexColor("#ef5350"), 0.9), "I/O pads " + grouped(pads));
         }
         if (!rows.empty()) {
-            // The row lines are drawn behind the cells, so the key shows them as a
-            // faint outline rather than a fill.
-            img.draw_rectangle(cx, barY, cx + swatchW, barY + barH,
-                               pal.ptr(blendOnBg(hexColor("#5c6b7a"), 0.9)), 1.0f);
-            cx += swatchW + static_cast<int>(6 * zoom);
-            const std::string text = "row (" + std::to_string(rows.size()) + ")";
-            img.draw_text(cx, legendY, text.c_str(), pal.ptr(hexColor("#90caf9")), 0, 1.0f, &font);
+            entry(blendOnBg(hexColor("#5c6b7a"), 0.9), "Rows " + grouped(rows.size()));
         }
+    }
+
+    if (numSteps > 1) {
+        const double done =
+            std::clamp(static_cast<double>(step) / static_cast<double>(numSteps - 1), 0.0, 1.0);
+        const int barY = px(headerH - 22);
+        const int barH = std::max(2, px(3));
+        img.draw_rectangle(left, barY, right, barY + barH, ink(trackColor), 1.0f);
+        img.draw_rectangle(left, barY, left + static_cast<int>(std::lround(done * (right - left))),
+                           barY + barH, ink(accentColor), 1.0f);
     }
 
     return img;
@@ -1752,13 +1777,13 @@ void writeFrameRaster(const std::string &path, const Graph &g, const std::vector
                       const std::vector<float> &y, const BBox &dieBox, std::size_t step,
                       std::size_t numSteps, double hpwl, double hpwlInitial, double resid,
                       const std::string &note, const constraintMgr *constraints, bool fixedView,
-                      double zoom, bool drawRows) {
+                      double zoom, bool drawRows, const std::string &heading) {
     // A throwaway palette is fine for a single still; writeAnimatedGif() is the
     // path that needs one palette shared by every frame.
     GifPalette pal;
     const CImg<unsigned char> img =
         renderFrameCImg(g, x, y, dieBox, step, numSteps, hpwl, hpwlInitial, resid, note,
-                        constraints, fixedView, pal, zoom, drawRows);
+                        constraints, fixedView, pal, zoom, drawRows, heading);
     // Dispatch on the extension. ".ppm" and ".bmp" are handled natively by CImg
     // and need no external library. ".png" is written here rather than handed to
     // CImg, whose PNG support needs libpng headers this build does not have.
@@ -1786,8 +1811,9 @@ void writeFinalFrameRaster(const std::string &path, const Graph &g,
     // right frame: the anchor scene the whole run has been using.
     // The finished placement has no "initial" to compare against, so none is
     // passed: the caption then shows one number instead of repeating one.
-    writeFrameRaster(path, g, x, y, die, 0, 1, hpwl, /*hpwlInitial=*/0.0, 0.0, "final placement",
-                     constraints, /*fixedView=*/true, zoom, /*drawRows=*/true);
+    writeFrameRaster(path, g, x, y, die, 0, 1, hpwl, /*hpwlInitial=*/0.0, 0.0,
+                     "Legalized and detail-placed", constraints, /*fixedView=*/true, zoom,
+                     /*drawRows=*/true, "Final placement");
 }
 
 namespace {

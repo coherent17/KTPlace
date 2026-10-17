@@ -10,10 +10,12 @@
 #include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <format>
 #include <limits>
 #include <memory>
 #include <numeric>
 #include <span>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -176,7 +178,7 @@ private:
     std::size_t clusterSegments();
 
     void selfCheck(FastdpResult &res) const;
-    void writeFrame(const char *note, std::size_t step = 0) const;
+    void writeFrame(const std::string &note, std::size_t step = 0) const;
     double hpwlInput = 0.0;
 
     FastdpOptions opts;
@@ -947,7 +949,7 @@ std::size_t FastDetailedPlacer::Impl::clusterSegments() {
     return moves;
 }
 
-void FastDetailedPlacer::Impl::writeFrame(const char *note, std::size_t step) const {
+void FastDetailedPlacer::Impl::writeFrame(const std::string &note, std::size_t step) const {
     if (!design.onFrame) {
         return;
     }
@@ -1049,7 +1051,7 @@ FastdpResult FastDetailedPlacer::Impl::place(const FastdpOptions &params) {
     buildNetlist();
     res.hpwlBefore = hpwl();
     hpwlInput = res.hpwlBefore;
-    writeFrame("legalized input");
+    writeFrame("Input - legal placement");
 
     double globalSeconds = 0.0;
     double verticalSeconds = 0.0;
@@ -1080,19 +1082,19 @@ FastdpResult FastDetailedPlacer::Impl::place(const FastdpOptions &params) {
             res.globalSwaps += timed(globalSeconds, [&] {
                 return globalSwap();
             });
-            writeFrame("global swap", ++step);
+            writeFrame(std::format("Global swap - pass {}", iteration + 1), ++step);
         }
         if (opts.verticalSwap) {
             res.verticalSwaps += timed(verticalSeconds, [&] {
                 return verticalSwap();
             });
-            writeFrame("vertical swap", ++step);
+            writeFrame(std::format("Vertical swap - pass {}", iteration + 1), ++step);
         }
         if (opts.localReorder) {
             res.reorderMoves += timed(reorderSeconds, [&] {
                 return localReorder();
             });
-            writeFrame("local re-ordering", ++step);
+            writeFrame(std::format("Local reordering - pass {}", iteration + 1), ++step);
         }
         if (!improvedEnough(before)) {
             break;
@@ -1102,7 +1104,7 @@ FastdpResult FastDetailedPlacer::Impl::place(const FastdpOptions &params) {
         for (std::size_t iteration = 0; iteration < opts.maxIterations; ++iteration) {
             const double before = hpwl();
             cluster();
-            writeFrame("single-segment clustering", ++step);
+            writeFrame(std::format("Single-segment clustering - round {}", iteration + 1), ++step);
             if (!improvedEnough(before)) {
                 break;
             }

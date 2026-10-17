@@ -448,7 +448,7 @@ AbacusResult AbacusLegalizer::Impl::run(const AbacusOptions &params) {
     dieBox = design.die;
 
     if (design.onFrame) {
-        writeFrame(liveX, liveY, "input placement", 0, mov.size());
+        writeFrame(liveX, liveY, "Input - global placement", 0, mov.size());
     }
 
     Pass forward = legalizePass(params, false, 0);
@@ -480,7 +480,7 @@ AbacusResult AbacusLegalizer::Impl::run(const AbacusOptions &params) {
     }
     res.unplaced = mov.size() - chosen.placed;
     if (design.onFrame) {
-        writeFrame(liveX, liveY, "legal placement", chosen.placed, mov.size());
+        writeFrame(liveX, liveY, "Legal placement", chosen.placed, mov.size());
     }
     selfCheck(res);
     res.seconds = timer.elapsedSeconds();
@@ -605,7 +605,7 @@ AbacusLegalizer::Impl::Pass AbacusLegalizer::Impl::legalizePass(const AbacusOpti
             std::vector<double> xs = targetX;
             std::vector<double> ys = targetY;
             placedPositions(mirrored, xs, ys);
-            writeFrame(xs, ys, "legalizing", pass.placed, mov.size());
+            writeFrame(xs, ys, "Placing cells into rows", pass.placed, mov.size());
         }
     }
 
