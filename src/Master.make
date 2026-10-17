@@ -99,11 +99,11 @@ ifeq ($(GUI)$(STATIC),11)
 endif
 
 # Qt only for GUI=1 and gui-test (see the GUI section below).
-QT_MODULES := Qt6Widgets
+QT_MODULES := Qt6Widgets Qt6OpenGLWidgets
 QT_CFLAGS = $(shell pkg-config --cflags $(QT_MODULES)) -fPIC -DQT_NO_KEYWORDS
 QT_LIBS = $(shell pkg-config --libs $(QT_MODULES))
 
-GUI_SRCS := gui/kt_layout.cc gui/kt_layoutView.cc gui/kt_logView.cc gui/kt_runner.cc \
+GUI_SRCS := gui/kt_layout.cc gui/kt_congestion.cc gui/kt_layoutView.cc gui/kt_glCanvas.cc gui/kt_logView.cc gui/kt_runner.cc \
             gui/kt_mainWindow.cc
 GUI_OBJS := $(GUI_SRCS:%.cc=$(OBJ_DIR)/%.o)
 GUI_ENTRY_OBJ := $(OBJ_DIR)/gui/kt_gui.o

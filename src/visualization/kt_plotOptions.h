@@ -28,6 +28,7 @@ struct PlotOptions {
     std::size_t finalHold = 8;           // extra frames the finished placement is held
     bool keepSnapshots = false;          // leave plots/snapshots.ktsnap after drawing
     bool svgFrames = false;
+    std::size_t congestionBins = 0;
 
     // The defaults, with the run's visualizer options applied over them.
     [[nodiscard]] static PlotOptions fromOptions(const std::string &plotDir);

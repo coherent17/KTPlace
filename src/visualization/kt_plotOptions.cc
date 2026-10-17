@@ -20,6 +20,7 @@ PlotOptions PlotOptions::fromOptions(const std::string &plotDir) {
     out.blendFrames = opts.animBlend;
     out.keepSnapshots = opts.keepSnapshots;
     out.svgFrames = opts.svgFrames;
+    out.congestionBins = opts.congestion ? opts.congestionBins : 0;
     reportOptions(opts);
     return out;
 }

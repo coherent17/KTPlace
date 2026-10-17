@@ -1,5 +1,6 @@
 #include "visualization/kt_visualizer.h"
 
+#include "datamodel/kt_routingDemand.h"
 #include "util/kt_log.h"
 #include "util/kt_scopedTimer.h"
 #include "visualization/kt_gif.h"
@@ -19,6 +20,8 @@
 #include <iterator>
 #include <limits>
 #include <map>
+#include <memory>
+#include <mutex>
 #include <oneapi/tbb/parallel_for.h>
 #include <span>
 #include <sstream>
@@ -44,6 +47,7 @@ namespace ktplace {
 namespace {
 
 constexpr const char *animationName = "placement.gif";
+constexpr const char *demandAnimationName = "routing_demand.gif";
 constexpr const char *finalNote = "Detailed placement result";
 constexpr const char *finalImageName = "placement.png";
 constexpr std::size_t pngBands = 64;
@@ -147,6 +151,11 @@ void Visualizer::configure(const std::string &outDir, const PlotOptions &options
     maxFrames = std::max<std::size_t>(1, std::min(opts.frameBudget, sizeCapFrames));
     animDir = opts.sub("frames");
     (void)ensureDir(animDir.string());
+    demandDir = opts.congestionBins > 0 ? std::filesystem::path(opts.sub("frames_demand"))
+                                        : std::filesystem::path();
+    if (!demandDir.empty()) {
+        (void)ensureDir(demandDir.string());
+    }
     delayCs = opts.frameDelayCs;
     blendSteps = opts.blendFrames;
     frameZoom = opts.frameZoom;
@@ -275,6 +284,11 @@ bool Visualizer::finish(const Graph &graph, const std::vector<float> &x,
         std::error_code ec;
         std::filesystem::remove(animDir, ec);
     }
+    if (!demandDir.empty() &&
+        writeAnimatedGif(demandDir.string(), dir + "/" + demandAnimationName, delayCs)) {
+        std::error_code ec;
+        std::filesystem::remove(demandDir, ec);
+    }
     return written;
 }
 
@@ -356,6 +370,18 @@ void Visualizer::record(const Graph &g, const std::vector<float> &x, const std::
         } else {
             writeFrameRaster(path, g, ix, iy, die, hpwl, hpwlInitial, resid, note, constraints,
                              /*fixedView=*/true, frameZoom, /*drawRows=*/false, heading(note));
+        }
+        if (!demandDir.empty()) {
+            const std::string demandPath = (demandDir / frameName(framesKept)).string();
+            if (inBackground) {
+                render([demandPath, &g, ix, iy, die, note, title = heading(note), zoom = frameZoom,
+                        bins = opts.congestionBins] {
+                    writeDemandRaster(demandPath, g, ix, iy, die, note, title, zoom, bins);
+                });
+            } else {
+                writeDemandRaster(demandPath, g, ix, iy, die, note, heading(note), frameZoom,
+                                  opts.congestionBins);
+            }
         }
         ++framesKept;
         return framesKept < limit;
@@ -1225,6 +1251,121 @@ CImg<unsigned char> renderFrameCImg(const Graph &g, const std::vector<float> &x,
     return img;
 }
 
+namespace {
+
+std::shared_ptr<const NetlistPins> pinsOf(const Graph &g) {
+    static std::mutex guard;
+    static const Graph *cachedGraph = nullptr;
+    static std::size_t cachedPins = 0;
+    static std::shared_ptr<const NetlistPins> cached;
+    const std::lock_guard lock(guard);
+    if (cachedGraph != &g || cachedPins != g.getNumPins() || !cached) {
+        cached = std::make_shared<const NetlistPins>(NetlistPins::of(g));
+        cachedGraph = &g;
+        cachedPins = g.getNumPins();
+    }
+    return cached;
+}
+
+CImg<unsigned char> renderDemandCImg(const Graph &g, const std::vector<float> &x,
+                                     const std::vector<float> &y, const BBox &dieBox,
+                                     const std::string &note, const std::string &heading,
+                                     GifPalette &pal, double zoom, std::size_t bins) {
+    zoom = std::max(zoom, 1.0);
+    ViewPort vp = dieViewPort(dieBox, zoom);
+    const double drawn = 1.02 * std::max(dieBox[2] - dieBox[0], 1.0) * vp.sx;
+    vp.offsetX = std::max(0.0, 0.5 * (zoom * imageW - 2.0 * vp.margin - drawn));
+    const int imgW = static_cast<int>(std::lround(zoom * imageW));
+    const int imgH = static_cast<int>(std::lround(zoom * imageH));
+    CImg<unsigned char> img(imgW, imgH, 1, 3);
+    const std::array<std::uint8_t, 3> bgv = bgColor.rgb();
+    cimg_forXYC(img, px, py, ch) {
+        img(px, py, 0, ch) = bgv[ch];
+    }
+
+    const std::shared_ptr<const NetlistPins> pins = pinsOf(g);
+    const RoutingDemand map = routingDemand(pins->netPinStart, pins->pinCell, pins->pinDx,
+                                            pins->pinDy, x, y, dieBox, bins);
+    const float top = map.p99 > 0.0F ? map.p99 : std::max(map.peak, 1e-9F);
+    const auto heat = [&pal](float scaled) {
+        const std::array<std::uint8_t, 4> c = demandColour(scaled);
+        return std::make_pair(pal.ptr(blendOnBg(Rgb24{c[0], c[1], c[2]}, c[3] / 255.0)), c[3] > 0);
+    };
+    for (std::size_t iy = 0; iy < map.ny; ++iy) {
+        const double y0 = map.y0 + static_cast<double>(iy) * map.binH;
+        for (std::size_t ix = 0; ix < map.nx; ++ix) {
+            const auto [colour, visible] = heat(map.at(ix, iy) / top);
+            if (!visible) {
+                continue;
+            }
+            const double x0 = map.x0 + static_cast<double>(ix) * map.binW;
+            fillRectAA(img, toPxX(vp, x0), toPxY(vp, y0 + map.binH), toPxX(vp, x0 + map.binW),
+                       toPxY(vp, y0), colour, 1.0);
+        }
+    }
+
+    const std::uint8_t *macroEdge = pal.ptr(blendOnBg(hexColor("#ef5350"), 0.6));
+    for (std::size_t v = 0; v < g.getNumCells(); ++v) {
+        const Vertex &cell = g.getCell(v);
+        if (!cell.isFixed) {
+            continue;
+        }
+        strokeRectAA(img, toPxX(vp, x[v]), toPxY(vp, y[v] + cell.height),
+                     toPxX(vp, x[v] + cell.width), toPxY(vp, y[v]), std::max(1.0, 0.6 * zoom),
+                     macroEdge, 1.0);
+    }
+    {
+        int x0, y0, x1, y1;
+        pixelSpan(toPxX(vp, dieBox[0]), toPxX(vp, dieBox[2]), x0, x1);
+        pixelSpan(toPxY(vp, dieBox[3]), toPxY(vp, dieBox[1]), y0, y1);
+        const int inset = std::max(1, static_cast<int>(std::lround(2.0 * zoom)));
+        strokeRectAA(img, x0 - 1, y0 - 1, x1 + 1, y1 + 1, 1.0, pal.ptr(hexColor("#000000")), 1.0);
+        strokeRectAA(img, x0 + inset, y0 + inset, x1 - inset, y1 - inset,
+                     std::max(1.0, 1.25 * zoom), pal.ptr(hexColor("#8b97a3")), 1.0);
+    }
+
+    const auto px = [zoom](double v) {
+        return static_cast<int>(std::lround(v * zoom));
+    };
+    const auto ink = [&pal](const char *hex) {
+        return pal.ptr(hexColor(hex));
+    };
+    const CImgList<unsigned char> &font =
+        CImgList<unsigned char>::font(static_cast<unsigned int>(std::lround(13.0 * zoom)));
+    const CImgList<unsigned char> &titleFont =
+        CImgList<unsigned char>::font(static_cast<unsigned int>(std::lround(19.0 * zoom)));
+    const int left = px(margin);
+    const int right = px(imageW - margin);
+    img.draw_text(left, px(14), "%s", ink(textPrimary), 0, 1.0f, &titleFont,
+                  ("Routing demand - " + heading).c_str());
+    img.draw_text(left, px(40), "%s", ink(textSecondary), 0, 1.0f, &font, note.c_str());
+    const std::string peak = std::format("peak {:.2f} nets/bin", map.peak);
+    img.draw_text(right - textWidth(titleFont, peak.c_str()), px(14), "%s", ink(textPrimary), 0,
+                  1.0f, &titleFont, peak.c_str());
+    const std::string spread = std::format("99th pct {:.2f}   mean {:.2f}   grid {}x{}", map.p99,
+                                           map.mean, map.nx, map.ny);
+    img.draw_text(right - textWidth(font, spread.c_str()), px(40), "%s", ink(textSecondary), 0,
+                  1.0f, &font, spread.c_str());
+
+    const std::string label = "nets per bin: 0";
+    const int legendY = px(68);
+    img.draw_text(left, legendY, "%s", ink(textSecondary), 0, 1.0f, &font, label.c_str());
+    const int barLeft = left + textWidth(font, label.c_str()) + px(8);
+    const int barWidth = px(220);
+    const int barTop = legendY + px(2);
+    for (int i = 0; i < barWidth; ++i) {
+        const auto [colour, visible] =
+            heat(std::max(0.05F, static_cast<float>(i) / static_cast<float>(barWidth - 1)));
+        img.draw_rectangle(barLeft + i, barTop, barLeft + i, barTop + px(10), colour, 1.0f);
+    }
+    const std::string high = std::format("{:.1f} (99th pct)", map.p99);
+    img.draw_text(barLeft + barWidth + px(8), legendY, "%s", ink(textSecondary), 0, 1.0f, &font,
+                  high.c_str());
+    return img;
+}
+
+}  // namespace
+
 /// Read one header integer, skipping whitespace and `#` comments.
 int ppmNextInt(std::istream &in, const std::string &path) {
     for (;;) {
@@ -1781,6 +1922,13 @@ void writeFrameRaster(const std::string &path, const Graph &g, const std::vector
         return;
     }
     img.save(path.c_str());
+}
+
+void writeDemandRaster(const std::string &path, const Graph &g, const std::vector<float> &x,
+                       const std::vector<float> &y, const BBox &dieBox, const std::string &note,
+                       const std::string &heading, double zoom, std::size_t bins) {
+    GifPalette pal;
+    renderDemandCImg(g, x, y, dieBox, note, heading, pal, zoom, bins).save(path.c_str());
 }
 
 void writeFinalFrameRaster(const std::string &path, const Graph &g,

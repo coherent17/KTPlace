@@ -2,6 +2,7 @@
 #define BOOST_TEST_DYN_LINK
 #include "adaptor/kt_inputReader.h"
 #include "datamodel/kt_dm.h"
+#include "gui/kt_congestion.h"
 #include "gui/kt_layout.h"
 #include "gui/kt_layoutView.h"
 #include "gui/kt_logView.h"
@@ -169,7 +170,9 @@ BOOST_AUTO_TEST_CASE(a_run_streams_frames_and_commits_and_writes_the_placement) 
     BOOST_TEST(recorded.result->message == (work / "placed.pl").string());
     BOOST_TEST(fs::exists(work / "placed.pl"));
     BOOST_TEST(fs::exists(work / "ktplace.log"));
-    BOOST_TEST(!fs::exists(work / "plots"));
+    BOOST_TEST(fs::exists(work / "plots" / "placement.png"));
+    BOOST_TEST(fs::exists(work / "plots" / "placement.gif"));
+    BOOST_TEST(fs::exists(work / "plots" / "routing_demand.gif"));
 
     std::vector<std::string> committed;
     std::size_t live = 0;
@@ -228,11 +231,73 @@ BOOST_AUTO_TEST_CASE(the_layout_view_draws_cells_inside_the_die) {
 
     const QPointF macroCentre = view.worldToScreen({16.0, 5.0});
     const QColor macro = image.pixelColor(macroCentre.toPoint());
-    BOOST_TEST(macro.red() == 0x6e);
+    BOOST_TEST(macro.red() == 0xd9);
     const QPointF cellCentre = view.worldToScreen({2.5, 1.0});
     const QColor cell = image.pixelColor(cellCentre.toPoint());
     BOOST_TEST(cell.blue() > cell.red() + 0x40);
-    BOOST_TEST((image.pixelColor(5, 5) == QColor(0x1e, 0x1e, 0x1e)));
+    BOOST_TEST((image.pixelColor(5, 5) == QColor(0x10, 0x14, 0x18)));
+}
+
+BOOST_AUTO_TEST_CASE(clicking_a_cell_selects_it_and_its_nets_are_known) {
+    const ScratchDir dir("select");
+    const std::unique_ptr<ktDM> db = readDesign(dir.design());
+    const auto geometry = LayoutGeometry::of(*db);
+    BOOST_REQUIRE_EQUAL(geometry->netPinStart.size(), 3U);
+    BOOST_TEST(geometry->netPinStart[2] == 8U);
+    BOOST_TEST(geometry->cellNetStart[1] - geometry->cellNetStart[0] == 2U);
+    BOOST_TEST(geometry->name[6] == "block");
+
+    LayoutView view;
+    view.resize(400, 200);
+    view.setFrame(LayoutFrame::committed(geometry, *db, "load"));
+    view.selectAt(view.worldToScreen({16.0, 5.0}));
+    BOOST_REQUIRE(view.selectedCell().has_value());
+    BOOST_TEST(*view.selectedCell() == 6U);
+    const QImage image = view.grab().toImage();
+    const QColor outline = image.pixelColor(view.worldToScreen({12.0, 5.0}).toPoint());
+    BOOST_TEST(outline.red() > 0xe0);
+
+    view.selectAt({2.0, 2.0});
+    BOOST_TEST(!view.selectedCell().has_value());
+}
+
+BOOST_AUTO_TEST_CASE(a_net_spreads_one_unit_of_demand_evenly_over_its_bounding_box) {
+    LayoutGeometry geometry;
+    geometry.die = {0.0, 0.0, 4.0, 2.0};
+    geometry.width = {0.0F, 0.0F};
+    geometry.height = {0.0F, 0.0F};
+    geometry.kind = {CellKind::Movable, CellKind::Movable};
+    geometry.netPinStart = {0, 2};
+    geometry.pinCell = {0, 1};
+    geometry.pinDx = {0.0F, 0.0F};
+    geometry.pinDy = {0.0F, 0.0F};
+    const DemandMap map = estimateDemand(geometry, {0.5F, 3.5F}, {0.5F, 1.5F}, 2);
+    BOOST_REQUIRE_EQUAL(map.nx, 2U);
+    BOOST_REQUIRE_EQUAL(map.ny, 1U);
+    BOOST_TEST(map.at(0, 0) == 0.5F, boost::test_tools::tolerance(1e-6F));
+    BOOST_TEST(map.at(1, 0) == 0.5F, boost::test_tools::tolerance(1e-6F));
+    BOOST_TEST(map.nets == 1U);
+}
+
+BOOST_AUTO_TEST_CASE(every_net_adds_exactly_one_to_the_demand_map) {
+    const ScratchDir dir("demand");
+    const std::unique_ptr<ktDM> db = readDesign(dir.design());
+    const auto geometry = LayoutGeometry::of(*db);
+    const LayoutFrame frame = LayoutFrame::committed(geometry, *db, "load");
+    const DemandMap map = estimateDemand(*geometry, frame.x, frame.y, 16);
+    double total = 0.0;
+    for (const float value : map.demand) {
+        total += value;
+    }
+    BOOST_TEST(map.nets == 2U);
+    BOOST_TEST(total == 2.0, boost::test_tools::tolerance(1e-4));
+
+    LayoutView view;
+    view.resize(400, 200);
+    view.setFrame(frame);
+    view.showCongestion(true, 16);
+    BOOST_TEST(view.showingCongestion());
+    BOOST_TEST(!view.grab().toImage().isNull());
 }
 
 BOOST_AUTO_TEST_CASE(the_window_runs_a_design_and_logs_it) {

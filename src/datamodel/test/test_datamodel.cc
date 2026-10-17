@@ -6,11 +6,14 @@
 #include "datamodel/kt_constraintMgr.h"
 #include "datamodel/kt_dm.h"
 #include "datamodel/kt_graph.h"
+#include "datamodel/kt_routingDemand.h"
 #include "datamodel/kt_rowFence.h"
 
 #include <boost/test/unit_test.hpp>
+#include <cstdint>
 #include <ostream>
 #include <stdexcept>
+#include <vector>
 
 using namespace ktplace;
 
@@ -363,6 +366,41 @@ BOOST_AUTO_TEST_CASE(fenced_subrows_label_each_piece_with_its_region) {
     BOOST_TEST(rows[0][1].xhi == 50.0);
     BOOST_TEST(rows[0][1].region == id);
     BOOST_TEST(rows[0][2].region == openSpace);
+}
+
+BOOST_AUTO_TEST_SUITE_END()
+
+BOOST_AUTO_TEST_SUITE(routing_demand)
+
+BOOST_AUTO_TEST_CASE(a_net_spreads_one_unit_evenly_over_its_bounding_box) {
+    const std::vector<std::uint32_t> netPinStart{0, 2};
+    const std::vector<std::uint32_t> pinCell{0, 1};
+    const std::vector<float> offsets{0.0F, 0.0F};
+    const std::vector<float> x{0.5F, 3.5F};
+    const std::vector<float> y{0.5F, 1.5F};
+    const RoutingDemand map =
+        routingDemand(netPinStart, pinCell, offsets, offsets, x, y, {0.0, 0.0, 4.0, 2.0}, 2);
+    BOOST_REQUIRE_EQUAL(map.nx, 2U);
+    BOOST_REQUIRE_EQUAL(map.ny, 1U);
+    BOOST_TEST(map.at(0, 0) == 0.5F, boost::test_tools::tolerance(1e-6F));
+    BOOST_TEST(map.at(1, 0) == 0.5F, boost::test_tools::tolerance(1e-6F));
+    BOOST_TEST(map.nets == 1U);
+}
+
+BOOST_AUTO_TEST_CASE(a_net_on_one_line_still_adds_its_whole_unit) {
+    const std::vector<std::uint32_t> netPinStart{0, 2, 3};
+    const std::vector<std::uint32_t> pinCell{0, 1, 0};
+    const std::vector<float> offsets{0.0F, 0.0F, 0.0F};
+    const std::vector<float> x{1.0F, 1.0F};
+    const std::vector<float> y{0.2F, 3.8F};
+    const RoutingDemand map =
+        routingDemand(netPinStart, pinCell, offsets, offsets, x, y, {0.0, 0.0, 4.0, 4.0}, 4);
+    double total = 0.0;
+    for (const float value : map.demand) {
+        total += value;
+    }
+    BOOST_TEST(map.nets == 1U);
+    BOOST_TEST(total == 1.0, boost::test_tools::tolerance(1e-4));
 }
 
 BOOST_AUTO_TEST_SUITE_END()

@@ -66,7 +66,6 @@ public:
 
 RunResult Runner::Impl::place(const RunRequest &request) {
     OptionDb::instance().clear();
-    OptionDb::instance().set(Component::Visualizer, "plot", OptionValue{0});
     TimerRegistry::instance().reset();
 
     kt_option options;

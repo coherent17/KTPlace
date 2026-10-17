@@ -1,10 +1,15 @@
 # KTPlace
 An open-source know thyself placement engine.
 
-![SimPL global placement, legalization and detailed placement of adaptec1](docs/images/adaptec1.gif)
+<p align="center">
+  <img src="docs/images/adaptec1.gif" width="49%" alt="SimPL global placement, legalization and detailed placement of adaptec1">
+  <img src="docs/images/adaptec1_routing_demand.gif" width="49%" alt="Routing demand of the same adaptec1 run, frame by frame">
+</p>
 
 adaptec1 (ISPD 2005) with the default flow: SimPL global placement, Abacus
-legalization and FastDP detailed placement, ending at an HPWL of 7.94e7. Drawn
+legalization and FastDP detailed placement, ending at an HPWL of 7.94e7. On the
+right, the same run's routing demand, frame for frame: each net spreads one unit
+over its pins' bounding box (1/(w·h) per unit area), summed on a grid. Drawn
 with `anim_zoom 1`, `anim_blend 1`, `simpl trace_every 3` and `abacus frames 16`.
 
 ## Install a release
@@ -55,7 +60,9 @@ source ktplace.sh   # written by the build: puts ktplace on PATH
 
 `ktplace --gui` runs the same flow in a Qt window: open a design directory,
 optionally pick a Tcl script, press Run, and watch each stage move the cells
-while the log streams below. The window is linked in only by `make GUI=1`,
+while the log streams below. The layout is drawn on the GPU (OpenGL 3.3, with a
+CPU fallback). Click a cell to see its nets and pins; right-click for the
+routing-demand map. The window is linked in only by `make GUI=1`,
 which needs Qt 6 Widgets, found through `pkg-config`. A plain `make` stays free
 of Qt, and its `--gui` says how to get the window.
 
@@ -84,7 +91,8 @@ Bookshelf; gzipped inputs are read directly.
 | `-v, --verbose` | also echo the trace log to the console |
 
 Everything a run writes goes under `-w`: `placed.pl`, `plots/` (`placement.gif`,
-the final `placement.png` and SimPL's `simpl_convergence.png`), `ktplace.log` and `ktplace_trace.log`. stdout is never
+the matching `routing_demand.gif`, the final `placement.png` and SimPL's
+`simpl_convergence.png`), `ktplace.log` and `ktplace_trace.log`. stdout is never
 written.
 
 ## Configuration
@@ -109,6 +117,8 @@ add_option visualizer anim 0
 | `visualizer` | `final_zoom` | final still scale, vs 768x768 (`8`) |
 | `visualizer` | `keep_snapshots` | keep `plots/snapshots.ktsnap` after the pictures are drawn (`0`) |
 | `visualizer` | `svg_frames` | also write every frame as an SVG under `plots/` (`0`) |
+| `visualizer` | `congestion` | also write `routing_demand.gif`, in step with `placement.gif` (`1`) |
+| `visualizer` | `congestion_bins` | routing-demand grid, bins across the die (`128`) |
 | `simpl` | `trace_every` | frame every N global iterations; `0` turns them off (`2`) |
 | `simpl` | `trace_series` | which placement those frames show: `lss` (the solver's, spreading out smoothly), `lal` (the look-ahead legalized one), or `both` (`lss`) |
 | `simpl` | `report_every` | a row of the convergence table (lower and upper bound, gap, overflow) every N iterations; `0` turns it off (`5`) |
