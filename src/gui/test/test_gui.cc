@@ -160,8 +160,9 @@ BOOST_AUTO_TEST_CASE(a_run_streams_frames_and_commits_and_writes_the_placement) 
     Recorded recorded;
     QObject context;
     Runner runner(&context, recordInto(recorded));
-    BOOST_REQUIRE(runner.start({dir.design(), work.string(), ""}));
-    BOOST_TEST(!runner.start({dir.design(), work.string(), ""}));
+    const std::string design = dir.design();
+    BOOST_REQUIRE(runner.start({design, work.string(), ""}));
+    BOOST_TEST(!runner.start({design, work.string(), ""}));
     BOOST_REQUIRE(waitUntil([&recorded] {
         return recorded.result.has_value();
     }));
