@@ -5,6 +5,7 @@
 #include "globalPlacer/simpl/simpl_lss.h"
 #include "globalPlacer/simpl/simpl_parallel.h"
 #include "util/kt_log.h"
+#include "util/kt_reportTable.h"
 #include "util/kt_scopedTimer.h"
 
 #include <algorithm>
@@ -483,6 +484,8 @@ Positions simplPlacer::Impl::globalPlacement(Positions &lower) {
     Positions upper;
     std::vector<BoundsPoint> bounds;
     Convergence convergence;
+    ktReportTable convergenceTable("convergence");
+    convergenceTable.setHeaders({"iteration", "lower bound", "upper bound", "gap", "overflow"});
     for (std::size_t it = 0; it < opts.maxIters; ++it) {
         result.globalIters = it + 1;
         {
@@ -496,20 +499,32 @@ Positions simplPlacer::Impl::globalPlacement(Positions &lower) {
         const double upperHpwl = hpwl(upper.x, upper.y);
         const double lowerHpwl = hpwl(lower.x, lower.y);
         const double gap = upperHpwl - lowerHpwl;
+        const double upperOverflow = overflow(occupancy(upper.x, upper.y));
         bounds.push_back({upperHpwl, lowerHpwl});
         ktlog.trace("iter {:3d}: lower {:.6e} upper {:.6e} gap {:.4e} overflow {:.4f} -> {:.4f}",
                     it, lowerHpwl, upperHpwl, gap, overflow(occupancy(lower.x, lower.y)),
-                    overflow(occupancy(upper.x, upper.y)));
+                    upperOverflow);
         if (opts.traceEvery > 0 && it % opts.traceEvery == 0) {
-            writeFrame("LSS", lower.x, lower.y,
-                       std::format("LSS (linear system solve) - iteration {}", it), it,
-                       opts.maxIters);
-            writeFrame("LAL", upper.x, upper.y,
-                       std::format("LAL (look-ahead legalized) - iteration {}", it), it,
-                       opts.maxIters);
+            if (opts.traceSeries != "lal") {
+                writeFrame("LSS", lower.x, lower.y,
+                           std::format("LSS (linear system solve) - iteration {}", it), it,
+                           opts.maxIters);
+            }
+            if (opts.traceSeries != "lss") {
+                writeFrame("LAL", upper.x, upper.y,
+                           std::format("LAL (look-ahead legalized) - iteration {}", it), it,
+                           opts.maxIters);
+            }
         }
 
-        if (convergence.update(it + 1, gap, upperHpwl, opts)) {
+        const bool converged = convergence.update(it + 1, gap, upperHpwl, opts);
+        if (opts.reportEvery > 0 &&
+            (it % opts.reportEvery == 0 || converged || it + 1 == opts.maxIters)) {
+            convergenceTable.addRow({std::to_string(it), std::format("{:.6e}", lowerHpwl),
+                                     std::format("{:.6e}", upperHpwl), std::format("{:.6e}", gap),
+                                     std::format("{:.4f}", upperOverflow)});
+        }
+        if (converged) {
             ktlog.trace("converged at iteration {}: gap {:.4e}, reference {:.4e}", it, gap,
                         convergence.gapReference);
             break;
@@ -528,6 +543,9 @@ Positions simplPlacer::Impl::globalPlacement(Positions &lower) {
         }
     }
 
+    if (opts.reportEvery > 0) {
+        convergenceTable.emit();
+    }
     if (!upper.x.empty() && opts.refineIters > 0) {
         refine(lower, upper);
     }

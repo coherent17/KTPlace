@@ -91,7 +91,9 @@ add_option visualizer anim 0
 | `visualizer` | `final_zoom` | final still scale, vs 768x768 (`8`) |
 | `visualizer` | `keep_snapshots` | keep `plots/snapshots.ktsnap` after the pictures are drawn (`0`) |
 | `visualizer` | `svg_frames` | also write every frame as an SVG under `plots/` (`0`) |
-| `simpl` | `trace_every` | frame every N global iterations; `0` turns them off (`3`) |
+| `simpl` | `trace_every` | frame every N global iterations; `0` turns them off (`2`) |
+| `simpl` | `trace_series` | which placement those frames show: `lss` (the solver's, spreading out smoothly), `lal` (the look-ahead legalized one), or `both` (`lss`) |
+| `simpl` | `report_every` | a row of the convergence table (lower and upper bound, gap, overflow) every N iterations; `0` turns it off (`5`) |
 | `simpl` | `cg_every` | frame every N conjugate-gradient iterates of global placement; `0` turns them off (`0`) |
 | `simpl` | `init_cg_every` | frame every N conjugate-gradient iterates of the first initial-placement solve; `0` turns them off (`4`) |
 | `simpl` | `init_net` | initial placement net model: `star` (placement-independent star model), `b2b` (the paper's Bound2Bound), or `star_b2b` (`star`) |

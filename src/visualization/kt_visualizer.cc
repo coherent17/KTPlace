@@ -1,7 +1,6 @@
 #include "visualization/kt_visualizer.h"
 
 #include "util/kt_log.h"
-#include "util/kt_reportTable.h"
 #include "util/kt_scopedTimer.h"
 #include "visualization/kt_gif.h"
 
@@ -215,14 +214,6 @@ void Visualizer::boundsCurve(std::string_view name, std::string_view title,
     if (!enabled()) {
         return;
     }
-    ktReportTable table{std::string(title)};
-    table.setHeaders({"iteration", "lower bound", "upper bound", "gap"});
-    for (std::size_t i = 0; i < curve.size(); ++i) {
-        table.addRow({std::to_string(i), std::format("{:.6e}", curve[i].lower),
-                      std::format("{:.6e}", curve[i].upper),
-                      std::format("{:.6e}", curve[i].upper - curve[i].lower)});
-    }
-    table.emit();
     (void)writeBoundsPng(dir + "/" + std::string(name) + ".png", title, curve);
 }
 
@@ -969,7 +960,7 @@ CImg<unsigned char> renderFrameCImg(const Graph &g, const std::vector<float> &x,
                                     std::size_t step, std::size_t numSteps, double hpwl,
                                     double hpwlInitial, double resid, const std::string &note,
                                     const constraintMgr *constraints, bool fixedView,
-                                    GifPalette &pal, double zoom) {
+                                    GifPalette &pal, double zoom, bool drawRows) {
     zoom = std::max(zoom, 1.0);
     const std::size_t nv = g.getNumCells();
     const ViewPort vp = fixedView ? dieViewPort(dieBox, zoom) : makeViewPort(g, x, y, dieBox, zoom);
@@ -1051,10 +1042,8 @@ CImg<unsigned char> renderFrameCImg(const Graph &g, const std::vector<float> &x,
     const CImgList<unsigned char> &font =
         CImgList<unsigned char>::font(static_cast<unsigned int>(std::lround(13.0 * zoom)));
 
-    // The rows, drawn under the cells. They are recovered from the cells, so
-    // there is nothing to pass in and a frame of a design with no row structure
-    // simply gets none.
-    const std::vector<std::array<double, 2>> rows = rowBands(g, y);
+    const std::vector<std::array<double, 2>> rows =
+        drawRows ? rowBands(g, y) : std::vector<std::array<double, 2>>{};
 
     // Row lines, at the very back. Faint, and only every eighth row, which turns
     // them from a hatch into a ruler: a line at every row pitch on a design with a
@@ -1763,13 +1752,13 @@ void writeFrameRaster(const std::string &path, const Graph &g, const std::vector
                       const std::vector<float> &y, const BBox &dieBox, std::size_t step,
                       std::size_t numSteps, double hpwl, double hpwlInitial, double resid,
                       const std::string &note, const constraintMgr *constraints, bool fixedView,
-                      double zoom) {
+                      double zoom, bool drawRows) {
     // A throwaway palette is fine for a single still; writeAnimatedGif() is the
     // path that needs one palette shared by every frame.
     GifPalette pal;
     const CImg<unsigned char> img =
         renderFrameCImg(g, x, y, dieBox, step, numSteps, hpwl, hpwlInitial, resid, note,
-                        constraints, fixedView, pal, zoom);
+                        constraints, fixedView, pal, zoom, drawRows);
     // Dispatch on the extension. ".ppm" and ".bmp" are handled natively by CImg
     // and need no external library. ".png" is written here rather than handed to
     // CImg, whose PNG support needs libpng headers this build does not have.
@@ -1798,7 +1787,7 @@ void writeFinalFrameRaster(const std::string &path, const Graph &g,
     // The finished placement has no "initial" to compare against, so none is
     // passed: the caption then shows one number instead of repeating one.
     writeFrameRaster(path, g, x, y, die, 0, 1, hpwl, /*hpwlInitial=*/0.0, 0.0, "final placement",
-                     constraints, /*fixedView=*/true, zoom);
+                     constraints, /*fixedView=*/true, zoom, /*drawRows=*/true);
 }
 
 namespace {
