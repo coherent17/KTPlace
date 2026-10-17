@@ -111,7 +111,7 @@ drawing during the run made. This is checked by:
 
 ## Cost
 
-adaptec1 (SimPL, Abacus, FastDP, animation on), dev container:
+adaptec1 (SimPL, Abacus, FastDP, animation on):
 
 | | global placement | legalize | detailed place | draw | whole run |
 | --- | ---: | ---: | ---: | ---: | ---: |
@@ -141,5 +141,3 @@ new tag) and its case in `replaySnapshots()`.
   left as its own decision.
 - **The snapshot file stores every cell, in full precision.** Fixed cells repeat in every frame.
   Dropping them would shrink the snapshot file several times.
-- **The web console's liveness check counts SVG frames** (`webui/server.py`). Frames now appear
-  only at the end of the run, so during placement the console has only CPU use to go on.
