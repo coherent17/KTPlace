@@ -109,6 +109,16 @@ drawing during the run made. This is checked by:
   adaptec1 (116), all with the animation on, all byte-identical including the GIF and
   `final.png`.
 
+## Routing demand
+
+With `visualizer congestion` (on by default) every frame the animation keeps is also drawn as
+a routing-demand map, under the same frame number, so `routing_demand.gif` has exactly the
+frames and timing of `placement.gif`, blended and held frames included. The map is
+`datamodel/kt_routingDemand`: each net with two or more pins spreads one unit evenly over its
+pins' bounding box, so a bin of a grid `congestion_bins` across gains `overlap/(w*h)` per net
+and holds the expected number of nets crossing it. Each frame is coloured to its own 99th
+percentile; its header gives the peak, 99th percentile and mean.
+
 ## Cost
 
 adaptec1 (SimPL, Abacus, FastDP, animation on):

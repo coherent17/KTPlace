@@ -20,6 +20,8 @@ struct VisualizerOptions {
     int animBlend = 3;
     bool keepSnapshots = false;
     bool svgFrames = false;
+    bool congestion = true;
+    std::size_t congestionBins = 128;
 
     static void fields(auto &self, auto &&visit) {
         visit("plot", self.plot);
@@ -30,6 +32,8 @@ struct VisualizerOptions {
         visit("anim_blend", self.animBlend);
         visit("keep_snapshots", self.keepSnapshots);
         visit("svg_frames", self.svgFrames);
+        visit("congestion", self.congestion);
+        visit("congestion_bins", self.congestionBins);
     }
 };
 

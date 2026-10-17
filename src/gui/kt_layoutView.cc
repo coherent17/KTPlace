@@ -50,32 +50,10 @@ constexpr std::uint32_t maxFlyLinePins = 1000;
 constexpr double pickSlackPx = 3.0;
 constexpr double pinMarkPx = 4.0;
 constexpr std::array<std::size_t, 4> congestionGrids{64, 128, 256, 512};
-constexpr float faintDemand = 0.03F;
 
 QRgb heatColor(float value) {
-    const float v = std::clamp(value, 0.0F, 1.0F);
-    struct Stop {
-        float at;
-        float r, g, b;
-    };
-    constexpr std::array<Stop, 5> stops{{{0.0F, 0x1f, 0x4e, 0xd8},
-                                         {0.35F, 0x1f, 0xb5, 0x8f},
-                                         {0.6F, 0xe6, 0xd2, 0x2e},
-                                         {0.8F, 0xf0, 0x8a, 0x24},
-                                         {1.0F, 0xe5, 0x2b, 0x2b}}};
-    std::size_t k = 1;
-    while (k + 1 < stops.size() && v > stops[k].at) {
-        ++k;
-    }
-    const Stop &a = stops[k - 1];
-    const Stop &b = stops[k];
-    const float t = (v - a.at) / (b.at - a.at);
-    const auto mix = [t](float p, float q) {
-        return static_cast<int>(std::lround(p + (q - p) * std::clamp(t, 0.0F, 1.0F)));
-    };
-    const int alpha =
-        v < faintDemand ? 0 : static_cast<int>(std::lround(255.0F * 0.78F * std::pow(v, 0.6F)));
-    return qPremultiply(qRgba(mix(a.r, b.r), mix(a.g, b.g), mix(a.b, b.b), alpha));
+    const std::array<std::uint8_t, 4> c = demandColour(value);
+    return qPremultiply(qRgba(c[0], c[1], c[2], c[3]));
 }
 
 class SelectionLayer : public QWidget {

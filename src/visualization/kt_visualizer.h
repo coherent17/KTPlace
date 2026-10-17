@@ -83,6 +83,12 @@ void writeFinalFrameRaster(const std::string &path, const Graph &g,
                            const constraintMgr *constraints = nullptr, double zoom = 4.0,
                            double hpwl = 0.0);
 
+/// The routing-demand picture of one placement: each net spreads one unit over its
+/// pins' bounding box on a grid @p bins across, drawn as a heat map.
+void writeDemandRaster(const std::string &path, const Graph &g, const std::vector<float> &x,
+                       const std::vector<float> &y, const BBox &dieBox, const std::string &note,
+                       const std::string &heading, double zoom, std::size_t bins);
+
 /// Assemble the per-iteration raster stills in @p dir into one animated GIF.
 ///
 /// Self-contained: the GIF89a container, its LZW compression and the palette are
@@ -246,6 +252,7 @@ private:
     // end of the run.
     bool animOn = false;
     std::filesystem::path animDir;
+    std::filesystem::path demandDir;
     int delayCs = 12;
     int blendSteps = 3;
     double frameZoom = 1.0;

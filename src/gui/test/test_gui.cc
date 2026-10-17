@@ -170,7 +170,9 @@ BOOST_AUTO_TEST_CASE(a_run_streams_frames_and_commits_and_writes_the_placement) 
     BOOST_TEST(recorded.result->message == (work / "placed.pl").string());
     BOOST_TEST(fs::exists(work / "placed.pl"));
     BOOST_TEST(fs::exists(work / "ktplace.log"));
-    BOOST_TEST(!fs::exists(work / "plots"));
+    BOOST_TEST(fs::exists(work / "plots" / "placement.png"));
+    BOOST_TEST(fs::exists(work / "plots" / "placement.gif"));
+    BOOST_TEST(fs::exists(work / "plots" / "routing_demand.gif"));
 
     std::vector<std::string> committed;
     std::size_t live = 0;
