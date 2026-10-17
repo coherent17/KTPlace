@@ -29,6 +29,12 @@ struct RatioRegion {
     std::size_t depth = 0;
 };
 
+struct Attempt {
+    std::array<double, 8> boxes{};
+    std::vector<std::uint8_t> side;
+    std::size_t cutNets = 0;
+};
+
 struct AreaRect {
     double x0 = 0.0, y0 = 0.0, x1 = 0.0, y1 = 0.0;
 };
@@ -43,6 +49,7 @@ constexpr std::uint32_t noIndex = 0xFFFFFFFFu;
 constexpr int maxPasses = 8;
 constexpr double balanceSlack = 0.02;
 constexpr double lookAheadStep = 0.05;
+constexpr double boxTolerance = 1e-6;
 constexpr double partitionEdgeScale = 1000.0;
 constexpr double partitionAreaScale = 1.0e6;
 
@@ -784,6 +791,7 @@ void RatioPlacer::Impl::divide(RatioRegion r) {
     double free1 = 0.0;
     std::vector<std::uint8_t> side;
     std::size_t cutNets = 0;
+    std::vector<Attempt> tried;
     for (std::size_t attempt = 0;; ++attempt) {
         r0 = RatioRegion{r.x0, r.y0, r.x1, r.y1, {}, r.depth + 1};
         r1 = r0;
@@ -826,9 +834,21 @@ void RatioPlacer::Impl::divide(RatioRegion r) {
             }
         }
 
-        const double p1 = vertical ? 0.5 * (r0.x0 + r0.x1) : 0.5 * (r0.y0 + r0.y1);
-        const double p2 = vertical ? 0.5 * (r1.x0 + r1.x1) : 0.5 * (r1.y0 + r1.y1);
-        cutNets = bipartition(r.cells, vertical, p1, p2, target, tol, forced, side);
+        const std::array<double, 8> boxes{r0.x0, r0.y0, r0.x1, r0.y1, r1.x0, r1.y0, r1.x1, r1.y1};
+        const auto sameBoxes = [&](const Attempt &a) {
+            return std::ranges::equal(boxes, a.boxes, [&](double x, double y) {
+                return std::fabs(x - y) <= boxTolerance * (hi - lo);
+            });
+        };
+        if (const auto seen = std::ranges::find_if(tried, sameBoxes); seen != tried.end()) {
+            side = seen->side;
+            cutNets = seen->cutNets;
+        } else {
+            const double p1 = vertical ? 0.5 * (r0.x0 + r0.x1) : 0.5 * (r0.y0 + r0.y1);
+            const double p2 = vertical ? 0.5 * (r1.x0 + r1.x1) : 0.5 * (r1.y0 + r1.y1);
+            cutNets = bipartition(r.cells, vertical, p1, p2, target, tol, forced, side);
+            tried.push_back({boxes, side, cutNets});
+        }
         for (std::size_t i = 0; i < r.cells.size(); ++i) {
             (side[i] == 0 ? r0.cells : r1.cells).push_back(r.cells[i]);
         }
