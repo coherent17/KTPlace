@@ -49,6 +49,20 @@ make STATIC=1   # build-static/bin/ktplace, with glibc and libstdc++ linked in t
 source ktplace.sh   # written by the build: puts ktplace on PATH
 ```
 
+### Desktop GUI (optional)
+
+`ktplace-gui` runs the same flow in a Qt window: open a design directory,
+optionally pick a Tcl script, press Run, and watch each stage move the cells
+while the log streams below. It needs Qt 6 Widgets, found through `pkg-config`
+(`brew install qt` on macOS, `qt6-base-dev` on Ubuntu); nothing else in the
+build does.
+
+```sh
+make gui        # build/bin/ktplace-gui
+make gui-test   # its suite, on Qt's offscreen platform
+build/bin/ktplace-gui [<input_dir> -w <dir> -tcl <file>]   # arguments as for ktplace
+```
+
 ## Usage
 
 ```sh

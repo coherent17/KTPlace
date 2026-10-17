@@ -329,6 +329,47 @@ $(BIN_DIR)/test_tcl: $(TEST_tcl) $(LIB_OBJS) $(BUNDLED_LIBS) | dirs
 		$(LIB_OBJS) $(LIBS) $(COVERAGE_LDFLAGS) $(TEST_LIBS)
 
 # ============================================================================
+# GUI: `make gui` builds ktplace-gui, `make gui-test` runs its suite offscreen.
+# Neither is part of `all` or `test`, so only these targets need Qt 6, found
+# through pkg-config. Qt's headers require position-independent code, and its
+# `emit` keyword would rename Logger::emit.
+# ============================================================================
+
+QT_MODULES := Qt6Widgets
+QT_CFLAGS = $(shell pkg-config --cflags $(QT_MODULES)) -fPIC -DQT_NO_KEYWORDS
+QT_LIBS = $(shell pkg-config --libs $(QT_MODULES))
+
+GUI_SRCS := gui/kt_layout.cc gui/kt_layoutView.cc gui/kt_logView.cc gui/kt_runner.cc \
+            gui/kt_mainWindow.cc
+GUI_OBJS := $(GUI_SRCS:%.cc=$(OBJ_DIR)/%.o)
+GUI_MAIN_OBJ := $(OBJ_DIR)/gui/kt_gui.o
+GUI_TARGET := $(BIN_DIR)/ktplace-gui
+TEST_gui := gui/test/test_gui.cc
+
+.PHONY: gui gui-test
+gui: all $(GUI_TARGET)
+
+gui-test: all $(BIN_DIR)/test_gui
+	@QT_QPA_PLATFORM=offscreen $(BIN_DIR)/test_gui --log_level=test_suite
+
+$(GUI_OBJS) $(GUI_MAIN_OBJ): $(OBJ_DIR)/gui/%.o: gui/%.cc
+	@mkdir -p $(dir $@)
+	@echo "Compiling $<..."
+	@$(CXX) $(CXXFLAGS) $(INCLUDES) $(QT_CFLAGS) -MMD -MP -c $< -o $@
+
+$(GUI_TARGET): $(GUI_OBJS) $(GUI_MAIN_OBJ) $(LIB_OBJS) $(BUNDLED_LIBS) | dirs
+	@echo "Linking $@..."
+	@$(CXX) $(CXXFLAGS) -o $@ $(GUI_OBJS) $(GUI_MAIN_OBJ) $(LIB_OBJS) $(LIBS) $(QT_LIBS)
+	@echo "Build complete: $@"
+
+$(BIN_DIR)/test_gui: $(TEST_gui) $(GUI_OBJS) $(LIB_OBJS) $(BUNDLED_LIBS) | dirs
+	@echo "  Building test_gui..."
+	@$(CXX) $(CXXFLAGS) $(INCLUDES) $(TEST_INCLUDES) $(QT_CFLAGS) -o $@ $(TEST_gui) $(GUI_OBJS) \
+		$(LIB_OBJS) $(LIBS) $(QT_LIBS) $(TEST_LIBS)
+
+-include $(GUI_OBJS:.o=.d) $(GUI_MAIN_OBJ:.o=.d)
+
+# ============================================================================
 # Line coverage
 # ============================================================================
 #
