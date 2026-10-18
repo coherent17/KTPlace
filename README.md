@@ -16,7 +16,6 @@
 
 <p align="center">
   <a href="#quick-start">Quick start</a> ·
-  <a href="#results">Results</a> ·
   <a href="#tcl-flows-and-the-console">Tcl flows</a> ·
   <a href="#desktop-gui">GUI</a> ·
   <a href="#configuration">Configuration</a> ·
@@ -68,20 +67,6 @@ ktplace benchmark/bookshelf/ICCAD04/ibm01 -w output/ibm01
 
 `output/ibm01` then holds `placed.pl`, `plots/placement.gif`, `plots/routing_demand.gif`, the final
 `plots/placement.png`, SimPL's `plots/simpl_convergence.png` and the logs.
-
-## Results
-
-HPWL after detailed placement on ISPD 2005, every placement legal by ktplace's own check
-([`benchmark/bm_status.md`](benchmark/bm_status.md), which also covers the fenced ISPD 2015 designs
-against DREAMPlace 3.0):
-
-| design | KTPlace | SimPL | gap | runtime |
-| --- | ---: | ---: | ---: | ---: |
-| adaptec1 | 7.944e7 | 7.687e7 | +3.3% | 22.4 s |
-| adaptec2 | 1.022e8 | 9.037e7 | +13.1% | 25.4 s |
-| adaptec3 | 2.218e8 | 2.064e8 | +7.5% | 49.6 s |
-| adaptec4 | 1.908e8 | 1.860e8 | +2.6% | 55.1 s |
-| bigblue1 | 9.892e7 | 9.585e7 | +3.2% | 28.6 s |
 
 ## Usage
 
