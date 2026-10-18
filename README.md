@@ -67,7 +67,7 @@ which needs Qt 6 Widgets, found through `pkg-config`. A plain `make` stays free
 of Qt, and its `--gui` says how to get the window.
 
 <p align="center">
-  <img src="docs/images/adaptec1_gui.png" width="100%" alt="The KTPlace window after placing adaptec1 step by step from the Tcl Console">
+  <img src="docs/images/gui_demo.gif" width="100%" alt="Using the KTPlace GUI on adaptec1: Open Design, help, gplace_design with a selected cell, legalize_placement and detail_place zoomed in, the routing-demand map, command history and write_placement">
 </p>
 
 ```sh
