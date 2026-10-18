@@ -37,7 +37,7 @@ public:
 
     // Registers a command, so the set a script may call grows without touching
     // this class.
-    void registerCommand(const std::string &name, tcl::Command command);
+    void registerCommand(tcl::CommandHelp help, tcl::Command command);
 
     // The interpreter the script runs in. Public because registering more
     // commands is the whole extension point, and a caller may reasonably want to

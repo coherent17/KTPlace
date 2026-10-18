@@ -91,7 +91,7 @@ LIBS := $(STATIC_LDFLAGS) $(BUNDLED_LIBS) -pthread
 SUBDIRS := datamodel adaptor globalPlacer legalizer detailPlacer visualization util tcl
 
 # Source files in current directory
-LOCAL_SRCS := kt_flowMgr.cc kt_place.cc kt_option.cc kt_noGui.cc
+LOCAL_SRCS := kt_flowMgr.cc kt_tclCmd.cc kt_place.cc kt_option.cc kt_shell.cc
 
 GUI ?= 0
 ifeq ($(GUI)$(STATIC),11)
@@ -104,6 +104,7 @@ QT_CFLAGS = $(shell pkg-config --cflags $(QT_MODULES)) -fPIC -DQT_NO_KEYWORDS
 QT_LIBS = $(shell pkg-config --libs $(QT_MODULES))
 
 GUI_SRCS := gui/kt_layout.cc gui/kt_congestion.cc gui/kt_layoutView.cc gui/kt_glCanvas.cc gui/kt_logView.cc gui/kt_runner.cc \
+            gui/kt_tclConsole.cc \
             gui/kt_mainWindow.cc
 GUI_OBJS := $(GUI_SRCS:%.cc=$(OBJ_DIR)/%.o)
 GUI_ENTRY_OBJ := $(OBJ_DIR)/gui/kt_gui.o
@@ -136,17 +137,19 @@ STATIC_LIB := $(LIB_DIR)/libktplace.a
 
 # Engine objects without the entry point, so the library and the unit tests
 # can link against them (kt_place.cc owns main()).
-LIB_OBJS := $(filter-out $(OBJ_DIR)/kt_place.o $(OBJ_DIR)/kt_noGui.o,$(ALL_OBJS))
+LIB_OBJS := $(filter-out $(OBJ_DIR)/kt_place.o,$(ALL_OBJS))
 
 # The executable is the engine plus main() plus one front end for --gui. A
 # stamp holding GUI relinks it when GUI changes and nothing else did.
 GUI_STAMP := $(OBJ_DIR)/gui.stamp
 $(shell mkdir -p $(OBJ_DIR) && (echo $(GUI) | cmp -s - $(GUI_STAMP) || echo $(GUI) > $(GUI_STAMP)))
+$(OBJ_DIR)/kt_place.o: $(GUI_STAMP)
+$(OBJ_DIR)/kt_place.o: CXXFLAGS += $(if $(filter 1,$(GUI)),-DKTPLACE_GUI)
 ifeq ($(GUI),1)
   FRONT_OBJS = $(GUI_OBJS) $(GUI_ENTRY_OBJ)
   FRONT_LIBS = $(QT_LIBS)
 else
-  FRONT_OBJS = $(OBJ_DIR)/kt_noGui.o
+  FRONT_OBJS =
 endif
 
 # ============================================================================
@@ -357,7 +360,8 @@ $(BIN_DIR)/test_tcl: $(TEST_tcl) $(LIB_OBJS) $(BUNDLED_LIBS) | dirs
 
 # ============================================================================
 # GUI: `make GUI=1` links the Qt window into ktplace for `ktplace --gui`;
-# without it ktplace links kt_noGui.cc, and --gui says how to get the window.
+# without it kt_place.cc is built without KTPLACE_GUI, and --gui says how to get
+# the window.
 # `make gui-test` runs the GUI suite offscreen. Only these need Qt 6, found
 # through pkg-config. Qt's headers require position-independent code, and its
 # `emit` keyword would rename Logger::emit.
@@ -376,6 +380,12 @@ $(BIN_DIR)/test_gui: $(TEST_gui) $(GUI_OBJS) $(LIB_OBJS) $(BUNDLED_LIBS) | dirs
 	@echo "  Building test_gui..."
 	@$(CXX) $(CXXFLAGS) $(INCLUDES) $(TEST_INCLUDES) $(QT_CFLAGS) -o $@ $(TEST_gui) $(GUI_OBJS) \
 		$(LIB_OBJS) $(LIBS) $(QT_LIBS) $(TEST_LIBS)
+
+# scripts/gui_demo.sh records the README's GUI demo with this program.
+$(BIN_DIR)/gui_demo: ../scripts/gui_demo.cc $(GUI_OBJS) $(LIB_OBJS) $(BUNDLED_LIBS) | dirs
+	@echo "  Building gui_demo..."
+	@$(CXX) $(CXXFLAGS) $(INCLUDES) $(QT_CFLAGS) -o $@ ../scripts/gui_demo.cc $(GUI_OBJS) \
+		$(LIB_OBJS) $(LIBS) $(QT_LIBS)
 
 -include $(GUI_OBJS:.o=.d) $(GUI_ENTRY_OBJ:.o=.d)
 

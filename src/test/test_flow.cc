@@ -7,9 +7,12 @@
 // Death tests verify the ktlog::fatal paths, which end the process on purpose.
 #include "kt_flowMgr.h"
 #include "kt_option.h"
+#include "kt_shell.h"
 
 #include "datamodel/kt_dm.h"
 #include "datamodel/kt_optionDb.h"
+#include "tcl/kt_tcl.h"
+#include "util/kt_history.h"
 
 #include <algorithm>
 #include <boost/test/unit_test_suite.hpp>
@@ -27,6 +30,20 @@
 
 using namespace ktplace;
 namespace fs = std::filesystem;
+
+struct IsolatedHome {
+    IsolatedHome() {
+        const std::filesystem::path home =
+            std::filesystem::temp_directory_path() / ("ktplace_home_" + std::to_string(getpid()));
+        std::filesystem::create_directories(home);
+        setenv("HOME", home.c_str(), 1);
+    }
+    ~IsolatedHome() {
+        std::error_code ec;
+        std::filesystem::remove_all(std::getenv("HOME"), ec);
+    }
+};
+BOOST_TEST_GLOBAL_FIXTURE(IsolatedHome);
 
 namespace {
 
@@ -385,6 +402,93 @@ BOOST_AUTO_TEST_CASE(flow_reads_the_placer_from_its_tcl_script) {
             flow.run(opt);
         },
         "unknown placer 'no_such_algo'");
+}
+
+BOOST_AUTO_TEST_CASE(a_script_with_steps_is_the_flow) {
+    const ScratchDir dir("stepscript");
+    writeBookshelfDesign(dir);
+    const fs::path script = fs::path(dir.str()) / "flow.tcl";
+    std::ofstream(script) << "add_option visualizer plot 0\n"
+                          << "read_design {" << designDir(dir).string() << "}\n"
+                          << "gplace_design\n"
+                          << "set gp [report_hpwl]\n"
+                          << "legalize_placement\n"
+                          << "detail_place\n"
+                          << "write_placement {" << dir.str() << "/mine.pl}\n";
+    kt_option opt = optionsFor(dir, "");
+    opt.tclFile = script.string();
+    {
+        FlowMgr flow;
+        flow.run(opt);
+    }
+    OptionDb::instance().clear();
+    BOOST_TEST(fs::exists(fs::path(dir.str()) / "mine.pl"));
+    BOOST_TEST(!fs::exists(opt.getOutputPath()));
+    BOOST_TEST(countNonEmptyLines(fs::path(dir.str()) / "mine.pl") == 6);
+}
+
+BOOST_AUTO_TEST_CASE(a_step_before_read_design_is_a_tcl_error) {
+    const ScratchDir dir("nodesign");
+    FlowMgr flow;
+    flow.begin(optionsFor(dir, ""));
+    BOOST_CHECK_THROW((void)flow.evaluate("gplace_design"), tcl::Error);
+    BOOST_CHECK_THROW((void)flow.evaluate("write_placement"), tcl::Error);
+    BOOST_CHECK_THROW((void)flow.evaluate("read_design"), tcl::Error);
+    BOOST_TEST(!flow.hasDesign());
+}
+
+BOOST_AUTO_TEST_CASE(report_hpwl_returns_the_hpwl_to_the_script) {
+    const ScratchDir dir("hpwl");
+    writeBookshelfDesign(dir);
+    FlowMgr flow;
+    flow.begin(optionsFor(dir, ""));
+    (void)flow.evaluate("read_design {" + designDir(dir).string() + "}");
+    BOOST_TEST(flow.hasDesign());
+    BOOST_TEST(flow.evaluate("read_design") == designDir(dir).string());
+    BOOST_TEST(std::stod(flow.evaluate("report_hpwl")) > 0.0);
+}
+
+BOOST_AUTO_TEST_CASE(help_lists_every_command_and_explains_one) {
+    const ScratchDir dir("help");
+    FlowMgr flow;
+    flow.begin(optionsFor(dir, ""));
+    const std::string all = flow.evaluate("help");
+    for (const char *command : {"read_design", "gplace_design", "legalize_placement",
+                                "detail_place", "place_design", "write_placement", "report_hpwl"}) {
+        BOOST_TEST(all.find(command) != std::string::npos, command);
+    }
+    BOOST_TEST(flow.evaluate("help write_placement").find("write_placement") != std::string::npos);
+    BOOST_CHECK_THROW((void)flow.evaluate("help no_such_command"), tcl::Error);
+    BOOST_TEST(all.find("foreach") > all.find("Tcl builtins:"));
+    BOOST_TEST(flow.evaluate("place_design -h") == flow.evaluate("help place_design"));
+    BOOST_TEST(flow.evaluate("gplace_design -h").starts_with("gplace_design [simpl|ntuplace1]"));
+    BOOST_CHECK_THROW((void)flow.evaluate("read_design a b c"), tcl::Error);
+}
+
+BOOST_AUTO_TEST_CASE(the_shell_remembers_its_commands) {
+    const ScratchDir dir("shellhistory");
+    std::istringstream input("help\nreport_design\nexit\n");
+    BOOST_TEST(runShell(optionsFor(dir, ""), input) == 0);
+    const CommandHistory history;
+    BOOST_TEST(std::ranges::count(history.entries(), "help") == 1);
+}
+
+BOOST_AUTO_TEST_CASE(the_shell_runs_commands_and_survives_a_bad_one) {
+    const ScratchDir dir("shell");
+    writeBookshelfDesign(dir);
+    std::istringstream input(
+        "add_option visualizer plot 0\n"
+        "place_design\n"
+        "no_such_command\n"
+        "foreach step {1 2} {\n"
+        "  set last $step\n"
+        "}\n"
+        "write_placement\n"
+        "exit\n");
+    const kt_option opt = optionsFor(dir, designDir(dir).string());
+    BOOST_TEST(runShell(opt, input) == 0);
+    OptionDb::instance().clear();
+    BOOST_TEST(fs::exists(opt.getOutputPath()));
 }
 
 BOOST_AUTO_TEST_CASE(flow_exits_on_a_broken_tcl_script) {

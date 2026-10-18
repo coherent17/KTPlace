@@ -29,21 +29,20 @@ bool kt_option::parse(int argc, char *argv[]) {
 
     std::vector<std::string> args;
     for (int i = 1; i < argc; ++i) {
-        if (std::string_view(argv[i]) == "--gui") {
+        const std::string_view arg = argv[i];
+        if (arg == "--gui") {
             gui = true;
+        } else if (arg == "--shell") {
+            shell = true;
         } else {
             args.emplace_back(argv[i]);
         }
     }
 
     std::size_t first = 0;
-    if (!args.empty() && !(gui && args.front().starts_with('-'))) {
+    if (!args.empty() && !args.front().starts_with('-')) {
         inputPath = args.front();
         first = 1;
-    } else if (!gui) {
-        ktlog.echo("");
-        printUsage();
-        ktlog.fatal("Insufficient command-line arguments");
     }
 
     for (std::size_t i = first; i < args.size(); ++i) {
@@ -67,6 +66,12 @@ bool kt_option::parse(int argc, char *argv[]) {
             printUsage();
             ktlog.fatal("Unknown command-line option: {}", arg);
         }
+    }
+
+    if (inputPath.empty() && tclFile.empty() && !gui && !shell) {
+        ktlog.echo("");
+        printUsage();
+        ktlog.fatal("Insufficient command-line arguments");
     }
 
     std::error_code ec;
@@ -94,6 +99,8 @@ void kt_option::report() const {
 void kt_option::printUsage() {
     constexpr const char *usage = R"(KTPlace - Know Thyself Placement Engine v{}
 Usage: ktplace <input_dir> [options]
+       ktplace [<input_dir>] -tcl <flow.tcl> [options]
+       ktplace --shell [<input_dir>] [options]
        ktplace --gui [<input_dir>] [options]
 
 Arguments:
@@ -103,8 +110,11 @@ Arguments:
 Options:
   -w, --work-dir <dir>      Where to write everything; created if missing
                             (default: the current directory)
-  -tcl, --tcl <file>        Tcl script configuring the run, through
-                            add_option <component> <key> <value>
+  -tcl, --tcl <file>        Tcl script for the run: add_option lines configure
+                            the default flow; read_design, gplace_design,
+                            legalize_placement, detail_place, write_placement
+                            ... make the script the flow itself
+  --shell                   Interactive Tcl console (prompt on stderr)
   -v, --verbose             Also send trace diagnostics to the console.
                             <log>_trace.log is always written either way
   --gui                     Open the Qt window instead, placing <input_dir> if
@@ -127,6 +137,8 @@ Examples:
   ktplace benchmark/bookshelf/ISPD_2005/adaptec1
   ktplace benchmark/bookshelf/ISPD_2005/adaptec1 -w output
   ktplace benchmark/bookshelf/ISPD_2005/adaptec1 -w output -tcl run.tcl
+  ktplace -w output -tcl flow.tcl
+  ktplace --shell benchmark/bookshelf/ICCAD04/ibm01 -w output
 )";
     ktlog.echo(std::format(usage, version));
 }

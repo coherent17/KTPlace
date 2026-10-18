@@ -4,6 +4,7 @@
 #include "kt_flowMgr.h"
 
 #include "kt_option.h"
+#include "kt_tclCmd.h"
 
 #include "adaptor/kt_inputReader.h"
 #include "datamodel/kt_dm.h"
@@ -32,6 +33,7 @@
 #include <iomanip>
 #include <memory>
 #include <span>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -85,21 +87,32 @@ void recordSimplBounds(simpl::simplDM &dm, SnapshotWriter &snapshots) {
 class FlowMgr::Impl {
 public:
     void run(const kt_option &options);
-
-    FlowObserver observer;
-
-private:
-    std::unique_ptr<ktDM> db;
-    PlotOptions plot;
-    std::unique_ptr<SnapshotWriter> snapshots;
-
-    void parseTcl(const kt_option &options);
-    void loadDesign(const std::string &dirPath);
+    void begin(const kt_option &newOptions);
+    std::string evaluate(const std::string &script);
+    void finish();
+    void requireDesign() const;
+    void readDesign(const std::string &dirPath);
     void reportDesign();
     void placeDesign();
-    void writeDesign(const std::string &outputPath);
     void legalizeDesign();
     void detailPlaceDesign();
+    void writeDesign(const std::string &outputPath);
+    void drawPictures();
+
+    FlowObserver observer;
+    std::unique_ptr<ktDM> db;
+    kt_option options;
+    bool stepsRun = false;
+    bool placementWritten = false;
+
+private:
+    PlotOptions plot;
+    std::unique_ptr<SnapshotWriter> snapshots;
+    bool plotsReady = false;
+
+    void preparePlots();
+    void parseTcl();
+    void loadDesign(const std::string &dirPath);
     void commit(std::string_view stage);
     void reportSummary() const;
 
@@ -110,13 +123,17 @@ private:
         std::uint32_t checksum = 0;
     };
     std::vector<Committed> committed;
-    void drawPictures();
     void finishAnimation();
 };
 
 
-FlowMgr::FlowMgr() : pImpl(std::make_unique<Impl>()) {}
-FlowMgr::~FlowMgr() = default;
+FlowMgr::FlowMgr() : pImpl(std::make_unique<Impl>()) {
+    bindTclCommands(*this);
+}
+
+FlowMgr::~FlowMgr() {
+    unbindTclCommands(*this);
+}
 FlowMgr::FlowMgr(FlowMgr &&) noexcept = default;
 FlowMgr &FlowMgr::operator=(FlowMgr &&) noexcept = default;
 
@@ -128,23 +145,148 @@ void FlowMgr::observe(FlowObserver observer) {
     pImpl->observer = std::move(observer);
 }
 
-
-void FlowMgr::Impl::run(const kt_option &options) {
-    parseTcl(options);
-    plot = PlotOptions::fromOptions(options.getPlotDir());
-
-    loadDesign(options.inputPath);
-    placeDesign();
-    legalizeDesign();
-    detailPlaceDesign();
-    writeDesign(options.getOutputPath());
-    drawPictures();
-    ktlog.beginStep("summary");
-    TimerRegistry::instance().report();
-    reportSummary();
+void FlowMgr::begin(const kt_option &options) {
+    pImpl->begin(options);
+    bindTclCommands(*this);
 }
 
-void FlowMgr::Impl::parseTcl(const kt_option &options) {
+std::string FlowMgr::evaluate(const std::string &script) {
+    return pImpl->evaluate(script);
+}
+
+void FlowMgr::finish() {
+    pImpl->finish();
+}
+
+bool FlowMgr::hasDesign() const {
+    return pImpl->db != nullptr;
+}
+
+const std::string &FlowMgr::designPath() const {
+    return pImpl->options.inputPath;
+}
+
+void FlowMgr::readDesign(const std::string &dirPath) {
+    pImpl->readDesign(dirPath);
+}
+
+void FlowMgr::globalPlace() {
+    pImpl->requireDesign();
+    pImpl->stepsRun = true;
+    pImpl->placeDesign();
+}
+
+void FlowMgr::legalize() {
+    pImpl->requireDesign();
+    pImpl->stepsRun = true;
+    pImpl->legalizeDesign();
+}
+
+void FlowMgr::detailPlace() {
+    pImpl->requireDesign();
+    pImpl->stepsRun = true;
+    pImpl->detailPlaceDesign();
+}
+
+std::string FlowMgr::writePlacement(const std::string &path) {
+    pImpl->requireDesign();
+    const std::string target = path.empty() ? pImpl->options.getOutputPath() : path;
+    pImpl->stepsRun = true;
+    pImpl->writeDesign(target);
+    pImpl->placementWritten = true;
+    return target;
+}
+
+void FlowMgr::writePlots() {
+    pImpl->requireDesign();
+    pImpl->stepsRun = true;
+    pImpl->drawPictures();
+}
+
+double FlowMgr::hpwl() const {
+    pImpl->requireDesign();
+    return pImpl->db->hpwl();
+}
+
+void FlowMgr::reportDesign() const {
+    pImpl->requireDesign();
+    pImpl->reportDesign();
+}
+
+bool FlowMgr::checkPlacement() const {
+    pImpl->requireDesign();
+    pImpl->db->isLegalizePlacement();
+    return pImpl->db->verify().empty();
+}
+
+
+void FlowMgr::Impl::run(const kt_option &runOptions) {
+    begin(runOptions);
+    if (!options.inputPath.empty()) {
+        readDesign(options.inputPath);
+    }
+    parseTcl();
+    if (!stepsRun) {
+        if (!db) {
+            ktlog.fatal("nothing to place: give a design directory, or read_design in the script");
+        }
+        placeDesign();
+        legalizeDesign();
+        detailPlaceDesign();
+        writeDesign(options.getOutputPath());
+    }
+    finish();
+}
+
+void FlowMgr::Impl::begin(const kt_option &newOptions) {
+    options = newOptions;
+}
+
+std::string FlowMgr::Impl::evaluate(const std::string &script) {
+    return tcl::TclMgr::instance().interpreter.eval(script).asString();
+}
+
+void FlowMgr::Impl::finish() {
+    if (stepsRun && db && !placementWritten) {
+        ktlog.warning("the placement was not written; call write_placement to save it");
+    }
+    drawPictures();
+    if (!committed.empty()) {
+        ktlog.beginStep("summary");
+        TimerRegistry::instance().report();
+        reportSummary();
+    }
+}
+
+void FlowMgr::Impl::requireDesign() const {
+    if (!db) {
+        throw std::logic_error("no design is loaded; call read_design first");
+    }
+}
+
+void FlowMgr::Impl::readDesign(const std::string &dirPath) {
+    options.inputPath = dirPath;
+    snapshots.reset();
+    plotsReady = false;
+    committed.clear();
+    loadDesign(dirPath);
+}
+
+void FlowMgr::Impl::preparePlots() {
+    if (plotsReady) {
+        return;
+    }
+    plotsReady = true;
+    plot = PlotOptions::fromOptions(options.getPlotDir());
+    Visualizer::instance().configure(plot.dir, plot);
+    if (plot.enabled()) {
+        snapshots = std::make_unique<SnapshotWriter>(snapshotFile(plot.dir));
+        snapshots->holdBack(plot.frameBudget * 2 / 5);
+    }
+}
+
+
+void FlowMgr::Impl::parseTcl() {
     if (options.tclFile.empty()) {
         return;
     }
@@ -227,18 +369,7 @@ void FlowMgr::Impl::placeDesign() {
     if (!db) {
         ktlog.fatal("No placement database loaded");
     }
-
-    // Configured here rather than inside a stage, so the legalizer and the
-    // detailed placer add to the same GIF.
-    Visualizer::instance().configure(plot.dir, plot);
-    if (plot.enabled()) {
-        snapshots = std::make_unique<SnapshotWriter>(snapshotFile(plot.dir));
-        // Global placement is by far the most frame-hungry stage, so it does not
-        // get to spend the whole budget: two fifths are held back for legalization
-        // and detailed placement, the stages that turn a legal-looking placement
-        // into a real one.
-        snapshots->holdBack(plot.frameBudget * 2 / 5);
-    }
+    preparePlots();
 
     if (algorithm == "simpl") {
         simpl::flowMgr flow(*db);
@@ -269,6 +400,7 @@ void FlowMgr::Impl::placeDesign() {
 
 void FlowMgr::Impl::legalizeDesign() {
     ScopedTimer timer("legalization", true);
+    preparePlots();
     // Whatever the placer reserved is released, so the later stages get the whole
     // remaining budget.
     if (snapshots) {
@@ -295,6 +427,7 @@ void FlowMgr::Impl::legalizeDesign() {
 
 void FlowMgr::Impl::detailPlaceDesign() {
     ScopedTimer timer("detailed placement", true);
+    preparePlots();
     fastdp::flowMgr flow(*db);
     recordStage(flow.dm(), snapshots.get(), observer, {"detailplace", "", 0});
     (void)flow.run();
@@ -304,7 +437,7 @@ void FlowMgr::Impl::detailPlaceDesign() {
 
 
 void FlowMgr::Impl::drawPictures() {
-    if (!snapshots) {
+    if (!snapshots || !db) {
         return;
     }
     ktlog.beginStep("draw");
@@ -317,10 +450,12 @@ void FlowMgr::Impl::drawPictures() {
     finishAnimation();
     if (plot.keepSnapshots) {
         ktlog.echo("Kept the recorded snapshots: {}", snapshots->path());
-        return;
+    } else {
+        std::error_code ec;
+        std::filesystem::remove(snapshots->path(), ec);
     }
-    std::error_code ec;
-    std::filesystem::remove(snapshots->path(), ec);
+    snapshots.reset();
+    plotsReady = false;
 }
 
 void FlowMgr::Impl::finishAnimation() {

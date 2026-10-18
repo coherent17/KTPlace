@@ -8,6 +8,8 @@
 #include "gui/kt_logView.h"
 #include "gui/kt_mainWindow.h"
 #include "gui/kt_runner.h"
+#include "gui/kt_tclConsole.h"
+#include "util/kt_history.h"
 #include "util/kt_log.h"
 
 #include <QApplication>
@@ -17,16 +19,32 @@
 #include <QObject>
 #include <QThread>
 #include <boost/test/unit_test.hpp>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <functional>
 #include <optional>
 #include <string>
+#include <unistd.h>
 #include <vector>
 
 using namespace ktplace;
 using namespace ktplace::gui;
 namespace fs = std::filesystem;
+
+struct IsolatedHome {
+    IsolatedHome() {
+        const fs::path home =
+            fs::temp_directory_path() / ("ktplace_gui_home_" + std::to_string(getpid()));
+        fs::create_directories(home);
+        setenv("HOME", home.c_str(), 1);
+    }
+    ~IsolatedHome() {
+        std::error_code ec;
+        fs::remove_all(std::getenv("HOME"), ec);
+    }
+};
+BOOST_TEST_GLOBAL_FIXTURE(IsolatedHome);
 
 namespace {
 
@@ -319,4 +337,64 @@ BOOST_AUTO_TEST_CASE(the_window_runs_a_design_and_logs_it) {
     BOOST_TEST(window.layoutView()->frame().stage == "detailed placement");
     BOOST_TEST(window.logView()->toPlainText().contains(
         QStringLiteral("Placement completed successfully!")));
+}
+
+BOOST_AUTO_TEST_CASE(the_tcl_console_drives_a_session_step_by_step) {
+    const ScratchDir dir("console");
+    const std::string design = dir.design();
+    const fs::path work = dir.file("work");
+    MainWindow window({"", work.string(), ""});
+    std::vector<RunResult> results;
+    window.onFinished([&results](const RunResult &r) {
+        results.push_back(r);
+    });
+    TclConsole &console = *window.tclConsole();
+    const auto run = [&](const QString &command) {
+        const std::size_t before = results.size();
+        console.submit(command);
+        BOOST_REQUIRE(waitUntil([&] {
+            return results.size() > before;
+        }));
+        return results.back();
+    };
+
+    BOOST_TEST(
+        (run(QStringLiteral("read_design {%1}").arg(QString::fromStdString(design))).outcome ==
+         RunResult::Outcome::Evaluated));
+    BOOST_TEST((run(QStringLiteral("place_design")).outcome == RunResult::Outcome::Evaluated));
+    const RunResult hpwl = run(QStringLiteral("report_hpwl"));
+    BOOST_TEST(hpwl.fromConsole);
+    BOOST_TEST(std::stod(hpwl.message) > 0.0);
+    BOOST_TEST((run(QStringLiteral("no_such_command")).outcome == RunResult::Outcome::Failed));
+    BOOST_TEST((run(QStringLiteral("write_placement")).outcome == RunResult::Outcome::Evaluated));
+    BOOST_TEST(fs::exists(work / "placed.pl"));
+    BOOST_TEST(window.layoutView()->frame().stage == "detailed placement");
+    BOOST_TEST(console.transcript().contains(QStringLiteral("% report_hpwl")));
+    BOOST_TEST(console.transcript().contains(QStringLiteral("no_such_command")));
+    const CommandHistory history;
+    BOOST_TEST(history.entries().back() == "write_placement");
+}
+
+BOOST_AUTO_TEST_CASE(opening_a_design_loads_it_and_read_design_reads_it_again) {
+    const ScratchDir dir("opened");
+    const std::string design = dir.design();
+    const fs::path work = dir.file("work");
+    MainWindow window({"", work.string(), ""});
+    std::vector<RunResult> results;
+    window.onFinished([&results](const RunResult &r) {
+        results.push_back(r);
+    });
+    window.openDesign(QString::fromStdString(design));
+    BOOST_REQUIRE(waitUntil([&] {
+        return !results.empty();
+    }));
+    BOOST_TEST((results.back().outcome == RunResult::Outcome::Loaded));
+    BOOST_TEST(window.layoutView()->frame().stage == "load");
+
+    window.tclConsole()->submit(QStringLiteral("read_design"));
+    BOOST_REQUIRE(waitUntil([&] {
+        return results.size() > 1;
+    }));
+    BOOST_TEST((results.back().outcome == RunResult::Outcome::Evaluated));
+    BOOST_TEST(results.back().message == design);
 }

@@ -2,6 +2,7 @@
 
 #include <functional>
 #include <memory>
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -30,6 +31,22 @@ public:
     void run(const kt_option &options);
 
     void observe(FlowObserver observer);
+
+    void begin(const kt_option &options);
+    [[nodiscard]] std::string evaluate(const std::string &script);
+    void finish();
+    [[nodiscard]] bool hasDesign() const;
+    [[nodiscard]] const std::string &designPath() const;
+
+    void readDesign(const std::string &dirPath);
+    void globalPlace();
+    void legalize();
+    void detailPlace();
+    std::string writePlacement(const std::string &path = {});
+    void writePlots();
+    [[nodiscard]] double hpwl() const;
+    void reportDesign() const;
+    [[nodiscard]] bool checkPlacement() const;
 
 private:
     class Impl;

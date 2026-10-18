@@ -6,12 +6,17 @@
 #include "util/kt_log.h"
 
 #include <algorithm>
+#include <array>
 #include <cctype>
 #include <cmath>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <filesystem>
+#include <format>
 #include <fstream>
 #include <sstream>
+#include <system_error>
 
 namespace ktplace::tcl {
 
@@ -527,6 +532,35 @@ std::vector<Value> listValue(Interpreter &self, const Word &word) {
     return self.splitList(word.text);
 }
 
+std::string shellCommand(Interpreter &self, const Arguments &args, std::size_t first) {
+    std::string command;
+    for (std::size_t i = first; i < args.size(); ++i) {
+        command += command.empty() ? "" : " ";
+        command += args[i].literal ? args[i].text : self.substitute(args[i].text);
+    }
+    return command;
+}
+
+Value runShellCommand(const std::string &command) {
+    FILE *pipe = popen((command + " 2>&1").c_str(), "r");
+    if (pipe == nullptr) {
+        throw Error(std::format("exec: cannot run \"{}\"", command));
+    }
+    std::string output;
+    std::array<char, 4096> chunk{};
+    while (const std::size_t got = std::fread(chunk.data(), 1, chunk.size(), pipe)) {
+        output.append(chunk.data(), got);
+    }
+    const int status = pclose(pipe);
+    while (!output.empty() && output.back() == '\n') {
+        output.pop_back();
+    }
+    if (status != 0) {
+        throw Error(output.empty() ? std::format("exec: \"{}\" failed", command) : output);
+    }
+    return Value::string(output);
+}
+
 }  // namespace
 
 // --------------------------------------------------------------------------
@@ -727,320 +761,452 @@ Value parseLiteral(const std::string &text) {
 
 Interpreter::Interpreter() {
     installBuiltins();
+    for (const auto &entry : commandTable) {
+        builtinNames.insert(entry.first);
+    }
 }
 
 void Interpreter::installBuiltins() {
-    registerCommand("set", [](Interpreter &self, const Arguments &args, Value &result) -> int {
-        if (args.size() == 2) {
-            result = self.variable(args[1].text);
-            return 0;
-        }
-        if (args.size() != 3) {
-            throw Error("set: expected 2 or 3 arguments");
-        }
-        result = wordValue(self, args[2]);
-        self.setVariable(args[1].text, result);
-        return 0;
-    });
-
-    registerCommand("unset", [](Interpreter &self, const Arguments &args, Value &) -> int {
-        for (std::size_t i = 1; i < args.size(); ++i) {
-            self.unsetVariable(args[i].text);
-        }
-        return 0;
-    });
-
-    registerCommand("puts", [](Interpreter &self, const Arguments &args, Value &) -> int {
-        std::string text;
-        if (args.size() == 2) {
-            text = self.substitute(args[1].text, 0);
-        } else if (args.size() == 3) {
-            const Value channel = parseLiteral(self.substitute(args[1].text, 0));
-            text = channel.asString() == "stderr" ? "stderr: " + self.substitute(args[2].text, 0)
-                                                  : self.substitute(args[2].text, 0);
-        } else {
-            throw Error("puts: expected 1 or 2 arguments");
-        }
-        ktlog.echo("{}", text);
-        return 0;
-    });
-
-    registerCommand("expr", [](Interpreter &self, const Arguments &args, Value &result) -> int {
-        if (args.size() < 2) {
-            throw Error("expr: expected an expression");
-        }
-        std::string text;
-        for (std::size_t i = 1; i < args.size(); ++i) {
-            if (i > 1) {
-                text += ' ';
-            }
-            text += self.substitute(args[i].text, 0);
-        }
-        ExprParser parser(
-            [&self](const std::string &name) {
-                return self.variable(name);
-            },
-            text);
-        result = parser.parse();
-        return 0;
-    });
-
-    registerCommand("incr", [](Interpreter &self, const Arguments &args, Value &) -> int {
-        if (args.size() < 2 || args.size() > 3) {
-            throw Error("incr: expected 1 or 2 arguments");
-        }
-        const std::int64_t step =
-            args.size() == 3 ? parseLiteral(self.substitute(args[2].text, 0)).asInt() : 1;
-        const std::int64_t current =
-            self.hasVariable(args[1].text) ? self.variable(args[1].text).asInt() : 0;
-        self.setVariable(args[1].text, Value::integer(current + step));
-        return 0;
-    });
-
-    registerCommand("if", [](Interpreter &self, const Arguments &args, Value &) -> int {
-        // if cond ?then? body elseif cond body ... ?else? body
-        std::size_t i = 1;
-        for (;;) {
-            if (i >= args.size()) {
-                throw Error("if: no condition");
-            }
-            const std::string cond = self.substitute(args[i].text, 0);
-            i++;
-            if (i < args.size() && args[i].literal && args[i].text == "then") {
-                i++;
-            }
-            if (i >= args.size()) {
-                throw Error("if: missing body");
-            }
-            ExprParser parser(
-                [&self](const std::string &n) {
-                    return self.variable(n);
-                },
-                cond);
-            if (parser.parse().asBool()) {
-                (void)self.eval(args[i].text, 0);
+    registerCommand(
+        {.name = "set", .usage = "set <var> [value]", .summary = "read a variable, or set it"},
+        [](Interpreter &self, const Arguments &args, Value &result) -> int {
+            if (args.size() == 2) {
+                result = self.variable(args[1].text);
                 return 0;
             }
-            i++;
-            if (i >= args.size()) {
-                return 0;
-            }
-            if (args[i].literal && args[i].text == "elseif") {
-                i++;
-                continue;
-            }
-            if (args[i].literal && args[i].text == "else") {
-                i++;
-                if (i >= args.size()) {
-                    throw Error("if: missing else body");
-                }
-                (void)self.eval(args[i].text, 0);
-                return 0;
-            }
-            throw Error("if: expected 'elseif' or 'else'");
-        }
-    });
-
-    registerCommand("while", [](Interpreter &self, const Arguments &args, Value &) -> int {
-        if (args.size() != 3) {
-            throw Error("while: expected a condition and a body");
-        }
-        // The condition is re-substituted every pass: substituting it once would
-        // freeze the loop variable at its starting value and spin forever.
-        for (int guard = 0; guard < 1000000; ++guard) {
-            const std::string cond = self.substitute(args[1].text, 0);
-            ExprParser parser(
-                [&self](const std::string &n) {
-                    return self.variable(n);
-                },
-                cond);
-            if (!parser.parse().asBool()) {
-                return 0;
-            }
-            (void)self.eval(args[2].text, 0);
-        }
-        throw Error("while: did not terminate");
-    });
-
-    registerCommand("foreach", [](Interpreter &self, const Arguments &args, Value &) -> int {
-        if (args.size() != 4) {
-            throw Error("foreach: expected var, list and body");
-        }
-        const std::vector<std::string> names = self.parseListNames(args[1].text);
-        const std::vector<Value> items = listValue(self, args[2]);
-        if (names.size() == 1) {
-            for (const Value &item : items) {
-                self.setVariable(names[0], item);
-                (void)self.eval(args[3].text, 0);
-            }
-            return 0;
-        }
-        for (std::size_t i = 0; i + names.size() <= items.size(); i += names.size()) {
-            for (std::size_t n = 0; n < names.size(); ++n) {
-                self.setVariable(names[n], items[i + n]);
-            }
-            (void)self.eval(args[3].text, 0);
-        }
-        return 0;
-    });
-
-    registerCommand("list", [](Interpreter &self, const Arguments &args, Value &result) -> int {
-        std::vector<Value> items;
-        for (std::size_t i = 1; i < args.size(); ++i) {
-            items.push_back(wordValue(self, args[i]));
-        }
-        result = Value::list(std::move(items));
-        return 0;
-    });
-
-    registerCommand("lindex", [](Interpreter &self, const Arguments &args, Value &result) -> int {
-        if (args.size() != 3) {
-            throw Error("lindex: expected a list and an index");
-        }
-        const std::vector<Value> items = listValue(self, args[1]);
-        const std::int64_t index = wordValue(self, args[2]).asInt();
-        if (index < 0 || static_cast<std::size_t>(index) >= items.size()) {
-            result = Value::string("");
-            return 0;
-        }
-        result = items[static_cast<std::size_t>(index)];
-        return 0;
-    });
-
-    registerCommand("llength", [](Interpreter &self, const Arguments &args, Value &result) -> int {
-        if (args.size() != 2) {
-            throw Error("llength: expected a list");
-        }
-        const std::vector<Value> items = listValue(self, args[1]);
-        result = Value::integer(static_cast<std::int64_t>(items.size()));
-        return 0;
-    });
-
-    registerCommand("lappend", [](Interpreter &self, const Arguments &args, Value &result) -> int {
-        if (args.size() < 2) {
-            throw Error("lappend: expected a variable");
-        }
-        std::vector<Value> items;
-        if (self.hasVariable(args[1].text)) {
-            items = self.variable(args[1].text).asList();
-        }
-        for (std::size_t i = 2; i < args.size(); ++i) {
-            items.push_back(wordValue(self, args[i]));
-        }
-        const Value out = Value::list(std::move(items));
-        self.setVariable(args[1].text, out);
-        result = out;
-        return 0;
-    });
-
-    registerCommand("string", [](Interpreter &self, const Arguments &args, Value &result) -> int {
-        if (args.size() < 3) {
-            throw Error("string: expected a subcommand");
-        }
-        const std::string sub = args[1].literal ? args[1].text : self.substitute(args[1].text, 0);
-        const Value subject = parseLiteral(self.substitute(args[2].text, 0));
-        const std::string text = subject.asString();
-        if (sub == "length") {
-            result = Value::integer(static_cast<std::int64_t>(text.size()));
-            return 0;
-        }
-        if (sub == "tolower") {
-            result = Value::string(toLower(text));
-            return 0;
-        }
-        if (sub == "toupper") {
-            result = Value::string([&] {
-                std::string out = text;
-                std::transform(out.begin(), out.end(), out.begin(), [](unsigned char c) {
-                    return static_cast<char>(std::toupper(c));
-                });
-                return out;
-            }());
-            return 0;
-        }
-        if (sub == "trim") {
-            const std::size_t b = text.find_first_not_of(" \t\n");
-            const std::size_t e = text.find_last_not_of(" \t\n");
-            result = Value::string(b == std::string::npos ? "" : text.substr(b, e - b + 1));
-            return 0;
-        }
-        if (sub == "equal") {
-            if (args.size() < 4) {
-                throw Error("string equal: expected two operands");
-            }
-            result = Value::boolean(text == self.substitute(args[3].text, 0));
-            return 0;
-        }
-        if (sub == "match") {
-            if (args.size() < 4) {
-                throw Error("string match: expected a pattern and a string");
-            }
-            const std::string pattern = self.substitute(args[3].text, 0);
-            result = Value::boolean(globMatch(pattern, text));
-            return 0;
-        }
-        if (sub == "first" || sub == "last") {
-            if (args.size() < 4) {
-                throw Error("string " + sub + ": expected a needle");
-            }
-            const std::string needle = self.substitute(args[3].text, 0);
-            if (sub == "first") {
-                const std::size_t at = text.find(needle);
-                result =
-                    Value::integer(at == std::string::npos ? -1 : static_cast<std::int64_t>(at));
-            } else {
-                const std::size_t at = text.rfind(needle);
-                result =
-                    Value::integer(at == std::string::npos ? -1 : static_cast<std::int64_t>(at));
-            }
-            return 0;
-        }
-        throw Error("string: unknown subcommand \"" + sub + "\"");
-    });
-
-    registerCommand("info", [](Interpreter &self, const Arguments &args, Value &result) -> int {
-        if (args.size() < 2) {
-            throw Error("info: expected a subcommand");
-        }
-        const std::string sub = args[1].text;
-        if (sub == "exists") {
             if (args.size() != 3) {
-                throw Error("info exists: expected a variable name");
+                throw Error("set: expected 2 or 3 arguments");
             }
-            result = Value::boolean(self.hasVariable(args[2].text));
+            result = wordValue(self, args[2]);
+            self.setVariable(args[1].text, result);
             return 0;
-        }
-        if (sub == "commands") {
-            result = Value::list([&self] {
-                std::vector<Value> names;
-                for (const auto &entry : self.commands()) {
-                    names.push_back(Value::string(entry.first));
+        });
+
+    registerCommand({.name = "unset", .usage = "unset <var> ...", .summary = "remove variables"},
+                    [](Interpreter &self, const Arguments &args, Value &) -> int {
+                        for (std::size_t i = 1; i < args.size(); ++i) {
+                            self.unsetVariable(args[i].text);
+                        }
+                        return 0;
+                    });
+
+    registerCommand(
+        {.name = "puts", .usage = "puts [stderr] <text>", .summary = "print to the log"},
+        [](Interpreter &self, const Arguments &args, Value &) -> int {
+            std::string text;
+            if (args.size() == 2) {
+                text = self.substitute(args[1].text, 0);
+            } else if (args.size() == 3) {
+                const Value channel = parseLiteral(self.substitute(args[1].text, 0));
+                text = channel.asString() == "stderr"
+                           ? "stderr: " + self.substitute(args[2].text, 0)
+                           : self.substitute(args[2].text, 0);
+            } else {
+                throw Error("puts: expected 1 or 2 arguments");
+            }
+            ktlog.echo("{}", text);
+            return 0;
+        });
+
+    registerCommand({.name = "expr",
+                     .usage = "expr <expression>",
+                     .summary = "evaluate an arithmetic or logical expression"},
+                    [](Interpreter &self, const Arguments &args, Value &result) -> int {
+                        if (args.size() < 2) {
+                            throw Error("expr: expected an expression");
+                        }
+                        std::string text;
+                        for (std::size_t i = 1; i < args.size(); ++i) {
+                            if (i > 1) {
+                                text += ' ';
+                            }
+                            text += self.substitute(args[i].text, 0);
+                        }
+                        ExprParser parser(
+                            [&self](const std::string &name) {
+                                return self.variable(name);
+                            },
+                            text);
+                        result = parser.parse();
+                        return 0;
+                    });
+
+    registerCommand(
+        {.name = "incr", .usage = "incr <var> [amount]", .summary = "add to an integer variable"},
+        [](Interpreter &self, const Arguments &args, Value &) -> int {
+            if (args.size() < 2 || args.size() > 3) {
+                throw Error("incr: expected 1 or 2 arguments");
+            }
+            const std::int64_t step =
+                args.size() == 3 ? parseLiteral(self.substitute(args[2].text, 0)).asInt() : 1;
+            const std::int64_t current =
+                self.hasVariable(args[1].text) ? self.variable(args[1].text).asInt() : 0;
+            self.setVariable(args[1].text, Value::integer(current + step));
+            return 0;
+        });
+
+    registerCommand({.name = "if",
+                     .usage = "if <cond> <body> [elseif <cond> <body>] [else <body>]",
+                     .summary = "run a body when a condition holds"},
+                    [](Interpreter &self, const Arguments &args, Value &) -> int {
+                        // if cond ?then? body elseif cond body ... ?else? body
+                        std::size_t i = 1;
+                        for (;;) {
+                            if (i >= args.size()) {
+                                throw Error("if: no condition");
+                            }
+                            const std::string cond = self.substitute(args[i].text, 0);
+                            i++;
+                            if (i < args.size() && args[i].literal && args[i].text == "then") {
+                                i++;
+                            }
+                            if (i >= args.size()) {
+                                throw Error("if: missing body");
+                            }
+                            ExprParser parser(
+                                [&self](const std::string &n) {
+                                    return self.variable(n);
+                                },
+                                cond);
+                            if (parser.parse().asBool()) {
+                                (void)self.eval(args[i].text, 0);
+                                return 0;
+                            }
+                            i++;
+                            if (i >= args.size()) {
+                                return 0;
+                            }
+                            if (args[i].literal && args[i].text == "elseif") {
+                                i++;
+                                continue;
+                            }
+                            if (args[i].literal && args[i].text == "else") {
+                                i++;
+                                if (i >= args.size()) {
+                                    throw Error("if: missing else body");
+                                }
+                                (void)self.eval(args[i].text, 0);
+                                return 0;
+                            }
+                            throw Error("if: expected 'elseif' or 'else'");
+                        }
+                    });
+
+    registerCommand({.name = "while",
+                     .usage = "while <cond> <body>",
+                     .summary = "repeat a body while a condition holds"},
+                    [](Interpreter &self, const Arguments &args, Value &) -> int {
+                        if (args.size() != 3) {
+                            throw Error("while: expected a condition and a body");
+                        }
+                        // The condition is re-substituted every pass: substituting it once would
+                        // freeze the loop variable at its starting value and spin forever.
+                        for (int guard = 0; guard < 1000000; ++guard) {
+                            const std::string cond = self.substitute(args[1].text, 0);
+                            ExprParser parser(
+                                [&self](const std::string &n) {
+                                    return self.variable(n);
+                                },
+                                cond);
+                            if (!parser.parse().asBool()) {
+                                return 0;
+                            }
+                            (void)self.eval(args[2].text, 0);
+                        }
+                        throw Error("while: did not terminate");
+                    });
+
+    registerCommand({.name = "foreach",
+                     .usage = "foreach <var> <list> <body>",
+                     .summary = "run a body for each list element"},
+                    [](Interpreter &self, const Arguments &args, Value &) -> int {
+                        if (args.size() != 4) {
+                            throw Error("foreach: expected var, list and body");
+                        }
+                        const std::vector<std::string> names = self.parseListNames(args[1].text);
+                        const std::vector<Value> items = listValue(self, args[2]);
+                        if (names.size() == 1) {
+                            for (const Value &item : items) {
+                                self.setVariable(names[0], item);
+                                (void)self.eval(args[3].text, 0);
+                            }
+                            return 0;
+                        }
+                        for (std::size_t i = 0; i + names.size() <= items.size();
+                             i += names.size()) {
+                            for (std::size_t n = 0; n < names.size(); ++n) {
+                                self.setVariable(names[n], items[i + n]);
+                            }
+                            (void)self.eval(args[3].text, 0);
+                        }
+                        return 0;
+                    });
+
+    registerCommand({.name = "list", .usage = "list <value> ...", .summary = "build a list"},
+                    [](Interpreter &self, const Arguments &args, Value &result) -> int {
+                        std::vector<Value> items;
+                        for (std::size_t i = 1; i < args.size(); ++i) {
+                            items.push_back(wordValue(self, args[i]));
+                        }
+                        result = Value::list(std::move(items));
+                        return 0;
+                    });
+
+    registerCommand(
+        {.name = "lindex", .usage = "lindex <list> <index>", .summary = "one element of a list"},
+        [](Interpreter &self, const Arguments &args, Value &result) -> int {
+            if (args.size() != 3) {
+                throw Error("lindex: expected a list and an index");
+            }
+            const std::vector<Value> items = listValue(self, args[1]);
+            const std::int64_t index = wordValue(self, args[2]).asInt();
+            if (index < 0 || static_cast<std::size_t>(index) >= items.size()) {
+                result = Value::string("");
+                return 0;
+            }
+            result = items[static_cast<std::size_t>(index)];
+            return 0;
+        });
+
+    registerCommand({.name = "llength",
+                     .usage = "llength <list>",
+                     .summary = "the number of elements in a list"},
+                    [](Interpreter &self, const Arguments &args, Value &result) -> int {
+                        if (args.size() != 2) {
+                            throw Error("llength: expected a list");
+                        }
+                        const std::vector<Value> items = listValue(self, args[1]);
+                        result = Value::integer(static_cast<std::int64_t>(items.size()));
+                        return 0;
+                    });
+
+    registerCommand({.name = "lappend",
+                     .usage = "lappend <var> <value> ...",
+                     .summary = "append to a list variable"},
+                    [](Interpreter &self, const Arguments &args, Value &result) -> int {
+                        if (args.size() < 2) {
+                            throw Error("lappend: expected a variable");
+                        }
+                        std::vector<Value> items;
+                        if (self.hasVariable(args[1].text)) {
+                            items = self.variable(args[1].text).asList();
+                        }
+                        for (std::size_t i = 2; i < args.size(); ++i) {
+                            items.push_back(wordValue(self, args[i]));
+                        }
+                        const Value out = Value::list(std::move(items));
+                        self.setVariable(args[1].text, out);
+                        result = out;
+                        return 0;
+                    });
+
+    registerCommand(
+        {.name = "string",
+         .usage = "string <subcommand> ...",
+         .summary = "string length, equal, match, toupper, ..."},
+        [](Interpreter &self, const Arguments &args, Value &result) -> int {
+            if (args.size() < 3) {
+                throw Error("string: expected a subcommand");
+            }
+            const std::string sub =
+                args[1].literal ? args[1].text : self.substitute(args[1].text, 0);
+            const Value subject = parseLiteral(self.substitute(args[2].text, 0));
+            const std::string text = subject.asString();
+            if (sub == "length") {
+                result = Value::integer(static_cast<std::int64_t>(text.size()));
+                return 0;
+            }
+            if (sub == "tolower") {
+                result = Value::string(toLower(text));
+                return 0;
+            }
+            if (sub == "toupper") {
+                result = Value::string([&] {
+                    std::string out = text;
+                    std::transform(out.begin(), out.end(), out.begin(), [](unsigned char c) {
+                        return static_cast<char>(std::toupper(c));
+                    });
+                    return out;
+                }());
+                return 0;
+            }
+            if (sub == "trim") {
+                const std::size_t b = text.find_first_not_of(" \t\n");
+                const std::size_t e = text.find_last_not_of(" \t\n");
+                result = Value::string(b == std::string::npos ? "" : text.substr(b, e - b + 1));
+                return 0;
+            }
+            if (sub == "equal") {
+                if (args.size() < 4) {
+                    throw Error("string equal: expected two operands");
                 }
-                return names;
-            }());
-            return 0;
-        }
-        throw Error("info: unknown subcommand \"" + sub + "\"");
-    });
+                result = Value::boolean(text == self.substitute(args[3].text, 0));
+                return 0;
+            }
+            if (sub == "match") {
+                if (args.size() < 4) {
+                    throw Error("string match: expected a pattern and a string");
+                }
+                const std::string pattern = self.substitute(args[3].text, 0);
+                result = Value::boolean(globMatch(pattern, text));
+                return 0;
+            }
+            if (sub == "first" || sub == "last") {
+                if (args.size() < 4) {
+                    throw Error("string " + sub + ": expected a needle");
+                }
+                const std::string needle = self.substitute(args[3].text, 0);
+                if (sub == "first") {
+                    const std::size_t at = text.find(needle);
+                    result = Value::integer(
+                        at == std::string::npos ? -1 : static_cast<std::int64_t>(at));
+                } else {
+                    const std::size_t at = text.rfind(needle);
+                    result = Value::integer(
+                        at == std::string::npos ? -1 : static_cast<std::int64_t>(at));
+                }
+                return 0;
+            }
+            throw Error("string: unknown subcommand \"" + sub + "\"");
+        });
 
-    registerCommand("error", [](Interpreter &self, const Arguments &args, Value &) -> int {
-        if (args.size() < 2) {
-            throw Error("error: expected a message");
-        }
-        throw Error(self.substitute(args[1].text, 0));
-    });
+    registerCommand({.name = "info",
+                     .usage = "info exists <var> | info commands",
+                     .summary = "ask about variables and commands"},
+                    [](Interpreter &self, const Arguments &args, Value &result) -> int {
+                        if (args.size() < 2) {
+                            throw Error("info: expected a subcommand");
+                        }
+                        const std::string sub = args[1].text;
+                        if (sub == "exists") {
+                            if (args.size() != 3) {
+                                throw Error("info exists: expected a variable name");
+                            }
+                            result = Value::boolean(self.hasVariable(args[2].text));
+                            return 0;
+                        }
+                        if (sub == "commands") {
+                            result = Value::list([&self] {
+                                std::vector<Value> names;
+                                for (const auto &entry : self.commands()) {
+                                    names.push_back(Value::string(entry.first));
+                                }
+                                return names;
+                            }());
+                            return 0;
+                        }
+                        throw Error("info: unknown subcommand \"" + sub + "\"");
+                    });
 
-    registerCommand("source", [](Interpreter &self, const Arguments &args, Value &) -> int {
-        if (args.size() != 2) {
-            throw Error("source: expected a file name");
-        }
-        (void)self.evalFile(self.substitute(args[1].text, 0));
-        return 0;
-    });
+    registerCommand({.name = "error", .usage = "error <message>", .summary = "raise an error"},
+                    [](Interpreter &self, const Arguments &args, Value &) -> int {
+                        if (args.size() < 2) {
+                            throw Error("error: expected a message");
+                        }
+                        throw Error(self.substitute(args[1].text, 0));
+                    });
+
+    registerCommand({.name = "help",
+                     .usage = "help [command]",
+                     .summary = "list the commands, or show one command's usage"},
+                    [](Interpreter &self, const Arguments &args, Value &result) -> int {
+                        if (args.size() > 2) {
+                            throw Error("wrong # args: should be \"help [command]\"");
+                        }
+                        result = Value::string(
+                            self.helpText(args.size() == 2 ? self.substitute(args[1].text) : ""));
+                        return 0;
+                    });
+
+    registerCommand({.name = "exec",
+                     .usage = "exec <command> [arg ...]",
+                     .summary = "run a shell command and return its output"},
+                    [](Interpreter &self, const Arguments &args, Value &result) -> int {
+                        if (args.size() < 2) {
+                            throw Error("wrong # args: should be \"exec <command> [arg ...]\"");
+                        }
+                        result = runShellCommand(shellCommand(self, args, 1));
+                        return 0;
+                    });
+
+    registerCommand({.name = "ls",
+                     .usage = "ls [option ...] [path ...]",
+                     .summary = "list files, as the system ls does"},
+                    [](Interpreter &self, const Arguments &args, Value &result) -> int {
+                        result = runShellCommand("ls " + shellCommand(self, args, 1));
+                        return 0;
+                    });
+
+    registerCommand({.name = "pwd", .usage = "pwd", .summary = "the current directory"},
+                    [](Interpreter &, const Arguments &args, Value &result) -> int {
+                        if (args.size() != 1) {
+                            throw Error("wrong # args: should be \"pwd\"");
+                        }
+                        result = Value::string(std::filesystem::current_path().string());
+                        return 0;
+                    });
+
+    registerCommand({.name = "cd",
+                     .usage = "cd [dir]",
+                     .summary = "change the current directory (default: home)"},
+                    [](Interpreter &self, const Arguments &args, Value &result) -> int {
+                        if (args.size() > 2) {
+                            throw Error("wrong # args: should be \"cd [dir]\"");
+                        }
+                        const char *home = std::getenv("HOME");
+                        const std::string dir = args.size() == 2
+                                                    ? self.substitute(args[1].text)
+                                                    : std::string(home != nullptr ? home : "");
+                        std::error_code ec;
+                        std::filesystem::current_path(dir, ec);
+                        if (ec) {
+                            throw Error(std::format("cd: {}: {}", dir, ec.message()));
+                        }
+                        result = Value::string(std::filesystem::current_path().string());
+                        return 0;
+                    });
+
+    registerCommand({.name = "source", .usage = "source <file>", .summary = "run a Tcl script"},
+                    [](Interpreter &self, const Arguments &args, Value &) -> int {
+                        if (args.size() != 2) {
+                            throw Error("source: expected a file name");
+                        }
+                        (void)self.evalFile(self.substitute(args[1].text, 0));
+                        return 0;
+                    });
 }
 
-void Interpreter::registerCommand(const std::string &name, Command command) {
-    commandTable[name] = std::move(command);
+void Interpreter::registerCommand(CommandHelp help, Command command) {
+    commandTable[help.name] = std::move(command);
+    helpTable[help.name] = std::move(help);
+}
+
+std::string Interpreter::helpText(const std::string &name) const {
+    if (!name.empty()) {
+        const auto found = helpTable.find(name);
+        if (found == helpTable.end()) {
+            throw Error(std::format("help: no command \"{}\"; try help", name));
+        }
+        return std::format("{}\n  {}", found->second.usage, found->second.summary);
+    }
+    std::size_t width = 0;
+    for (const auto &[command, help] : helpTable) {
+        if (!builtinNames.contains(command)) {
+            width = std::max(width, help.usage.size());
+        }
+    }
+    std::string text = "Commands:";
+    std::string builtins;
+    for (const auto &[command, help] : helpTable) {
+        if (builtinNames.contains(command)) {
+            builtins += builtins.empty() ? command : " " + command;
+        } else {
+            text += std::format("\n  {:<{}}  {}", help.usage, width, help.summary);
+        }
+    }
+    return text +
+           std::format("\n<command> -h or help <command> shows one command.\nTcl builtins: {}",
+                       builtins);
 }
 
 bool Interpreter::hasCommand(const std::string &name) const {
@@ -1256,14 +1422,15 @@ Value Interpreter::evalFile(const std::string &path) {
     std::ostringstream buffer;
     buffer << in.rdbuf();
     scriptStack.push_back(path);
+    Value result;
     try {
-        return eval(buffer.str(), 0);
+        result = eval(buffer.str(), 0);
     } catch (...) {
         scriptStack.pop_back();
         throw;
     }
     scriptStack.pop_back();
-    return {};
+    return result;
 }
 
 Value Interpreter::eval(const std::string &script, int depth) {
@@ -1342,6 +1509,13 @@ Value Interpreter::run(const Arguments &words, int depth) {
     const auto it = commandTable.find(name);
     if (it == commandTable.end()) {
         throw Error("invalid command name \"" + name + "\"");
+    }
+    if (words.size() == 2 && !builtinNames.contains(name)) {
+        const std::string option =
+            words[1].literal ? words[1].text : substitute(words[1].text, depth);
+        if (option == "-h" || option == "-help" || option == "--help") {
+            return Value::string(helpText(name));
+        }
     }
     // The command name and each argument in turn, so `[a [b c]]` composes.
     Arguments args;

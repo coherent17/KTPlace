@@ -7,6 +7,7 @@
 #include <functional>
 #include <map>
 #include <optional>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -172,6 +173,12 @@ class Interpreter;
 // if the command produced one, is written to `result`.
 using Command = std::function<int(Interpreter &, const Arguments &, Value &)>;
 
+struct CommandHelp {
+    std::string name;
+    std::string usage;
+    std::string summary;
+};
+
 class Interpreter {
 public:
     Interpreter();
@@ -181,8 +188,9 @@ public:
     [[nodiscard]] Value eval(const std::string &script, int depth = 0);
     [[nodiscard]] Value evalFile(const std::string &path);
 
-    void registerCommand(const std::string &name, Command command);
+    void registerCommand(CommandHelp help, Command command);
     [[nodiscard]] bool hasCommand(const std::string &name) const;
+    [[nodiscard]] std::string helpText(const std::string &name = {}) const;
     [[nodiscard]] const std::map<std::string, Command> &commands() const noexcept;
 
     // Variables, as `set` and `$name` see them.
@@ -213,6 +221,8 @@ private:
     [[nodiscard]] std::vector<std::string> parseListNames(const std::string &text) const;
 
     std::map<std::string, Command> commandTable;
+    std::map<std::string, CommandHelp> helpTable;
+    std::set<std::string> builtinNames;
     Variables variableTable;
     std::vector<std::string> scriptStack;
     std::string currentCommand;

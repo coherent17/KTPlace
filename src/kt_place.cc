@@ -1,13 +1,17 @@
 #include "kt_flowMgr.h"
 #include "kt_option.h"
+#include "kt_shell.h"
 
+#ifdef KTPLACE_GUI
 #include "gui/kt_gui.h"
+#endif
 #include "util/kt_log.h"
 #include "util/kt_scopedTimer.h"
 
 #include <chrono>
 #include <ctime>
 #include <exception>
+#include <iostream>
 #include <string>
 
 using namespace ktplace;
@@ -22,7 +26,13 @@ int main(int argc, char *argv[]) {
             return 0;
         }
         if (options.gui) {
+#ifdef KTPLACE_GUI
             return runGui(options, argc, argv);
+#else
+            ktlog.fatal(
+                "this ktplace was built without the GUI; rebuild it with 'make GUI=1' (needs "
+                "Qt 6)");
+#endif
         }
 
         ktlog.configure(options.getLogFile(), options.verbose);
@@ -37,6 +47,12 @@ int main(int argc, char *argv[]) {
         ktlog.echo("Run started: {}", localDateTime());
         ktlog.echo("Command: {}", command);
         options.report();
+
+        if (options.shell) {
+            const int status = runShell(options, std::cin);
+            ktlog.shutdown();
+            return status;
+        }
 
         FlowMgr flowMgr;
         flowMgr.run(options);

@@ -2,6 +2,7 @@
 
 #include "gui/kt_layoutView.h"
 #include "gui/kt_logView.h"
+#include "gui/kt_tclConsole.h"
 
 #include <QAction>
 #include <QCloseEvent>
@@ -42,6 +43,7 @@ public:
           view(new LayoutView(&window)),
           log(new LogView(&window)),
           stage(new QLabel(&window)),
+          console(new TclConsole(&window)),
           runner(&window, {.frame =
                                [this](LayoutFrame frame) {
                                    stage->setText(describe(frame));
@@ -58,15 +60,19 @@ public:
     LayoutView *view;
     LogView *log;
     QLabel *stage;
+    TclConsole *console;
+    QDockWidget *consoleDock = nullptr;
     QAction *openAction = nullptr;
     QAction *scriptAction = nullptr;
     QAction *runAction = nullptr;
     QAction *stopAction = nullptr;
+    bool loading = false;
     std::function<void(const RunResult &)> finishedCallback;
     Runner runner;
 
     void build();
     void refresh();
+    [[nodiscard]] RunRequest consoleRequest() const;
     void finished(const RunResult &result);
 };
 
@@ -79,6 +85,24 @@ void MainWindow::Impl::build() {
     dock->setWidget(log);
     dock->setFeatures(QDockWidget::DockWidgetMovable | QDockWidget::DockWidgetFloatable);
     window.addDockWidget(Qt::BottomDockWidgetArea, dock);
+
+    consoleDock = new QDockWidget(QStringLiteral("Tcl Console"), &window);
+    consoleDock->setObjectName(QStringLiteral("tclConsole"));
+    consoleDock->setWidget(console);
+    consoleDock->setFeatures(QDockWidget::DockWidgetMovable | QDockWidget::DockWidgetFloatable);
+    window.setTabPosition(Qt::BottomDockWidgetArea, QTabWidget::North);
+    window.tabifyDockWidget(dock, consoleDock);
+    dock->setTitleBarWidget(new QWidget(dock));
+    consoleDock->setTitleBarWidget(new QWidget(consoleDock));
+    dock->raise();
+    console->onCommand([this](const QString &command) {
+        if (!runner.execute(command.toStdString(), consoleRequest())) {
+            console->append(QStringLiteral("busy: wait for the current run, or press Stop"),
+                            TclConsole::Kind::Error);
+            return;
+        }
+        refresh();
+    });
 
     openAction = new QAction(QStringLiteral("Open Design..."), &window);
     openAction->setShortcut(QKeySequence::Open);
@@ -124,7 +148,21 @@ void MainWindow::Impl::build() {
     place->addAction(stopAction);
     QMenu *show = window.menuBar()->addMenu(QStringLiteral("&View"));
     show->addAction(fitAction);
-    show->addAction(dock->toggleViewAction());
+    auto *logAction = new QAction(QStringLiteral("Log"), &window);
+    logAction->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_L));
+    QObject::connect(logAction, &QAction::triggered, &window, [dock] {
+        dock->show();
+        dock->raise();
+    });
+    show->addAction(logAction);
+    auto *consoleAction = new QAction(QStringLiteral("Tcl Console"), &window);
+    consoleAction->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_T));
+    QObject::connect(consoleAction, &QAction::triggered, &window, [this] {
+        consoleDock->show();
+        consoleDock->raise();
+        console->focusInput();
+    });
+    show->addAction(consoleAction);
 
     QToolBar *tools = window.addToolBar(QStringLiteral("Run"));
     tools->setObjectName(QStringLiteral("run"));
@@ -139,15 +177,28 @@ void MainWindow::Impl::build() {
     refresh();
 }
 
+RunRequest MainWindow::Impl::consoleRequest() const {
+    RunRequest session = request;
+    if (session.workDir.empty()) {
+        session.workDir = session.design.empty()
+                              ? (std::filesystem::current_path() / "output" / "session").string()
+                              : defaultWorkDir(QString::fromStdString(session.design));
+    }
+    return session;
+}
+
 void MainWindow::Impl::refresh() {
     const bool busy = runner.running();
+    console->setBusy(busy);
     openAction->setEnabled(!busy);
     scriptAction->setEnabled(!busy);
     runAction->setEnabled(!busy && !request.design.empty());
     stopAction->setEnabled(busy);
     if (busy) {
         window.statusBar()->showMessage(
-            QStringLiteral("Placing %1 ...").arg(QString::fromStdString(request.design)));
+            QStringLiteral("%1 %2 ...")
+                .arg(loading ? QStringLiteral("Loading") : QStringLiteral("Placing"),
+                     QString::fromStdString(request.design)));
         return;
     }
     QString message = request.design.empty() ? QStringLiteral("Open a design to place")
@@ -159,11 +210,29 @@ void MainWindow::Impl::refresh() {
 }
 
 void MainWindow::Impl::finished(const RunResult &result) {
+    loading = false;
     refresh();
+    if (result.fromConsole) {
+        if (!result.message.empty()) {
+            console->append(QString::fromStdString(result.message),
+                            result.outcome == RunResult::Outcome::Evaluated
+                                ? TclConsole::Kind::Result
+                                : TclConsole::Kind::Error);
+        }
+        if (finishedCallback) {
+            finishedCallback(result);
+        }
+        return;
+    }
     const QString text = QString::fromStdString(result.message);
     switch (result.outcome) {
         case RunResult::Outcome::Placed:
             window.statusBar()->showMessage(QStringLiteral("Placed: %1").arg(text));
+            break;
+        case RunResult::Outcome::Loaded:
+            window.statusBar()->showMessage(
+                QStringLiteral("Loaded %1: Run places it, or step through it in the Tcl Console")
+                    .arg(text));
             break;
         case RunResult::Outcome::Stopped:
             window.statusBar()->showMessage(QStringLiteral("Stopped"));
@@ -194,6 +263,8 @@ void MainWindow::openDesign(const QString &design) {
     }
     pImpl->view->setFrame({});
     pImpl->stage->clear();
+    pImpl->log->clear();
+    pImpl->loading = pImpl->runner.open(pImpl->consoleRequest());
     pImpl->refresh();
 }
 
@@ -228,6 +299,10 @@ LayoutView *MainWindow::layoutView() const {
 
 LogView *MainWindow::logView() const {
     return pImpl->log;
+}
+
+TclConsole *MainWindow::tclConsole() const {
+    return pImpl->console;
 }
 
 QString MainWindow::status() const {
