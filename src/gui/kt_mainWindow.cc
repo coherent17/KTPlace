@@ -93,11 +93,15 @@ void MainWindow::Impl::build() {
     window.addDockWidget(Qt::BottomDockWidgetArea, consoleDock);
     window.splitDockWidget(dock, consoleDock, Qt::Horizontal);
     consoleDock->hide();
-    QObject::connect(consoleDock, &QDockWidget::visibilityChanged, console, [this](bool shown) {
-        if (shown) {
-            console->focusInput();
-        }
-    });
+    QObject::connect(consoleDock, &QDockWidget::visibilityChanged, console,
+                     [this, dock](bool shown) {
+                         if (!shown) {
+                             return;
+                         }
+                         const int half = window.width() / 2;
+                         window.resizeDocks({dock, consoleDock}, {half, half}, Qt::Horizontal);
+                         console->focusInput();
+                     });
     console->onCommand([this](const QString &command) {
         if (!runner.execute(command.toStdString(), consoleWorkDir())) {
             console->append(QStringLiteral("busy: wait for the current run, or press Stop"),
