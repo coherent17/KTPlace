@@ -70,6 +70,10 @@ of Qt, and its `--gui` says how to get the window.
   <img src="docs/images/gui_demo.gif" width="100%" alt="Using the KTPlace GUI on adaptec1: Open Design, help, gplace_design with a selected cell, legalize_placement and detail_place zoomed in, the routing-demand map, command history and write_placement">
 </p>
 
+`scripts/gui_demo.sh` records this GIF: `scripts/gui_demo.cc` drives the real window
+(Open Design, console commands, clicks), grabs a frame after each step, and ffmpeg
+encodes the frames.
+
 ```sh
 sudo apt-get install qt6-base-dev pkg-config   # Ubuntu 24.04+
 brew install qt pkg-config                     # macOS

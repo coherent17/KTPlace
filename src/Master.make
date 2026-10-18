@@ -381,6 +381,12 @@ $(BIN_DIR)/test_gui: $(TEST_gui) $(GUI_OBJS) $(LIB_OBJS) $(BUNDLED_LIBS) | dirs
 	@$(CXX) $(CXXFLAGS) $(INCLUDES) $(TEST_INCLUDES) $(QT_CFLAGS) -o $@ $(TEST_gui) $(GUI_OBJS) \
 		$(LIB_OBJS) $(LIBS) $(QT_LIBS) $(TEST_LIBS)
 
+# scripts/gui_demo.sh records the README's GUI demo with this program.
+$(BIN_DIR)/gui_demo: ../scripts/gui_demo.cc $(GUI_OBJS) $(LIB_OBJS) $(BUNDLED_LIBS) | dirs
+	@echo "  Building gui_demo..."
+	@$(CXX) $(CXXFLAGS) $(INCLUDES) $(QT_CFLAGS) -o $@ ../scripts/gui_demo.cc $(GUI_OBJS) \
+		$(LIB_OBJS) $(LIBS) $(QT_LIBS)
+
 -include $(GUI_OBJS:.o=.d) $(GUI_ENTRY_OBJ:.o=.d)
 
 # ============================================================================
