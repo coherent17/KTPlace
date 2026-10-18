@@ -249,9 +249,9 @@ same engine:
 | `ktplace-vX.Y.Z-linux-x86_64.tar.gz` | Ubuntu 24.04 or newer | nothing beyond the base system (glibc 2.38+, libstdc++ from GCC 13.2+) |
 
 ```sh
-sha256sum -c ktplace-v1.0.0-linux-x86_64-static.tar.gz.sha256
-tar -xzf ktplace-v1.0.0-linux-x86_64-static.tar.gz
-source ktplace-v1.0.0-linux-x86_64-static/ktplace.sh
+sha256sum -c ktplace-v1.1.0-linux-x86_64-static.tar.gz.sha256
+tar -xzf ktplace-v1.1.0-linux-x86_64-static.tar.gz
+source ktplace-v1.1.0-linux-x86_64-static/ktplace.sh
 ktplace --version
 ```
 
