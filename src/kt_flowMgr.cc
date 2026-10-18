@@ -111,7 +111,7 @@ private:
     bool plotsReady = false;
 
     void preparePlots();
-    void parseTcl(const kt_option &options);
+    void parseTcl();
     void loadDesign(const std::string &dirPath);
     void commit(std::string_view stage);
     void reportSummary() const;
@@ -225,7 +225,7 @@ void FlowMgr::Impl::run(const kt_option &runOptions) {
     if (!options.inputPath.empty()) {
         readDesign(options.inputPath);
     }
-    parseTcl(options);
+    parseTcl();
     if (!stepsRun) {
         if (!db) {
             ktlog.fatal("nothing to place: give a design directory, or read_design in the script");
@@ -286,7 +286,7 @@ void FlowMgr::Impl::preparePlots() {
 }
 
 
-void FlowMgr::Impl::parseTcl(const kt_option &options) {
+void FlowMgr::Impl::parseTcl() {
     if (options.tclFile.empty()) {
         return;
     }
