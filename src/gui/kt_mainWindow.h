@@ -10,6 +10,7 @@ namespace ktplace::gui {
 
 class LayoutView;
 class LogView;
+class TclConsole;
 
 class MainWindow : public QMainWindow {
 public:
@@ -27,6 +28,7 @@ public:
     [[nodiscard]] bool running() const;
     [[nodiscard]] LayoutView *layoutView() const;
     [[nodiscard]] LogView *logView() const;
+    [[nodiscard]] TclConsole *tclConsole() const;
     [[nodiscard]] QString status() const;
 
     void onFinished(std::function<void(const RunResult &)> callback);

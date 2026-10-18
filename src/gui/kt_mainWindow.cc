@@ -2,6 +2,7 @@
 
 #include "gui/kt_layoutView.h"
 #include "gui/kt_logView.h"
+#include "gui/kt_tclConsole.h"
 
 #include <QAction>
 #include <QCloseEvent>
@@ -42,6 +43,7 @@ public:
           view(new LayoutView(&window)),
           log(new LogView(&window)),
           stage(new QLabel(&window)),
+          console(new TclConsole(&window)),
           runner(&window, {.frame =
                                [this](LayoutFrame frame) {
                                    stage->setText(describe(frame));
@@ -58,6 +60,8 @@ public:
     LayoutView *view;
     LogView *log;
     QLabel *stage;
+    TclConsole *console;
+    QDockWidget *consoleDock = nullptr;
     QAction *openAction = nullptr;
     QAction *scriptAction = nullptr;
     QAction *runAction = nullptr;
@@ -67,6 +71,7 @@ public:
 
     void build();
     void refresh();
+    [[nodiscard]] std::string consoleWorkDir() const;
     void finished(const RunResult &result);
 };
 
@@ -79,6 +84,28 @@ void MainWindow::Impl::build() {
     dock->setWidget(log);
     dock->setFeatures(QDockWidget::DockWidgetMovable | QDockWidget::DockWidgetFloatable);
     window.addDockWidget(Qt::BottomDockWidgetArea, dock);
+
+    consoleDock = new QDockWidget(QStringLiteral("Tcl Console"), &window);
+    consoleDock->setObjectName(QStringLiteral("tclConsole"));
+    consoleDock->setWidget(console);
+    consoleDock->setFeatures(QDockWidget::DockWidgetMovable | QDockWidget::DockWidgetFloatable |
+                             QDockWidget::DockWidgetClosable);
+    window.addDockWidget(Qt::BottomDockWidgetArea, consoleDock);
+    window.splitDockWidget(dock, consoleDock, Qt::Horizontal);
+    consoleDock->hide();
+    QObject::connect(consoleDock, &QDockWidget::visibilityChanged, console, [this](bool shown) {
+        if (shown) {
+            console->focusInput();
+        }
+    });
+    console->onCommand([this](const QString &command) {
+        if (!runner.execute(command.toStdString(), consoleWorkDir())) {
+            console->append(QStringLiteral("busy: wait for the current run, or press Stop"),
+                            TclConsole::Kind::Error);
+            return;
+        }
+        refresh();
+    });
 
     openAction = new QAction(QStringLiteral("Open Design..."), &window);
     openAction->setShortcut(QKeySequence::Open);
@@ -125,6 +152,9 @@ void MainWindow::Impl::build() {
     QMenu *show = window.menuBar()->addMenu(QStringLiteral("&View"));
     show->addAction(fitAction);
     show->addAction(dock->toggleViewAction());
+    QAction *consoleAction = consoleDock->toggleViewAction();
+    consoleAction->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_T));
+    show->addAction(consoleAction);
 
     QToolBar *tools = window.addToolBar(QStringLiteral("Run"));
     tools->setObjectName(QStringLiteral("run"));
@@ -139,8 +169,19 @@ void MainWindow::Impl::build() {
     refresh();
 }
 
+std::string MainWindow::Impl::consoleWorkDir() const {
+    if (!request.workDir.empty()) {
+        return request.workDir;
+    }
+    if (!request.design.empty()) {
+        return defaultWorkDir(QString::fromStdString(request.design));
+    }
+    return (std::filesystem::current_path() / "output" / "session").string();
+}
+
 void MainWindow::Impl::refresh() {
     const bool busy = runner.running();
+    console->setBusy(busy);
     openAction->setEnabled(!busy);
     scriptAction->setEnabled(!busy);
     runAction->setEnabled(!busy && !request.design.empty());
@@ -160,6 +201,18 @@ void MainWindow::Impl::refresh() {
 
 void MainWindow::Impl::finished(const RunResult &result) {
     refresh();
+    if (result.fromConsole) {
+        if (!result.message.empty()) {
+            console->append(QString::fromStdString(result.message),
+                            result.outcome == RunResult::Outcome::Evaluated
+                                ? TclConsole::Kind::Result
+                                : TclConsole::Kind::Error);
+        }
+        if (finishedCallback) {
+            finishedCallback(result);
+        }
+        return;
+    }
     const QString text = QString::fromStdString(result.message);
     switch (result.outcome) {
         case RunResult::Outcome::Placed:
@@ -228,6 +281,10 @@ LayoutView *MainWindow::layoutView() const {
 
 LogView *MainWindow::logView() const {
     return pImpl->log;
+}
+
+TclConsole *MainWindow::tclConsole() const {
+    return pImpl->console;
 }
 
 QString MainWindow::status() const {

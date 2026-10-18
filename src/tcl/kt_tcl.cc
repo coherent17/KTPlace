@@ -1256,14 +1256,15 @@ Value Interpreter::evalFile(const std::string &path) {
     std::ostringstream buffer;
     buffer << in.rdbuf();
     scriptStack.push_back(path);
+    Value result;
     try {
-        return eval(buffer.str(), 0);
+        result = eval(buffer.str(), 0);
     } catch (...) {
         scriptStack.pop_back();
         throw;
     }
     scriptStack.pop_back();
-    return {};
+    return result;
 }
 
 Value Interpreter::eval(const std::string &script, int depth) {

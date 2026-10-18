@@ -87,13 +87,50 @@ Bookshelf; gzipped inputs are read directly.
 | option | meaning |
 | --- | --- |
 | `-w, --work-dir <dir>` | where everything is written (default: cwd) |
-| `-tcl, --tcl <file>` | Tcl script that configures the run |
+| `-tcl, --tcl <file>` | Tcl script that configures the run, or is the run (below) |
+| `--shell` | interactive Tcl console (prompt on stderr) |
+| `--gui` | the desktop window (needs `make GUI=1`) |
 | `-v, --verbose` | also echo the trace log to the console |
 
 Everything a run writes goes under `-w`: `placed.pl`, `plots/` (`placement.gif`,
 the matching `routing_demand.gif`, the final `placement.png` and SimPL's
 `simpl_convergence.png`), `ktplace.log` and `ktplace_trace.log`. stdout is never
 written.
+
+### Tcl flows and the console
+
+The flow is also a set of Tcl commands, so a script can be the run itself:
+
+```tcl
+# flow.tcl:  ktplace -w output/ibm01 -tcl flow.tcl
+add_option simpl grid 64
+read_design benchmark/bookshelf/ICCAD04/ibm01
+gplace_design                  ;# or: gplace_design ntuplace1
+puts "after global placement: [report_hpwl]"
+legalize_placement
+detail_place
+check_placement
+write_placement                ;# <work-dir>/placed.pl, or write_placement <file>
+```
+
+| command | does |
+| --- | --- |
+| `read_design <dir>` | load a Bookshelf or LEF/DEF design |
+| `gplace_design [simpl\|ntuplace1]` | global placement (default: `flow algorithm`) |
+| `legalize_placement` | Abacus, or the multi-row legalizer when cells span rows |
+| `detail_place` | FastDP |
+| `place_design` | the three above, in order |
+| `write_placement [file]` | write the `.pl` |
+| `write_plots` | draw the GIFs and the final image now (otherwise at the end) |
+| `report_hpwl` | log the HPWL and return it |
+| `report_design`, `check_placement` | the design report; the legality check (returns 1 if legal) |
+
+A script with only `add_option` lines still configures the default flow, and a
+design directory on the command line is read before the script runs.
+`ktplace --shell [<dir>]` runs the same commands interactively, and in the GUI
+`View > Tcl Console` (Ctrl+T) opens a console at the bottom of the window that
+drives the window's session: after a Run, or step by step, with the layout
+following every stage. `source <file>` works in all three.
 
 ## Configuration
 

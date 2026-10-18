@@ -8,6 +8,7 @@
 #include "gui/kt_logView.h"
 #include "gui/kt_mainWindow.h"
 #include "gui/kt_runner.h"
+#include "gui/kt_tclConsole.h"
 #include "util/kt_log.h"
 
 #include <QApplication>
@@ -319,4 +320,38 @@ BOOST_AUTO_TEST_CASE(the_window_runs_a_design_and_logs_it) {
     BOOST_TEST(window.layoutView()->frame().stage == "detailed placement");
     BOOST_TEST(window.logView()->toPlainText().contains(
         QStringLiteral("Placement completed successfully!")));
+}
+
+BOOST_AUTO_TEST_CASE(the_tcl_console_drives_a_session_step_by_step) {
+    const ScratchDir dir("console");
+    const std::string design = dir.design();
+    const fs::path work = dir.file("work");
+    MainWindow window({"", work.string(), ""});
+    std::vector<RunResult> results;
+    window.onFinished([&results](const RunResult &r) {
+        results.push_back(r);
+    });
+    TclConsole &console = *window.tclConsole();
+    const auto run = [&](const QString &command) {
+        const std::size_t before = results.size();
+        console.submit(command);
+        BOOST_REQUIRE(waitUntil([&] {
+            return results.size() > before;
+        }));
+        return results.back();
+    };
+
+    BOOST_TEST(
+        (run(QStringLiteral("read_design {%1}").arg(QString::fromStdString(design))).outcome ==
+         RunResult::Outcome::Evaluated));
+    BOOST_TEST((run(QStringLiteral("place_design")).outcome == RunResult::Outcome::Evaluated));
+    const RunResult hpwl = run(QStringLiteral("report_hpwl"));
+    BOOST_TEST(hpwl.fromConsole);
+    BOOST_TEST(std::stod(hpwl.message) > 0.0);
+    BOOST_TEST((run(QStringLiteral("no_such_command")).outcome == RunResult::Outcome::Failed));
+    BOOST_TEST((run(QStringLiteral("write_placement")).outcome == RunResult::Outcome::Evaluated));
+    BOOST_TEST(fs::exists(work / "placed.pl"));
+    BOOST_TEST(window.layoutView()->frame().stage == "detailed placement");
+    BOOST_TEST(console.transcript().contains(QStringLiteral("% report_hpwl")));
+    BOOST_TEST(console.transcript().contains(QStringLiteral("no_such_command")));
 }
