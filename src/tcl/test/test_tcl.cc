@@ -15,6 +15,7 @@
 #include <fstream>
 #include <ostream>
 #include <string>
+#include <unistd.h>
 
 using namespace ktplace;
 using namespace ktplace::tcl;
@@ -360,4 +361,30 @@ BOOST_AUTO_TEST_CASE(help_describes_every_registered_command) {
                    .interpreter.eval("help add_option")
                    .asString()
                    .find("add_option <component> <key> <value>") != std::string::npos);
+}
+
+BOOST_AUTO_TEST_CASE(exec_returns_the_output_and_a_failure_is_an_error) {
+    Interpreter interpreter;
+    BOOST_TEST(interpreter.eval("exec echo hello world").asString() == "hello world");
+    BOOST_TEST(interpreter.eval("set n 3; exec echo $n | tr 3 4").asString() == "4");
+    BOOST_CHECK_THROW((void)interpreter.eval("exec false"), Error);
+    BOOST_CHECK_THROW((void)interpreter.eval("exec"), Error);
+}
+
+BOOST_AUTO_TEST_CASE(cd_pwd_and_ls_walk_the_file_system) {
+    const std::filesystem::path start = std::filesystem::current_path();
+    const std::filesystem::path dir =
+        std::filesystem::temp_directory_path() / ("ktplace_tcl_ls_" + std::to_string(getpid()));
+    std::filesystem::create_directories(dir / "sub");
+    std::ofstream(dir / "placed.pl") << "x\n";
+    Interpreter interpreter;
+    const std::string entered = interpreter.eval("cd {" + dir.string() + "}").asString();
+    BOOST_TEST(std::filesystem::equivalent(entered, dir));
+    BOOST_TEST(interpreter.eval("pwd").asString() == std::filesystem::current_path().string());
+    BOOST_TEST(interpreter.eval("ls").asString() == "placed.pl\nsub");
+    BOOST_TEST(interpreter.eval("ls -d *.pl").asString() == "placed.pl");
+    BOOST_CHECK_THROW((void)interpreter.eval("cd no_such_dir"), Error);
+    BOOST_CHECK_THROW((void)interpreter.eval("ls no_such_file"), Error);
+    std::filesystem::current_path(start);
+    std::filesystem::remove_all(dir);
 }

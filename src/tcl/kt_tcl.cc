@@ -6,13 +6,17 @@
 #include "util/kt_log.h"
 
 #include <algorithm>
+#include <array>
 #include <cctype>
 #include <cmath>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <filesystem>
 #include <format>
 #include <fstream>
 #include <sstream>
+#include <system_error>
 
 namespace ktplace::tcl {
 
@@ -526,6 +530,35 @@ std::vector<Value> listValue(Interpreter &self, const Word &word) {
         return self.splitList(v.asString());
     }
     return self.splitList(word.text);
+}
+
+std::string shellCommand(Interpreter &self, const Arguments &args, std::size_t first) {
+    std::string command;
+    for (std::size_t i = first; i < args.size(); ++i) {
+        command += command.empty() ? "" : " ";
+        command += args[i].literal ? args[i].text : self.substitute(args[i].text);
+    }
+    return command;
+}
+
+Value runShellCommand(const std::string &command) {
+    FILE *pipe = popen((command + " 2>&1").c_str(), "r");
+    if (pipe == nullptr) {
+        throw Error(std::format("exec: cannot run \"{}\"", command));
+    }
+    std::string output;
+    std::array<char, 4096> chunk{};
+    while (const std::size_t got = std::fread(chunk.data(), 1, chunk.size(), pipe)) {
+        output.append(chunk.data(), got);
+    }
+    const int status = pclose(pipe);
+    while (!output.empty() && output.back() == '\n') {
+        output.pop_back();
+    }
+    if (status != 0) {
+        throw Error(output.empty() ? std::format("exec: \"{}\" failed", command) : output);
+    }
+    return Value::string(output);
 }
 
 }  // namespace
@@ -1079,6 +1112,54 @@ void Interpreter::installBuiltins() {
                         }
                         result = Value::string(
                             self.helpText(args.size() == 2 ? self.substitute(args[1].text) : ""));
+                        return 0;
+                    });
+
+    registerCommand({.name = "exec",
+                     .usage = "exec <command> [arg ...]",
+                     .summary = "run a shell command and return its output"},
+                    [](Interpreter &self, const Arguments &args, Value &result) -> int {
+                        if (args.size() < 2) {
+                            throw Error("wrong # args: should be \"exec <command> [arg ...]\"");
+                        }
+                        result = runShellCommand(shellCommand(self, args, 1));
+                        return 0;
+                    });
+
+    registerCommand({.name = "ls",
+                     .usage = "ls [option ...] [path ...]",
+                     .summary = "list files, as the system ls does"},
+                    [](Interpreter &self, const Arguments &args, Value &result) -> int {
+                        result = runShellCommand("ls " + shellCommand(self, args, 1));
+                        return 0;
+                    });
+
+    registerCommand({.name = "pwd", .usage = "pwd", .summary = "the current directory"},
+                    [](Interpreter &, const Arguments &args, Value &result) -> int {
+                        if (args.size() != 1) {
+                            throw Error("wrong # args: should be \"pwd\"");
+                        }
+                        result = Value::string(std::filesystem::current_path().string());
+                        return 0;
+                    });
+
+    registerCommand({.name = "cd",
+                     .usage = "cd [dir]",
+                     .summary = "change the current directory (default: home)"},
+                    [](Interpreter &self, const Arguments &args, Value &result) -> int {
+                        if (args.size() > 2) {
+                            throw Error("wrong # args: should be \"cd [dir]\"");
+                        }
+                        const char *home = std::getenv("HOME");
+                        const std::string dir = args.size() == 2
+                                                    ? self.substitute(args[1].text)
+                                                    : std::string(home != nullptr ? home : "");
+                        std::error_code ec;
+                        std::filesystem::current_path(dir, ec);
+                        if (ec) {
+                            throw Error(std::format("cd: {}: {}", dir, ec.message()));
+                        }
+                        result = Value::string(std::filesystem::current_path().string());
                         return 0;
                     });
 
