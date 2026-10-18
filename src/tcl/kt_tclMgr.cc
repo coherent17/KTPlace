@@ -9,6 +9,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <utility>
 
 namespace ktplace::tcl {
 
@@ -54,7 +55,10 @@ TclMgr::TclMgr() {
 
 void TclMgr::installCommands() {
     interpreter.registerCommand(
-        "add_option", [](tcl::Interpreter &self, const Arguments &args, Value &) -> int {
+        {.name = "add_option",
+         .usage = "add_option <component> <key> <value>",
+         .summary = "set an option, e.g. add_option simpl grid 64"},
+        [](tcl::Interpreter &self, const Arguments &args, Value &) -> int {
             if (args.size() != 4) {
                 throw tcl::Error("add_option: expected <component> <key> <value>");
             }
@@ -76,8 +80,8 @@ void TclMgr::installCommands() {
         });
 }
 
-void TclMgr::registerCommand(const std::string &name, tcl::Command command) {
-    interpreter.registerCommand(name, std::move(command));
+void TclMgr::registerCommand(tcl::CommandHelp help, tcl::Command command) {
+    interpreter.registerCommand(std::move(help), std::move(command));
 }
 
 // A malformed script raises rather than exiting: whether a bad script is fatal

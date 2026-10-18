@@ -342,3 +342,22 @@ BOOST_AUTO_TEST_CASE(component_names_round_trip) {
     }
     BOOST_TEST(!componentFromName("nonesuch").has_value());
 }
+
+BOOST_AUTO_TEST_CASE(help_describes_every_registered_command) {
+    Interpreter interpreter;
+    interpreter.registerCommand({.name = "greet", .usage = "greet <who>", .summary = "say hello"},
+                                [](Interpreter &self, const Arguments &args, Value &result) -> int {
+                                    result =
+                                        Value::string("hello " + self.substitute(args[1].text));
+                                    return 0;
+                                });
+    const std::string all = interpreter.eval("help").asString();
+    BOOST_TEST(all.find("greet <who>") != std::string::npos);
+    BOOST_TEST(all.find("foreach <var> <list> <body>") != std::string::npos);
+    BOOST_TEST(interpreter.eval("help greet").asString() == "greet <who>\n  say hello");
+    BOOST_CHECK_THROW((void)interpreter.eval("help nonesuch"), Error);
+    BOOST_TEST(TclMgr::instance()
+                   .interpreter.eval("help add_option")
+                   .asString()
+                   .find("add_option <component> <key> <value>") != std::string::npos);
+}

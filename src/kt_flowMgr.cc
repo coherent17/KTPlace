@@ -4,7 +4,7 @@
 #include "kt_flowMgr.h"
 
 #include "kt_option.h"
-#include "kt_tclCommand.h"
+#include "kt_tclCmd.h"
 
 #include "adaptor/kt_inputReader.h"
 #include "datamodel/kt_dm.h"
