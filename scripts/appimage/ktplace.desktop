@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=KTPlace
+Comment=VLSI placement engine: SimPL, Abacus and FastDP
+Exec=ktplace --gui
+Icon=ktplace
+Categories=Development;Electronics;
+Terminal=false

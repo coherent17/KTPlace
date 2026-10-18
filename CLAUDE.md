@@ -30,7 +30,7 @@ A new test binary needs a `TEST_<name>` variable, a `TEST_BINS` entry and a link
 
 CI (`.github/workflows/ci.yml`) has a `build` job (format check, build, test binaries; it uploads the stripped `build/bin` as an artifact) and four jobs that start after it and run in parallel: unit tests, the adaptec1 smoke placement, the ibm01 multi-row smoke placement (each configured by a small `-tcl` script), and a determinism job that runs ibm01 (animation on) and adaptec1 twice and requires byte-identical outputs. A `macos` job builds, tests and places ibm01 and adaptec1 with Apple clang, and a last job requires the Linux and macOS `placed.pl` files to be byte-identical. The smoke step checks the exact netlist counts in the log and the line count of `placed.pl`. Do not change those log strings by accident.
 
-Releases come from `.github/workflows/release.yml`: pushing a `v*` tag that matches `version` in `src/kt_option.h` builds a dynamic and a fully static binary, places ibm01 and adaptec1 with each, and publishes both tarballs with checksums as a GitHub release.
+Releases come from `.github/workflows/release.yml`: pushing a `v*` tag that matches `version` in `src/kt_option.h` builds a dynamic and a fully static binary and an AppImage (`scripts/appimage/build.sh`: the `GUI=1` build with Qt bundled by linuxdeploy; no arguments opens the GUI), places ibm01 and adaptec1 with each (and ibm01 through the AppImage's `--gui`, offscreen), and publishes the two tarballs and the AppImage with checksums as a GitHub release.
 
 ## Running
 

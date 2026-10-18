@@ -11,6 +11,7 @@ on:
       - third_party/**
       - scripts/ktplace.sh
       - scripts/ktplace.csh
+      - scripts/appimage/**
   workflow_dispatch:
 
 concurrency:
@@ -99,9 +100,85 @@ jobs:
             ${{ env.PACKAGE }}.tar.gz
             ${{ env.PACKAGE }}.tar.gz.sha256
 
+  appimage:
+    # The GUI build with Qt bundled in, so the window runs without Qt installed.
+    name: Linux / Package (AppImage)
+    runs-on: ubuntu-24.04
+    env:
+      APPIMAGE_EXTRACT_AND_RUN: 1
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Check the tag against the engine's version
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          set -euo pipefail
+          version=$(sed -n 's/.*version = "\(.*\)";/\1/p' src/kt_option.h)
+          test "v$version" = "$GITHUB_REF_NAME" || {
+            echo "::error::tag $GITHUB_REF_NAME does not match version $version in src/kt_option.h"
+            exit 1
+          }
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            g++ \
+            qt6-base-dev \
+            qt6-wayland \
+            pkg-config \
+            wget \
+            file \
+            fonts-dejavu-core
+
+      - name: Build the AppImage
+        run: |
+          set -euo pipefail
+          version=$(sed -n 's/.*version = "\(.*\)";/\1/p' src/kt_option.h)
+          name="ktplace-v${version}-x86_64.AppImage"
+          scripts/appimage/build.sh "$name"
+          echo "APP=$PWD/$name" >> "$GITHUB_ENV"
+          echo "PACKAGE=$name" >> "$GITHUB_ENV"
+
+      - name: Place ibm01 and adaptec1 with the AppImage
+        run: |
+          set -euo pipefail
+          "$APP" --version
+          "$APP" ./benchmark/bookshelf/ICCAD04/ibm01 -w smoke/ibm01 2>&1 | tee ibm01.log
+          test "$(grep -c 'verdict *| *PASS' ibm01.log)" -eq 2
+          echo 'add_option visualizer plot 0' > noplot.tcl
+          "$APP" ./benchmark/bookshelf/ISPD_2005/adaptec1 -w smoke/adaptec1 -tcl noplot.tcl 2>&1 | tee adaptec1.log
+          test "$(wc -l < smoke/adaptec1/placed.pl)" -eq 211447
+
+      - name: The AppImage's window places a design
+        run: |
+          QT_QPA_PLATFORM=offscreen "$APP" --gui \
+            benchmark/bookshelf/ICCAD04/ibm01 -w smoke/gui > gui.log 2>&1 &
+          for _ in $(seq 1 120); do
+            grep -qs 'Placement completed successfully' smoke/gui/ktplace.log && break
+            grep -qs 'fatal' smoke/gui/ktplace.log gui.log && break
+            sleep 1
+          done
+          pkill -x ktplace || true
+          cat gui.log
+          test "$(wc -l < smoke/gui/placed.pl)" -eq 12752
+
+      - name: Checksum
+        run: sha256sum "$PACKAGE" > "$PACKAGE.sha256"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.PACKAGE }}
+          path: |
+            ${{ env.PACKAGE }}
+            ${{ env.PACKAGE }}.sha256
+
   publish:
     name: Publish the GitHub release
-    needs: package
+    needs: [package, appimage]
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-24.04
     permissions:
