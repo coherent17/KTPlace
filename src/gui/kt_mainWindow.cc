@@ -88,20 +88,12 @@ void MainWindow::Impl::build() {
     consoleDock = new QDockWidget(QStringLiteral("Tcl Console"), &window);
     consoleDock->setObjectName(QStringLiteral("tclConsole"));
     consoleDock->setWidget(console);
-    consoleDock->setFeatures(QDockWidget::DockWidgetMovable | QDockWidget::DockWidgetFloatable |
-                             QDockWidget::DockWidgetClosable);
-    window.addDockWidget(Qt::BottomDockWidgetArea, consoleDock);
-    window.splitDockWidget(dock, consoleDock, Qt::Horizontal);
-    consoleDock->hide();
-    QObject::connect(consoleDock, &QDockWidget::visibilityChanged, console,
-                     [this, dock](bool shown) {
-                         if (!shown) {
-                             return;
-                         }
-                         const int half = window.width() / 2;
-                         window.resizeDocks({dock, consoleDock}, {half, half}, Qt::Horizontal);
-                         console->focusInput();
-                     });
+    consoleDock->setFeatures(QDockWidget::DockWidgetMovable | QDockWidget::DockWidgetFloatable);
+    window.setTabPosition(Qt::BottomDockWidgetArea, QTabWidget::North);
+    window.tabifyDockWidget(dock, consoleDock);
+    dock->setTitleBarWidget(new QWidget(dock));
+    consoleDock->setTitleBarWidget(new QWidget(consoleDock));
+    dock->raise();
     console->onCommand([this](const QString &command) {
         if (!runner.execute(command.toStdString(), consoleWorkDir())) {
             console->append(QStringLiteral("busy: wait for the current run, or press Stop"),
@@ -155,9 +147,20 @@ void MainWindow::Impl::build() {
     place->addAction(stopAction);
     QMenu *show = window.menuBar()->addMenu(QStringLiteral("&View"));
     show->addAction(fitAction);
-    show->addAction(dock->toggleViewAction());
-    QAction *consoleAction = consoleDock->toggleViewAction();
+    auto *logAction = new QAction(QStringLiteral("Log"), &window);
+    logAction->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_L));
+    QObject::connect(logAction, &QAction::triggered, &window, [dock] {
+        dock->show();
+        dock->raise();
+    });
+    show->addAction(logAction);
+    auto *consoleAction = new QAction(QStringLiteral("Tcl Console"), &window);
     consoleAction->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_T));
+    QObject::connect(consoleAction, &QAction::triggered, &window, [this] {
+        consoleDock->show();
+        consoleDock->raise();
+        console->focusInput();
+    });
     show->addAction(consoleAction);
 
     QToolBar *tools = window.addToolBar(QStringLiteral("Run"));

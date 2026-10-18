@@ -128,7 +128,7 @@ write_placement                ;# <work-dir>/placed.pl, or write_placement <file
 A script with only `add_option` lines still configures the default flow, and a
 design directory on the command line is read before the script runs.
 `ktplace --shell [<dir>]` runs the same commands interactively, and in the GUI
-`View > Tcl Console` (Ctrl+T) opens a console at the bottom of the window that
+the bottom panel has a Tcl Console tab next to the Log (Ctrl+T switches to it) that
 drives the window's session: after a Run, or step by step, with the layout
 following every stage. `source <file>` works in all three.
 

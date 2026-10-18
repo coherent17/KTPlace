@@ -2,7 +2,9 @@
 #include "kt_option.h"
 #include "kt_shell.h"
 
+#ifdef KTPLACE_GUI
 #include "gui/kt_gui.h"
+#endif
 #include "util/kt_log.h"
 #include "util/kt_scopedTimer.h"
 
@@ -24,7 +26,13 @@ int main(int argc, char *argv[]) {
             return 0;
         }
         if (options.gui) {
+#ifdef KTPLACE_GUI
             return runGui(options, argc, argv);
+#else
+            ktlog.fatal(
+                "this ktplace was built without the GUI; rebuild it with 'make GUI=1' (needs "
+                "Qt 6)");
+#endif
         }
 
         ktlog.configure(options.getLogFile(), options.verbose);
