@@ -38,7 +38,7 @@ TclConsole::TclConsole(QWidget *parent) : QWidget(parent), pImpl(std::make_uniqu
     pImpl->input = new QLineEdit(this);
     pImpl->input->setFont(fixed);
     pImpl->input->setPlaceholderText(
-        QStringLiteral("Tcl: read_design <dir>, gplace_design, legalize_placement, detail_place, "
+        QStringLiteral("Tcl: read_design [dir], gplace_design, legalize_placement, detail_place, "
                        "write_placement, report_hpwl, source <file>, help ..."));
     pImpl->input->installEventFilter(this);
     auto *layout = new QVBoxLayout(this);

@@ -66,6 +66,10 @@ routing-demand map. The window is linked in only by `make GUI=1`,
 which needs Qt 6 Widgets, found through `pkg-config`. A plain `make` stays free
 of Qt, and its `--gui` says how to get the window.
 
+<p align="center">
+  <img src="docs/images/adaptec1_gui.png" width="100%" alt="The KTPlace window after placing adaptec1 step by step from the Tcl Console">
+</p>
+
 ```sh
 sudo apt-get install qt6-base-dev pkg-config   # Ubuntu 24.04+
 brew install qt pkg-config                     # macOS
