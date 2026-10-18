@@ -140,8 +140,10 @@ script, press Run, and watch each stage move the cells while the log streams bel
 - Click a cell to see its nets and pins; right-click for the routing-demand map.
 - The Tcl Console tab sits next to the Log at the bottom (see above).
 
-The window is linked in only by `make GUI=1`, which needs Qt 6 Widgets, found through `pkg-config`.
-A plain `make` stays free of Qt, and its `--gui` says how to get the window.
+To try it without building anything, download the release's AppImage (Qt bundled in, see
+[Install a release](#install-a-release)). From source, the window is linked in only by `make GUI=1`,
+which needs Qt 6 Widgets, found through `pkg-config`. A plain `make` stays free of Qt, and its
+`--gui` says how to get the window.
 
 ```sh
 sudo apt-get install qt6-base-dev pkg-config   # Ubuntu 24.04+
@@ -240,18 +242,31 @@ source ktplace.sh   # written by the build: puts ktplace on PATH
 
 ## Install a release
 
-Each [release](https://github.com/coherent17/KTPlace/releases) ships two Linux x86-64 builds of the
+Each [release](https://github.com/coherent17/KTPlace/releases) ships three Linux x86-64 builds of the
 same engine:
 
 | archive | runs on | needs |
 | --- | --- | --- |
 | `ktplace-vX.Y.Z-linux-x86_64-static.tar.gz` | any x86-64 Linux | nothing: everything, the C/C++ runtimes included, is linked in |
 | `ktplace-vX.Y.Z-linux-x86_64.tar.gz` | Ubuntu 24.04 or newer | nothing beyond the base system (glibc 2.38+, libstdc++ from GCC 13.2+) |
+| `ktplace-vX.Y.Z-x86_64.AppImage` | Ubuntu 24.04, Debian 13, Fedora 39 or newer | nothing: the GUI build, with Qt bundled in |
+
+The AppImage is the one with the desktop GUI. Started without arguments it opens the window; with
+arguments it is the same command line:
 
 ```sh
-sha256sum -c ktplace-v1.0.0-linux-x86_64-static.tar.gz.sha256
-tar -xzf ktplace-v1.0.0-linux-x86_64-static.tar.gz
-source ktplace-v1.0.0-linux-x86_64-static/ktplace.sh
+chmod +x ktplace-v1.1.0-x86_64.AppImage
+./ktplace-v1.1.0-x86_64.AppImage                                   # the GUI
+./ktplace-v1.1.0-x86_64.AppImage benchmark/bookshelf/ICCAD04/ibm01 -w output/ibm01
+```
+
+On a system without FUSE, set `APPIMAGE_EXTRACT_AND_RUN=1` first. The tarballs are command-line
+only:
+
+```sh
+sha256sum -c ktplace-v1.1.0-linux-x86_64-static.tar.gz.sha256
+tar -xzf ktplace-v1.1.0-linux-x86_64-static.tar.gz
+source ktplace-v1.1.0-linux-x86_64-static/ktplace.sh
 ktplace --version
 ```
 

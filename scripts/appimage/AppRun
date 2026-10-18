@@ -1,0 +1,7 @@
+#!/bin/sh
+here=$(dirname "$(readlink -f "$0")")
+for hook in "$here"/apprun-hooks/*.sh; do
+    [ -f "$hook" ] && . "$hook"
+done
+[ $# -eq 0 ] && set -- --gui
+exec "$here/usr/bin/ktplace" "$@"
