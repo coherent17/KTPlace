@@ -115,7 +115,7 @@ write_placement                ;# <work-dir>/placed.pl, or write_placement <file
 
 | command | does |
 | --- | --- |
-| `read_design <dir>` | load a Bookshelf or LEF/DEF design |
+| `read_design [dir]` | load a Bookshelf or LEF/DEF design (default: the opened or given design) |
 | `gplace_design [simpl\|ntuplace1]` | global placement (default: `flow algorithm`) |
 | `legalize_placement` | Abacus, or the multi-row legalizer when cells span rows |
 | `detail_place` | FastDP |
@@ -132,7 +132,8 @@ design directory on the command line is read before the script runs.
 `ktplace --shell [<dir>]` runs the same commands interactively, and in the GUI
 the bottom panel has a Tcl Console tab next to the Log (Ctrl+T switches to it) that
 drives the window's session: after a Run, or step by step, with the layout
-following every stage. `source <file>` works in all three. The shell and the console
+following every stage. Open Design loads the design straight away, so the console
+can go on with `gplace_design`. `source <file>` works in all three. The shell and the console
 share a history in `~/.ktplace_history` (Up/Down recall earlier commands; the shell
 also edits the line with Left/Right, Home/End and Ctrl-A/E/U/K).
 

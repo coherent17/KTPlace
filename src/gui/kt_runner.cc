@@ -39,8 +39,10 @@ public:
     std::shared_ptr<const LayoutGeometry> geometry;
 
     void openSession();
+    void beginSession(const RunRequest &request);
     void launch(std::function<RunResult()> job);
-    RunResult evaluate(const std::string &command, const std::string &workDir);
+    RunResult load(const RunRequest &request);
+    RunResult evaluate(const std::string &command, const RunRequest &request);
 
     void post(std::function<void()> work) const {
         QMetaObject::invokeMethod(context, std::move(work), Qt::QueuedConnection);
@@ -128,15 +130,34 @@ RunResult Runner::Impl::place(const RunRequest &request) {
     return result;
 }
 
-RunResult Runner::Impl::evaluate(const std::string &command, const std::string &workDir) {
+void Runner::Impl::beginSession(const RunRequest &request) {
+    OptionDb::instance().clear();
+    kt_option options;
+    options.inputPath = request.design;
+    options.workDir = request.workDir;
+    std::error_code ec;
+    std::filesystem::create_directories(options.workDir, ec);
+    ktlog.configure(options.getLogFile(), false);
+    openSession();
+    session->begin(options);
+}
+
+RunResult Runner::Impl::load(const RunRequest &request) {
+    session.reset();
+    beginSession(request);
+    try {
+        session->readDesign(request.design);
+        return {RunResult::Outcome::Loaded, request.design};
+    } catch (const FatalError &error) {
+        return {RunResult::Outcome::Failed, error.what()};
+    } catch (const std::exception &error) {
+        return {RunResult::Outcome::Failed, error.what()};
+    }
+}
+
+RunResult Runner::Impl::evaluate(const std::string &command, const RunRequest &request) {
     if (!session) {
-        kt_option options;
-        options.workDir = workDir;
-        std::error_code ec;
-        std::filesystem::create_directories(options.workDir, ec);
-        ktlog.configure(options.getLogFile(), false);
-        openSession();
-        session->begin(options);
+        beginSession(request);
     }
     RunResult result;
     result.fromConsole = true;
@@ -190,12 +211,22 @@ bool Runner::start(const RunRequest &request) {
     return true;
 }
 
-bool Runner::execute(const std::string &command, const std::string &workDir) {
+bool Runner::open(const RunRequest &request) {
     if (running()) {
         return false;
     }
-    pImpl->launch([impl = pImpl.get(), command, workDir] {
-        return impl->evaluate(command, workDir);
+    pImpl->launch([impl = pImpl.get(), request] {
+        return impl->load(request);
+    });
+    return true;
+}
+
+bool Runner::execute(const std::string &command, const RunRequest &request) {
+    if (running()) {
+        return false;
+    }
+    pImpl->launch([impl = pImpl.get(), command, request] {
+        return impl->evaluate(command, request);
     });
     return true;
 }

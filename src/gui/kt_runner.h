@@ -17,7 +17,7 @@ struct RunRequest {
 };
 
 struct RunResult {
-    enum class Outcome { Placed, Evaluated, Stopped, Failed };
+    enum class Outcome { Placed, Loaded, Evaluated, Stopped, Failed };
     Outcome outcome = Outcome::Failed;
     std::string message;
     bool fromConsole = false;
@@ -37,7 +37,8 @@ public:
     Runner &operator=(const Runner &) = delete;
 
     bool start(const RunRequest &request);
-    bool execute(const std::string &command, const std::string &workDir);
+    bool open(const RunRequest &request);
+    bool execute(const std::string &command, const RunRequest &request);
     void stop();
     [[nodiscard]] bool running() const;
 

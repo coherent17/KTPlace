@@ -433,6 +433,7 @@ BOOST_AUTO_TEST_CASE(a_step_before_read_design_is_a_tcl_error) {
     flow.begin(optionsFor(dir, ""));
     BOOST_CHECK_THROW((void)flow.evaluate("gplace_design"), tcl::Error);
     BOOST_CHECK_THROW((void)flow.evaluate("write_placement"), tcl::Error);
+    BOOST_CHECK_THROW((void)flow.evaluate("read_design"), tcl::Error);
     BOOST_TEST(!flow.hasDesign());
 }
 
@@ -443,6 +444,7 @@ BOOST_AUTO_TEST_CASE(report_hpwl_returns_the_hpwl_to_the_script) {
     flow.begin(optionsFor(dir, ""));
     (void)flow.evaluate("read_design {" + designDir(dir).string() + "}");
     BOOST_TEST(flow.hasDesign());
+    BOOST_TEST(flow.evaluate("read_design") == designDir(dir).string());
     BOOST_TEST(std::stod(flow.evaluate("report_hpwl")) > 0.0);
 }
 

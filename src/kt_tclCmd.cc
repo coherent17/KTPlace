@@ -58,13 +58,18 @@ void registerStep(tcl::CommandHelp help, std::size_t minWords, std::size_t maxWo
 }
 
 void registerCommands() {
-    registerStep({.name = "read_design",
-                  .usage = "read_design <dir>",
-                  .summary = "load a Bookshelf or LEF/DEF design directory"},
-                 1, 1, Needs::Session, [](FlowMgr &flow, const Words &words) {
-                     flow.readDesign(words[0]);
-                     return tcl::Value{};
-                 });
+    registerStep(
+        {.name = "read_design",
+         .usage = "read_design [dir]",
+         .summary = "load a Bookshelf or LEF/DEF design (default: the opened or given design)"},
+        0, 1, Needs::Session, [](FlowMgr &flow, const Words &words) {
+            const std::string dir = words.empty() ? flow.designPath() : words[0];
+            if (dir.empty()) {
+                throw std::logic_error("no design to read; give a directory or open a design");
+            }
+            flow.readDesign(dir);
+            return tcl::Value::string(dir);
+        });
     registerStep({.name = "gplace_design",
                   .usage = "gplace_design [simpl|ntuplace1]",
                   .summary = "global placement (default: the flow algorithm option)"},

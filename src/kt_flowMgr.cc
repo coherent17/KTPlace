@@ -162,6 +162,10 @@ bool FlowMgr::hasDesign() const {
     return pImpl->db != nullptr;
 }
 
+const std::string &FlowMgr::designPath() const {
+    return pImpl->options.inputPath;
+}
+
 void FlowMgr::readDesign(const std::string &dirPath) {
     pImpl->readDesign(dirPath);
 }
@@ -261,6 +265,7 @@ void FlowMgr::Impl::requireDesign() const {
 }
 
 void FlowMgr::Impl::readDesign(const std::string &dirPath) {
+    options.inputPath = dirPath;
     snapshots.reset();
     plotsReady = false;
     committed.clear();

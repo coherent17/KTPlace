@@ -374,3 +374,27 @@ BOOST_AUTO_TEST_CASE(the_tcl_console_drives_a_session_step_by_step) {
     const CommandHistory history;
     BOOST_TEST(history.entries().back() == "write_placement");
 }
+
+BOOST_AUTO_TEST_CASE(opening_a_design_loads_it_and_read_design_reads_it_again) {
+    const ScratchDir dir("opened");
+    const std::string design = dir.design();
+    const fs::path work = dir.file("work");
+    MainWindow window({"", work.string(), ""});
+    std::vector<RunResult> results;
+    window.onFinished([&results](const RunResult &r) {
+        results.push_back(r);
+    });
+    window.openDesign(QString::fromStdString(design));
+    BOOST_REQUIRE(waitUntil([&] {
+        return !results.empty();
+    }));
+    BOOST_TEST((results.back().outcome == RunResult::Outcome::Loaded));
+    BOOST_TEST(window.layoutView()->frame().stage == "load");
+
+    window.tclConsole()->submit(QStringLiteral("read_design"));
+    BOOST_REQUIRE(waitUntil([&] {
+        return results.size() > 1;
+    }));
+    BOOST_TEST((results.back().outcome == RunResult::Outcome::Evaluated));
+    BOOST_TEST(results.back().message == design);
+}

@@ -66,12 +66,13 @@ public:
     QAction *scriptAction = nullptr;
     QAction *runAction = nullptr;
     QAction *stopAction = nullptr;
+    bool loading = false;
     std::function<void(const RunResult &)> finishedCallback;
     Runner runner;
 
     void build();
     void refresh();
-    [[nodiscard]] std::string consoleWorkDir() const;
+    [[nodiscard]] RunRequest consoleRequest() const;
     void finished(const RunResult &result);
 };
 
@@ -95,7 +96,7 @@ void MainWindow::Impl::build() {
     consoleDock->setTitleBarWidget(new QWidget(consoleDock));
     dock->raise();
     console->onCommand([this](const QString &command) {
-        if (!runner.execute(command.toStdString(), consoleWorkDir())) {
+        if (!runner.execute(command.toStdString(), consoleRequest())) {
             console->append(QStringLiteral("busy: wait for the current run, or press Stop"),
                             TclConsole::Kind::Error);
             return;
@@ -176,14 +177,14 @@ void MainWindow::Impl::build() {
     refresh();
 }
 
-std::string MainWindow::Impl::consoleWorkDir() const {
-    if (!request.workDir.empty()) {
-        return request.workDir;
+RunRequest MainWindow::Impl::consoleRequest() const {
+    RunRequest session = request;
+    if (session.workDir.empty()) {
+        session.workDir = session.design.empty()
+                              ? (std::filesystem::current_path() / "output" / "session").string()
+                              : defaultWorkDir(QString::fromStdString(session.design));
     }
-    if (!request.design.empty()) {
-        return defaultWorkDir(QString::fromStdString(request.design));
-    }
-    return (std::filesystem::current_path() / "output" / "session").string();
+    return session;
 }
 
 void MainWindow::Impl::refresh() {
@@ -195,7 +196,9 @@ void MainWindow::Impl::refresh() {
     stopAction->setEnabled(busy);
     if (busy) {
         window.statusBar()->showMessage(
-            QStringLiteral("Placing %1 ...").arg(QString::fromStdString(request.design)));
+            QStringLiteral("%1 %2 ...")
+                .arg(loading ? QStringLiteral("Loading") : QStringLiteral("Placing"),
+                     QString::fromStdString(request.design)));
         return;
     }
     QString message = request.design.empty() ? QStringLiteral("Open a design to place")
@@ -207,6 +210,7 @@ void MainWindow::Impl::refresh() {
 }
 
 void MainWindow::Impl::finished(const RunResult &result) {
+    loading = false;
     refresh();
     if (result.fromConsole) {
         if (!result.message.empty()) {
@@ -224,6 +228,11 @@ void MainWindow::Impl::finished(const RunResult &result) {
     switch (result.outcome) {
         case RunResult::Outcome::Placed:
             window.statusBar()->showMessage(QStringLiteral("Placed: %1").arg(text));
+            break;
+        case RunResult::Outcome::Loaded:
+            window.statusBar()->showMessage(
+                QStringLiteral("Loaded %1: Run places it, or step through it in the Tcl Console")
+                    .arg(text));
             break;
         case RunResult::Outcome::Stopped:
             window.statusBar()->showMessage(QStringLiteral("Stopped"));
@@ -254,6 +263,8 @@ void MainWindow::openDesign(const QString &design) {
     }
     pImpl->view->setFrame({});
     pImpl->stage->clear();
+    pImpl->log->clear();
+    pImpl->loading = pImpl->runner.open(pImpl->consoleRequest());
     pImpl->refresh();
 }
 
