@@ -1,5 +1,6 @@
 #include "kt_flowMgr.h"
 #include "kt_option.h"
+#include "kt_shell.h"
 
 #include "gui/kt_gui.h"
 #include "util/kt_log.h"
@@ -8,6 +9,7 @@
 #include <chrono>
 #include <ctime>
 #include <exception>
+#include <iostream>
 #include <string>
 
 using namespace ktplace;
@@ -37,6 +39,12 @@ int main(int argc, char *argv[]) {
         ktlog.echo("Run started: {}", localDateTime());
         ktlog.echo("Command: {}", command);
         options.report();
+
+        if (options.shell) {
+            const int status = runShell(options, std::cin);
+            ktlog.shutdown();
+            return status;
+        }
 
         FlowMgr flowMgr;
         flowMgr.run(options);

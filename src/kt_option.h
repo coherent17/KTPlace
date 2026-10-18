@@ -28,6 +28,7 @@ public:
 
     std::string tclFile;
     bool gui = false;
+    bool shell = false;
 
     bool parse(int argc, char *argv[]);
 

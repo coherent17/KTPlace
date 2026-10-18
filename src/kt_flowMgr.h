@@ -2,6 +2,7 @@
 
 #include <functional>
 #include <memory>
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -30,6 +31,11 @@ public:
     void run(const kt_option &options);
 
     void observe(FlowObserver observer);
+
+    void begin(const kt_option &options);
+    [[nodiscard]] std::string evaluate(const std::string &script);
+    void finish();
+    [[nodiscard]] bool hasDesign() const;
 
 private:
     class Impl;
