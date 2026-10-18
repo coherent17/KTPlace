@@ -1,10 +1,11 @@
 #include "gui/kt_tclConsole.h"
 
+#include "util/kt_history.h"
+
 #include <QFontDatabase>
 #include <QKeyEvent>
 #include <QLineEdit>
 #include <QPlainTextEdit>
-#include <QStringList>
 #include <QTextCharFormat>
 #include <QTextCursor>
 #include <QVBoxLayout>
@@ -24,8 +25,8 @@ public:
     QPlainTextEdit *output = nullptr;
     QLineEdit *input = nullptr;
     std::function<void(const QString &)> handler;
-    QStringList history;
-    qsizetype recall = 0;
+    CommandHistory history;
+    std::size_t recall = history.entries().size();
 };
 
 TclConsole::TclConsole(QWidget *parent) : QWidget(parent), pImpl(std::make_unique<Impl>()) {
@@ -38,7 +39,7 @@ TclConsole::TclConsole(QWidget *parent) : QWidget(parent), pImpl(std::make_uniqu
     pImpl->input->setFont(fixed);
     pImpl->input->setPlaceholderText(
         QStringLiteral("Tcl: read_design <dir>, gplace_design, legalize_placement, detail_place, "
-                       "write_placement, report_hpwl, source <file> ..."));
+                       "write_placement, report_hpwl, source <file>, help ..."));
     pImpl->input->installEventFilter(this);
     auto *layout = new QVBoxLayout(this);
     layout->setContentsMargins(2, 2, 2, 2);
@@ -61,10 +62,8 @@ void TclConsole::submit(const QString &command) {
     if (command.isEmpty()) {
         return;
     }
-    if (pImpl->history.isEmpty() || pImpl->history.back() != command) {
-        pImpl->history.append(command);
-    }
-    pImpl->recall = pImpl->history.size();
+    pImpl->history.add(command.toStdString());
+    pImpl->recall = pImpl->history.entries().size();
     append(QStringLiteral("% ") + command, Kind::Command);
     if (pImpl->handler) {
         pImpl->handler(command);
@@ -110,10 +109,15 @@ bool TclConsole::eventFilter(QObject *watched, QEvent *event) {
     if (key != Qt::Key_Up && key != Qt::Key_Down) {
         return QWidget::eventFilter(watched, event);
     }
-    const qsizetype count = pImpl->history.size();
-    pImpl->recall = key == Qt::Key_Up ? std::max<qsizetype>(0, pImpl->recall - 1)
-                                      : std::min(count, pImpl->recall + 1);
-    pImpl->input->setText(pImpl->recall < count ? pImpl->history[pImpl->recall] : QString());
+    const std::vector<std::string> &entries = pImpl->history.entries();
+    if (key == Qt::Key_Up && pImpl->recall > 0) {
+        --pImpl->recall;
+    } else if (key == Qt::Key_Down && pImpl->recall < entries.size()) {
+        ++pImpl->recall;
+    }
+    pImpl->input->setText(pImpl->recall < entries.size()
+                              ? QString::fromStdString(entries[pImpl->recall])
+                              : QString());
     return true;
 }
 

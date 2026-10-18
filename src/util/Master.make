@@ -11,7 +11,7 @@ override INCLUDES := -I.. $(THIRD_PARTY_INCLUDES)
 OBJ_DIR ?= ../build/obj/util
 
 # Source files in this directory
-SRCS := kt_assert.cc kt_gzipFile.cc kt_log.cc kt_reportTable.cc kt_scopedTimer.cc
+SRCS := kt_assert.cc kt_gzipFile.cc kt_history.cc kt_log.cc kt_reportTable.cc kt_scopedTimer.cc
 
 # Only include files that exist
 EXISTING_SRCS := $(foreach src,$(SRCS),$(if $(wildcard $(src)),$(src),))

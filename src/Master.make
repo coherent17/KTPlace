@@ -91,7 +91,7 @@ LIBS := $(STATIC_LDFLAGS) $(BUNDLED_LIBS) -pthread
 SUBDIRS := datamodel adaptor globalPlacer legalizer detailPlacer visualization util tcl
 
 # Source files in current directory
-LOCAL_SRCS := kt_flowMgr.cc kt_place.cc kt_option.cc kt_shell.cc
+LOCAL_SRCS := kt_flowMgr.cc kt_flowCommands.cc kt_place.cc kt_option.cc kt_shell.cc
 
 GUI ?= 0
 ifeq ($(GUI)$(STATIC),11)

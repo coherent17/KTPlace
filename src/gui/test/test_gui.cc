@@ -9,6 +9,7 @@
 #include "gui/kt_mainWindow.h"
 #include "gui/kt_runner.h"
 #include "gui/kt_tclConsole.h"
+#include "util/kt_history.h"
 #include "util/kt_log.h"
 
 #include <QApplication>
@@ -18,16 +19,32 @@
 #include <QObject>
 #include <QThread>
 #include <boost/test/unit_test.hpp>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <functional>
 #include <optional>
 #include <string>
+#include <unistd.h>
 #include <vector>
 
 using namespace ktplace;
 using namespace ktplace::gui;
 namespace fs = std::filesystem;
+
+struct IsolatedHome {
+    IsolatedHome() {
+        const fs::path home =
+            fs::temp_directory_path() / ("ktplace_gui_home_" + std::to_string(getpid()));
+        fs::create_directories(home);
+        setenv("HOME", home.c_str(), 1);
+    }
+    ~IsolatedHome() {
+        std::error_code ec;
+        fs::remove_all(std::getenv("HOME"), ec);
+    }
+};
+BOOST_TEST_GLOBAL_FIXTURE(IsolatedHome);
 
 namespace {
 
@@ -354,4 +371,6 @@ BOOST_AUTO_TEST_CASE(the_tcl_console_drives_a_session_step_by_step) {
     BOOST_TEST(window.layoutView()->frame().stage == "detailed placement");
     BOOST_TEST(console.transcript().contains(QStringLiteral("% report_hpwl")));
     BOOST_TEST(console.transcript().contains(QStringLiteral("no_such_command")));
+    const CommandHistory history;
+    BOOST_TEST(history.entries().back() == "write_placement");
 }

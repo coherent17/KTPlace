@@ -12,6 +12,7 @@
 #include "datamodel/kt_dm.h"
 #include "datamodel/kt_optionDb.h"
 #include "tcl/kt_tcl.h"
+#include "util/kt_history.h"
 
 #include <algorithm>
 #include <boost/test/unit_test_suite.hpp>
@@ -29,6 +30,20 @@
 
 using namespace ktplace;
 namespace fs = std::filesystem;
+
+struct IsolatedHome {
+    IsolatedHome() {
+        const std::filesystem::path home =
+            std::filesystem::temp_directory_path() / ("ktplace_home_" + std::to_string(getpid()));
+        std::filesystem::create_directories(home);
+        setenv("HOME", home.c_str(), 1);
+    }
+    ~IsolatedHome() {
+        std::error_code ec;
+        std::filesystem::remove_all(std::getenv("HOME"), ec);
+    }
+};
+BOOST_TEST_GLOBAL_FIXTURE(IsolatedHome);
 
 namespace {
 
@@ -429,6 +444,28 @@ BOOST_AUTO_TEST_CASE(report_hpwl_returns_the_hpwl_to_the_script) {
     (void)flow.evaluate("read_design {" + designDir(dir).string() + "}");
     BOOST_TEST(flow.hasDesign());
     BOOST_TEST(std::stod(flow.evaluate("report_hpwl")) > 0.0);
+}
+
+BOOST_AUTO_TEST_CASE(help_lists_every_command_and_explains_one) {
+    const ScratchDir dir("help");
+    FlowMgr flow;
+    flow.begin(optionsFor(dir, ""));
+    const std::string all = flow.evaluate("help");
+    for (const char *command : {"read_design", "gplace_design", "legalize_placement",
+                                "detail_place", "place_design", "write_placement", "report_hpwl"}) {
+        BOOST_TEST(all.find(command) != std::string::npos, command);
+    }
+    BOOST_TEST(flow.evaluate("help write_placement").find("write_placement") != std::string::npos);
+    BOOST_CHECK_THROW((void)flow.evaluate("help no_such_command"), tcl::Error);
+    BOOST_CHECK_THROW((void)flow.evaluate("read_design a b c"), tcl::Error);
+}
+
+BOOST_AUTO_TEST_CASE(the_shell_remembers_its_commands) {
+    const ScratchDir dir("shellhistory");
+    std::istringstream input("help\nreport_design\nexit\n");
+    BOOST_TEST(runShell(optionsFor(dir, ""), input) == 0);
+    const CommandHistory history;
+    BOOST_TEST(std::ranges::count(history.entries(), "help") == 1);
 }
 
 BOOST_AUTO_TEST_CASE(the_shell_runs_commands_and_survives_a_bad_one) {

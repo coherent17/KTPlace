@@ -37,6 +37,16 @@ public:
     void finish();
     [[nodiscard]] bool hasDesign() const;
 
+    void readDesign(const std::string &dirPath);
+    void globalPlace();
+    void legalize();
+    void detailPlace();
+    std::string writePlacement(const std::string &path = {});
+    void writePlots();
+    [[nodiscard]] double hpwl() const;
+    void reportDesign() const;
+    [[nodiscard]] bool checkPlacement() const;
+
 private:
     class Impl;
     std::unique_ptr<Impl> pImpl;

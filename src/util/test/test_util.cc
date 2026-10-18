@@ -1,5 +1,6 @@
 #define BOOST_TEST_MODULE ktplace_util
 #define BOOST_TEST_DYN_LINK
+#include "util/kt_history.h"
 #include "util/kt_log.h"
 #include "util/kt_scopedTimer.h"
 
@@ -315,4 +316,48 @@ BOOST_AUTO_TEST_CASE(parallelism_of_an_unrun_timer_is_zero_not_a_division) {
     BOOST_TEST(serial.parallelism() == 1.0);
     const TimerStats parallel{1.0, 4.0, 1};
     BOOST_TEST(parallel.parallelism() == 4.0);
+}
+
+BOOST_AUTO_TEST_CASE(command_history_persists_across_sessions) {
+    const std::filesystem::path file =
+        std::filesystem::temp_directory_path() / ("ktplace_history_" + std::to_string(getpid()));
+    std::filesystem::remove(file);
+    {
+        CommandHistory history(file.string());
+        history.add("read_design ibm01");
+        history.add("gplace_design");
+        history.add("gplace_design");
+        history.add("");
+        history.add("foreach s {1 2} {\n}");
+        BOOST_TEST(history.entries().size() == 2U);
+    }
+    const CommandHistory reopened(file.string());
+    BOOST_TEST(
+        reopened.entries() == (std::vector<std::string>{"read_design ibm01", "gplace_design"}),
+        boost::test_tools::per_element());
+    std::filesystem::remove(file);
+}
+
+BOOST_AUTO_TEST_CASE(command_history_keeps_only_the_newest_entries) {
+    const std::filesystem::path file = std::filesystem::temp_directory_path() /
+                                       ("ktplace_history_cap_" + std::to_string(getpid()));
+    {
+        std::ofstream out(file);
+        for (std::size_t i = 0; i < CommandHistory::capacity + 5; ++i) {
+            out << "cmd" << i << '\n';
+        }
+    }
+    const CommandHistory history(file.string());
+    BOOST_TEST(history.entries().size() == CommandHistory::capacity);
+    BOOST_TEST(history.entries().front() == "cmd5");
+    const CommandHistory reread(file.string());
+    BOOST_TEST(reread.entries().size() == CommandHistory::capacity);
+    std::filesystem::remove(file);
+}
+
+BOOST_AUTO_TEST_CASE(command_history_without_a_file_lives_in_memory) {
+    CommandHistory history("");
+    history.add("help");
+    BOOST_TEST(history.entries().size() == 1U);
+    BOOST_TEST(history.file().empty());
 }
