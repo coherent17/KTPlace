@@ -3,8 +3,8 @@
 
 #include "kt_flowMgr.h"
 
-#include "kt_flowCommands.h"
 #include "kt_option.h"
+#include "kt_tclCommand.h"
 
 #include "adaptor/kt_inputReader.h"
 #include "datamodel/kt_dm.h"
@@ -128,11 +128,11 @@ private:
 
 
 FlowMgr::FlowMgr() : pImpl(std::make_unique<Impl>()) {
-    bindFlowCommands(*this);
+    bindTclCommands(*this);
 }
 
 FlowMgr::~FlowMgr() {
-    unbindFlowCommands(*this);
+    unbindTclCommands(*this);
 }
 FlowMgr::FlowMgr(FlowMgr &&) noexcept = default;
 FlowMgr &FlowMgr::operator=(FlowMgr &&) noexcept = default;
@@ -147,7 +147,7 @@ void FlowMgr::observe(FlowObserver observer) {
 
 void FlowMgr::begin(const kt_option &options) {
     pImpl->begin(options);
-    bindFlowCommands(*this);
+    bindTclCommands(*this);
 }
 
 std::string FlowMgr::evaluate(const std::string &script) {

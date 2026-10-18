@@ -1,4 +1,4 @@
-#include "kt_flowCommands.h"
+#include "kt_tclCommand.h"
 
 #include "kt_flowMgr.h"
 
@@ -21,7 +21,7 @@ FlowMgr *bound = nullptr;
 using Words = std::vector<std::string>;
 using Handler = std::function<tcl::Value(FlowMgr &, const Words &)>;
 
-struct FlowCommand {
+struct TclCommand {
     CommandHelp help;
     std::size_t minWords = 0;
     std::size_t maxWords = 0;
@@ -29,8 +29,8 @@ struct FlowCommand {
     Handler run;
 };
 
-const std::vector<FlowCommand> &flowCommands() {
-    static const std::vector<FlowCommand> table{
+const std::vector<TclCommand> &tclCommands() {
+    static const std::vector<TclCommand> table{
         {{"read_design", "read_design <dir>", "load a Bookshelf or LEF/DEF design directory"},
          1,
          1,
@@ -137,7 +137,7 @@ const std::vector<CommandHelp> &otherCommands() {
 const char *tclBuiltins =
     "set unset expr if while foreach incr list lappend lindex llength string info error";
 
-tcl::Value invoke(const FlowCommand &command, tcl::Interpreter &self, const tcl::Arguments &args) {
+tcl::Value invoke(const TclCommand &command, tcl::Interpreter &self, const tcl::Arguments &args) {
     const std::size_t given = args.size() - 1;
     if (given < command.minWords || given > command.maxWords) {
         throw tcl::Error(std::format("wrong # args: should be \"{}\"", command.help.usage));
@@ -167,7 +167,7 @@ void registerCommands() {
     }
     registered = true;
     tcl::TclMgr &tcl = tcl::TclMgr::instance();
-    for (const FlowCommand &command : flowCommands()) {
+    for (const TclCommand &command : tclCommands()) {
         tcl.registerCommand(command.help.name,
                             [&command](tcl::Interpreter &self, const tcl::Arguments &args,
                                        tcl::Value &result) -> int {
@@ -188,12 +188,12 @@ void registerCommands() {
 
 }  // namespace
 
-void bindFlowCommands(FlowMgr &flow) {
+void bindTclCommands(FlowMgr &flow) {
     registerCommands();
     bound = &flow;
 }
 
-void unbindFlowCommands(const FlowMgr &flow) {
+void unbindTclCommands(const FlowMgr &flow) {
     if (bound == &flow) {
         bound = nullptr;
     }
@@ -202,7 +202,7 @@ void unbindFlowCommands(const FlowMgr &flow) {
 const std::vector<CommandHelp> &commandHelp() {
     static const std::vector<CommandHelp> all = [] {
         std::vector<CommandHelp> help;
-        for (const FlowCommand &command : flowCommands()) {
+        for (const TclCommand &command : tclCommands()) {
             help.push_back(command.help);
         }
         const auto &others = otherCommands();
