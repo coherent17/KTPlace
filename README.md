@@ -28,7 +28,7 @@
 </p>
 
 <p align="center"><sub>
-adaptec1 (ISPD 2005) with the default flow, ending at an HPWL of 7.94e7. Right: the same run's routing
+adaptec1 (ISPD 2005) with the default flow. Right: the same run's routing
 demand, frame for frame; each net spreads one unit over its pins' bounding box (1/(w·h) per unit area).
 Drawn with <code>anim_zoom 1</code>, <code>anim_blend 1</code>, <code>simpl trace_every 3</code> and <code>abacus frames 16</code>.
 </sub></p>
@@ -211,8 +211,7 @@ keys and defaults are in its `*_options.h`.
 ## Benchmarks
 
 ISPD 2005, ICCAD04 and ISPD 2015 are committed, gzipped, under `benchmark/bookshelf/` and
-`benchmark/lefdef/`. CI places `adaptec1` (smoke) and `ibm01` (the multi-row design), and
-[`benchmark/bm_status.md`](benchmark/bm_status.md) compares our results with SimPL and DREAMPlace 3.0.
+`benchmark/lefdef/`. CI places `adaptec1` (smoke) and `ibm01` (the multi-row design).
 
 ```sh
 python3 benchmark/fetch_benchmarks.py            # fetch what is missing, e.g. ISPD 2006
