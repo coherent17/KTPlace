@@ -761,6 +761,9 @@ Value parseLiteral(const std::string &text) {
 
 Interpreter::Interpreter() {
     installBuiltins();
+    for (const auto &entry : commandTable) {
+        builtinNames.insert(entry.first);
+    }
 }
 
 void Interpreter::installBuiltins() {
@@ -1188,13 +1191,22 @@ std::string Interpreter::helpText(const std::string &name) const {
     }
     std::size_t width = 0;
     for (const auto &[command, help] : helpTable) {
-        width = std::max(width, help.usage.size());
+        if (!builtinNames.contains(command)) {
+            width = std::max(width, help.usage.size());
+        }
     }
     std::string text = "Commands:";
+    std::string builtins;
     for (const auto &[command, help] : helpTable) {
-        text += std::format("\n  {:<{}}  {}", help.usage, width, help.summary);
+        if (builtinNames.contains(command)) {
+            builtins += builtins.empty() ? command : " " + command;
+        } else {
+            text += std::format("\n  {:<{}}  {}", help.usage, width, help.summary);
+        }
     }
-    return text + "\nhelp <command> shows one command.";
+    return text +
+           std::format("\n<command> -h or help <command> shows one command.\nTcl builtins: {}",
+                       builtins);
 }
 
 bool Interpreter::hasCommand(const std::string &name) const {
@@ -1497,6 +1509,13 @@ Value Interpreter::run(const Arguments &words, int depth) {
     const auto it = commandTable.find(name);
     if (it == commandTable.end()) {
         throw Error("invalid command name \"" + name + "\"");
+    }
+    if (words.size() == 2 && !builtinNames.contains(name)) {
+        const std::string option =
+            words[1].literal ? words[1].text : substitute(words[1].text, depth);
+        if (option == "-h" || option == "-help" || option == "--help") {
+            return Value::string(helpText(name));
+        }
     }
     // The command name and each argument in turn, so `[a [b c]]` composes.
     Arguments args;

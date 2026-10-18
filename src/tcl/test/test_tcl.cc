@@ -354,8 +354,16 @@ BOOST_AUTO_TEST_CASE(help_describes_every_registered_command) {
                                 });
     const std::string all = interpreter.eval("help").asString();
     BOOST_TEST(all.find("greet <who>") != std::string::npos);
-    BOOST_TEST(all.find("foreach <var> <list> <body>") != std::string::npos);
+    BOOST_TEST(all.find("foreach <var> <list> <body>") == std::string::npos);
+    BOOST_TEST(all.find("Tcl builtins:") != std::string::npos);
+    BOOST_TEST(all.find(" foreach ") != std::string::npos);
     BOOST_TEST(interpreter.eval("help greet").asString() == "greet <who>\n  say hello");
+    BOOST_TEST(interpreter.eval("greet -h").asString() == "greet <who>\n  say hello");
+    BOOST_TEST(interpreter.eval("greet --help").asString() == "greet <who>\n  say hello");
+    BOOST_TEST(interpreter.eval("greet -help").asString() == "greet <who>\n  say hello");
+    BOOST_TEST(interpreter.eval("greet you").asString() == "hello you");
+    BOOST_TEST(interpreter.eval("help foreach").asString().starts_with("foreach <var>"));
+    BOOST_TEST(interpreter.eval("set h -h").asString() == "-h");
     BOOST_CHECK_THROW((void)interpreter.eval("help nonesuch"), Error);
     BOOST_TEST(TclMgr::instance()
                    .interpreter.eval("help add_option")

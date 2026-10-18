@@ -7,6 +7,7 @@
 #include <functional>
 #include <map>
 #include <optional>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -221,6 +222,7 @@ private:
 
     std::map<std::string, Command> commandTable;
     std::map<std::string, CommandHelp> helpTable;
+    std::set<std::string> builtinNames;
     Variables variableTable;
     std::vector<std::string> scriptStack;
     std::string currentCommand;

@@ -124,7 +124,7 @@ write_placement                ;# <work-dir>/placed.pl, or write_placement <file
 | `write_plots` | draw the GIFs and the final image now (otherwise at the end) |
 | `report_hpwl` | log the HPWL and return it |
 | `report_design`, `check_placement` | the design report; the legality check (returns 1 if legal) |
-| `help [command]` | list the commands, or show one command's usage |
+| `help [command]`, `<command> -h` | list the ktplace commands, or show one command's usage |
 | `ls`, `cd`, `pwd`, `exec <command>` | file system and shell commands; `exec` returns the output |
 
 A script with only `add_option` lines still configures the default flow, and a
