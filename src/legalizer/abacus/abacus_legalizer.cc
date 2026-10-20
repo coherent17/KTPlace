@@ -11,6 +11,7 @@
 #include <limits>
 #include <memory>
 #include <numeric>
+#include <oneapi/tbb/parallel_invoke.h>
 
 namespace ktplace::abacus {
 
@@ -94,7 +95,7 @@ public:
     AbacusResult run(const AbacusOptions &params);
 
 private:
-    void buildRows(bool mirrored);
+    [[nodiscard]] std::vector<RowTrack> buildRows(bool mirrored) const;
     struct Pass {
         std::vector<double> xs;
         std::vector<double> ys;
@@ -103,8 +104,10 @@ private:
     };
     [[nodiscard]] Pass legalizePass(const AbacusOptions &params, bool mirrored,
                                     std::size_t frameInterval);
-    void placedPositions(bool mirrored, std::vector<double> &xs, std::vector<double> &ys) const;
-    [[nodiscard]] Trial trial(const Segment &sr, double grid, std::size_t i) const;
+    void placedPositions(const std::vector<RowTrack> &rows, bool mirrored, std::vector<double> &xs,
+                         std::vector<double> &ys) const;
+    [[nodiscard]] Trial trial(const Segment &sr, double grid, std::size_t i,
+                              const std::vector<double> &sortKey) const;
     void commit(Segment &sr, std::size_t i, const Trial &t);
     [[nodiscard]] double hpwlOf(const std::vector<double> &x, const std::vector<double> &y) const;
     void writeFrame(const std::vector<double> &xs, const std::vector<double> &ys,
@@ -118,7 +121,6 @@ private:
     std::vector<std::size_t> mov;
     std::vector<double> cellW, cellH;
     std::vector<double> targetX, targetY;
-    std::vector<double> sortKey;
     std::vector<double> liveX, liveY;
     std::vector<int> cellRegion;
     std::unordered_map<std::size_t, std::size_t> slotOf;
@@ -127,8 +129,8 @@ private:
     double minSubrowSites = 1.0;
 };
 
-void AbacusLegalizer::Impl::buildRows(bool mirrored) {
-    tracks.clear();
+std::vector<RowTrack> AbacusLegalizer::Impl::buildRows(bool mirrored) const {
+    std::vector<RowTrack> rows;
     for (const RowInfo &ri : design.rows) {
         RowTrack r;
         r.y = ri.coordinate;
@@ -155,13 +157,13 @@ void AbacusLegalizer::Impl::buildRows(bool mirrored) {
                          [](const Segment &a, const Segment &b) {
                              return a.xlo < b.xlo;
                          });
-        tracks.push_back(r);
+        rows.push_back(r);
     }
-    std::stable_sort(tracks.begin(), tracks.end(), [](const RowTrack &a, const RowTrack &b) {
+    std::stable_sort(rows.begin(), rows.end(), [](const RowTrack &a, const RowTrack &b) {
         return a.y < b.y;
     });
 
-    for (RowTrack &r : tracks) {
+    for (RowTrack &r : rows) {
         std::vector<Segment> pieces;
         for (const Segment &sr : r.subrows) {
             std::vector<std::pair<double, double>> hit;
@@ -197,7 +199,7 @@ void AbacusLegalizer::Impl::buildRows(bool mirrored) {
         r.subrows = std::move(pieces);
     }
     if (mirrored) {
-        for (RowTrack &r : tracks) {
+        for (RowTrack &r : rows) {
             for (Segment &sr : r.subrows) {
                 const double lo = -sr.xhi;
                 sr.xhi = -sr.xlo;
@@ -207,7 +209,7 @@ void AbacusLegalizer::Impl::buildRows(bool mirrored) {
             std::reverse(r.subrows.begin(), r.subrows.end());
         }
     }
-    for (RowTrack &r : tracks) {
+    for (RowTrack &r : rows) {
         std::vector<Segment> kept;
         for (Segment &piece : r.subrows) {
             if (piece.width() >= r.siteWidth * minSubrowSites) {
@@ -216,9 +218,11 @@ void AbacusLegalizer::Impl::buildRows(bool mirrored) {
         }
         r.subrows = std::move(kept);
     }
+    return rows;
 }
 
-Trial AbacusLegalizer::Impl::trial(const Segment &sr, double grid, std::size_t i) const {
+Trial AbacusLegalizer::Impl::trial(const Segment &sr, double grid, std::size_t i,
+                                   const std::vector<double> &sortKey) const {
     const auto position = [&](const Span &span) {
         double x = std::clamp(span.ideal(), sr.xlo, std::max(sr.xlo, sr.xhi - span.w));
         if (grid > 0.0) {
@@ -439,7 +443,7 @@ AbacusResult AbacusLegalizer::Impl::run(const AbacusOptions &params) {
         fixedBoxes.push_back(FixedBox{vert.y, vert.y + vert.height, vert.x, vert.x + vert.width});
     }
 
-    buildRows(false);
+    tracks = buildRows(false);
     if (tracks.empty()) {
         res.unplaced = mov.size();
         res.hpwlAfter = res.hpwlBefore;
@@ -451,8 +455,15 @@ AbacusResult AbacusLegalizer::Impl::run(const AbacusOptions &params) {
         writeFrame(liveX, liveY, "Input - global placement", 0, mov.size());
     }
 
-    Pass forward = legalizePass(params, false, 0);
-    Pass backward = legalizePass(params, true, 0);
+    Pass forward;
+    Pass backward;
+    tbb::parallel_invoke(
+        [&] {
+            forward = legalizePass(params, false, 0);
+        },
+        [&] {
+            backward = legalizePass(params, true, 0);
+        });
     const bool useBackward =
         backward.placed > forward.placed ||
         (backward.placed == forward.placed && backward.movement < forward.movement);
@@ -464,7 +475,7 @@ AbacusResult AbacusLegalizer::Impl::run(const AbacusOptions &params) {
     }
     liveX = std::move(chosen.xs);
     liveY = std::move(chosen.ys);
-    buildRows(false);
+    tracks = buildRows(false);
 
     for (std::size_t i = 0; i < mov.size(); ++i) {
         const double dx = liveX[i] - targetX[i];
@@ -487,9 +498,10 @@ AbacusResult AbacusLegalizer::Impl::run(const AbacusOptions &params) {
     return res;
 }
 
-void AbacusLegalizer::Impl::placedPositions(bool mirrored, std::vector<double> &xs,
+void AbacusLegalizer::Impl::placedPositions(const std::vector<RowTrack> &rows, bool mirrored,
+                                            std::vector<double> &xs,
                                             std::vector<double> &ys) const {
-    for (const RowTrack &track : tracks) {
+    for (const RowTrack &track : rows) {
         for (const Segment &sr : track.subrows) {
             for (const Cluster &c : sr.clusters) {
                 double off = 0.0;
@@ -507,8 +519,10 @@ void AbacusLegalizer::Impl::placedPositions(bool mirrored, std::vector<double> &
 AbacusLegalizer::Impl::Pass AbacusLegalizer::Impl::legalizePass(const AbacusOptions &params,
                                                                 bool mirrored,
                                                                 std::size_t frameInterval) {
-    buildRows(mirrored);
-    sortKey.resize(mov.size());
+    std::vector<RowTrack> rows = buildRows(mirrored);
+    const double tallestRow =
+        rows.empty() ? 0.0 : std::ranges::max(rows, {}, &RowTrack::height).height;
+    std::vector<double> sortKey(mov.size());
     for (std::size_t i = 0; i < mov.size(); ++i) {
         sortKey[i] = mirrored ? -(targetX[i] + cellW[i]) : targetX[i];
     }
@@ -528,11 +542,22 @@ AbacusLegalizer::Impl::Pass AbacusLegalizer::Impl::legalizePass(const AbacusOpti
                                                            : 0.0;
         };
         std::size_t home = 0;
-        double nearest = std::numeric_limits<double>::max();
-        for (std::size_t r = 0; r < tracks.size(); ++r) {
-            if (rowGap(tracks[r]) < nearest) {
-                nearest = rowGap(tracks[r]);
-                home = r;
+        if (!rows.empty()) {
+            const auto above = std::ranges::upper_bound(rows, targetY[i], {}, &RowTrack::y);
+            const auto k = static_cast<std::size_t>(above - rows.begin());
+            const std::size_t lo =
+                k > 0 ? static_cast<std::size_t>(
+                            std::ranges::lower_bound(rows, rows[k - 1].y - tallestRow, {},
+                                                     &RowTrack::y) -
+                            rows.begin())
+                      : 0;
+            const std::size_t hi = std::min(k + 1, rows.size());
+            double nearest = std::numeric_limits<double>::max();
+            for (std::size_t r = lo; r < hi; ++r) {
+                if (rowGap(rows[r]) < nearest) {
+                    nearest = rowGap(rows[r]);
+                    home = r;
+                }
             }
         }
 
@@ -541,10 +566,10 @@ AbacusLegalizer::Impl::Pass AbacusLegalizer::Impl::legalizePass(const AbacusOpti
         double bestCost = std::numeric_limits<double>::max();
         Trial best;
         const auto tryRow = [&](std::size_t ri) {
-            if (ri >= tracks.size()) {
+            if (ri >= rows.size()) {
                 return;
             }
-            const RowTrack &track = tracks[ri];
+            const RowTrack &track = rows[ri];
             const double dy = rowGap(track);
             for (std::size_t si = 0; si < track.subrows.size(); ++si) {
                 const Segment &sr = track.subrows[si];
@@ -559,7 +584,7 @@ AbacusLegalizer::Impl::Pass AbacusLegalizer::Impl::legalizePass(const AbacusOpti
                 if (dx * dx + dy * dy >= bestCost) {
                     continue;
                 }
-                const Trial t = trial(sr, track.siteWidth, i);
+                const Trial t = trial(sr, track.siteWidth, i, sortKey);
                 if (!std::isfinite(t.delta)) {
                     continue;
                 }
@@ -575,13 +600,13 @@ AbacusLegalizer::Impl::Pass AbacusLegalizer::Impl::legalizePass(const AbacusOpti
         };
 
         tryRow(home);
-        for (std::size_t step = 1; step < tracks.size(); ++step) {
+        for (std::size_t step = 1; step < rows.size(); ++step) {
             if (params.maxRowDistance > 0 && step > params.maxRowDistance) {
                 break;
             }
-            const double up = home + step < tracks.size() ? tracks[home + step].y - tracks[home].y
-                                                          : std::numeric_limits<double>::max();
-            const double down = step <= home ? tracks[home].y - tracks[home - step].y
+            const double up = home + step < rows.size() ? rows[home + step].y - rows[home].y
+                                                        : std::numeric_limits<double>::max();
+            const double down = step <= home ? rows[home].y - rows[home - step].y
                                              : std::numeric_limits<double>::max();
             if (std::min(up, down) * std::min(up, down) > bestCost) {
                 break;
@@ -592,24 +617,24 @@ AbacusLegalizer::Impl::Pass AbacusLegalizer::Impl::legalizePass(const AbacusOpti
             }
         }
         if (bestRow == noRow) {
-            for (std::size_t ri = 0; ri < tracks.size(); ++ri) {
+            for (std::size_t ri = 0; ri < rows.size(); ++ri) {
                 tryRow(ri);
             }
         }
         if (bestRow == noRow) {
             continue;
         }
-        commit(tracks[bestRow].subrows[bestSub], i, best);
+        commit(rows[bestRow].subrows[bestSub], i, best);
         ++pass.placed;
         if (frameInterval > 0 && pass.placed % frameInterval == 0) {
             std::vector<double> xs = targetX;
             std::vector<double> ys = targetY;
-            placedPositions(mirrored, xs, ys);
+            placedPositions(rows, mirrored, xs, ys);
             writeFrame(xs, ys, "Placing cells into rows", pass.placed, mov.size());
         }
     }
 
-    placedPositions(mirrored, pass.xs, pass.ys);
+    placedPositions(rows, mirrored, pass.xs, pass.ys);
     for (std::size_t i = 0; i < mov.size(); ++i) {
         pass.movement += std::sqrt((pass.xs[i] - targetX[i]) * (pass.xs[i] - targetX[i]) +
                                    (pass.ys[i] - targetY[i]) * (pass.ys[i] - targetY[i]));
