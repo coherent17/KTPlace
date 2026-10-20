@@ -116,7 +116,7 @@ write_placement                ;# <work-dir>/placed.pl, or write_placement <file
 | `write_plots` | draw the GIFs and the final image now (otherwise at the end) |
 | `report_hpwl` | log the HPWL and return it |
 | `report_design`, `check_placement` | the design report; the legality check (returns 1 if legal) |
-| `read_macro_constraints [mlist [txt]]` | ICCAD 2022 Problem D: which macros may move, their orientations and the rules (default `<design>.mlist`, `<design>.txt` in the design directory) |
+| `read_macro_constraints [mlist [txt]]` | ICCAD 2022 Problem D: which macros may move, their orientations and the rules (default `<design>.mlist`, `<design>.txt` in the design directory); returns the maximum displacement in database units |
 | `macro_place` | detailed macro placement: shift and flip the movable macros within the rules |
 | `check_macros`, `write_macros [file]` | the contest's macro rules (returns 1 if legal); the `.dmp` (default `<work-dir>/<design>.dmp`) |
 | `help [command]`, `<command> -h` | list the ktplace commands, or show one command's usage |
@@ -202,7 +202,7 @@ keys and defaults are in its `*_options.h`.
 | `abacus`, `multirow` | `frames` | frames while legalizing, showing the cells placed so far at their legal positions; `0` keeps only the first and last (`24`) |
 | `multirow` | `macro_rows` | cells spanning more rows than this are legalized first as blocks, before the standard cells are legalized around them (`3`) |
 | `fastdp` | `window`, `wt1`, `wt2`, `max_iterations`, `min_improvement` | detailed placer: local re-ordering window (`3`), overlap penalty weights (`0.1`, `1`), iteration limit and stop threshold |
-| `dmp` | `passes`, `grid_steps`, `flip`, `shift`, `snap`, `swap` | detailed macro placement: sweeps over the macros (`4`), candidate positions per axis (`16`), allow flips (`1`) and shifts (`1`), move off-grid macros onto the row/site grid (`0`), swap identical macros (`0`) |
+| `dmp` | `passes`, `grid_steps`, `flip`, `shift`, `snap`, `swap`, `shift_gain` | detailed macro placement: sweeps over the macros (`4`), candidate positions per axis (`16`), allow flips (`1`) and shifts (`1`), move off-grid macros onto the row/site grid (`0`), swap identical macros (`0`), keep a macro in place unless shifting beats flipping alone by this fraction of its net HPWL (`0`) |
 
 </details>
 

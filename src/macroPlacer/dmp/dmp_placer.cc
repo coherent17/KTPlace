@@ -352,6 +352,34 @@ private:
                 }
             }
         }
+        if (opts.shiftGain > 0.0 && (bestX != a.x || bestY != a.y)) {
+            const double here =
+                axisCost(xs, a.x, a.width, false) + axisCost(ys, a.y, a.height, false);
+            double stay = here;
+            bool stayFlipX = false;
+            bool stayFlipY = false;
+            for (const bool flipX : {false, true}) {
+                for (const bool flipY : {false, true}) {
+                    if ((flipX || flipY) && !opts.flip) {
+                        continue;
+                    }
+                    const double cost =
+                        axisCost(xs, a.x, a.width, flipX) + axisCost(ys, a.y, a.height, flipY);
+                    if (cost < stay - 0.5) {
+                        stay = cost;
+                        stayFlipX = flipX;
+                        stayFlipY = flipY;
+                    }
+                }
+            }
+            if (stay - best < opts.shiftGain * here) {
+                best = stay;
+                bestX = a.x;
+                bestY = a.y;
+                bestFlipX = stayFlipX;
+                bestFlipY = stayFlipY;
+            }
+        }
         if (best >= current - 0.5) {
             return false;
         }

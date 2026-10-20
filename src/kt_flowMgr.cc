@@ -195,9 +195,10 @@ void FlowMgr::detailPlace() {
     pImpl->detailPlaceDesign();
 }
 
-void FlowMgr::readMacroPlan(const std::string &mlistPath, const std::string &rulesPath) {
+double FlowMgr::readMacroPlan(const std::string &mlistPath, const std::string &rulesPath) {
     pImpl->requireDesign();
     pImpl->readMacros(mlistPath, rulesPath);
+    return pImpl->db->macroPlan().rules.maxDisplacement;
 }
 
 void FlowMgr::macroPlace() {

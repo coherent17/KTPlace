@@ -195,6 +195,21 @@ BOOST_AUTO_TEST_CASE(identical_macros_swap_places_when_that_shortens_their_nets)
     BOOST_TEST(bench.db.verifyMacros().empty());
 }
 
+BOOST_AUTO_TEST_CASE(shift_gain_keeps_a_macro_in_place_unless_the_shift_clearly_pays) {
+    {
+        const ScopedOption strict("shift_gain", OptionValue{0.2});
+        Bench bench(50.0);
+        bench.place();
+        BOOST_TEST(bench.cell().x == 400.0);
+        BOOST_TEST((bench.cell().orient == Orient::FN));
+    }
+    const ScopedOption loose("shift_gain", OptionValue{0.05});
+    Bench bench(50.0);
+    bench.place();
+    BOOST_TEST(bench.cell().x == 450.0);
+    BOOST_TEST((bench.cell().orient == Orient::FN));
+}
+
 BOOST_AUTO_TEST_CASE(the_check_reports_each_broken_rule) {
     Bench bench(50.0);
     const std::size_t blocker = bench.addBlocker(520.0, 400.0);

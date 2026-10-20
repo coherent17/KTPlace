@@ -106,11 +106,11 @@ void registerCommands() {
     registerStep({.name = "read_macro_constraints",
                   .usage = "read_macro_constraints [mlist [txt]]",
                   .summary = "load the movable macros and their rules (default <design>.mlist, "
-                             "<design>.txt in the design directory)"},
+                             "<design>.txt in the design directory); returns the maximum "
+                             "displacement in database units"},
                  0, 2, Needs::Design, [](FlowMgr &flow, const Words &words) {
-                     flow.readMacroPlan(words.empty() ? "" : words[0],
-                                        words.size() < 2 ? "" : words[1]);
-                     return tcl::Value{};
+                     return tcl::Value::real(flow.readMacroPlan(words.empty() ? "" : words[0],
+                                                                words.size() < 2 ? "" : words[1]));
                  });
     registerStep({.name = "macro_place",
                   .usage = "macro_place",

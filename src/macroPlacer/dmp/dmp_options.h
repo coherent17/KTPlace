@@ -18,6 +18,7 @@ struct DmpOptions {
     bool shift = true;
     bool snap = false;
     bool swap = false;
+    double shiftGain = 0.0;
 
     static void fields(auto &self, auto &&visit) {
         visit("passes", self.passes);
@@ -26,6 +27,7 @@ struct DmpOptions {
         visit("shift", self.shift);
         visit("snap", self.snap);
         visit("swap", self.swap);
+        visit("shift_gain", self.shiftGain);
     }
 };
 
