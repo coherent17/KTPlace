@@ -207,28 +207,13 @@ void simplPlacer::Impl::buildGrid(std::size_t perAxis) {
     grid.dy = std::max(die[3] - die[1], 1e-9) / static_cast<double>(perAxis);
     grid.avail.assign(grid.size(), 0.0);
 
+    std::vector<FreeSpace::Row> rows;
     double smallestSite = std::numeric_limits<double>::max();
     for (const RowInfo &row : design.rows) {
         if (!(row.height > 0.0) || !(row.pitch() > 0.0)) {
             continue;
         }
         smallestSite = std::min(smallestSite, row.pitch() * row.height);
-        for (const Subrow &sub : row.subrows) {
-            grid.deposit({sub.xlo, row.coordinate, sub.xhi, row.coordinate + row.height}, 1.0);
-        }
-    }
-    for (const Box &obstacle : obstacles) {
-        grid.deposit(obstacle, -1.0);
-    }
-    const double sliver =
-        smallestSite < std::numeric_limits<double>::max() ? 1e-3 * smallestSite : 0.0;
-    for (double &a : grid.avail) {
-        a = a < sliver ? 0.0 : a;
-    }
-    grid.totalAvail = std::accumulate(grid.avail.begin(), grid.avail.end(), 0.0);
-
-    std::vector<FreeSpace::Row> rows;
-    for (const RowInfo &row : design.rows) {
         FreeSpace::Row r{row.coordinate, row.coordinate + row.height, {}};
         for (const Subrow &sub : row.subrows) {
             r.spans.emplace_back(sub.xlo, sub.xhi);
@@ -236,6 +221,17 @@ void simplPlacer::Impl::buildGrid(std::size_t perAxis) {
         rows.push_back(std::move(r));
     }
     freeSpace.build(std::move(rows), obstacles);
+    for (const FreeSpace::Row &row : freeSpace.rows) {
+        for (const auto &[lo, hi] : row.spans) {
+            grid.deposit({lo, row.y0, hi, row.y1}, 1.0);
+        }
+    }
+    const double sliver =
+        smallestSite < std::numeric_limits<double>::max() ? 1e-3 * smallestSite : 0.0;
+    for (double &a : grid.avail) {
+        a = a < sliver ? 0.0 : a;
+    }
+    grid.totalAvail = std::accumulate(grid.avail.begin(), grid.avail.end(), 0.0);
 }
 
 void simplPlacer::Impl::seedUniform(std::vector<double> &x, std::vector<double> &y) const {

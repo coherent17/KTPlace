@@ -20,7 +20,7 @@ struct SimplOptions {
     double densityLimit = 1.0;
     double alphaBase = 0.02;
 
-    std::size_t maxLevel = 10;
+    std::size_t maxLevel = 20;
     std::size_t minCellsToSplit = 4;
     double stripeAreaFraction = 0.1;
     std::size_t gapReferenceIter = 10;
