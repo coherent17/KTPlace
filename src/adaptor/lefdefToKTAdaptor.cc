@@ -3,6 +3,7 @@
 
 #include "adaptor/lefdefToKTAdaptor.h"
 
+#include "adaptor/kt_verilogNetlist.h"
 #include "util/kt_gzipFile.h"
 #include "util/kt_log.h"
 #include "util/kt_scopedTimer.h"
@@ -186,6 +187,7 @@ bool LefDefInputAdapter::readFromDirectory(const std::string &dirPath) {
     namespace fs = std::filesystem;
 
     std::string defFile;
+    std::string verilogFile;
     std::vector<std::string> lefFiles;
     std::error_code ec;
     fs::directory_iterator it(dirPath, fs::directory_options::skip_permission_denied, ec);
@@ -209,6 +211,9 @@ bool LefDefInputAdapter::readFromDirectory(const std::string &dirPath) {
             (lower.size() >= 7 && lower.compare(lower.size() - 7, 7, ".lef.gz") == 0)) {
             lefFiles.push_back(it->path().string());
         }
+        if (lower.ends_with(".v") || lower.ends_with(".v.gz")) {
+            verilogFile = it->path().string();
+        }
     }
     if (ec) {
         ktlog.warning("cannot scan the LEF/DEF directory {}", dirPath);
@@ -218,11 +223,12 @@ bool LefDefInputAdapter::readFromDirectory(const std::string &dirPath) {
         ktlog.warning("no .def file found in {}", dirPath);
         return false;
     }
-    return readFromFiles(defFile, lefFiles);
+    return readFromFiles(defFile, lefFiles, verilogFile);
 }
 
 bool LefDefInputAdapter::readFromFiles(const std::string &defFile,
-                                       const std::vector<std::string> &lefFiles) {
+                                       const std::vector<std::string> &lefFiles,
+                                       const std::string &verilogFile) {
     // Timed per format for the same reason as Bookshelf: a LEF/DEF load is
     // dominated by whichever file is larger, and the LEF files in particular are
     // numerous and individually small, so a single "lefdef" number would hide
@@ -243,7 +249,7 @@ bool LefDefInputAdapter::readFromFiles(const std::string &defFile,
     }
 
     ScopedTimer timer("lefdef-def");
-    return parseDefFile(defFile);
+    return parseDefFile(defFile, verilogFile);
 }
 
 void LefDefInputAdapter::peekDefUnits(const std::string &filePath) {
@@ -387,7 +393,7 @@ bool LefDefInputAdapter::parseLefFile(const std::string &filePath) {
     return true;
 }
 
-bool LefDefInputAdapter::parseDefFile(const std::string &filePath) {
+bool LefDefInputAdapter::parseDefFile(const std::string &filePath, const std::string &verilogFile) {
     InputTextFile file(filePath);
     if (!file) {
         ktlog.warning("cannot open the DEF file {}", filePath);
@@ -882,6 +888,24 @@ bool LefDefInputAdapter::parseDefFile(const std::string &filePath) {
         }
     }
     flushNet();
+
+    if (netTokens.empty() && !verilogFile.empty()) {
+        const ScopedTimer verilogTimer("lefdef-verilog");
+        std::vector<VerilogNet> verilogNets = readVerilogNetlist(verilogFile);
+        for (VerilogNet &net : verilogNets) {
+            netName = std::move(net.name);
+            haveNet = true;
+            for (const VerilogPin &pin : net.pins) {
+                pins.push_back(
+                    {.inst = sanitizeName(pin.inst), .pin = sanitizeName(pin.pin), .ioPin = {}});
+            }
+            if (net.port) {
+                pins.push_back({.inst = {}, .pin = {}, .ioPin = sanitizeName(netName)});
+            }
+            flushNet();
+        }
+        ktlog.echo("the DEF has no NETS: read {} net(s) from {}", verilogNets.size(), verilogFile);
+    }
 
     // GROUPS is written before COMPONENTS, so the instance -> region mapping
     // can only be applied now that every cell vertex exists.

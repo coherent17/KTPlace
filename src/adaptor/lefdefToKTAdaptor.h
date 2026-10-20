@@ -54,7 +54,8 @@ public:
     // Read LEF/DEF format from explicit files
 
     [[nodiscard]] bool readFromFiles(const std::string &defFile,
-                                     const std::vector<std::string> &lefFiles);
+                                     const std::vector<std::string> &lefFiles,
+                                     const std::string &verilogFile = {});
 
     // Get the ktDM object
 
@@ -97,7 +98,7 @@ private:
     };
 
     bool parseLefFile(const std::string &filePath);
-    bool parseDefFile(const std::string &filePath);
+    bool parseDefFile(const std::string &filePath, const std::string &verilogFile);
     void peekDefUnits(const std::string &filePath);
 
     std::vector<std::string> static tokenize(const std::string &line);

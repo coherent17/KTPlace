@@ -41,6 +41,25 @@ evaluator files that are already present, so it is safe to re-run.
 | `bookshelf/ICCAD04` | Bookshelf | `dma`, `dsp1`, `dsp2`, `risc1`, `risc2` | [UMich ICCAD04bench](https://vlsicad.eecs.umich.edu/BK/ICCAD04bench/FARADAY_ICCAD04Bench.tar.gz) (Faraday) |
 | `bookshelf/ISPD_2005` | Bookshelf | `adaptec1`–`adaptec4`, `bigblue1`–`bigblue4` | [ISPD 2005 contest site](https://www.ispd.cc/contests/05/contest.htm), one archive per design |
 | `bookshelf/ISPD06` | Bookshelf | `adaptec5`, `newblue1`–`newblue7` | [ISPD 2006 contest site](https://www.ispd.cc/contests/06/contest.html), one archive per design; fetched, not committed |
+| `bookshelf/ICCAD22_D`, `lefdef/ICCAD22_D` | Bookshelf, LEF/DEF | `case01`–`case15` | ICCAD 2022 CAD Contest Problem D (Maxeda), `ProblemD_HiddenCase.tar.gz` on the contest's Google Drive; not committed (1.9 GB) |
+
+## ICCAD 2022 Problem D: detailed macro placement
+
+The 15 cases are three ICCAD 2015 netlists (superblue1: 01, 06, 07, 12, 13; superblue7: 02, 05,
+08, 11, 14; superblue10: 03, 04, 09, 10, 15) with different starting macro placements and maximum
+displacements (0 to 1700 µm). Each case is kept twice: `lefdef/ICCAD22_D/caseNN/` is the contest
+input (`.v`, `.lef`, `.def`, `.mlist`, `.txt`; ktplace cannot read it yet, as the DEF has no `NETS`
+and the netlist is only in the `.v`), and `bookshelf/ICCAD22_D/caseNN/` is the evaluator's copy,
+with the `.mlist` and `.txt` copied in so `read_macro_constraints` finds them.
+
+```sh
+ktplace benchmark/bookshelf/ICCAD22_D/case07 -w output/case07 -tcl scripts/iccad22d/dmp.tcl
+scripts/iccad22d/score.sh benchmark/bookshelf/ICCAD22_D/case07 output/case07/case07.dmp output/case07_ntuplace3
+```
+
+The contest score is ntuplace3's final HPWL with the macros fixed. `score.sh` runs it; the 2012
+static binary needs `scripts/iccad22d/patch_ntuplace3.py` first on kernels without the vsyscall page
+(WSL2 among them), and the patched copy goes to `bookshelf/ICCAD22_D/ntuplace3`.
 
 ## Layout
 

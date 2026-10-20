@@ -10,6 +10,10 @@
 
 namespace ktplace {
 
+/// The four orientations a macro may take: N, its mirror about the y axis (FN),
+/// about the x axis (FS), and both (S).
+enum class Orient { N, S, FN, FS };
+
 /// Which end of a net a pin sits at.
 enum class PinRole {
     Driver,    ///< the cell drives the net
@@ -31,6 +35,7 @@ public:
     bool isTerminal = false;  ///< an I/O pad: fixed, and on the die boundary
     bool isFixed = false;     ///< a macro, or a pad
     bool isIoPin = false;
+    Orient orient = Orient::N;
 
     /// The placement region this cell is fenced into (constraintMgr), or -1.
     int regionId = -1;
@@ -96,6 +101,7 @@ public:
                                      double offsetX, double offsetY);
     [[nodiscard]] const std::vector<Pin> &getPins() const;
     [[nodiscard]] const Pin &getPin(std::size_t id) const;
+    [[nodiscard]] Pin &getPin(std::size_t id);
     [[nodiscard]] std::size_t getNumPins() const;
 
     /// Pin ids on a net, in the order they were added.

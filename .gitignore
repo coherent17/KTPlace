@@ -24,10 +24,12 @@ ktplace.log
 *.log
 
 # The benchmark suites are committed, gzipped, except ISPD 2006, which
-# fetch_benchmarks.py downloads on demand.
+# fetch_benchmarks.py downloads on demand, and ICCAD 2022 Problem D (1.9 GB).
 benchmark/.cache/
 benchmark/__pycache__/
 benchmark/bookshelf/ISPD06/
+benchmark/bookshelf/ICCAD22_D/
+benchmark/lefdef/ICCAD22_D/
 
 # Editor / OS noise
 *.swp

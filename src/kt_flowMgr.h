@@ -42,6 +42,10 @@ public:
     void globalPlace();
     void legalize();
     void detailPlace();
+    void readMacroPlan(const std::string &mlistPath = {}, const std::string &rulesPath = {});
+    void macroPlace();
+    [[nodiscard]] bool checkMacros() const;
+    std::string writeMacros(const std::string &path = {});
     std::string writePlacement(const std::string &path = {});
     void writePlots();
     [[nodiscard]] double hpwl() const;

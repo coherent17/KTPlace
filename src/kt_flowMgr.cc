@@ -7,7 +7,9 @@
 #include "kt_tclCmd.h"
 
 #include "adaptor/kt_inputReader.h"
+#include "adaptor/kt_macroPlanIo.h"
 #include "datamodel/kt_dm.h"
+#include "datamodel/kt_macroPlan.h"
 #include "datamodel/kt_optionDb.h"
 #include "detailPlacer/fastdp/fastdp_dm.h"
 #include "detailPlacer/fastdp/fastdp_flowMgr.h"
@@ -19,6 +21,8 @@
 #include "legalizer/abacus/abacus_flowMgr.h"
 #include "legalizer/multirow/multirow_dm.h"
 #include "legalizer/multirow/multirow_flowMgr.h"
+#include "macroPlacer/dmp/dmp_dm.h"
+#include "macroPlacer/dmp/dmp_flowMgr.h"
 #include "tcl/kt_tclMgr.h"
 #include "util/kt_log.h"
 #include "util/kt_reportTable.h"
@@ -96,6 +100,9 @@ public:
     void placeDesign();
     void legalizeDesign();
     void detailPlaceDesign();
+    void readMacros(const std::string &mlistPath, const std::string &rulesPath);
+    void macroPlaceDesign();
+    [[nodiscard]] std::string designFile(const std::string &extension) const;
     void writeDesign(const std::string &outputPath);
     void drawPictures();
 
@@ -186,6 +193,36 @@ void FlowMgr::detailPlace() {
     pImpl->requireDesign();
     pImpl->stepsRun = true;
     pImpl->detailPlaceDesign();
+}
+
+void FlowMgr::readMacroPlan(const std::string &mlistPath, const std::string &rulesPath) {
+    pImpl->requireDesign();
+    pImpl->readMacros(mlistPath, rulesPath);
+}
+
+void FlowMgr::macroPlace() {
+    pImpl->requireDesign();
+    pImpl->stepsRun = true;
+    pImpl->macroPlaceDesign();
+}
+
+bool FlowMgr::checkMacros() const {
+    pImpl->requireDesign();
+    pImpl->db->reportMacroCheck();
+    return pImpl->db->verifyMacros().empty();
+}
+
+std::string FlowMgr::writeMacros(const std::string &path) {
+    pImpl->requireDesign();
+    const MacroPlan &plan = pImpl->db->macroPlan();
+    const std::string target =
+        path.empty()
+            ? (std::filesystem::path(pImpl->options.workDir) / (plan.design + ".dmp")).string()
+            : path;
+    pImpl->stepsRun = true;
+    writeMacroPlan(*pImpl->db, target);
+    ktlog.echo("wrote {} macro(s) to {}", plan.macros.size(), target);
+    return target;
 }
 
 std::string FlowMgr::writePlacement(const std::string &path) {
@@ -425,6 +462,45 @@ void FlowMgr::Impl::legalizeDesign() {
 }
 
 
+std::string FlowMgr::Impl::designFile(const std::string &extension) const {
+    const std::filesystem::path dir(options.inputPath);
+    const std::string stem = dir.filename().string();
+    for (const std::string &name : {stem + extension + ".gz", stem + extension}) {
+        std::error_code ec;
+        if (std::filesystem::exists(dir / name, ec)) {
+            return (dir / name).string();
+        }
+    }
+    throw std::logic_error(
+        std::format("no {}{} in {}; give the file", stem, extension, options.inputPath));
+}
+
+void FlowMgr::Impl::readMacros(const std::string &mlistPath, const std::string &rulesPath) {
+    ktlog.beginStep("macros");
+    const std::string mlist = mlistPath.empty() ? designFile(".mlist") : mlistPath;
+    const std::string rules = rulesPath.empty() ? designFile(".txt") : rulesPath;
+    db->setMacroPlan(ktplace::readMacroPlan(*db, mlist, rules));
+    const MacroPlan &plan = db->macroPlan();
+    ktlog.echo(
+        "macro plan from {} and {}: {} macro(s), {} movable; max displacement {:.0f}, channel "
+        "spacing {:.0f}, halo {:.0f} (DBU, {:.0f} per micron)",
+        mlist, rules, plan.macros.size(), plan.movableCount(), plan.rules.maxDisplacement,
+        plan.rules.minSpacing, plan.rules.halo, plan.dbuPerMicron);
+    if (plan.rules.halo > 0.0) {
+        ktlog.warning("the macro halo is not modelled: cells may still be placed inside it");
+    }
+    db->reportMacroCheck();
+    commit("macro plan");
+}
+
+void FlowMgr::Impl::macroPlaceDesign() {
+    ScopedTimer timer("macro placement", true);
+    dmp::flowMgr flow(*db);
+    (void)flow.run();
+    db->setDmpSolution(flow.solution());
+    commit("macro placement");
+}
+
 void FlowMgr::Impl::detailPlaceDesign() {
     ScopedTimer timer("detailed placement", true);
     preparePlots();
@@ -496,8 +572,8 @@ void FlowMgr::Impl::writeDesign(const std::string &outputPath) {
     for (std::size_t v = 0; v < nv; ++v) {
         const Vertex &vert = g.getCell(v);
         // Bookshelf .pl: "<name> <x> <y> : <orientation>"
-        out << vert.name << '\t' << vert.x << '\t' << vert.y
-            << "\t: " << (vert.isFixed ? "N /FIXED" : "N") << '\n';
+        out << vert.name << '\t' << vert.x << '\t' << vert.y << "\t: " << orientName(vert.orient)
+            << (vert.isFixed ? " /FIXED" : "") << '\n';
     }
 }
 

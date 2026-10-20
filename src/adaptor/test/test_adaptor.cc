@@ -261,6 +261,50 @@ BOOST_AUTO_TEST_CASE(reads_macros_cells_pads_and_nets) {
     BOOST_TEST(db.hasCell("u1"));
 }
 
+constexpr const char *netlessDef = R"(VERSION 5.8 ;
+UNITS DISTANCE MICRONS 1000 ;
+DIEAREA ( 0 0 ) ( 10000 20000 ) ;
+ROW row0 core 0 0 N DO 10 BY 1 STEP 100 0 ;
+COMPONENTS 2 ;
+	- u1 NSTD + PLACED ( 1000 2000 ) N ;
+	- m1 MACRO1 + PLACED ( 5000 5000 ) N ;
+END COMPONENTS
+PINS 1 ;
+	- p1 + NET p1 + PLACED ( 0 0 ) N ;
+END PINS
+END DESIGN
+)";
+
+constexpr const char *netlistV = R"(module top (
+p1);
+// Start PIs
+input p1;
+// Start wires
+wire n0;
+// Start cells
+NSTD u1 ( .A(p1) );
+MACRO1 m1 ( .A(p1) );
+endmodule
+)";
+
+BOOST_AUTO_TEST_CASE(a_def_without_nets_takes_them_from_the_verilog) {
+    const ScratchDir dir("ld_verilog");
+    dir.write("tech.lef", techLef);
+    dir.write("cells.lef", cellsLef);
+    dir.write("top.def", netlessDef);
+    dir.write("top.v", netlistV);
+
+    LefDefInputAdapter adapter;
+    BOOST_REQUIRE(adapter.readFromDirectory(dir.str()));
+
+    const ktDM &db = adapter.getDM();
+    BOOST_TEST(db.getNumCells() == 3);
+    BOOST_TEST(db.getNumNets() == 1);
+    BOOST_TEST(db.getNumPins() == 3);
+    BOOST_TEST(db.getCellPins(db.getCellId("p1")).size() == 1U);
+    BOOST_TEST(db.getCellPins(db.getCellId("m1")).size() == 1U);
+}
+
 constexpr const char *shapedPinsDef = R"(VERSION 5.8 ;
 UNITS DISTANCE MICRONS 1000 ;
 DIEAREA ( 0 0 ) ( 10000 20000 ) ;

@@ -5,6 +5,7 @@
 
 #include "datamodel/kt_constraintMgr.h"
 #include "datamodel/kt_graph.h"
+#include "datamodel/kt_macroPlan.h"
 #include "datamodel/kt_solutionMgr.h"
 #include "util/kt_log.h"
 #include "util/kt_reportTable.h"
@@ -18,6 +19,7 @@
 #include <iterator>
 #include <limits>
 #include <map>
+#include <stdexcept>
 #include <utility>
 
 // oneTBB - parallel stats
@@ -144,6 +146,7 @@ std::size_t ktDM::addSubrow(std::size_t rowId, double originX, double numSites) 
 void ktDM::clear() {
     graph.clear();
     dieInfo.clear();
+    plan.reset();
 }
 
 std::pair<std::size_t, std::size_t> ktDM::getStats() const {
@@ -496,6 +499,132 @@ void ktDM::setMultiRowSolution(const multiRowSolution &solution) {
 void ktDM::setFastdpSolution(const fastdpSolution &solution) {
     commitCells(graph, solution);
     isLegalizePlacement();
+}
+
+void ktDM::setDmpSolution(const dmpSolution &solution) {
+    for (std::size_t i = 0; i < solution.cells.size(); ++i) {
+        setCellPosition(solution.cells[i], solution.xs[i], solution.ys[i]);
+        setCellOrient(solution.cells[i], solution.orients[i]);
+    }
+    reportMacroCheck();
+}
+
+void ktDM::setMacroPlan(MacroPlan macroPlan) {
+    for (const PlannedMacro &macro : macroPlan.macros) {
+        setCellPosition(macro.cellId, macro.originX, macro.originY);
+        setCellOrient(macro.cellId, macro.originOrient);
+        setCellFixed(macro.cellId, true);
+    }
+    plan = std::move(macroPlan);
+}
+
+bool ktDM::hasMacroPlan() const {
+    return plan.has_value();
+}
+
+const MacroPlan &ktDM::macroPlan() const {
+    if (!plan) {
+        throw std::logic_error("no macro plan is loaded; call read_macro_constraints first");
+    }
+    return *plan;
+}
+
+void ktDM::setCellOrient(std::size_t cellId, Orient orient) {
+    Vertex &cell = graph.getCell(cellId);
+    const bool flipX = mirrorsX(cell.orient) != mirrorsX(orient);
+    const bool flipY = mirrorsY(cell.orient) != mirrorsY(orient);
+    for (const std::size_t pinId : graph.getCellPins(cellId)) {
+        Pin &pin = graph.getPin(pinId);
+        if (flipX) {
+            pin.offsetX = cell.width - pin.offsetX;
+        }
+        if (flipY) {
+            pin.offsetY = cell.height - pin.offsetY;
+        }
+    }
+    cell.orient = orient;
+}
+
+std::vector<ktDM::Defect> ktDM::verifyMacros() const {
+    const MacroPlan &mp = macroPlan();
+    std::size_t outOfDie = 0;
+    std::size_t tooFar = 0;
+    std::size_t fixedChanged = 0;
+    std::size_t offGrid = 0;
+    std::size_t tooClose = 0;
+    const double eps = 1e-6;
+    for (const PlannedMacro &macro : mp.macros) {
+        const Vertex &cell = graph.getCell(macro.cellId);
+        if (cell.x < mp.die[0] - eps || cell.y < mp.die[1] - eps ||
+            cell.x + cell.width > mp.die[2] + eps || cell.y + cell.height > mp.die[3] + eps) {
+            ++outOfDie;
+        }
+        if (std::abs(cell.x - macro.originX) + std::abs(cell.y - macro.originY) >
+            mp.rules.maxDisplacement + eps) {
+            ++tooFar;
+        }
+        if (!macro.movable && (cell.x != macro.originX || cell.y != macro.originY ||
+                               cell.orient != macro.originOrient)) {
+            ++fixedChanged;
+        }
+        if (cell.x != std::round(cell.x) || cell.y != std::round(cell.y)) {
+            ++offGrid;
+        }
+    }
+    for (std::size_t i = 0; i < mp.macros.size(); ++i) {
+        const Vertex &a = graph.getCell(mp.macros[i].cellId);
+        for (std::size_t j = i + 1; j < mp.macros.size(); ++j) {
+            const Vertex &b = graph.getCell(mp.macros[j].cellId);
+            const double gapX = std::max(b.x - (a.x + a.width), a.x - (b.x + b.width));
+            const double gapY = std::max(b.y - (a.y + a.height), a.y - (b.y + b.height));
+            if ((gapY < -eps && gapX < mp.rules.minSpacing - eps) ||
+                (gapX < -eps && gapY < mp.rules.minSpacing - eps)) {
+                ++tooClose;
+            }
+        }
+    }
+    std::vector<Defect> defects;
+    const auto note = [&defects](std::string what, std::size_t count) {
+        if (count > 0) {
+            defects.push_back({std::move(what), count});
+        }
+    };
+    note("macros outside the die", outOfDie);
+    note("macros past the maximum displacement", tooFar);
+    note("macro pairs closer than the channel spacing", tooClose);
+    note("FIXED macros moved or flipped", fixedChanged);
+    note("macros off the integer grid", offGrid);
+    return defects;
+}
+
+void ktDM::reportMacroCheck() const {
+    const std::vector<Defect> defects = verifyMacros();
+    const MacroPlan &mp = macroPlan();
+    double worst = 0.0;
+    std::size_t moved = 0;
+    std::size_t flipped = 0;
+    for (const PlannedMacro &macro : mp.macros) {
+        const Vertex &cell = graph.getCell(macro.cellId);
+        const double shift = std::abs(cell.x - macro.originX) + std::abs(cell.y - macro.originY);
+        worst = std::max(worst, shift);
+        moved += shift > 0.0 ? 1 : 0;
+        flipped += cell.orient != macro.originOrient ? 1 : 0;
+    }
+    ktReportTable check("Macro check (contest rules)");
+    check.setHeaders({"check", "result"});
+    check.addRow({"macros (movable)", std::format("{} ({})", mp.macros.size(), mp.movableCount())});
+    check.addRow({"macros moved", std::format("{}", moved)});
+    check.addRow({"macros flipped", std::format("{}", flipped)});
+    check.addRow(
+        {"largest displacement", std::format("{:.0f} of {:.0f}", worst, mp.rules.maxDisplacement)});
+    for (const Defect &d : defects) {
+        check.addRow({d.what, std::format("{}", d.count)});
+    }
+    check.addRow({"verdict", defects.empty() ? "PASS" : "FAIL"});
+    check.emit();
+    if (!defects.empty()) {
+        ktlog.warning("the macro placement breaks the contest rules; see the check above");
+    }
 }
 
 solutionMgr ktDM::getPlacementSolution() const {

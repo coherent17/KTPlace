@@ -12,7 +12,8 @@ override INCLUDES := -I.. $(THIRD_PARTY_INCLUDES)
 OBJ_DIR ?= ../build/obj/adaptor
 
 # Source files in this directory
-SRCS := bookshelfToKTAdaptor.cc lefdefToKTAdaptor.cc kt_inputReader.cc
+SRCS := bookshelfToKTAdaptor.cc lefdefToKTAdaptor.cc kt_inputReader.cc kt_macroPlanIo.cc \
+        kt_verilogNetlist.cc
 
 # Only include files that exist
 EXISTING_SRCS := $(foreach src,$(SRCS),$(if $(wildcard $(src)),$(src),))
