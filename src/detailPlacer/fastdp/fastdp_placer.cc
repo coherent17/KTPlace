@@ -14,6 +14,9 @@
 #include <limits>
 #include <memory>
 #include <numeric>
+#include <oneapi/tbb/blocked_range.h>
+#include <oneapi/tbb/enumerable_thread_specific.h>
+#include <oneapi/tbb/parallel_for.h>
 #include <span>
 #include <string>
 #include <string_view>
@@ -52,6 +55,12 @@ struct NetPin {
     double offY = 0.0;
     double absX = 0.0;
     double absY = 0.0;
+};
+
+struct CellPin {
+    std::size_t net = 0;
+    double offX = 0.0;
+    double offY = 0.0;
 };
 
 struct FixedBox {
@@ -99,6 +108,24 @@ struct BoundingBox {
     [[nodiscard]] double halfPerimeter() const noexcept {
         return xlo > xhi ? 0.0 : (xhi - xlo) + (yhi - ylo);
     }
+};
+
+struct NetBox {
+    BoundingBox box;
+    std::uint32_t atXlo = 0;
+    std::uint32_t atXhi = 0;
+    std::uint32_t atYlo = 0;
+    std::uint32_t atYhi = 0;
+};
+
+struct NetChange {
+    BoundingBox moved;
+    std::uint32_t fromXlo = 0;
+    std::uint32_t fromXhi = 0;
+    std::uint32_t fromYlo = 0;
+    std::uint32_t fromYhi = 0;
+    bool stale = false;
+    bool counted = false;
 };
 
 Interval medianInterval(std::vector<double> &values) {
@@ -161,6 +188,20 @@ private:
         double partnerX = 0.0;
     };
 
+    struct DeltaScratch {
+        std::vector<std::size_t> moveOf;
+        std::vector<std::uint32_t> netStamp;
+        std::vector<std::uint32_t> netChange;
+        std::vector<NetChange> changes;
+        std::uint32_t stamp = 0;
+    };
+
+    struct Plan {
+        bool active = false;
+        double targetX = 0.0;
+        std::vector<Candidate> found;
+    };
+
     void collectCells(double rowHeight);
     void buildSpans();
     void assignCells();
@@ -169,6 +210,13 @@ private:
 
     [[nodiscard]] double hpwl() const;
     [[nodiscard]] double wirelengthDelta(std::span<const Move> moves) const;
+    [[nodiscard]] double wirelengthDelta(std::span<const Move> moves, DeltaScratch &sc) const;
+    [[nodiscard]] DeltaScratch freshScratch() const;
+    [[nodiscard]] double netDelta(std::size_t n, std::span<const Move> moves,
+                                  const std::vector<std::size_t> &moveOf) const;
+    [[nodiscard]] NetBox measure(std::size_t n) const;
+    void refreshBoxes() const;
+    void moveCell(std::size_t c, double x, double y);
     [[nodiscard]] OptimalRegion optimalRegion(std::size_t c) const;
 
     [[nodiscard]] std::size_t indexIn(std::size_t s, std::size_t c) const;
@@ -178,10 +226,14 @@ private:
     [[nodiscard]] double cellPenalty(std::size_t s, std::size_t k, double excess) const;
     [[nodiscard]] std::size_t nearestRow(double y) const;
 
-    [[nodiscard]] Candidate swapWith(std::size_t i, std::size_t j) const;
-    [[nodiscard]] Candidate moveInto(std::size_t i, std::size_t s, std::size_t g,
-                                     double target) const;
-    [[nodiscard]] bool tryGlobal(std::size_t i, const OptimalRegion &region);
+    [[nodiscard]] Candidate swapWith(std::size_t i, std::size_t j, DeltaScratch &sc) const;
+    [[nodiscard]] Candidate moveInto(std::size_t i, std::size_t s, std::size_t g, double target,
+                                     DeltaScratch &sc) const;
+    [[nodiscard]] std::size_t gapAt(std::size_t s, double x) const;
+    [[nodiscard]] Plan globalPlan(std::size_t i, DeltaScratch &sc) const;
+    [[nodiscard]] Plan verticalPlan(std::size_t i, DeltaScratch &sc) const;
+    [[nodiscard]] bool commit(std::size_t i, const Plan &plan);
+    std::size_t sweepCells(Plan (Impl::*plan)(std::size_t, DeltaScratch &) const);
     void apply(std::size_t i, const Candidate &c);
     [[nodiscard]] bool overlapsOthers(std::size_t s, double x, double w, const Candidate &c,
                                       std::size_t i) const;
@@ -197,11 +249,15 @@ private:
 
     std::size_t globalSwap();
     std::size_t verticalSwap();
-    std::size_t keepShorter(std::size_t (Impl::*sweep)());
+    std::size_t keepShorter(std::size_t (Impl::*sweep)(), bool &batchPays);
     void legalizeBatch();
     std::size_t localReorder();
     std::size_t clusterSegments();
     std::size_t clusterWindow(const Window &w);
+    [[nodiscard]] std::vector<Move> clusterProposal(const Window &w,
+                                                    std::vector<std::size_t> &order) const;
+    std::size_t commitCluster(const Window &w, const std::vector<Move> &placed);
+    [[nodiscard]] std::vector<Move> bestOrder(std::size_t s, std::size_t k, DeltaScratch &sc) const;
 
     void selfCheck(FastdpResult &res) const;
 
@@ -230,18 +286,20 @@ private:
     std::vector<double> rowY;
     std::vector<std::vector<NetPin>> netPins;
     std::vector<std::vector<std::size_t>> cellNets;
+    std::vector<std::vector<CellPin>> cellPins;
+    mutable std::vector<NetBox> netBox;
+    mutable std::vector<char> netStale;
+    mutable std::vector<std::size_t> staleNets;
     std::vector<FixedBox> fixedBoxes;
     std::vector<std::vector<std::size_t>> fixedByBand;
     double bandY = inf;
     double bandY0 = 0.0;
     std::size_t tallSkipped = 0;
 
-    mutable std::vector<std::size_t> moveOf;
     std::vector<std::size_t> orderOf;
     bool batched = false;
     std::vector<std::size_t> batchSpans;
-    mutable std::vector<std::uint32_t> netStamp;
-    mutable std::uint32_t stamp = 0;
+    mutable DeltaScratch deltaScratch;
 };
 
 void FastDetailedPlacer::Impl::collectCells(double rowHeight) {
@@ -417,9 +475,109 @@ void FastDetailedPlacer::Impl::buildNetlist() {
             }
         }
     }
-    moveOf.assign(mov.size(), noSlot);
+    cellPins.assign(mov.size(), {});
+    for (std::size_t n = 0; n < netPins.size(); ++n) {
+        for (const NetPin &p : netPins[n]) {
+            if (p.slot != noSlot) {
+                cellPins[p.slot].push_back({.net = n, .offX = p.offX, .offY = p.offY});
+            }
+        }
+    }
+    netBox.assign(netPins.size(), {});
+    netStale.assign(netPins.size(), 1);
+    staleNets.resize(netPins.size());
+    std::iota(staleNets.begin(), staleNets.end(), std::size_t{0});
+    refreshBoxes();
+    deltaScratch = freshScratch();
     orderOf.assign(mov.size(), noSlot);
-    netStamp.assign(design.nets.size(), 0);
+}
+
+NetBox FastDetailedPlacer::Impl::measure(std::size_t n) const {
+    NetBox out;
+    const auto at = [this](const NetPin &p) {
+        return p.slot == noSlot ? std::pair{p.absX, p.absY}
+                                : std::pair{cellX[p.slot] + p.offX, cellY[p.slot] + p.offY};
+    };
+    for (const NetPin &p : netPins[n]) {
+        const auto [x, y] = at(p);
+        out.box.add(x, y);
+    }
+    for (const NetPin &p : netPins[n]) {
+        const auto [x, y] = at(p);
+        out.atXlo += x == out.box.xlo ? 1 : 0;
+        out.atXhi += x == out.box.xhi ? 1 : 0;
+        out.atYlo += y == out.box.ylo ? 1 : 0;
+        out.atYhi += y == out.box.yhi ? 1 : 0;
+    }
+    return out;
+}
+
+void FastDetailedPlacer::Impl::refreshBoxes() const {
+    tbb::parallel_for(tbb::blocked_range<std::size_t>(0, staleNets.size()),
+                      [this](const tbb::blocked_range<std::size_t> &range) {
+                          for (std::size_t k = range.begin(); k < range.end(); ++k) {
+                              const std::size_t n = staleNets[k];
+                              if (netStale[n] != 0) {
+                                  netBox[n] = measure(n);
+                              }
+                          }
+                      });
+    for (const std::size_t n : staleNets) {
+        netStale[n] = 0;
+    }
+    staleNets.clear();
+}
+
+void FastDetailedPlacer::Impl::moveCell(std::size_t c, double x, double y) {
+    const auto leave = [](double at, double edge, std::uint32_t &count) {
+        if (at != edge) {
+            return true;
+        }
+        if (count > 1) {
+            --count;
+            return true;
+        }
+        return false;
+    };
+    const auto reachLow = [](double at, double &edge, std::uint32_t &count) {
+        if (at < edge) {
+            edge = at;
+            count = 1;
+        } else if (at == edge) {
+            ++count;
+        }
+    };
+    const auto reachHigh = [](double at, double &edge, std::uint32_t &count) {
+        if (at > edge) {
+            edge = at;
+            count = 1;
+        } else if (at == edge) {
+            ++count;
+        }
+    };
+    for (const CellPin &pin : cellPins[c]) {
+        const std::size_t n = pin.net;
+        if (netStale[n] != 0) {
+            continue;
+        }
+        NetBox &b = netBox[n];
+        const double ox = cellX[c] + pin.offX;
+        const double oy = cellY[c] + pin.offY;
+        if (!leave(ox, b.box.xlo, b.atXlo) || !leave(ox, b.box.xhi, b.atXhi) ||
+            !leave(oy, b.box.ylo, b.atYlo) || !leave(oy, b.box.yhi, b.atYhi)) {
+            netStale[n] = 1;
+            staleNets.push_back(n);
+            continue;
+        }
+        const double nx = x + pin.offX;
+        const double ny = y + pin.offY;
+        reachLow(nx, b.box.xlo, b.atXlo);
+        reachHigh(nx, b.box.xhi, b.atXhi);
+        reachLow(ny, b.box.ylo, b.atYlo);
+        reachHigh(ny, b.box.yhi, b.atYhi);
+    }
+    cellX[c] = x;
+    cellY[c] = y;
 }
 
 double FastDetailedPlacer::Impl::hpwl() const {
@@ -438,41 +596,101 @@ double FastDetailedPlacer::Impl::hpwl() const {
     return total;
 }
 
+FastDetailedPlacer::Impl::DeltaScratch FastDetailedPlacer::Impl::freshScratch() const {
+    return {.moveOf = std::vector<std::size_t>(mov.size(), noSlot),
+            .netStamp = std::vector<std::uint32_t>(design.nets.size(), 0),
+            .netChange = std::vector<std::uint32_t>(design.nets.size(), 0),
+            .changes = {},
+            .stamp = 0};
+}
+
 double FastDetailedPlacer::Impl::wirelengthDelta(std::span<const Move> moves) const {
-    if (++stamp == 0) {
-        std::ranges::fill(netStamp, 0u);
-        stamp = 1;
+    return wirelengthDelta(moves, deltaScratch);
+}
+
+double FastDetailedPlacer::Impl::netDelta(std::size_t n, std::span<const Move> moves,
+                                          const std::vector<std::size_t> &moveOf) const {
+    BoundingBox before;
+    BoundingBox after;
+    for (const NetPin &p : netPins[n]) {
+        if (p.slot == noSlot) {
+            before.add(p.absX, p.absY);
+            after.add(p.absX, p.absY);
+            continue;
+        }
+        before.add(cellX[p.slot] + p.offX, cellY[p.slot] + p.offY);
+        if (const std::size_t k = moveOf[p.slot]; k != noSlot) {
+            after.add(moves[k].x + p.offX, moves[k].y + p.offY);
+        } else {
+            after.add(cellX[p.slot] + p.offX, cellY[p.slot] + p.offY);
+        }
     }
+    return after.halfPerimeter() - before.halfPerimeter();
+}
+
+double FastDetailedPlacer::Impl::wirelengthDelta(std::span<const Move> moves,
+                                                 DeltaScratch &sc) const {
+    const bool serial = &sc == &deltaScratch;
+    if (++sc.stamp == 0) {
+        std::ranges::fill(sc.netStamp, 0u);
+        sc.stamp = 1;
+    }
+    const std::uint32_t stamp = sc.stamp;
+    sc.changes.clear();
     for (std::size_t k = 0; k < moves.size(); ++k) {
-        moveOf[moves[k].cell] = k;
+        sc.moveOf[moves[k].cell] = k;
+    }
+    for (const Move &m : moves) {
+        for (const CellPin &pin : cellPins[m.cell]) {
+            const std::size_t n = pin.net;
+            if (sc.netStamp[n] != stamp) {
+                sc.netStamp[n] = stamp;
+                sc.netChange[n] = static_cast<std::uint32_t>(sc.changes.size());
+                sc.changes.emplace_back();
+                if (serial && netStale[n] != 0) {
+                    netBox[n] = measure(n);
+                    netStale[n] = 0;
+                }
+                sc.changes.back().stale = netStale[n] != 0;
+            }
+            NetChange &change = sc.changes[sc.netChange[n]];
+            if (change.stale) {
+                continue;
+            }
+            const NetBox &b = netBox[n];
+            const double ox = cellX[m.cell] + pin.offX;
+            const double oy = cellY[m.cell] + pin.offY;
+            change.fromXlo += ox == b.box.xlo ? 1 : 0;
+            change.fromXhi += ox == b.box.xhi ? 1 : 0;
+            change.fromYlo += oy == b.box.ylo ? 1 : 0;
+            change.fromYhi += oy == b.box.yhi ? 1 : 0;
+            change.moved.add(m.x + pin.offX, m.y + pin.offY);
+        }
     }
     double delta = 0.0;
     for (const Move &m : moves) {
         for (const std::size_t n : cellNets[m.cell]) {
-            if (netStamp[n] == stamp) {
+            NetChange &change = sc.changes[sc.netChange[n]];
+            if (change.counted) {
                 continue;
             }
-            netStamp[n] = stamp;
-            BoundingBox before;
-            BoundingBox after;
-            for (const NetPin &p : netPins[n]) {
-                if (p.slot == noSlot) {
-                    before.add(p.absX, p.absY);
-                    after.add(p.absX, p.absY);
-                    continue;
-                }
-                before.add(cellX[p.slot] + p.offX, cellY[p.slot] + p.offY);
-                if (const std::size_t k = moveOf[p.slot]; k != noSlot) {
-                    after.add(moves[k].x + p.offX, moves[k].y + p.offY);
-                } else {
-                    after.add(cellX[p.slot] + p.offX, cellY[p.slot] + p.offY);
-                }
+            change.counted = true;
+            const NetBox &b = netBox[n];
+            if (change.stale || (change.fromXlo == b.atXlo && change.moved.xlo > b.box.xlo) ||
+                (change.fromXhi == b.atXhi && change.moved.xhi < b.box.xhi) ||
+                (change.fromYlo == b.atYlo && change.moved.ylo > b.box.ylo) ||
+                (change.fromYhi == b.atYhi && change.moved.yhi < b.box.yhi)) {
+                delta += netDelta(n, moves, sc.moveOf);
+                continue;
             }
-            delta += after.halfPerimeter() - before.halfPerimeter();
+            BoundingBox after = b.box;
+            after.add(change.moved.xlo, change.moved.ylo);
+            after.add(change.moved.xhi, change.moved.yhi);
+            delta += after.halfPerimeter() - b.box.halfPerimeter();
         }
     }
     for (const Move &m : moves) {
-        moveOf[m.cell] = noSlot;
+        sc.moveOf[m.cell] = noSlot;
     }
     return delta;
 }
@@ -565,8 +783,8 @@ std::size_t FastDetailedPlacer::Impl::nearestRow(double y) const {
     return static_cast<std::size_t>(it - rowY.begin());
 }
 
-FastDetailedPlacer::Impl::Candidate FastDetailedPlacer::Impl::swapWith(std::size_t i,
-                                                                       std::size_t j) const {
+FastDetailedPlacer::Impl::Candidate FastDetailedPlacer::Impl::swapWith(std::size_t i, std::size_t j,
+                                                                       DeltaScratch &sc) const {
     const std::size_t si = spanOf[i];
     const std::size_t sj = spanOf[j];
     if (j == i || sj == noSlot || spans[si].region != cellRegion[j]) {
@@ -582,12 +800,12 @@ FastDetailedPlacer::Impl::Candidate FastDetailedPlacer::Impl::swapWith(std::size
     const double overlap = cellW[i] > cellW[j]
                                ? cellPenalty(sj, indexIn(sj, j), cellW[i] - cellW[j])
                                : cellPenalty(si, indexIn(si, i), cellW[j] - cellW[i]);
-    return {-wirelengthDelta(moves) - overlap, j, sj, xi, xj};
+    return {-wirelengthDelta(moves, sc) - overlap, j, sj, xi, xj};
 }
 
 FastDetailedPlacer::Impl::Candidate FastDetailedPlacer::Impl::moveInto(std::size_t i, std::size_t s,
-                                                                       std::size_t g,
-                                                                       double target) const {
+                                                                       std::size_t g, double target,
+                                                                       DeltaScratch &sc) const {
     if (s != spanOf[i] && used[s] + cellW[i] > spans[s].width() + eps) {
         return {};
     }
@@ -601,10 +819,18 @@ FastDetailedPlacer::Impl::Candidate FastDetailedPlacer::Impl::moveInto(std::size
     const std::array<Move, 1> moves{Move{i, x, sp.ylo}};
     const double overlap =
         room >= cellW[i] ? 0.0 : penalty(cellW[i], room, room + gap(s, gi - 1) + gap(s, gi + 1));
-    return {-wirelengthDelta(moves) - overlap, noSlot, s, x, 0.0};
+    return {-wirelengthDelta(moves, sc) - overlap, noSlot, s, x, 0.0};
 }
 
-bool FastDetailedPlacer::Impl::tryGlobal(std::size_t i, const OptimalRegion &region) {
+FastDetailedPlacer::Impl::Plan FastDetailedPlacer::Impl::globalPlan(std::size_t i,
+                                                                    DeltaScratch &sc) const {
+    if (spanOf[i] == noSlot) {
+        return {};
+    }
+    const OptimalRegion region = optimalRegion(i);
+    if (region.x.contains(cellX[i]) && region.y.contains(cellY[i])) {
+        return {};
+    }
     const double cx = region.x.center();
     const double cy = region.y.center();
     std::vector<std::size_t> rows;
@@ -659,8 +885,8 @@ bool FastDetailedPlacer::Impl::tryGlobal(std::size_t i, const OptimalRegion &reg
             }
             std::ranges::stable_sort(items, {}, &Item::distance);
             for (const Item &item : items) {
-                const Candidate c =
-                    item.isGap ? moveInto(i, s, item.index, cx) : swapWith(i, cells[item.index]);
+                const Candidate c = item.isGap ? moveInto(i, s, item.index, cx, sc)
+                                               : swapWith(i, cells[item.index], sc);
                 if (c.span != noSlot && c.benefit > eps) {
                     found.push_back(c);
                 }
@@ -676,7 +902,61 @@ bool FastDetailedPlacer::Impl::tryGlobal(std::size_t i, const OptimalRegion &reg
             break;
         }
     }
-    return applyFirstShorter(i, found);
+    std::ranges::stable_sort(found, std::ranges::greater{}, &Candidate::benefit);
+    return {.active = true, .targetX = cx, .found = std::move(found)};
+}
+
+std::size_t FastDetailedPlacer::Impl::gapAt(std::size_t s, double x) const {
+    const std::vector<std::size_t> &cells = spans[s].cells;
+    return static_cast<std::size_t>(std::ranges::lower_bound(cells, x - eps, {},
+                                                             [this](std::size_t c) {
+                                                                 return cellX[c];
+                                                             }) -
+                                    cells.begin());
+}
+
+bool FastDetailedPlacer::Impl::commit(std::size_t i, const Plan &plan) {
+    if (!plan.active || spanOf[i] == noSlot) {
+        return false;
+    }
+    std::vector<Candidate> fresh;
+    const std::size_t limit = std::min(plan.found.size(), opts.refreshCandidates);
+    for (std::size_t k = 0; k < limit; ++k) {
+        const Candidate &c = plan.found[k];
+        const Candidate now = c.partner != noSlot ? swapWith(i, c.partner, deltaScratch)
+                                                  : moveInto(i, c.span, gapAt(c.span, c.x),
+                                                             plan.targetX, deltaScratch);
+        if (now.span != noSlot && now.benefit > eps) {
+            fresh.push_back(now);
+        }
+    }
+    return applyFirstShorter(i, fresh);
+}
+
+std::size_t FastDetailedPlacer::Impl::sweepCells(Plan (Impl::*plan)(std::size_t, DeltaScratch &)
+                                                     const) {
+    tbb::enumerable_thread_specific<DeltaScratch> local([this] {
+        return freshScratch();
+    });
+    const std::size_t batch = std::max<std::size_t>(opts.parallelBatch, 1);
+    std::vector<Plan> plans;
+    std::size_t moves = 0;
+    for (std::size_t begin = 0; begin < mov.size(); begin += batch) {
+        const std::size_t end = std::min(mov.size(), begin + batch);
+        plans.assign(end - begin, Plan{});
+        refreshBoxes();
+        tbb::parallel_for(tbb::blocked_range<std::size_t>(begin, end),
+                          [&](const tbb::blocked_range<std::size_t> &range) {
+                              DeltaScratch &sc = local.local();
+                              for (std::size_t i = range.begin(); i < range.end(); ++i) {
+                                  plans[i - begin] = (this->*plan)(i, sc);
+                              }
+                          });
+        for (std::size_t i = begin; i < end; ++i) {
+            moves += commit(i, plans[i - begin]) ? 1 : 0;
+        }
+    }
+    return moves;
 }
 
 void FastDetailedPlacer::Impl::apply(std::size_t i, const Candidate &c) {
@@ -788,8 +1068,7 @@ bool FastDetailedPlacer::Impl::applyIfShorter(std::size_t i, const Candidate &c)
         detach(c.partner);
     }
     for (const Move &m : before) {
-        cellX[m.cell] = m.x;
-        cellY[m.cell] = m.y;
+        moveCell(m.cell, m.x, m.y);
     }
     attach(i, home);
     if (c.partner != noSlot) {
@@ -804,7 +1083,7 @@ void FastDetailedPlacer::Impl::relocate(std::size_t c, double nx, std::size_t s)
     if (spanOf[c] != noSlot) {
         detach(c);
     }
-    cellX[c] = nx;
+    moveCell(c, nx, cellY[c]);
     attach(c, s);
 }
 
@@ -817,7 +1096,7 @@ void FastDetailedPlacer::Impl::detach(std::size_t c) {
 }
 
 void FastDetailedPlacer::Impl::attach(std::size_t c, std::size_t s) {
-    cellY[c] = spans[s].ylo;
+    moveCell(c, cellX[c], spans[s].ylo);
     std::vector<std::size_t> &cells = spans[s].cells;
     cells.insert(std::ranges::upper_bound(cells, cellX[c], {},
                                           [this](std::size_t a) {
@@ -897,13 +1176,16 @@ void FastDetailedPlacer::Impl::legalizeWindow(const Window &w) {
         const std::size_t end = m + 1 < clusters.size() ? clusters[m + 1].first : w.last;
         double x = clusters[m].x;
         for (std::size_t k = clusters[m].first; k < end; ++k) {
-            cellX[cells[k]] = x;
+            moveCell(cells[k], x, cellY[cells[k]]);
             x += cellW[cells[k]];
         }
     }
 }
 
-std::size_t FastDetailedPlacer::Impl::keepShorter(std::size_t (Impl::*sweep)()) {
+std::size_t FastDetailedPlacer::Impl::keepShorter(std::size_t (Impl::*sweep)(), bool &batchPays) {
+    if (!batchPays) {
+        return (this->*sweep)();
+    }
     const double before = hpwl();
     Snapshot saved = snapshot();
     batched = true;
@@ -913,6 +1195,7 @@ std::size_t FastDetailedPlacer::Impl::keepShorter(std::size_t (Impl::*sweep)()) 
     if (hpwl() < before) {
         return moves;
     }
+    batchPays = false;
     restore(std::move(saved));
     return (this->*sweep)();
 }
@@ -930,64 +1213,89 @@ void FastDetailedPlacer::Impl::legalizeBatch() {
 }
 
 std::size_t FastDetailedPlacer::Impl::globalSwap() {
-    std::size_t swaps = 0;
-    for (std::size_t i = 0; i < mov.size(); ++i) {
-        if (spanOf[i] == noSlot) {
-            continue;
-        }
-        const OptimalRegion region = optimalRegion(i);
-        if (region.x.contains(cellX[i]) && region.y.contains(cellY[i])) {
-            continue;
-        }
-        swaps += tryGlobal(i, region) ? 1 : 0;
-    }
-    return swaps;
+    return sweepCells(&Impl::globalPlan);
 }
 
 std::size_t FastDetailedPlacer::Impl::verticalSwap() {
-    std::size_t swaps = 0;
-    for (std::size_t i = 0; i < mov.size(); ++i) {
-        const std::size_t si = spanOf[i];
-        if (si == noSlot) {
-            continue;
-        }
-        const OptimalRegion region = optimalRegion(i);
-        const std::size_t row = spans[si].row;
-        std::size_t target = noSlot;
-        if (region.y.lo > cellY[i] + eps && row + 1 < rowY.size()) {
-            target = row + 1;
-        } else if (region.y.hi < cellY[i] - eps && row > 0) {
-            target = row - 1;
-        }
-        if (target == noSlot) {
-            continue;
-        }
-        std::vector<Candidate> found;
-        for (const std::size_t s : spansInRow[target]) {
-            const Span &sp = spans[s];
-            if (sp.region != cellRegion[i] || sp.cells.empty() || sp.xhi < cellX[i] ||
-                sp.xlo > cellX[i] + cellW[i]) {
-                continue;
-            }
-            const auto at =
-                static_cast<std::size_t>(std::ranges::lower_bound(sp.cells, cellX[i], {},
-                                                                  [this](std::size_t c) {
-                                                                      return cellX[c];
-                                                                  }) -
-                                         sp.cells.begin());
-            const std::size_t reach = opts.verticalCandidates;
-            const std::size_t first = at > reach ? at - reach : 0;
-            const std::size_t last = std::min(sp.cells.size(), at + reach);
-            for (std::size_t k = first; k < last; ++k) {
-                const Candidate c = swapWith(i, sp.cells[k]);
-                if (c.span != noSlot && c.benefit > eps) {
-                    found.push_back(c);
-                }
-            }
-        }
-        swaps += applyFirstShorter(i, found) ? 1 : 0;
+    return sweepCells(&Impl::verticalPlan);
+}
+
+FastDetailedPlacer::Impl::Plan FastDetailedPlacer::Impl::verticalPlan(std::size_t i,
+                                                                      DeltaScratch &sc) const {
+    const std::size_t si = spanOf[i];
+    if (si == noSlot) {
+        return {};
     }
-    return swaps;
+    const OptimalRegion region = optimalRegion(i);
+    const std::size_t row = spans[si].row;
+    std::size_t target = noSlot;
+    if (region.y.lo > cellY[i] + eps && row + 1 < rowY.size()) {
+        target = row + 1;
+    } else if (region.y.hi < cellY[i] - eps && row > 0) {
+        target = row - 1;
+    }
+    if (target == noSlot) {
+        return {};
+    }
+    std::vector<Candidate> found;
+    for (const std::size_t s : spansInRow[target]) {
+        const Span &sp = spans[s];
+        if (sp.region != cellRegion[i] || sp.cells.empty() || sp.xhi < cellX[i] ||
+            sp.xlo > cellX[i] + cellW[i]) {
+            continue;
+        }
+        const auto at = static_cast<std::size_t>(std::ranges::lower_bound(sp.cells, cellX[i], {},
+                                                                          [this](std::size_t c) {
+                                                                              return cellX[c];
+                                                                          }) -
+                                                 sp.cells.begin());
+        const std::size_t reach = opts.verticalCandidates;
+        const std::size_t first = at > reach ? at - reach : 0;
+        const std::size_t last = std::min(sp.cells.size(), at + reach);
+        for (std::size_t k = first; k < last; ++k) {
+            const Candidate c = swapWith(i, sp.cells[k], sc);
+            if (c.span != noSlot && c.benefit > eps) {
+                found.push_back(c);
+            }
+        }
+    }
+    std::ranges::stable_sort(found, std::ranges::greater{}, &Candidate::benefit);
+    return {.active = true, .targetX = 0.0, .found = std::move(found)};
+}
+
+std::vector<Move> FastDetailedPlacer::Impl::bestOrder(std::size_t s, std::size_t k,
+                                                      DeltaScratch &sc) const {
+    const std::size_t n = std::min<std::size_t>(opts.reorderWindow, 6);
+    const Span &sp = spans[s];
+    const std::span<const std::size_t> group(sp.cells.data() + k, n);
+    const double left = cellX[group.front()];
+    const double right = cellX[group.back()] + cellW[group.back()];
+    double widths = 0.0;
+    for (const std::size_t c : group) {
+        widths += cellW[c];
+    }
+    const double spacing = (right - left - widths) / static_cast<double>(n - 1);
+    if (spacing < -eps) {
+        return {};
+    }
+    std::vector<std::size_t> order(n);
+    std::iota(order.begin(), order.end(), 0u);
+    std::vector<Move> trial(n);
+    std::vector<Move> best;
+    double bestDelta = -eps;
+    do {
+        double x = left;
+        for (std::size_t t = 0; t < n; ++t) {
+            const std::size_t c = group[order[t]];
+            trial[t] = Move{c, left + std::floor((x - left) / sp.site + eps) * sp.site, cellY[c]};
+            x += cellW[c] + spacing;
+        }
+        if (const double delta = wirelengthDelta(trial, sc); delta < bestDelta) {
+            bestDelta = delta;
+            best = trial;
+        }
+    } while (std::ranges::next_permutation(order).found);
+    return best;
 }
 
 std::size_t FastDetailedPlacer::Impl::localReorder() {
@@ -995,47 +1303,42 @@ std::size_t FastDetailedPlacer::Impl::localReorder() {
     if (n < 2) {
         return 0;
     }
+    struct Window3 {
+        std::size_t span;
+        std::size_t first;
+    };
+    tbb::enumerable_thread_specific<DeltaScratch> local([this] {
+        return freshScratch();
+    });
     std::size_t moves = 0;
-    std::vector<std::size_t> order(n);
-    std::vector<Move> trial(n);
-    std::vector<Move> best(n);
-    for (Span &sp : spans) {
-        std::vector<std::size_t> &cells = sp.cells;
-        for (std::size_t k = 0; k + n <= cells.size(); ++k) {
-            const std::span<std::size_t> group(cells.data() + k, n);
-            const double left = cellX[group.front()];
-            const double right = cellX[group.back()] + cellW[group.back()];
-            double widths = 0.0;
-            for (const std::size_t c : group) {
-                widths += cellW[c];
+    std::vector<Window3> windows;
+    std::vector<std::vector<Move>> best;
+    for (std::size_t offset = 0; offset < n; ++offset) {
+        windows.clear();
+        for (std::size_t s = 0; s < spans.size(); ++s) {
+            for (std::size_t k = offset; k + n <= spans[s].cells.size(); k += n) {
+                windows.push_back({s, k});
             }
-            const double spacing = (right - left - widths) / static_cast<double>(n - 1);
-            if (spacing < -eps) {
+        }
+        best.assign(windows.size(), {});
+        refreshBoxes();
+        tbb::parallel_for(tbb::blocked_range<std::size_t>(0, windows.size()),
+                          [&](const tbb::blocked_range<std::size_t> &range) {
+                              DeltaScratch &sc = local.local();
+                              for (std::size_t w = range.begin(); w < range.end(); ++w) {
+                                  best[w] = bestOrder(windows[w].span, windows[w].first, sc);
+                              }
+                          });
+        for (std::size_t w = 0; w < windows.size(); ++w) {
+            if (best[w].empty() || wirelengthDelta(best[w]) >= -eps) {
                 continue;
             }
-            std::iota(order.begin(), order.end(), 0u);
-            double bestDelta = -eps;
-            bool improved = false;
-            do {
-                double x = left;
-                for (std::size_t t = 0; t < n; ++t) {
-                    const std::size_t c = group[order[t]];
-                    trial[t] =
-                        Move{c, left + std::floor((x - left) / sp.site + eps) * sp.site, cellY[c]};
-                    x += cellW[c] + spacing;
-                }
-                if (const double delta = wirelengthDelta(trial); delta < bestDelta) {
-                    bestDelta = delta;
-                    best = trial;
-                    improved = true;
-                }
-            } while (std::ranges::next_permutation(order).found);
-            if (improved) {
-                for (std::size_t t = 0; t < n; ++t) {
-                    moves += std::abs(cellX[best[t].cell] - best[t].x) > eps ? 1 : 0;
-                    cellX[best[t].cell] = best[t].x;
-                    group[t] = best[t].cell;
-                }
+            std::vector<std::size_t> &cells = spans[windows[w].span].cells;
+            for (std::size_t t = 0; t < n; ++t) {
+                const Move &m = best[w][t];
+                moves += std::abs(cellX[m.cell] - m.x) > eps ? 1 : 0;
+                moveCell(m.cell, m.x, cellY[m.cell]);
+                cells[windows[w].first + t] = m.cell;
             }
         }
     }
@@ -1043,30 +1346,46 @@ std::size_t FastDetailedPlacer::Impl::localReorder() {
 }
 
 std::size_t FastDetailedPlacer::Impl::clusterSegments() {
+    tbb::enumerable_thread_specific<std::vector<std::size_t>> local([this] {
+        return std::vector<std::size_t>(mov.size(), noSlot);
+    });
+    std::vector<std::vector<Move>> proposals(spans.size());
+    refreshBoxes();
+    tbb::parallel_for(tbb::blocked_range<std::size_t>(0, spans.size()),
+                      [&](const tbb::blocked_range<std::size_t> &range) {
+                          std::vector<std::size_t> &order = local.local();
+                          for (std::size_t s = range.begin(); s < range.end(); ++s) {
+                              proposals[s] = clusterProposal(wholeSpan(s), order);
+                          }
+                      });
     std::size_t moves = 0;
     for (std::size_t s = 0; s < spans.size(); ++s) {
-        moves += clusterWindow(wholeSpan(s));
+        moves += commitCluster(wholeSpan(s), proposals[s]);
     }
     return moves;
 }
 
 std::size_t FastDetailedPlacer::Impl::clusterWindow(const Window &w) {
+    return commitCluster(w, clusterProposal(w, orderOf));
+}
+
+std::vector<Move> FastDetailedPlacer::Impl::clusterProposal(const Window &w,
+                                                            std::vector<std::size_t> &order) const {
     struct Cluster {
         std::vector<double> bounds;
         double width;
         double x;
         std::size_t first;
     };
-    std::size_t moves = 0;
     std::vector<Move> placed;
     std::vector<Cluster> clusters;
     const std::vector<std::size_t> &cells = spans[w.span].cells;
     const double site = spans[w.span].site;
     if (w.first == w.last) {
-        return 0;
+        return placed;
     }
     for (std::size_t k = w.first; k < w.last; ++k) {
-        orderOf[cells[k]] = k;
+        order[cells[k]] = k;
     }
     const auto boundsOf = [&](std::size_t c) {
         std::vector<double> bounds;
@@ -1080,8 +1399,8 @@ std::size_t FastDetailedPlacer::Impl::clusterWindow(const Window &w) {
                     continue;
                 }
                 double px = p.absX;
-                if (p.slot != noSlot && orderOf[p.slot] != noSlot) {
-                    px = orderOf[p.slot] < orderOf[c] ? w.lo : w.hi;
+                if (p.slot != noSlot && order[p.slot] != noSlot) {
+                    px = order[p.slot] < order[c] ? w.lo : w.hi;
                 } else if (p.slot != noSlot) {
                     px = cellX[p.slot] + p.offX;
                 }
@@ -1130,6 +1449,19 @@ std::size_t FastDetailedPlacer::Impl::clusterWindow(const Window &w) {
             x += cellW[cells[k]];
         }
     }
+    for (std::size_t k = w.first; k < w.last; ++k) {
+        order[cells[k]] = noSlot;
+    }
+    return placed;
+}
+
+std::size_t FastDetailedPlacer::Impl::commitCluster(const Window &w,
+                                                    const std::vector<Move> &placed) {
+    if (placed.empty()) {
+        return 0;
+    }
+    const std::vector<std::size_t> &cells = spans[w.span].cells;
+    std::size_t moves = 0;
     bool overlapping = false;
     for (std::size_t k = w.first + 1; k < w.last; ++k) {
         overlapping =
@@ -1139,11 +1471,8 @@ std::size_t FastDetailedPlacer::Impl::clusterWindow(const Window &w) {
     if (fits && (overlapping || wirelengthDelta(placed) < -eps)) {
         for (const Move &m : placed) {
             moves += std::abs(cellX[m.cell] - m.x) > eps ? 1 : 0;
-            cellX[m.cell] = m.x;
+            moveCell(m.cell, m.x, cellY[m.cell]);
         }
-    }
-    for (std::size_t k = w.first; k < w.last; ++k) {
-        orderOf[cells[k]] = noSlot;
     }
     return moves;
 }
@@ -1225,6 +1554,9 @@ FastDetailedPlacer::Impl::Snapshot FastDetailedPlacer::Impl::snapshot() const {
 void FastDetailedPlacer::Impl::restore(Snapshot saved) {
     cellX = std::move(saved.x);
     cellY = std::move(saved.y);
+    std::ranges::fill(netStale, 1);
+    staleNets.resize(netPins.size());
+    std::iota(staleNets.begin(), staleNets.end(), std::size_t{0});
     spanOf = std::move(saved.spanOf);
     spans = std::move(saved.spans);
     used = std::move(saved.used);
@@ -1297,18 +1629,20 @@ FastdpResult FastDetailedPlacer::Impl::place(const FastdpOptions &params) {
         cluster();
     }
     std::size_t weakPasses = 0;
+    bool batchGlobal = true;
+    bool batchVertical = true;
     for (std::size_t iteration = 0; iteration < opts.maxIterations; ++iteration) {
         const double before = hpwl();
         Snapshot saved = snapshot();
         if (opts.globalSwap) {
             res.globalSwaps += timed(globalSeconds, [&] {
-                return keepShorter(&Impl::globalSwap);
+                return keepShorter(&Impl::globalSwap, batchGlobal);
             });
             writeFrame(std::format("Global swap - pass {}", iteration + 1), ++step);
         }
         if (opts.verticalSwap) {
             res.verticalSwaps += timed(verticalSeconds, [&] {
-                return keepShorter(&Impl::verticalSwap);
+                return keepShorter(&Impl::verticalSwap, batchVertical);
             });
             writeFrame(std::format("Vertical swap - pass {}", iteration + 1), ++step);
         }

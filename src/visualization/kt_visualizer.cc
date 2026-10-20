@@ -22,6 +22,7 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <oneapi/tbb/enumerable_thread_specific.h>
 #include <oneapi/tbb/parallel_for.h>
 #include <span>
 #include <sstream>
@@ -29,7 +30,6 @@
 #include <system_error>
 #include <thread>
 #include <unordered_map>
-#include <unordered_set>
 #include <zlib.h>
 
 // CImg is a header-only library, so it is confined to this translation unit.
@@ -2019,6 +2019,9 @@ bool writeAnimatedGif(const std::string &dir, const std::string &gifPath, int de
         std::vector<std::uint32_t> firstSeen;
     };
     std::vector<Frame> loaded(frames.size());
+    tbb::enumerable_thread_specific<std::vector<std::uint64_t>> seenBits([] {
+        return std::vector<std::uint64_t>((1u << 24) / 64, 0);
+    });
     tbb::parallel_for(std::size_t{0}, frames.size(), [&](std::size_t fi) {
         Frame &f = loaded[fi];
         try {
@@ -2033,12 +2036,17 @@ bool writeAnimatedGif(const std::string &dir, const std::string &gifPath, int de
                 ++f.histogram[packRgb(f.rgb[3 * i], f.rgb[3 * i + 1], f.rgb[3 * i + 2])];
             }
         }
-        std::unordered_set<std::uint32_t> seen;
+        std::vector<std::uint64_t> &seen = seenBits.local();
         for (std::size_t i = 0; i < np; ++i) {
             const std::uint32_t key = packRgb(f.rgb[3 * i], f.rgb[3 * i + 1], f.rgb[3 * i + 2]);
-            if (seen.insert(key).second) {
+            const std::uint64_t bit = std::uint64_t{1} << (key & 63u);
+            if ((seen[key >> 6] & bit) == 0) {
+                seen[key >> 6] |= bit;
                 f.firstSeen.push_back(key);
             }
+        }
+        for (const std::uint32_t key : f.firstSeen) {
+            seen[key >> 6] = 0;
         }
     });
     std::erase_if(loaded, [](const Frame &f) {
@@ -2077,11 +2085,14 @@ bool writeAnimatedGif(const std::string &dir, const std::string &gifPath, int de
         }
     }
 
-    std::unordered_map<std::uint32_t, std::uint8_t> indexOf;
+    std::vector<std::uint8_t> indexOf(1u << 24, 0);
+    std::vector<std::uint64_t> assigned((1u << 24) / 64, 0);
     for (const Frame &f : loaded) {
         for (const std::uint32_t key : f.firstSeen) {
-            if (!indexOf.contains(key)) {
-                indexOf.emplace(key, pal.index(unpack(key)));
+            const std::uint64_t bit = std::uint64_t{1} << (key & 63u);
+            if ((assigned[key >> 6] & bit) == 0) {
+                assigned[key >> 6] |= bit;
+                indexOf[key] = pal.index(unpack(key));
             }
         }
     }
@@ -2091,7 +2102,7 @@ bool writeAnimatedGif(const std::string &dir, const std::string &gifPath, int de
         const std::size_t np = f.rgb.size() / 3;
         f.idx.resize(np);
         for (std::size_t i = 0; i < np; ++i) {
-            f.idx[i] = indexOf.at(packRgb(f.rgb[3 * i], f.rgb[3 * i + 1], f.rgb[3 * i + 2]));
+            f.idx[i] = indexOf[packRgb(f.rgb[3 * i], f.rgb[3 * i + 1], f.rgb[3 * i + 2])];
         }
         f.rgb.clear();
         f.rgb.shrink_to_fit();

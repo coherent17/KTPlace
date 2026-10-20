@@ -12,6 +12,7 @@
 #include "detailPlacer/fastdp/fastdp_placer.h"
 
 #include <boost/test/unit_test.hpp>
+#include <oneapi/tbb/global_control.h>
 
 // Run the placer over a database built from `db`, then commit its answer -- the
 // same two steps the flow performs. The placer itself writes nothing, so a test
@@ -919,6 +920,25 @@ BOOST_AUTO_TEST_CASE(global_swap_after_convergence_never_lengthens_the_wirelengt
     BOOST_TEST(r.rolledBack == 0u);
     BOOST_TEST(r.hpwlAfter <= r.hpwlBefore);
     BOOST_TEST(isLegal(db));
+}
+
+BOOST_AUTO_TEST_CASE(the_placement_does_not_depend_on_the_thread_count) {
+    FastdpOptions params;
+    params.parallelBatch = 16;
+    const auto place = [&params](std::size_t threads) {
+        const tbb::global_control limit(tbb::global_control::max_allowed_parallelism, threads);
+        ktDM db;
+        buildCrowdedDesign(db);
+        (void)runAndCommit(db, params);
+        std::vector<std::pair<double, double>> at;
+        for (std::size_t c = 0; c < db.getNumCells(); ++c) {
+            at.push_back(db.getCellPosition(c));
+        }
+        return at;
+    };
+    const std::vector<std::pair<double, double>> one = place(1);
+    const std::vector<std::pair<double, double>> many = place(8);
+    BOOST_TEST((one == many));
 }
 
 BOOST_AUTO_TEST_CASE(a_second_run_finds_little_left_to_do) {
