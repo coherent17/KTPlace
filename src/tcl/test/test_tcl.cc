@@ -105,6 +105,10 @@ BOOST_AUTO_TEST_CASE(if_and_while_run_a_body) {
     Interpreter interp;
     (void)interp.eval("set n 0\nif {$n == 0} { set n 5 } else { set n 9 }");
     BOOST_TEST(interp.variable("n").asInt() == 5);
+    (void)interp.eval("if {$n == 0} { set n 1 } elseif {$n == 4} { set n 2 } else { set n 3 }");
+    BOOST_TEST(interp.variable("n").asInt() == 3);
+    (void)interp.eval("if {$n == 3} then { set n 7 }");
+    BOOST_TEST(interp.variable("n").asInt() == 7);
     (void)interp.eval("set i 0\nwhile {$i < 4} { incr i 2 }");
     BOOST_TEST(interp.variable("i").asInt() == 4);
 }
