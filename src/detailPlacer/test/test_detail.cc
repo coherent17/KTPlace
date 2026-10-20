@@ -213,6 +213,39 @@ void addNet(ktDM &db, const std::string &net, const std::string &a, const std::s
     return true;
 }
 
+void buildCrowdedDesign(ktDM &db) {
+    constexpr int rows = 20;
+    constexpr int perRow = 40;
+    for (int r = 0; r < rows; ++r) {
+        addRow(db, r, 200);
+    }
+    unsigned state = 12345u;
+    const auto next = [&state] {
+        state = state * 1103515245u + 12345u;
+        return static_cast<int>((state >> 16u) & 0x7fffu);
+    };
+    for (int r = 0; r < rows; ++r) {
+        double x = 0.0;
+        for (int c = 0; c < perRow; ++c) {
+            const double width = 1.0 + next() % 4;
+            x += next() % 2;
+            addCell(db, "c" + std::to_string(r * perRow + c), x, r, width);
+            x += width;
+        }
+    }
+    constexpr int cells = rows * perRow;
+    for (int k = 0; k < 2 * cells; ++k) {
+        const std::string net = "n" + std::to_string(k);
+        (void)db.addNet(net);
+        const int degree = 2 + next() % 3;
+        const int base = next() % cells;
+        for (int p = 0; p < degree; ++p) {
+            const int c = (base + next() % 120) % cells;
+            (void)db.addPin("c" + std::to_string(c), net, 0.0, 0.0, p == 0);
+        }
+    }
+}
+
 }  // namespace
 
 // ---------------------------------------------------------------------------
@@ -865,6 +898,37 @@ BOOST_AUTO_TEST_CASE(a_vertical_swap_does_not_carry_cells_across_a_fence) {
         BOOST_TEST(!(oy == 10.0 && ox < 30.0),
                    o << " entered the fence: (" << ox << ", " << oy << ")");
     }
+}
+
+BOOST_AUTO_TEST_CASE(no_pass_lengthens_the_wirelength) {
+    ktDM db;
+    buildCrowdedDesign(db);
+    const fastdp::FastdpResult r = runAndCommit(db);
+    BOOST_TEST(r.hpwlAfter < r.hpwlBefore);
+    BOOST_TEST(r.rolledBack == 0u);
+    BOOST_TEST(isLegal(db));
+}
+
+BOOST_AUTO_TEST_CASE(global_swap_after_convergence_never_lengthens_the_wirelength) {
+    ktDM db;
+    buildCrowdedDesign(db);
+    (void)runAndCommit(db);
+    FastdpOptions once = only(0);
+    once.maxIterations = 1;
+    const fastdp::FastdpResult r = runAndCommit(db, once);
+    BOOST_TEST(r.rolledBack == 0u);
+    BOOST_TEST(r.hpwlAfter <= r.hpwlBefore);
+    BOOST_TEST(isLegal(db));
+}
+
+BOOST_AUTO_TEST_CASE(a_second_run_finds_little_left_to_do) {
+    ktDM db;
+    buildCrowdedDesign(db);
+    (void)runAndCommit(db);
+    const fastdp::FastdpResult again = runAndCommit(db);
+    BOOST_TEST(again.hpwlAfter <= again.hpwlBefore);
+    BOOST_TEST((again.hpwlBefore - again.hpwlAfter) / again.hpwlBefore < 1e-3);
+    BOOST_TEST(isLegal(db));
 }
 
 BOOST_AUTO_TEST_SUITE_END()

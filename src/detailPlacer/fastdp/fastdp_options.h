@@ -16,7 +16,7 @@ struct FastdpOptions {
     double penaltyWeight1 = 0.1;
     double penaltyWeight2 = 1.0;
     std::size_t maxIterations = 20;
-    double minImprovement = 1e-3;
+    double minImprovement = 2e-4;
 
     bool globalSwap = true;
     bool verticalSwap = true;
@@ -25,6 +25,9 @@ struct FastdpOptions {
     std::size_t swapCandidates = 64;
     std::size_t verticalCandidates = 3;
     std::size_t clusterBounds = 16;
+    std::size_t verifiedCandidates = 3;
+    std::size_t verifyReach = 8;
+    std::size_t weakPassLimit = 2;
 
     static void fields(auto &self, auto &&visit) {
         visit("window", self.reorderWindow);
