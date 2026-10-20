@@ -15,6 +15,8 @@
 
 #include "datamodel/kt_constraintMgr.h"
 #include "datamodel/kt_dm.h"
+#include "datamodel/kt_graph.h"
+#include "datamodel/kt_macroPlan.h"
 #include "datamodel/kt_optionDb.h"
 #include "globalPlacer/simpl/simpl_dm.h"
 #include "globalPlacer/simpl/simpl_flowMgr.h"
@@ -230,6 +232,43 @@ BOOST_AUTO_TEST_CASE(snapshot_cadence_is_simpls_own_option) {
         BOOST_TEST(n.lss == 0u);
         BOOST_TEST(n.bounds == byDefault.bounds);
     }
+}
+
+BOOST_AUTO_TEST_CASE(macro_bias_options_touch_only_the_movable_macros) {
+    ktDM db;
+    db.setDieArea(0.0, 0.0, 100.0, 100.0);
+    const std::size_t macro = db.addCell("m", 20.0, 20.0, true);
+    db.setCellFixed(macro, true);
+    (void)db.addCell("c0", 1.0, 1.0);
+    (void)db.addCell("c1", 1.0, 1.0);
+    (void)db.addNet("toMacro");
+    (void)db.addNet("plain");
+    (void)db.addPin("m", "toMacro", 1.0, 1.0, false);
+    (void)db.addPin("c0", "toMacro", 0.5, 0.5, true);
+    (void)db.addPin("c0", "plain", 0.5, 0.5, false);
+    (void)db.addPin("c1", "plain", 0.5, 0.5, true);
+    MacroPlan plan;
+    plan.die = {0.0, 0.0, 100.0, 100.0};
+    plan.macros.push_back({.cellId = macro,
+                           .master = "block",
+                           .movable = true,
+                           .originX = 0.0,
+                           .originY = 0.0,
+                           .originOrient = Orient::N});
+    db.setMacroPlan(plan);
+
+    {
+        const ScopedOption weaker(Component::Simpl, "macro_net_weight", OptionValue{0.5});
+        const simpl::simplDM dm = simpl::buildSimplDM(db);
+        BOOST_TEST(dm.design().graph.getNet(db.getNetId("toMacro")).weight == 0.5);
+        BOOST_TEST(dm.design().graph.getNet(db.getNetId("plain")).weight == 1.0);
+        BOOST_TEST(dm.design().graph.getPin(0).offsetX == 1.0);
+    }
+    const ScopedOption centred(Component::Simpl, "macro_pin_center", OptionValue{true});
+    const simpl::simplDM dm = simpl::buildSimplDM(db);
+    BOOST_TEST(dm.design().graph.getPin(0).offsetX == 10.0);
+    BOOST_TEST(dm.design().graph.getPin(0).offsetY == 10.0);
+    BOOST_TEST(dm.design().graph.getPin(1).offsetX == 0.5);
 }
 
 BOOST_AUTO_TEST_SUITE_END()
