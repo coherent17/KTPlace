@@ -366,13 +366,11 @@ std::vector<ktDM::Defect> ktDM::verify() const {
 
         std::map<std::pair<long long, long long>, std::vector<std::size_t>> buckets;
         std::vector<std::size_t> tallCells;
-        std::vector<char> isTall(nv, 0);
         for (std::size_t v = 0; v < nv; ++v) {
             const Vertex &vert = g.getCell(v);
             const double tall = rowHeight > 0.0 ? vert.height / rowHeight : vert.height;
             if (tall > 4.0) {
                 tallCells.push_back(v);
-                isTall[v] = 1;
                 continue;
             }
             const auto bx = static_cast<long long>(std::floor(vert.x / cell));
@@ -412,24 +410,31 @@ std::vector<ktDM::Defect> ktDM::verify() const {
                 }
             }
         }
-        // Tall cells against every vertex, not just those with a higher index.
-        // Restricting to b > a misses a tall cell paired with a lower-indexed
-        // normal cell, since the grid pairs normal cells with normal cells only
-        // (558 counted where a direct scan found 827). A tall-tall pair is still
-        // accepted only once, by index.
-        for (const std::size_t a : tallCells) {
-            for (std::size_t b = 0; b < nv; ++b) {
-                if (b == a) {
-                    continue;
+        double widest = 0.0;
+        double highest = 0.0;
+        for (const auto &kv : buckets) {
+            for (const std::size_t v : kv.second) {
+                widest = std::max(widest, g.getCell(v).width);
+                highest = std::max(highest, g.getCell(v).height);
+            }
+        }
+        for (std::size_t i = 0; i < tallCells.size(); ++i) {
+            const std::size_t a = tallCells[i];
+            const Vertex &t = g.getCell(a);
+            const auto x0 = static_cast<long long>(std::floor((t.x - widest) / cell));
+            const auto x1 = static_cast<long long>(std::floor((t.x + t.width) / cell));
+            const auto y0 = static_cast<long long>(std::floor((t.y - highest) / cell));
+            const auto y1 = static_cast<long long>(std::floor((t.y + t.height) / cell));
+            for (long long bx = x0; bx <= x1; ++bx) {
+                for (auto it = buckets.lower_bound({bx, y0});
+                     it != buckets.end() && it->first.first == bx && it->first.second <= y1; ++it) {
+                    for (const std::size_t b : it->second) {
+                        overlaps += hits(a, b) ? 1u : 0u;
+                    }
                 }
-                // Both tall: the same pair is reached from both sides, so keep
-                // only the one where this is the lower vertex index.
-                if (isTall[b] && b < a) {
-                    continue;
-                }
-                if (hits(a, b)) {
-                    ++overlaps;
-                }
+            }
+            for (std::size_t j = i + 1; j < tallCells.size(); ++j) {
+                overlaps += hits(a, tallCells[j]) ? 1u : 0u;
             }
         }
     }
