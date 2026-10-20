@@ -89,6 +89,7 @@ struct FastdpResult {
     std::size_t verticalSwaps = 0;
     std::size_t reorderMoves = 0;
     std::size_t clusterMoves = 0;
+    std::size_t rolledBack = 0;
     double hpwlBefore = 0.0;
     double hpwlAfter = 0.0;
     std::size_t overlappingPairs = 0;
