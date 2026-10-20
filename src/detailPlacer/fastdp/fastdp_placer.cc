@@ -16,6 +16,7 @@
 #include <numeric>
 #include <span>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -178,6 +179,16 @@ private:
     std::size_t clusterSegments();
 
     void selfCheck(FastdpResult &res) const;
+
+    struct Snapshot {
+        std::vector<double> x;
+        std::vector<double> y;
+        std::vector<std::size_t> spanOf;
+        std::vector<Span> spans;
+        std::vector<double> used;
+    };
+    [[nodiscard]] Snapshot snapshot() const;
+    void restore(Snapshot saved);
     void writeFrame(const std::string &note, std::size_t step = 0) const;
     double hpwlInput = 0.0;
 
@@ -1019,6 +1030,18 @@ void FastDetailedPlacer::Impl::selfCheck(FastdpResult &res) const {
     }
 }
 
+FastDetailedPlacer::Impl::Snapshot FastDetailedPlacer::Impl::snapshot() const {
+    return {.x = cellX, .y = cellY, .spanOf = spanOf, .spans = spans, .used = used};
+}
+
+void FastDetailedPlacer::Impl::restore(Snapshot saved) {
+    cellX = std::move(saved.x);
+    cellY = std::move(saved.y);
+    spanOf = std::move(saved.spanOf);
+    spans = std::move(saved.spans);
+    used = std::move(saved.used);
+}
+
 FastdpResult FastDetailedPlacer::Impl::place(const FastdpOptions &params) {
     FastdpResult res;
     ScopedTimer timer("fastdp");
@@ -1071,6 +1094,15 @@ FastdpResult FastDetailedPlacer::Impl::place(const FastdpOptions &params) {
             return clusterSegments();
         });
     };
+    const auto keptBetter = [&](Snapshot saved, double before, std::string_view what) {
+        if (hpwl() <= before) {
+            return true;
+        }
+        restore(std::move(saved));
+        ++res.rolledBack;
+        ktlog.echo("{} raised HPWL; rolled back to {:.6e}", what, before);
+        return false;
+    };
 
     std::size_t step = 0;
     if (opts.clustering) {
@@ -1078,6 +1110,7 @@ FastdpResult FastDetailedPlacer::Impl::place(const FastdpOptions &params) {
     }
     for (std::size_t iteration = 0; iteration < opts.maxIterations; ++iteration) {
         const double before = hpwl();
+        Snapshot saved = snapshot();
         if (opts.globalSwap) {
             res.globalSwaps += timed(globalSeconds, [&] {
                 return globalSwap();
@@ -1096,16 +1129,23 @@ FastdpResult FastDetailedPlacer::Impl::place(const FastdpOptions &params) {
             });
             writeFrame(std::format("Local reordering - pass {}", iteration + 1), ++step);
         }
-        if (!improvedEnough(before)) {
+        if (opts.clustering) {
+            cluster();
+        }
+        if (!keptBetter(std::move(saved), before, std::format("pass {}", iteration + 1)) ||
+            !improvedEnough(before)) {
             break;
         }
     }
     if (opts.clustering) {
         for (std::size_t iteration = 0; iteration < opts.maxIterations; ++iteration) {
             const double before = hpwl();
+            Snapshot saved = snapshot();
             cluster();
             writeFrame(std::format("Single-segment clustering - round {}", iteration + 1), ++step);
-            if (!improvedEnough(before)) {
+            if (!keptBetter(std::move(saved), before,
+                            std::format("clustering round {}", iteration + 1)) ||
+                !improvedEnough(before)) {
                 break;
             }
         }
