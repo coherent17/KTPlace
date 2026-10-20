@@ -103,6 +103,36 @@ void registerCommands() {
                      flow.detailPlace();
                      return tcl::Value{};
                  });
+    registerStep({.name = "read_macro_constraints",
+                  .usage = "read_macro_constraints [mlist [txt]]",
+                  .summary = "load the movable macros and their rules (default <design>.mlist, "
+                             "<design>.txt in the design directory); returns the maximum "
+                             "displacement in database units"},
+                 0, 2, Needs::Design, [](FlowMgr &flow, const Words &words) {
+                     return tcl::Value::real(flow.readMacroPlan(words.empty() ? "" : words[0],
+                                                                words.size() < 2 ? "" : words[1]));
+                 });
+    registerStep({.name = "macro_place",
+                  .usage = "macro_place",
+                  .summary = "detailed macro placement: shift and flip the movable macros"},
+                 0, 0, Needs::Design, [](FlowMgr &flow, const Words &) {
+                     flow.macroPlace();
+                     return tcl::Value{};
+                 });
+    registerStep({.name = "check_macros",
+                  .usage = "check_macros",
+                  .summary = "check the macro rules; returns 1 if the macro placement is legal"},
+                 0, 0, Needs::Design, [](FlowMgr &flow, const Words &) {
+                     return tcl::Value::boolean(flow.checkMacros());
+                 });
+    registerStep(
+        {.name = "write_macros",
+         .usage = "write_macros [file]",
+         .summary =
+             "write the macro placement (default <work-dir>/<design>.dmp); returns the path"},
+        0, 1, Needs::Design, [](FlowMgr &flow, const Words &words) {
+            return tcl::Value::string(flow.writeMacros(words.empty() ? "" : words[0]));
+        });
     registerStep(
         {.name = "write_placement",
          .usage = "write_placement [file]",

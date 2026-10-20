@@ -1,6 +1,7 @@
 #include "globalPlacer/simpl/simpl_dm.h"
 
 #include "datamodel/kt_dm.h"
+#include "datamodel/kt_macroPlan.h"
 #include "datamodel/kt_stageReport.h"
 #include "globalPlacer/simpl/simpl_placer.h"
 #include "util/kt_reportTable.h"
@@ -9,6 +10,7 @@
 #include <cmath>
 #include <format>
 #include <limits>
+#include <vector>
 
 namespace ktplace::simpl {
 namespace {
@@ -17,13 +19,22 @@ PinRole roleOf(ktplace::PinRole role) {
     return role == ktplace::PinRole::Driver ? PinRole::Driver : PinRole::Receiver;
 }
 
-void copyNetlist(const ktplace::Graph &source, Graph &target) {
+struct MacroBias {
+    std::vector<double> netScale;
+    std::vector<char> centred;
+};
+
+void copyNetlist(const ktplace::Graph &source, const MacroBias &bias, Graph &target) {
     for (const ktplace::Net &net : source.getNets()) {
-        target.addNet(net.weight);
+        target.addNet(net.weight * bias.netScale[net.id]);
     }
     for (const ktplace::Pin &pin : source.getPins()) {
-        target.addPin(Pin{pin.cellId, pin.netId, roleOf(pin.role), pin.offsetX, pin.offsetY},
-                      pin.netId);
+        const ktplace::Vertex &cell = source.getCell(pin.cellId);
+        const bool centred = bias.centred[pin.cellId] != 0;
+        target.addPin(
+            Pin{pin.cellId, pin.netId, roleOf(pin.role), centred ? 0.5 * cell.width : pin.offsetX,
+                centred ? 0.5 * cell.height : pin.offsetY},
+            pin.netId);
     }
     for (std::size_t v = 0; v < source.getNumCells(); ++v) {
         const ktplace::Vertex &cell = source.getCell(v);
@@ -255,15 +266,39 @@ simplSolution simplDM::solution() const {
     return out;
 }
 
+namespace {
+
+MacroBias macroBias(const ktDM &db, const SimplOptions &options) {
+    MacroBias bias{.netScale = std::vector<double>(db.getNumNets(), 1.0),
+                   .centred = std::vector<char>(db.getNumCells(), 0)};
+    if (!db.hasMacroPlan()) {
+        return bias;
+    }
+    const ktplace::Graph &graph = db.getGraph();
+    for (const PlannedMacro &macro : db.macroPlan().macros) {
+        if (!macro.movable) {
+            continue;
+        }
+        bias.centred[macro.cellId] = options.macroPinCenter ? 1 : 0;
+        for (const std::size_t pin : graph.getCellPins(macro.cellId)) {
+            bias.netScale[graph.getPin(pin).netId] = options.macroNetWeight;
+        }
+    }
+    return bias;
+}
+
+}  // namespace
+
 simplDM buildSimplDM(const ktDM &db) {
+    SimplOptions options = loadOptions<SimplOptions>();
     Design design;
-    copyNetlist(db.getGraph(), design.graph);
+    copyNetlist(db.getGraph(), macroBias(db, options), design.graph);
     design.rows = copyRows(db.getRows());
     design.fences = copyFences(db.constraints());
     design.die = placementDieBox(db.die(), db.getGraph());
 
     const StageCounts counts = countGraph(design.graph, design.rows.size());
-    simplDM dm(std::move(design), loadOptions<SimplOptions>());
+    simplDM dm(std::move(design), std::move(options));
     reportStageBuild(counts, db.checksum(), dm.options());
     return dm;
 }

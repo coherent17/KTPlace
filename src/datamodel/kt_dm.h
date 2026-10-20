@@ -6,12 +6,14 @@
 #include "datamodel/kt_constraintMgr.h"
 #include "datamodel/kt_die.h"
 #include "datamodel/kt_graph.h"
+#include "datamodel/kt_macroPlan.h"
 #include "datamodel/kt_rowFence.h"
 #include "datamodel/kt_solutionMgr.h"
 
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -59,6 +61,14 @@ public:
     void setAbacusSolution(const abacusSolution &solution);
     void setMultiRowSolution(const multiRowSolution &solution);
     void setFastdpSolution(const fastdpSolution &solution);
+    void setDmpSolution(const dmpSolution &solution);
+
+    void setMacroPlan(MacroPlan plan);
+    [[nodiscard]] bool hasMacroPlan() const;
+    [[nodiscard]] const MacroPlan &macroPlan() const;
+    void setCellOrient(std::size_t cellId, Orient orient);
+    [[nodiscard]] std::vector<Defect> verifyMacros() const;
+    void reportMacroCheck() const;
 
 
     // Cell management
@@ -156,6 +166,7 @@ private:
     Graph graph;
     DieInfo dieInfo;
     constraintMgr fences;
+    std::optional<MacroPlan> plan;
 };
 
 }  // namespace ktplace

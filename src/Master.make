@@ -88,7 +88,7 @@ BUNDLED_LIBS := $(TBB_LIB) $(ZLIB_LIB)
 LIBS := $(STATIC_LDFLAGS) $(BUNDLED_LIBS) -pthread
 
 # Subdirectories
-SUBDIRS := datamodel adaptor globalPlacer legalizer detailPlacer visualization util tcl
+SUBDIRS := datamodel adaptor globalPlacer macroPlacer legalizer detailPlacer visualization util tcl
 
 # Source files in current directory
 LOCAL_SRCS := kt_flowMgr.cc kt_tclCmd.cc kt_place.cc kt_option.cc kt_shell.cc
@@ -289,6 +289,9 @@ TEST_BINS := $(BIN_DIR)/test_datamodel $(BIN_DIR)/test_adaptor $(BIN_DIR)/test_f
 TEST_simpl := globalPlacer/simpl/test/test_simpl.cc
 TEST_BINS += $(BIN_DIR)/test_simpl
 
+TEST_dmp := macroPlacer/dmp/test/test_dmp.cc
+TEST_BINS += $(BIN_DIR)/test_dmp
+
 # Builds the test binaries without running them. `make coverage` needs this:
 # the coverage driver wants to run the binaries itself, once, under the
 # instrumented build, rather than have make run them before gcov is ready.
@@ -349,6 +352,10 @@ $(BIN_DIR)/test_ntuplace1: $(TEST_ntuplace1) $(LIB_OBJS) $(BUNDLED_LIBS) | dirs
 $(BIN_DIR)/test_abacus: $(TEST_abacus) $(LIB_OBJS) $(BUNDLED_LIBS) | dirs
 	@echo "  Building test_abacus..."
 	@$(CXX) $(CXXFLAGS) $(INCLUDES) $(TEST_INCLUDES) -o $@ $(TEST_abacus) $(LIB_OBJS) $(LIBS) $(COVERAGE_LDFLAGS) $(TEST_LIBS)
+
+$(BIN_DIR)/test_dmp: $(TEST_dmp) $(LIB_OBJS) $(BUNDLED_LIBS) | dirs
+	@echo "  Building test_dmp..."
+	@$(CXX) $(CXXFLAGS) $(INCLUDES) $(TEST_INCLUDES) -o $@ $(TEST_dmp) $(LIB_OBJS) $(LIBS) $(COVERAGE_LDFLAGS) $(TEST_LIBS)
 
 # The Tcl tests read the example scripts next to them, so the source tree's
 # location is compiled in rather than guessed from the working directory the

@@ -66,6 +66,7 @@ void reportRun(const FastdpResult &r) {
     t.addRow({"vertical swaps", std::format("{} ({:.3f}s)", r.verticalSwaps, r.verticalSeconds)});
     t.addRow({"reorder moves", std::format("{} ({:.3f}s)", r.reorderMoves, r.reorderSeconds)});
     t.addRow({"cluster moves", std::format("{} ({:.3f}s)", r.clusterMoves, r.clusterSeconds)});
+    t.addRow({"passes rolled back", std::format("{}", r.rolledBack)});
     t.addRow({"HPWL before", std::format("{:.6e}", r.hpwlBefore)});
     t.addRow({"HPWL after", std::format("{:.6e}", r.hpwlAfter)});
     t.addRow(

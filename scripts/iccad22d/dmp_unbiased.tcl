@@ -1,0 +1,11 @@
+read_macro_constraints
+add_option simpl macro_net_weight 0.1
+gplace_design
+macro_place
+add_option simpl macro_net_weight 1.0
+gplace_design
+macro_place
+place_design
+check_macros
+write_macros
+write_placement

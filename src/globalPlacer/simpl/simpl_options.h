@@ -19,6 +19,8 @@ struct SimplOptions {
     bool fences = true;
     double densityLimit = 1.0;
     double alphaBase = 0.02;
+    double macroNetWeight = 1.0;
+    bool macroPinCenter = false;
 
     std::size_t maxLevel = 10;
     std::size_t minCellsToSplit = 4;
@@ -46,6 +48,8 @@ struct SimplOptions {
         visit("fences", self.fences);
         visit("density", self.densityLimit);
         visit("alpha_base", self.alphaBase);
+        visit("macro_net_weight", self.macroNetWeight);
+        visit("macro_pin_center", self.macroPinCenter);
         visit("trace_every", self.traceEvery);
         visit("trace_series", self.traceSeries);
         visit("report_every", self.reportEvery);

@@ -58,6 +58,13 @@ struct fastdpSolution {
     std::vector<double> ys;
 };
 
+struct dmpSolution {
+    std::vector<std::size_t> cells;
+    std::vector<double> xs;
+    std::vector<double> ys;
+    std::vector<Orient> orients;
+};
+
 /// A placement a stage produced and ktDM will accept: the positions of every
 /// vertex, indexed by vertex id.
 ///

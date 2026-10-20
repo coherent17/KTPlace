@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+# The ICCAD 2022 Problem D program: detailed macro placement through ktplace.
+#
+#   DMP <case.v> <case.lef> <case.def> <case.mlist> <case.txt> <case.dmp>
+#
+# Only the macros are placed; the contest places the standard cells itself.
+# The run's log goes to <case.dmp>.log.
+set -euo pipefail
+
+if [[ $# -ne 6 ]]; then
+    sed -n '4p' "$0" | sed 's/^#   /usage: /' >&2
+    exit 2
+fi
+
+here=$(cd "$(dirname "$0")" && pwd)
+ktplace=$here/../../build/bin/ktplace
+inputs=()
+for f in "$@"; do
+    inputs+=("$(realpath -m "$f")")
+done
+read -r verilog lef def mlist rules dmp <<< "${inputs[*]}"
+
+work=$(mktemp -d)
+trap 'rm -rf "$work"' EXIT
+mkdir "$work/design"
+ln -s "$verilog" "$work/design/$(basename "$verilog")"
+ln -s "$lef" "$work/design/$(basename "$lef")"
+ln -s "$def" "$work/design/$(basename "$def")"
+
+cat > "$work/dmp.tcl" <<EOF
+add_option visualizer plot 0
+read_macro_constraints $mlist $rules
+foreach round {1 2} {
+    gplace_design
+    macro_place
+}
+check_macros
+write_macros $dmp
+EOF
+
+"$ktplace" "$work/design" -w "$work/run" -tcl "$work/dmp.tcl"
+cp "$work/run/ktplace.log" "$dmp.log"

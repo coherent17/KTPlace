@@ -131,6 +131,13 @@ const Pin &Graph::getPin(std::size_t id) const {
     return pins[id];
 }
 
+Pin &Graph::getPin(std::size_t id) {
+    if (id >= pins.size() || pins[id].id != id) {
+        throw std::runtime_error("Invalid pin ID");
+    }
+    return pins[id];
+}
+
 std::size_t Graph::getNumPins() const {
     return pins.size();
 }

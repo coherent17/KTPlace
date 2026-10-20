@@ -857,7 +857,7 @@ void Interpreter::installBuiltins() {
                             }
                             const std::string cond = self.substitute(args[i].text, 0);
                             i++;
-                            if (i < args.size() && args[i].literal && args[i].text == "then") {
+                            if (i < args.size() && args[i].text == "then") {
                                 i++;
                             }
                             if (i >= args.size()) {
@@ -876,11 +876,11 @@ void Interpreter::installBuiltins() {
                             if (i >= args.size()) {
                                 return 0;
                             }
-                            if (args[i].literal && args[i].text == "elseif") {
+                            if (args[i].text == "elseif") {
                                 i++;
                                 continue;
                             }
-                            if (args[i].literal && args[i].text == "else") {
+                            if (args[i].text == "else") {
                                 i++;
                                 if (i >= args.size()) {
                                     throw Error("if: missing else body");

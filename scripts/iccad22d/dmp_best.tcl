@@ -1,0 +1,12 @@
+read_macro_constraints
+add_option dmp snap 1
+add_option simpl macro_pin_center 1
+gplace_design
+macro_place
+add_option simpl macro_pin_center 0
+gplace_design
+macro_place
+place_design
+check_macros
+write_macros
+write_placement
