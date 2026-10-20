@@ -3,6 +3,7 @@ if {$reach == 0} {
     add_option simpl macro_pin_center 1
 } else {
     add_option simpl macro_net_weight 0.1
+    add_option dmp shift_gain 0.005
 }
 gplace_design
 macro_place
