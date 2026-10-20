@@ -28,6 +28,8 @@ struct FastdpOptions {
     std::size_t verifiedCandidates = 3;
     std::size_t verifyReach = 8;
     std::size_t weakPassLimit = 2;
+    std::size_t parallelBatch = 4096;
+    std::size_t refreshCandidates = 8;
 
     static void fields(auto &self, auto &&visit) {
         visit("window", self.reorderWindow);
@@ -35,6 +37,8 @@ struct FastdpOptions {
         visit("wt2", self.penaltyWeight2);
         visit("max_iterations", self.maxIterations);
         visit("min_improvement", self.minImprovement);
+        visit("parallel_batch", self.parallelBatch);
+        visit("refresh_candidates", self.refreshCandidates);
     }
 };
 
