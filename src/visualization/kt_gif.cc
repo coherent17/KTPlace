@@ -338,14 +338,25 @@ std::vector<std::uint8_t> gifCompress(const std::vector<std::uint8_t> &pixels, i
     BitWriter bw;
     bw.put(clearCode, minCodeSize + 1);
 
-    // Dictionary keyed by (prefix << 8) | nextByte. A prefix is any code, not
-    // just a byte, so the table has to span 4096 codes by 256 suffixes.
-    std::vector<std::uint32_t> dict(1u << 20, 0);
+    constexpr std::uint32_t slots = 1u << 13;
+    constexpr std::uint32_t empty = 0xffffffffu;
+    std::vector<std::uint32_t> keys(slots, empty);
+    std::vector<std::uint16_t> codes(slots, 0);
     std::uint32_t next = firstFree;
     int codeSize = minCodeSize + 1;
 
+    const auto home = [](std::uint32_t key) {
+        return (key * 2654435761u) >> (32 - 13);
+    };
+    const auto find = [&](std::uint32_t key) {
+        std::uint32_t h = home(key);
+        while (keys[h] != empty && keys[h] != key) {
+            h = (h + 1) & (slots - 1);
+        }
+        return h;
+    };
     auto resetDict = [&]() {
-        std::fill(dict.begin(), dict.end(), 0u);
+        std::ranges::fill(keys, empty);
         next = firstFree;
         codeSize = minCodeSize + 1;
     };
@@ -353,14 +364,16 @@ std::vector<std::uint8_t> gifCompress(const std::vector<std::uint8_t> &pixels, i
     std::uint32_t prefix = pixels[0];
     for (std::size_t i = 1; i < pixels.size(); ++i) {
         const std::uint32_t k = pixels[i];
-        const std::uint32_t slot = (prefix << 8) | k;
-        if (dict[slot] != 0) {
-            prefix = dict[slot];
+        const std::uint32_t key = (prefix << 8) | k;
+        const std::uint32_t at = find(key);
+        if (keys[at] == key) {
+            prefix = codes[at];
             continue;
         }
         bw.put(prefix, codeSize);
         if (next < maxCode) {
-            dict[slot] = next++;
+            keys[at] = key;
+            codes[at] = static_cast<std::uint16_t>(next++);
             // Widen one code later than the naive "next no longer fits" bound.
             // Code (1 << codeSize) may be handed out while the width is still
             // codeSize bits, because that code is only ever *emitted* after this
