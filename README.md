@@ -176,6 +176,12 @@ keys and defaults are in its `*_options.h`.
 | component | key | effect (default) |
 | --- | --- | --- |
 | `flow` | `algorithm` | global placer: `simpl` or `ntuplace1` (`simpl`) |
+| `cluster` | `algorithm` | cluster the netlist before global placement and decluster after it: `none`, `louvain` or `leiden` (`none`) |
+| `cluster` | `cells_per_cluster` | stop merging once the cell count has dropped by this factor (`8`) |
+| `cluster` | `area_limit` | largest cluster, in multiples of `cells_per_cluster` average cells (`2`) |
+| `cluster` | `max_net_size` | nets with more pins are ignored when clustering (`32`) |
+| `cluster` | `resolution` | modularity resolution; higher gives smaller clusters (`1`) |
+| `cluster` | `max_levels` | most aggregation levels (`8`) |
 | `visualizer` | `plot` | draw anything at all: frames, GIF, final still; `0` draws nothing (`1`) |
 | `visualizer` | `anim` | record frames and assemble the GIF (`1`) |
 | `visualizer` | `anim_max_frames` | frame budget for the run (`1200`) |

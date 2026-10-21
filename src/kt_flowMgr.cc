@@ -7,6 +7,8 @@
 #include "kt_tclCmd.h"
 
 #include "adaptor/kt_inputReader.h"
+#include "cluster/kt_cluster.h"
+#include "cluster/kt_clusterOptions.h"
 #include "datamodel/kt_dm.h"
 #include "datamodel/kt_optionDb.h"
 #include "detailPlacer/fastdp/fastdp_dm.h"
@@ -47,7 +49,7 @@ std::string snapshotFile(const std::string &plotDir) {
 }
 
 bool recordStage(auto &dm, SnapshotWriter *snapshots, const FlowObserver &observer,
-                 const StageVisual &stage) {
+                 const StageVisual &stage, const ktCluster *clusters = nullptr) {
     if (snapshots == nullptr && !observer.frame) {
         return false;
     }
@@ -55,8 +57,16 @@ bool recordStage(auto &dm, SnapshotWriter *snapshots, const FlowObserver &observ
         snapshots->beginStage(stage);
     }
     dm.setFrameHook(
-        [snapshots, frame = observer.frame, name = stage.stage, die = dm.design().die](
-            const std::vector<float> &xs, const std::vector<float> &ys, const auto &info) {
+        [snapshots, frame = observer.frame, name = stage.stage, die = dm.design().die, clusters](
+            const std::vector<float> &stageX, const std::vector<float> &stageY, const auto &info) {
+            std::vector<float> cellX;
+            std::vector<float> cellY;
+            const bool expand = clusters != nullptr && clusters->clustered();
+            if (expand) {
+                clusters->expand(stageX, stageY, cellX, cellY);
+            }
+            const std::vector<float> &xs = expand ? cellX : stageX;
+            const std::vector<float> &ys = expand ? cellY : stageY;
             if (snapshots != nullptr) {
                 snapshots->frame(
                     xs, ys, die, true,
@@ -371,9 +381,20 @@ void FlowMgr::Impl::placeDesign() {
     }
     preparePlots();
 
+    const ClusterOptions clusterOptions = loadOptions<ClusterOptions>();
+    if (clusterOptions.algorithm != "none" && clusterOptions.algorithm != "louvain" &&
+        clusterOptions.algorithm != "leiden") {
+        ktlog.fatal("unknown clustering '{}'; expected none, louvain or leiden",
+                    clusterOptions.algorithm);
+    }
+    ktCluster clusters(clusterOptions);
+    if (clusterOptions.algorithm != "none") {
+        (void)clusters.cluster(*db);
+    }
+
     if (algorithm == "simpl") {
         simpl::flowMgr flow(*db);
-        if (recordStage(flow.dm(), snapshots.get(), observer, {"simpl", "simpl", 0})) {
+        if (recordStage(flow.dm(), snapshots.get(), observer, {"simpl", "simpl", 0}, &clusters)) {
             recordSimplBounds(flow.dm(), *snapshots);
         }
         if (!flow.dm().options().fences) {
@@ -381,6 +402,7 @@ void FlowMgr::Impl::placeDesign() {
         }
         (void)flow.run();
         db->setSimplSolution(flow.solution());
+        clusters.decluster(*db);
         commit("global placement");
         return;
 
@@ -390,6 +412,7 @@ void FlowMgr::Impl::placeDesign() {
         ntuplace1::flowMgr flow(*db);
         (void)flow.run();
         db->setNtuplace1Solution(flow.solution());
+        clusters.decluster(*db);
         commit("global placement");
         return;
 
