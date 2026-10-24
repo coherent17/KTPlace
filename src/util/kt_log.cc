@@ -54,7 +54,7 @@ Logger::~Logger() {
 }
 
 void Logger::configure(std::string logFilePath, bool verbose) {
-    std::lock_guard<std::mutex> lock(mutex);
+    const std::scoped_lock lock(mutex);
     closeFiles();
     reportedOpenFailure = false;
     path = std::move(logFilePath);
@@ -93,7 +93,7 @@ const std::string &Logger::traceFilePath() const {
 }
 
 bool Logger::verbose() const {
-    std::lock_guard<std::mutex> lock(mutex);
+    const std::scoped_lock lock(mutex);
     return verboseEnabled;
 }
 
@@ -102,12 +102,12 @@ const std::string &Logger::logFilePath() const {
 }
 
 std::size_t Logger::recordCount() const {
-    std::lock_guard<std::mutex> lock(mutex);
+    const std::scoped_lock lock(mutex);
     return records;
 }
 
 void Logger::setSink(Sink newSink) {
-    std::lock_guard<std::mutex> lock(mutex);
+    const std::scoped_lock lock(mutex);
     sink = std::move(newSink);
 }
 
@@ -130,7 +130,7 @@ void Logger::emit(Level level, const std::string &message) {
         body += " ...[truncated]";
     }
 
-    std::lock_guard<std::mutex> lock(mutex);
+    const std::scoped_lock lock(mutex);
     ++records;
 
     const std::string prefix = '[' + step + "] ";
@@ -156,7 +156,7 @@ void Logger::emit(Level level, const std::string &message) {
 }
 
 std::string Logger::currentStep() const {
-    std::lock_guard<std::mutex> lock(mutex);
+    const std::scoped_lock lock(mutex);
     return step;
 }
 
@@ -167,7 +167,7 @@ void Logger::beginStep(std::string name) {
     const std::string rule(width, '#');
     const std::string title =
         '#' + std::string(left, ' ') + name + std::string(inside - left - name.size(), ' ') + '#';
-    std::lock_guard<std::mutex> lock(mutex);
+    const std::scoped_lock lock(mutex);
     step = std::move(name);
     for (std::ostream *out :
          {static_cast<std::ostream *>(&file), static_cast<std::ostream *>(&traceFile),
@@ -184,7 +184,7 @@ void Logger::beginStep(std::string name) {
 }
 
 void Logger::shutdown() {
-    std::lock_guard<std::mutex> lock(mutex);
+    const std::scoped_lock lock(mutex);
     closeFiles();
 }
 

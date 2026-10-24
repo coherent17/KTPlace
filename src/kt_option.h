@@ -8,34 +8,37 @@ namespace ktplace {
 
 inline constexpr std::string_view version = "1.1.0";
 
+enum class Mode { Batch, Shell, Gui };
+
 class kt_option {
 public:
     std::string inputPath;
-    bool verbose = false;
     std::string workDir = std::filesystem::current_path().string();
-
-    std::string getOutputPath() const {
-        return (std::filesystem::path(workDir) / "placed.pl").string();
-    }
-
-    std::string getPlotDir() const {
-        return (std::filesystem::path(workDir) / "plots").string();
-    }
-
-    std::string getLogFile() const {
-        return (std::filesystem::path(workDir) / "ktplace.log").string();
-    }
-
     std::string tclFile;
-    bool gui = false;
-    bool shell = false;
+    std::string command;
+    Mode mode = Mode::Batch;
+    bool verbose = false;
+
+    [[nodiscard]] std::string getOutputPath() const {
+        return inWorkDir("placed.pl");
+    }
+    [[nodiscard]] std::string getPlotDir() const {
+        return inWorkDir("plots");
+    }
+    [[nodiscard]] std::string getLogFile() const {
+        return inWorkDir("ktplace.log");
+    }
 
     bool parse(int argc, char *argv[]);
-
     void report() const;
 
     static void printUsage();
     static void printVersion();
+
+private:
+    [[nodiscard]] std::string inWorkDir(std::string_view name) const {
+        return (std::filesystem::path(workDir) / name).string();
+    }
 };
 
 }  // namespace ktplace

@@ -27,8 +27,8 @@ struct StopRequested {};
 
 class Runner::Impl {
 public:
-    Impl(QObject *context, Callbacks callbacks)
-        : context(context), callbacks(std::move(callbacks)) {}
+    Impl(QObject *owner, Callbacks runCallbacks)
+        : context(owner), callbacks(std::move(runCallbacks)) {}
 
     QObject *context;
     Callbacks callbacks;
@@ -105,13 +105,10 @@ RunResult Runner::Impl::place(const RunRequest &request) {
     options.inputPath = request.design;
     options.workDir = request.workDir;
     options.tclFile = request.script;
+    options.mode = Mode::Gui;
 
     std::error_code ec;
     std::filesystem::create_directories(options.workDir, ec);
-    ktlog.configure(options.getLogFile(), false);
-    ktlog.beginStep("setup");
-    ktlog.echo("KTPlace GUI v{}: placing {}", version, options.inputPath);
-
     openSession();
     RunResult result;
     try {
@@ -135,9 +132,9 @@ void Runner::Impl::beginSession(const RunRequest &request) {
     kt_option options;
     options.inputPath = request.design;
     options.workDir = request.workDir;
+    options.mode = Mode::Gui;
     std::error_code ec;
     std::filesystem::create_directories(options.workDir, ec);
-    ktlog.configure(options.getLogFile(), false);
     openSession();
     session->begin(options);
 }

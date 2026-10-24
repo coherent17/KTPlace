@@ -36,23 +36,23 @@ std::string defaultWorkDir(const QString &design) {
 
 class MainWindow::Impl {
 public:
-    Impl(MainWindow &window, RunRequest request)
-        : window(window),
-          keepWorkDir(request.design.empty() && !request.workDir.empty()),
-          request(std::move(request)),
-          view(new LayoutView(&window)),
-          log(new LogView(&window)),
-          stage(new QLabel(&window)),
-          console(new TclConsole(&window)),
-          runner(&window, {.frame =
-                               [this](LayoutFrame frame) {
-                                   stage->setText(describe(frame));
-                                   view->setFrame(std::move(frame));
-                               },
-                           .finished =
-                               [this](const RunResult &result) {
-                                   finished(result);
-                               }}) {}
+    Impl(MainWindow &owner, RunRequest initialRequest)
+        : window(owner),
+          keepWorkDir(initialRequest.design.empty() && !initialRequest.workDir.empty()),
+          request(std::move(initialRequest)),
+          view(new LayoutView(&owner)),
+          log(new LogView(&owner)),
+          stage(new QLabel(&owner)),
+          console(new TclConsole(&owner)),
+          runner(&owner, {.frame =
+                              [this](LayoutFrame frame) {
+                                  stage->setText(describe(frame));
+                                  view->setFrame(std::move(frame));
+                              },
+                          .finished =
+                              [this](const RunResult &result) {
+                                  finished(result);
+                              }}) {}
 
     MainWindow &window;
     bool keepWorkDir;
@@ -233,6 +233,8 @@ void MainWindow::Impl::finished(const RunResult &result) {
             window.statusBar()->showMessage(
                 QStringLiteral("Loaded %1: Run places it, or step through it in the Tcl Console")
                     .arg(text));
+            break;
+        case RunResult::Outcome::Evaluated:
             break;
         case RunResult::Outcome::Stopped:
             window.statusBar()->showMessage(QStringLiteral("Stopped"));

@@ -91,7 +91,7 @@ LIBS := $(STATIC_LDFLAGS) $(BUNDLED_LIBS) -pthread
 SUBDIRS := datamodel adaptor globalPlacer legalizer detailPlacer visualization util tcl
 
 # Source files in current directory
-LOCAL_SRCS := kt_flowMgr.cc kt_tclCmd.cc kt_place.cc kt_option.cc kt_shell.cc
+LOCAL_SRCS := kt_batch.cc kt_flowMgr.cc kt_tclCmd.cc kt_place.cc kt_option.cc kt_shell.cc
 
 GUI ?= 0
 ifeq ($(GUI)$(STATIC),11)
@@ -108,6 +108,7 @@ GUI_SRCS := gui/kt_layout.cc gui/kt_congestion.cc gui/kt_layoutView.cc gui/kt_gl
             gui/kt_mainWindow.cc
 GUI_OBJS := $(GUI_SRCS:%.cc=$(OBJ_DIR)/%.o)
 GUI_ENTRY_OBJ := $(OBJ_DIR)/gui/kt_gui.o
+NO_GUI_OBJ := $(OBJ_DIR)/gui/kt_noGui.o
 TEST_gui := gui/test/test_gui.cc
 
 # ============================================================================
@@ -143,13 +144,11 @@ LIB_OBJS := $(filter-out $(OBJ_DIR)/kt_place.o,$(ALL_OBJS))
 # stamp holding GUI relinks it when GUI changes and nothing else did.
 GUI_STAMP := $(OBJ_DIR)/gui.stamp
 $(shell mkdir -p $(OBJ_DIR) && (echo $(GUI) | cmp -s - $(GUI_STAMP) || echo $(GUI) > $(GUI_STAMP)))
-$(OBJ_DIR)/kt_place.o: $(GUI_STAMP)
-$(OBJ_DIR)/kt_place.o: CXXFLAGS += $(if $(filter 1,$(GUI)),-DKTPLACE_GUI)
 ifeq ($(GUI),1)
   FRONT_OBJS = $(GUI_OBJS) $(GUI_ENTRY_OBJ)
   FRONT_LIBS = $(QT_LIBS)
 else
-  FRONT_OBJS =
+  FRONT_OBJS = $(NO_GUI_OBJ)
 endif
 
 # ============================================================================
@@ -360,8 +359,8 @@ $(BIN_DIR)/test_tcl: $(TEST_tcl) $(LIB_OBJS) $(BUNDLED_LIBS) | dirs
 
 # ============================================================================
 # GUI: `make GUI=1` links the Qt window into ktplace for `ktplace --gui`;
-# without it kt_place.cc is built without KTPLACE_GUI, and --gui says how to get
-# the window.
+# without it gui/kt_noGui.cc is linked instead, and --gui says how to get the
+# window.
 # `make gui-test` runs the GUI suite offscreen. Only these need Qt 6, found
 # through pkg-config. Qt's headers require position-independent code, and its
 # `emit` keyword would rename Logger::emit.
@@ -387,7 +386,12 @@ $(BIN_DIR)/gui_demo: ../scripts/gui_demo.cc $(GUI_OBJS) $(LIB_OBJS) $(BUNDLED_LI
 	@$(CXX) $(CXXFLAGS) $(INCLUDES) $(QT_CFLAGS) -o $@ ../scripts/gui_demo.cc $(GUI_OBJS) \
 		$(LIB_OBJS) $(LIBS) $(QT_LIBS)
 
--include $(GUI_OBJS:.o=.d) $(GUI_ENTRY_OBJ:.o=.d)
+$(NO_GUI_OBJ): $(OBJ_DIR)/gui/%.o: gui/%.cc
+	@mkdir -p $(dir $@)
+	@echo "Compiling $<..."
+	@$(CXX) $(CXXFLAGS) $(INCLUDES) -MMD -MP -c $< -o $@
+
+-include $(GUI_OBJS:.o=.d) $(GUI_ENTRY_OBJ:.o=.d) $(NO_GUI_OBJ:.o=.d)
 
 # ============================================================================
 # Line coverage
@@ -423,18 +427,24 @@ help:
 	@echo "KTPlace Build System"
 	@echo "===================="
 	@echo "Targets:"
-	@echo "  all      - Build executable (default)"
-	@echo "  lib      - Build static library"
-	@echo "  test     - Build and run the unit tests (alias: check)"
-	@echo "  lib      - Build static library"
-	@echo "  clean    - Remove build artifacts"
-	@echo "  rebuild  - Clean and rebuild"
-	@echo "  help     - Show this help message"
+	@echo "  all       - Build executable (default)"
+	@echo "  lib       - Build static library"
+	@echo "  test      - Build and run the unit tests (alias: check)"
+	@echo "  gui-test  - Build and run the GUI tests offscreen (needs Qt 6)"
+	@echo "  clean     - Remove build artifacts"
+	@echo "  rebuild   - Clean and rebuild"
+	@echo "  help      - Show this help message"
+	@echo ""
+	@echo "Variables:"
+	@echo "  GUI=1     - Link the Qt 6 window in, for 'ktplace --gui'"
+	@echo "  STATIC=1  - Link glibc and libstdc++ in too (not with GUI=1)"
 	@echo ""
 	@echo "Configuration:"
-	@echo "  CXX      = $(CXX)"
-	@echo "  CXXFLAGS = $(CXXFLAGS)"
-	@echo "  LIBS     = $(LIBS)"
+	@echo "  CXX       = $(CXX)"
+	@echo "  CXXFLAGS  = $(CXXFLAGS)"
+	@echo "  LIBS      = $(LIBS)"
+	@echo "  GUI       = $(GUI)"
+	@echo "  STATIC    = $(STATIC)"
 	@echo "  Build dir = $(BUILD_DIR)"
 
 # Object list for dependency tracking (used by parent makefiles)

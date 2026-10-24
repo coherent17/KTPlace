@@ -58,8 +58,8 @@ QRgb heatColor(float value) {
 
 class SelectionLayer : public QWidget {
 public:
-    SelectionLayer(QWidget *parent, std::function<void(QPainter &)> paint)
-        : QWidget(parent), paint(std::move(paint)) {
+    SelectionLayer(QWidget *parent, std::function<void(QPainter &)> painter)
+        : QWidget(parent), paint(std::move(painter)) {
         setAttribute(Qt::WA_TransparentForMouseEvents);
         setAttribute(Qt::WA_NoSystemBackground);
         setFocusPolicy(Qt::NoFocus);
@@ -79,7 +79,7 @@ private:
 
 class LayoutView::Impl {
 public:
-    explicit Impl(LayoutView &view) : view(view) {}
+    explicit Impl(LayoutView &owner) : view(owner) {}
 
     LayoutView &view;
     GlCanvas *gpu = nullptr;
@@ -214,7 +214,7 @@ std::optional<std::uint32_t> LayoutView::Impl::pick(QPointF screen) const {
     const LayoutGeometry &geometry = *frame.geometry;
     const QPointF at = view.screenToWorld(screen);
     const double slack = pickSlackPx / scale;
-    const auto layer = [](CellKind kind) {
+    const auto pickLayer = [](CellKind kind) {
         return kind == CellKind::Pad ? 0 : (kind == CellKind::Movable ? 1 : 2);
     };
     std::optional<std::uint32_t> best;
@@ -229,7 +229,7 @@ std::optional<std::uint32_t> LayoutView::Impl::pick(QPointF screen) const {
             at.y() > y1 + slack) {
             continue;
         }
-        const int cellLayer = layer(geometry.kind[v]);
+        const int cellLayer = pickLayer(geometry.kind[v]);
         const double dx = at.x() - (x0 + x1) / 2.0;
         const double dy = at.y() - (y0 + y1) / 2.0;
         const double distance = dx * dx + dy * dy;

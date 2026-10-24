@@ -2,6 +2,7 @@
 #define BOOST_TEST_DYN_LINK
 #include "util/kt_history.h"
 #include "util/kt_log.h"
+#include "util/kt_platform.h"
 #include "util/kt_scopedTimer.h"
 
 #include <boost/test/unit_test.hpp>
@@ -360,4 +361,16 @@ BOOST_AUTO_TEST_CASE(command_history_without_a_file_lives_in_memory) {
     history.add("help");
     BOOST_TEST(history.entries().size() == 1U);
     BOOST_TEST(history.file().empty());
+}
+
+BOOST_AUTO_TEST_CASE(the_platform_reports_its_cpu_threads_and_memory) {
+    const PlatformInfo info = PlatformInfo::detect();
+    BOOST_TEST(!info.os.empty());
+    BOOST_TEST(!info.cpu.empty());
+    BOOST_TEST(!info.compiler.empty());
+    BOOST_TEST(info.threads > 0U);
+    BOOST_TEST(info.cores > 0U);
+    BOOST_TEST(info.cores <= info.threads);
+    BOOST_TEST(info.memoryBytes > 0U);
+    BOOST_TEST(info.availableBytes <= info.memoryBytes);
 }

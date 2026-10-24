@@ -1,90 +1,118 @@
 #include "kt_option.h"
 
 #include "util/kt_log.h"
+#include "util/kt_platform.h"
 #include "util/kt_reportTable.h"
 
+#include <algorithm>
+#include <array>
 #include <filesystem>
 #include <format>
+#include <numeric>
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <system_error>
+#include <utility>
 #include <vector>
 
 namespace ktplace {
 
-using ktplace::ktlog;
+namespace {
+
+constexpr std::array<std::string_view, 3> modeNames = {"batch", "shell", "gui"};
+
+bool isAnyOf(std::string_view arg, std::string_view shortName, std::string_view longName) {
+    return arg == shortName || arg == longName;
+}
+
+[[noreturn]] void usageError(std::string_view message) {
+    ktlog.echo("");
+    kt_option::printUsage();
+    ktlog.fatal(message);
+}
+
+}  // namespace
 
 bool kt_option::parse(int argc, char *argv[]) {
-    for (int i = 0; i < argc; ++i) {
-        const std::string_view arg = argv[i];
-        if (arg == "-h" || arg == "--help") {
-            printUsage();
-            return false;
-        }
-        if (arg == "-V" || arg == "--version") {
-            printVersion();
-            return false;
-        }
+    const std::vector<std::string_view> all(argv + 1, argv + argc);
+    command = std::accumulate(all.begin(), all.end(), std::string(argv[0]),
+                              [](std::string line, std::string_view arg) {
+                                  return std::move(line) + ' ' + std::string(arg);
+                              });
+    if (std::ranges::any_of(all, [](std::string_view arg) {
+            return isAnyOf(arg, "-h", "--help");
+        })) {
+        printUsage();
+        return false;
+    }
+    if (std::ranges::any_of(all, [](std::string_view arg) {
+            return isAnyOf(arg, "-V", "--version");
+        })) {
+        printVersion();
+        return false;
     }
 
-    std::vector<std::string> args;
-    for (int i = 1; i < argc; ++i) {
-        const std::string_view arg = argv[i];
-        if (arg == "--gui") {
-            gui = true;
-        } else if (arg == "--shell") {
-            shell = true;
+    std::vector<std::string_view> args;
+    for (const std::string_view arg : all) {
+        if (arg == "--gui" || arg == "--shell") {
+            const Mode asked = arg == "--gui" ? Mode::Gui : Mode::Shell;
+            if (mode != Mode::Batch && mode != asked) {
+                usageError("--gui and --shell cannot be combined");
+            }
+            mode = asked;
         } else {
-            args.emplace_back(argv[i]);
+            args.push_back(arg);
         }
     }
 
-    std::size_t first = 0;
-    if (!args.empty() && !args.front().starts_with('-')) {
-        inputPath = args.front();
-        first = 1;
+    auto next = args.begin();
+    if (next != args.end() && !next->starts_with('-')) {
+        inputPath = *next++;
     }
 
-    for (std::size_t i = first; i < args.size(); ++i) {
-        const std::string &arg = args[i];
-
-        const auto value = [&]() -> std::string {
-            if (i + 1 >= args.size()) {
+    while (next != args.end()) {
+        const std::string_view arg = *next++;
+        const auto value = [&] {
+            if (next == args.end()) {
                 throw std::runtime_error(std::format("{} requires a value", arg));
             }
-            return args[++i];
+            return std::string(*next++);
         };
 
-        if (arg == "-w" || arg == "--work-dir") {
+        if (isAnyOf(arg, "-w", "--work-dir")) {
             workDir = value();
-        } else if (arg == "-v" || arg == "--verbose") {
+        } else if (isAnyOf(arg, "-v", "--verbose")) {
             verbose = true;
-        } else if (arg == "-tcl" || arg == "--tcl") {
+        } else if (isAnyOf(arg, "-tcl", "--tcl")) {
             tclFile = value();
         } else {
-            ktlog.echo("");
-            printUsage();
-            ktlog.fatal("Unknown command-line option: {}", arg);
+            usageError(std::format("Unknown command-line option: {}", arg));
         }
     }
 
-    if (inputPath.empty() && tclFile.empty() && !gui && !shell) {
-        ktlog.echo("");
-        printUsage();
-        ktlog.fatal("Insufficient command-line arguments");
+    if (mode == Mode::Batch && inputPath.empty() && tclFile.empty()) {
+        usageError("Insufficient command-line arguments");
     }
 
     std::error_code ec;
     std::filesystem::create_directories(workDir, ec);
     if (ec) {
-        throw std::runtime_error("cannot create work directory '" + workDir + "': " + ec.message());
+        throw std::runtime_error(
+            std::format("cannot create work directory '{}': {}", workDir, ec.message()));
     }
-
     return true;
 }
 
 void kt_option::report() const {
+    ktlog.echo("KTPlace - Know Thyself Placement Engine v{}, started {}", version, localDateTime());
+    PlatformInfo::detect().report();
+
     ktReportTable config("Configuration");
+    if (!command.empty()) {
+        config.add("command", command);
+    }
+    config.add("mode", std::string(modeNames[std::to_underlying(mode)]));
     config.add("input directory", inputPath);
     config.add("work directory", workDir);
     config.add("output path", getOutputPath());
