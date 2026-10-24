@@ -401,9 +401,11 @@ void MainWindow::Impl::restoreLayout() {
     }
     window.restoreGeometry(settings.value(geometryKey).toByteArray());
     window.restoreState(settings.value(stateKey).toByteArray(), layoutVersion);
+    visibilityDock->hide();
 }
 
-void MainWindow::Impl::rememberDesign(const QString &design) const {
+void MainWindow::Impl::rememberDesign(const QString &given) const {
+    const QString design = QFileInfo(given).absoluteFilePath();
     QSettings settings(settingsOrganisation, settingsApplication);
     QStringList recent = settings.value(recentKey).toStringList();
     recent.removeAll(design);

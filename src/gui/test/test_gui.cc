@@ -1098,3 +1098,44 @@ BOOST_AUTO_TEST_CASE(the_clicked_net_stays_highlighted_while_the_table_refreshes
     QCoreApplication::processEvents();
     BOOST_TEST(highlighted() == QStringList{QStringLiteral("n1")});
 }
+
+BOOST_AUTO_TEST_CASE(visibility_starts_hidden_even_when_it_was_left_open) {
+    const ScratchDir dir("visibilityclosed");
+    {
+        MainWindow window({"", dir.file("work").string(), ""});
+        window.show();
+        auto *visibility = window.findChild<QDockWidget *>(QStringLiteral("visibility"));
+        visibility->toggleViewAction()->trigger();
+        BOOST_REQUIRE(!visibility->isHidden());
+        window.close();
+    }
+    const QSettings saved(QStringLiteral("KTPlace"), QStringLiteral("KTPlace"));
+    BOOST_REQUIRE(saved.contains(QStringLiteral("window/state")));
+
+    MainWindow reopened({"", dir.file("work").string(), ""});
+    auto *visibility = reopened.findChild<QDockWidget *>(QStringLiteral("visibility"));
+    auto *details = reopened.findChild<QDockWidget *>(QStringLiteral("details"));
+    BOOST_TEST(visibility->isHidden());
+    BOOST_TEST(!details->isHidden());
+    QSettings(QStringLiteral("KTPlace"), QStringLiteral("KTPlace")).clear();
+}
+
+BOOST_AUTO_TEST_CASE(recent_designs_are_remembered_by_absolute_path) {
+    const ScratchDir dir("recentabsolute");
+    const fs::path design = dir.design();
+    const fs::path relative = fs::relative(design);
+    BOOST_REQUIRE(relative.is_relative());
+    MainWindow window({"", dir.file("work").string(), ""});
+    std::optional<RunResult> result;
+    window.onFinished([&result](const RunResult &r) {
+        result = r;
+    });
+    window.openDesign(QString::fromStdString(relative.string()));
+    BOOST_REQUIRE(waitUntil([&result] {
+        return result.has_value();
+    }));
+    const QSettings settings(QStringLiteral("KTPlace"), QStringLiteral("KTPlace"));
+    BOOST_TEST(settings.value(QStringLiteral("recentDesigns")).toStringList().front() ==
+               QString::fromStdString(fs::absolute(relative).lexically_normal().string()));
+    QSettings(QStringLiteral("KTPlace"), QStringLiteral("KTPlace")).clear();
+}
