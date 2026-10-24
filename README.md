@@ -136,9 +136,34 @@ the command line is read before the script runs. The same commands work in three
 script, press Run, and watch each stage move the cells while the log streams below.
 
 - The layout is drawn on the GPU (OpenGL 3.3, 4x MSAA, positions tweened between frames), with a
-  CPU fallback.
-- Click a cell to see its nets and pins; right-click for the routing-demand map.
-- The Tcl Console tab sits next to the Log at the bottom (see above).
+  CPU fallback. When cells are smaller than 1.5 px, the small ones are drawn as one density image.
+- **Details** panel (left): the selected cell's type, size, location, fence and pins, and its nets
+  with pin counts and HPWL (click a net to show it, double-click to zoom to it); a summary for
+  several cells or for shown nets.
+- **Visibility** panel (right, hidden until you press **Visibility** on the toolbar): show, hide and
+  recolour the die, rows, fixed macros (grey, hatched), movable macros (copper), standard cells
+  (blue), pads, fences, the selection and connectivity (red) and the routing-demand map. A movable
+  cell larger than 16 typical cells counts as a movable macro.
+- **Locate** (Ctrl+F): find cells or nets by name or pattern (`a12*`, `*clk*`, `n?7`), then select
+  them and zoom to them.
+- Mouse and keys: click selects (outlined in red), Ctrl+click adds or removes, right-click >
+  Show Connectivity (Ctrl+E) draws the selection's nets as fly-lines and Hide Connectivity
+  (Ctrl+Shift+E) clears them, drag pans, Shift+drag zooms to a box, the wheel zooms, F fits, Z zooms
+  to the selection; the status bar shows the cursor position.
+  Help > Mouse and Keys lists them all. File > Save View Image saves the view; File > Recent
+  Designs reopens one; the window remembers its layout.
+- The Tcl Console tab sits next to the Log at the bottom (see above), with commands for the view:
+
+| command | does |
+| --- | --- |
+| `layout_select ?-add? pattern ...` | select the cells whose names match; returns how many |
+| `layout_mark_nets pattern ...` | show the nets whose names match; returns how many |
+| `layout_connectivity ?on\|off?` | show or hide the nets of the selected cells; returns how many |
+| `layout_clear` | drop the selection and the shown nets |
+| `layout_view_all`, `layout_view_selection` | show the whole die; show the selection |
+| `layout_view_area x1 y1 x2 y2` | show an area, in design units |
+| `layout_layer ?layer? ?on\|off?` | list the layers, or show or hide one (`macros`, `blocks`, `cells`, `nets`, ...) |
+| `layout_capture file.png` | save the view as an image |
 
 To try it without building anything, download the release's AppImage (Qt bundled in, see
 [Install a release](#install-a-release)). From source, the window is linked in only by `make GUI=1`,
