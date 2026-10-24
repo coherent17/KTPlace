@@ -27,8 +27,8 @@ struct StopRequested {};
 
 class Runner::Impl {
 public:
-    Impl(QObject *context, Callbacks callbacks)
-        : context(context), callbacks(std::move(callbacks)) {}
+    Impl(QObject *owner, Callbacks runCallbacks)
+        : context(owner), callbacks(std::move(runCallbacks)) {}
 
     QObject *context;
     Callbacks callbacks;

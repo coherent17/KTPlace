@@ -1168,15 +1168,6 @@ BOOST_AUTO_TEST_CASE(the_singleton_is_one_object_for_the_whole_process) {
 
 namespace {
 
-std::size_t countOf(const std::string &hay, const std::string &needle) {
-    std::size_t n = 0;
-    for (std::size_t at = hay.find(needle); at != std::string::npos;
-         at = hay.find(needle, at + needle.size())) {
-        ++n;
-    }
-    return n;
-}
-
 PlotOptions stillsOnly() {
     PlotOptions opts;
     opts.animate = false;
