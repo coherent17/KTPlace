@@ -1,5 +1,7 @@
 #include "gui/kt_visibilityPanel.h"
 
+#include "gui/kt_dialogPlacement.h"
+
 #include <QCheckBox>
 #include <QColorDialog>
 #include <QGridLayout>
@@ -89,11 +91,11 @@ VisibilityPanel::VisibilityPanel(QWidget *parent)
             impl->changed();
         });
         connect(row.color, &QToolButton::clicked, this, [this, layer] {
-            const QColor chosen =
-                QColorDialog::getColor(pImpl->style[layer].color, this,
-                                       QStringLiteral("Colour of %1").arg(titleOf(layer)));
-            if (chosen.isValid()) {
-                pImpl->style[layer].color = chosen;
+            QColorDialog picker(pImpl->style[layer].color, this);
+            picker.setWindowTitle(QStringLiteral("Colour of %1").arg(titleOf(layer)));
+            placeOver(picker, *this);
+            if (picker.exec() == QDialog::Accepted) {
+                pImpl->style[layer].color = picker.selectedColor();
                 pImpl->changed();
             }
         });

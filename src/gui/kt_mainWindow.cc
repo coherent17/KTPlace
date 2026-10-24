@@ -3,6 +3,7 @@
 #include "kt_option.h"
 
 #include "gui/kt_detailsPanel.h"
+#include "gui/kt_dialogPlacement.h"
 #include "gui/kt_layoutCommands.h"
 #include "gui/kt_layoutView.h"
 #include "gui/kt_locateDialog.h"
@@ -19,7 +20,6 @@
 #include <QLabel>
 #include <QMenu>
 #include <QMenuBar>
-#include <QMessageBox>
 #include <QSettings>
 #include <QStatusBar>
 #include <QStringList>
@@ -34,6 +34,7 @@ namespace ktplace::gui {
 namespace {
 
 constexpr int liveDetailsMs = 250;
+constexpr int layoutVersion = 2;
 constexpr qsizetype recentLimit = 8;
 const QString settingsOrganisation = QStringLiteral("KTPlace");
 const QString settingsApplication = QStringLiteral("KTPlace");
@@ -58,6 +59,23 @@ QDockWidget *dockFor(QMainWindow &window, const QString &title, const QString &n
     dock->setObjectName(name);
     dock->setWidget(content);
     return dock;
+}
+
+QString chooseExisting(QWidget &parent, const QString &title, const QString &start,
+                       QFileDialog::FileMode mode, const QString &filter = {}) {
+    QFileDialog dialog(&parent, title, start, filter);
+    dialog.setFileMode(mode);
+    placeOver(dialog, parent);
+    return dialog.exec() == QDialog::Accepted ? dialog.selectedFiles().value(0) : QString();
+}
+
+QString chooseNewFile(QWidget &parent, const QString &title, const QString &start,
+                      const QString &filter) {
+    QFileDialog dialog(&parent, title, start, filter);
+    dialog.setAcceptMode(QFileDialog::AcceptSave);
+    dialog.setDefaultSuffix(QStringLiteral("png"));
+    placeOver(dialog, parent);
+    return dialog.exec() == QDialog::Accepted ? dialog.selectedFiles().value(0) : QString();
 }
 
 QString versionText() {
@@ -101,6 +119,8 @@ public:
     DetailsPanel *details;
     LocateDialog *locate;
     QDockWidget *logDock = nullptr;
+    QDockWidget *detailsDock = nullptr;
+    QDockWidget *visibilityDock = nullptr;
     QDockWidget *consoleDock = nullptr;
     QMenu *recentMenu = nullptr;
     QAction *openAction = nullptr;
@@ -161,10 +181,12 @@ void MainWindow::Impl::buildPanels() {
     consoleDock->setTitleBarWidget(new QWidget(consoleDock));
     logDock->raise();
 
-    window.addDockWidget(Qt::LeftDockWidgetArea, dockFor(window, QStringLiteral("Visibility"),
-                                                         QStringLiteral("visibility"), visibility));
-    window.addDockWidget(Qt::RightDockWidgetArea, dockFor(window, QStringLiteral("Details"),
-                                                          QStringLiteral("details"), details));
+    detailsDock = dockFor(window, QStringLiteral("Details"), QStringLiteral("details"), details);
+    window.addDockWidget(Qt::LeftDockWidgetArea, detailsDock);
+    visibilityDock =
+        dockFor(window, QStringLiteral("Visibility"), QStringLiteral("visibility"), visibility);
+    window.addDockWidget(Qt::RightDockWidgetArea, visibilityDock);
+    visibilityDock->hide();
 
     console->onCommand([this](const QString &command) {
         if (!runner.execute(command.toStdString(), consoleRequest())) {
@@ -221,17 +243,19 @@ void MainWindow::Impl::buildPanels() {
 void MainWindow::Impl::buildActions() {
     openAction = action(QStringLiteral("Open Design..."), QKeySequence::Open, [this] {
         const QString design =
-            QFileDialog::getExistingDirectory(&window, QStringLiteral("Open a design directory"),
-                                              QString::fromStdString(request.design));
+            chooseExisting(window, QStringLiteral("Open a design directory"),
+                           QString::fromStdString(request.design), QFileDialog::Directory);
         if (!design.isEmpty()) {
             window.openDesign(design);
         }
     });
     scriptAction = action(QStringLiteral("Tcl Script..."), {}, [this] {
-        request.script = QFileDialog::getOpenFileName(&window, QStringLiteral("Configure the run"),
-                                                      QString::fromStdString(request.script),
-                                                      QStringLiteral("Tcl scripts (*.tcl)"))
-                             .toStdString();
+        const QString script = chooseExisting(
+            window, QStringLiteral("Configure the run"), QString::fromStdString(request.script),
+            QFileDialog::ExistingFile, QStringLiteral("Tcl scripts (*.tcl)"));
+        if (!script.isEmpty()) {
+            request.script = script.toStdString();
+        }
         refresh();
     });
     runAction = action(QStringLiteral("Run"), QKeySequence(Qt::CTRL | Qt::Key_R), [this] {
@@ -249,6 +273,9 @@ void MainWindow::Impl::buildActions() {
     });
     QAction *locateAction = action(QStringLiteral("Locate..."), QKeySequence::Find, [this] {
         locate->setLayoutGeometry(view->frame().geometry);
+        if (!locate->isVisible()) {
+            placeOver(*locate, window);
+        }
         locate->show();
         locate->raise();
         locate->activateWindow();
@@ -275,28 +302,27 @@ void MainWindow::Impl::buildActions() {
             console->focusInput();
         });
     QAction *keys = action(QStringLiteral("Mouse and Keys"), {}, [this] {
-        QMessageBox::information(
-            &window, QStringLiteral("Mouse and Keys"),
-            QStringLiteral(
-                "<table cellpadding=3>"
-                "<tr><td><b>Click</b></td><td>select a cell</td></tr>"
-                "<tr><td><b>Ctrl+click</b></td><td>add or remove a cell</td></tr>"
-                "<tr><td><b>Drag</b> or <b>middle drag</b></td><td>pan</td></tr>"
-                "<tr><td><b>Shift+drag</b></td><td>zoom to the box</td></tr>"
-                "<tr><td><b>Wheel</b>, <b>+</b>, <b>-</b></td><td>zoom</td></tr>"
-                "<tr><td><b>F</b></td><td>zoom to fit</td></tr>"
-                "<tr><td><b>Z</b></td><td>zoom to the selection</td></tr>"
-                "<tr><td><b>Ctrl+F</b></td><td>locate cells or nets</td></tr>"
-                "<tr><td><b>Ctrl+Shift+A</b></td><td>select none</td></tr>"
-                "<tr><td><b>Right-click</b></td><td>routing demand and view options</td></tr>"
-                "</table>"));
+        showNote(window, QStringLiteral("Mouse and Keys"),
+                 QStringLiteral(
+                     "<table cellpadding=3>"
+                     "<tr><td><b>Click</b></td><td>select a cell</td></tr>"
+                     "<tr><td><b>Ctrl+click</b></td><td>add or remove a cell</td></tr>"
+                     "<tr><td><b>Drag</b> or <b>middle drag</b></td><td>pan</td></tr>"
+                     "<tr><td><b>Shift+drag</b></td><td>zoom to the box</td></tr>"
+                     "<tr><td><b>Wheel</b>, <b>+</b>, <b>-</b></td><td>zoom</td></tr>"
+                     "<tr><td><b>F</b></td><td>zoom to fit</td></tr>"
+                     "<tr><td><b>Z</b></td><td>zoom to the selection</td></tr>"
+                     "<tr><td><b>Ctrl+F</b></td><td>locate cells or nets</td></tr>"
+                     "<tr><td><b>Ctrl+Shift+A</b></td><td>select none</td></tr>"
+                     "<tr><td><b>Right-click</b></td><td>routing demand and view options</td></tr>"
+                     "</table>"));
     });
     QAction *about = action(QStringLiteral("About KTPlace"), {}, [this] {
-        QMessageBox::about(&window, QStringLiteral("About KTPlace"),
-                           QStringLiteral("<h3>KTPlace %1</h3><p>Know Thyself Placement "
-                                          "Engine: global placement, legalization and "
-                                          "detailed placement for standard-cell designs.</p>")
-                               .arg(versionText()));
+        showNote(window, QStringLiteral("About KTPlace"),
+                 QStringLiteral("<h3>KTPlace %1</h3><p>Know Thyself Placement "
+                                "Engine: global placement, legalization and "
+                                "detailed placement for standard-cell designs.</p>")
+                     .arg(versionText()));
     });
 
     QMenu *file = window.menuBar()->addMenu(QStringLiteral("&File"));
@@ -347,6 +373,10 @@ void MainWindow::Impl::buildActions() {
     viewTools->addAction(fit);
     viewTools->addAction(toSelection);
     viewTools->addAction(locateAction);
+    viewTools->addSeparator();
+    QAction *showVisibility = visibilityDock->toggleViewAction();
+    showVisibility->setToolTip(QStringLiteral("Show or hide the Visibility panel"));
+    viewTools->addAction(showVisibility);
 }
 
 void MainWindow::Impl::restoreLayout() {
@@ -356,7 +386,7 @@ void MainWindow::Impl::restoreLayout() {
         return;
     }
     window.restoreGeometry(settings.value(geometryKey).toByteArray());
-    window.restoreState(settings.value(stateKey).toByteArray());
+    window.restoreState(settings.value(stateKey).toByteArray(), layoutVersion);
 }
 
 void MainWindow::Impl::rememberDesign(const QString &design) const {
@@ -388,17 +418,17 @@ void MainWindow::Impl::fillRecentMenu() {
 }
 
 void MainWindow::Impl::saveViewImage() {
-    const QString file = QFileDialog::getSaveFileName(
-        &window, QStringLiteral("Save the view as an image"), QStringLiteral("layout.png"),
-        QStringLiteral("Images (*.png *.jpg)"));
+    const QString file =
+        chooseNewFile(window, QStringLiteral("Save the view as an image"),
+                      QStringLiteral("layout.png"), QStringLiteral("Images (*.png *.jpg)"));
     if (file.isEmpty()) {
         return;
     }
     if (view->capture().save(file)) {
         window.statusBar()->showMessage(QStringLiteral("Saved %1").arg(file));
     } else {
-        QMessageBox::warning(&window, QStringLiteral("Save View Image"),
-                             QStringLiteral("Cannot write %1").arg(file));
+        showNote(window, QStringLiteral("Save View Image"),
+                 QStringLiteral("Cannot write %1").arg(file.toHtmlEscaped()));
     }
 }
 
@@ -574,7 +604,7 @@ void MainWindow::closeEvent(QCloseEvent *event) {
     pImpl->runner.stop();
     QSettings settings(settingsOrganisation, settingsApplication);
     settings.setValue(geometryKey, saveGeometry());
-    settings.setValue(stateKey, saveState());
+    settings.setValue(stateKey, saveState(layoutVersion));
     event->accept();
 }
 

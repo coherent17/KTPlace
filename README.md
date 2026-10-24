@@ -137,11 +137,12 @@ script, press Run, and watch each stage move the cells while the log streams bel
 
 - The layout is drawn on the GPU (OpenGL 3.3, 4x MSAA, positions tweened between frames), with a
   CPU fallback. When cells are smaller than 1.5 px, the small ones are drawn as one density image.
-- **Visibility** panel (left): show, hide and recolour the die, rows, macros, cells, pads, fences,
-  the selection, marked nets and the routing-demand map.
-- **Details** panel (right): the selected cell's type, size, location, fence and pins, and its nets
+- **Details** panel (left): the selected cell's type, size, location, fence and pins, and its nets
   with pin counts and HPWL (click a net to mark it, double-click to zoom to it); a summary for
   several cells or for marked nets.
+- **Visibility** panel (right, hidden until you press **Visibility** on the toolbar): show, hide and
+  recolour the die, rows, macros, cells, pads, fences, the selection, marked nets and the
+  routing-demand map.
 - **Locate** (Ctrl+F): find cells or nets by name or pattern (`a12*`, `*clk*`, `n?7`), then select
   them and zoom to them.
 - Mouse and keys: click selects, Ctrl+click adds or removes, drag pans, Shift+drag zooms to a box,

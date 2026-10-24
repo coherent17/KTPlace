@@ -105,7 +105,7 @@ QT_LIBS = $(shell pkg-config --libs $(QT_MODULES))
 
 GUI_SRCS := gui/kt_layout.cc gui/kt_congestion.cc gui/kt_layoutView.cc gui/kt_glCanvas.cc gui/kt_logView.cc gui/kt_runner.cc \
             gui/kt_tclConsole.cc gui/kt_displayStyle.cc gui/kt_namePattern.cc gui/kt_selectionSet.cc \
-            gui/kt_visibilityPanel.cc gui/kt_detailsPanel.cc gui/kt_locateDialog.cc gui/kt_layoutCommands.cc \
+            gui/kt_visibilityPanel.cc gui/kt_detailsPanel.cc gui/kt_locateDialog.cc gui/kt_layoutCommands.cc gui/kt_dialogPlacement.cc \
             gui/kt_mainWindow.cc
 GUI_OBJS := $(GUI_SRCS:%.cc=$(OBJ_DIR)/%.o)
 GUI_ENTRY_OBJ := $(OBJ_DIR)/gui/kt_gui.o

@@ -18,13 +18,22 @@
 #include "util/kt_history.h"
 #include "util/kt_log.h"
 
+#include <QAction>
 #include <QApplication>
+#include <QCheckBox>
 #include <QColor>
+#include <QDockWidget>
 #include <QElapsedTimer>
 #include <QImage>
+#include <QMenu>
+#include <QMessageBox>
 #include <QMouseEvent>
 #include <QObject>
+#include <QPushButton>
+#include <QSettings>
+#include <QTableWidget>
 #include <QThread>
+#include <QToolBar>
 #include <boost/test/unit_test.hpp>
 #include <cstdlib>
 #include <filesystem>
@@ -153,6 +162,45 @@ std::unique_ptr<ktDM> readDesign(const std::string &dir) {
     BOOST_REQUIRE(reader);
     return reader->read(dir);
 }
+
+QAction *actionNamed(const QWidget &window, const QString &text) {
+    for (QAction *candidate : window.findChildren<QAction *>()) {
+        if (candidate->text() == text) {
+            return candidate;
+        }
+    }
+    return nullptr;
+}
+
+template <class Widget>
+Widget *childNamed(const QWidget &parent, const QString &text) {
+    for (Widget *candidate : parent.findChildren<Widget *>()) {
+        if (candidate->text() == text) {
+            return candidate;
+        }
+    }
+    return nullptr;
+}
+
+void sendClick(LayoutView &view, QPointF at, Qt::KeyboardModifiers modifiers) {
+    QMouseEvent press(QEvent::MouseButtonPress, at, view.mapToGlobal(at), Qt::LeftButton,
+                      Qt::LeftButton, modifiers);
+    QApplication::sendEvent(&view, &press);
+    QMouseEvent release(QEvent::MouseButtonRelease, at, view.mapToGlobal(at), Qt::LeftButton,
+                        Qt::NoButton, modifiers);
+    QApplication::sendEvent(&view, &release);
+}
+
+struct ShownDesign {
+    explicit ShownDesign(const std::string &tag)
+        : dir(tag), db(readDesign(dir.design())), window({"", dir.file("work").string(), ""}) {
+        window.resize(1000, 700);
+        window.layoutView()->setFrame(LayoutFrame::committed(LayoutGeometry::of(*db), *db, "load"));
+    }
+    ScratchDir dir;
+    std::unique_ptr<ktDM> db;
+    MainWindow window;
+};
 
 }  // namespace
 
@@ -671,4 +719,208 @@ BOOST_AUTO_TEST_CASE(the_cursor_is_reported_and_shift_drag_zooms_to_the_box) {
     BOOST_TEST(centre.x() == 16.0, boost::test_tools::tolerance(1e-6));
     BOOST_TEST(centre.y() == 5.0, boost::test_tools::tolerance(1e-6));
     BOOST_TEST(view.selection().empty());
+}
+
+BOOST_AUTO_TEST_CASE(details_sit_on_the_left_and_visibility_starts_hidden_on_the_right) {
+    const ScratchDir dir("docks");
+    MainWindow window({"", dir.file("work").string(), ""});
+    auto *details = window.findChild<QDockWidget *>(QStringLiteral("details"));
+    auto *visibility = window.findChild<QDockWidget *>(QStringLiteral("visibility"));
+    BOOST_REQUIRE(details != nullptr);
+    BOOST_REQUIRE(visibility != nullptr);
+    BOOST_TEST((window.dockWidgetArea(details) == Qt::LeftDockWidgetArea));
+    BOOST_TEST((window.dockWidgetArea(visibility) == Qt::RightDockWidgetArea));
+    BOOST_TEST(!details->isHidden());
+    BOOST_TEST(visibility->isHidden());
+
+    auto *tools = window.findChild<QToolBar *>(QStringLiteral("view"));
+    BOOST_REQUIRE(tools != nullptr);
+    BOOST_REQUIRE(tools->actions().contains(visibility->toggleViewAction()));
+    BOOST_TEST(visibility->toggleViewAction()->isCheckable());
+    visibility->toggleViewAction()->trigger();
+    BOOST_TEST(!visibility->isHidden());
+    visibility->toggleViewAction()->trigger();
+    BOOST_TEST(visibility->isHidden());
+}
+
+BOOST_AUTO_TEST_CASE(about_and_keys_open_without_blocking_the_window) {
+    const ScratchDir dir("notes");
+    MainWindow window({"", dir.file("work").string(), ""});
+    window.resize(900, 600);
+    window.show();
+    for (const QString &name :
+         {QStringLiteral("About KTPlace"), QStringLiteral("Mouse and Keys")}) {
+        QAction *open = actionNamed(window, name);
+        BOOST_REQUIRE(open != nullptr);
+        open->trigger();
+        QMessageBox *note = nullptr;
+        for (QMessageBox *box : window.findChildren<QMessageBox *>()) {
+            if (box->windowTitle() == name && box->isVisible()) {
+                note = box;
+            }
+        }
+        BOOST_REQUIRE(note != nullptr);
+        BOOST_TEST(!note->isModal());
+        BOOST_TEST(window.frameGeometry().contains(note->geometry().center()));
+        note->close();
+        BOOST_REQUIRE(waitUntil([&window, &name] {
+            return std::ranges::none_of(window.findChildren<QMessageBox *>(),
+                                        [&name](const QMessageBox *box) {
+                                            return box->windowTitle() == name;
+                                        });
+        }));
+    }
+}
+
+BOOST_AUTO_TEST_CASE(the_visibility_panel_controls_the_view) {
+    ShownDesign shown("visibilitypanel");
+    VisibilityPanel &panel = *shown.window.visibilityPanel();
+    LayoutView &view = *shown.window.layoutView();
+    auto *macros = childNamed<QCheckBox>(panel, QStringLiteral("Fixed macros"));
+    BOOST_REQUIRE(macros != nullptr);
+    BOOST_TEST(macros->isChecked());
+    macros->click();
+    BOOST_TEST(!view.style().shows(DisplayLayer::Macros));
+    macros->click();
+    BOOST_TEST(view.style().shows(DisplayLayer::Macros));
+
+    childNamed<QPushButton>(panel, QStringLiteral("Hide All"))->click();
+    BOOST_TEST(std::ranges::none_of(displayLayers, [&view](DisplayLayer layer) {
+        return view.style().shows(layer);
+    }));
+    BOOST_TEST(!macros->isChecked());
+    childNamed<QPushButton>(panel, QStringLiteral("Show All"))->click();
+    BOOST_TEST(std::ranges::all_of(displayLayers, [&view](DisplayLayer layer) {
+        return view.style().shows(layer);
+    }));
+    BOOST_TEST(view.showingCongestion());
+    childNamed<QPushButton>(panel, QStringLiteral("Defaults"))->click();
+    BOOST_TEST((view.style() == DisplayStyle()));
+    BOOST_TEST(!view.showingCongestion());
+
+    view.showCongestion(true, 16);
+    BOOST_TEST(childNamed<QCheckBox>(panel, QStringLiteral("Routing demand"))->isChecked());
+}
+
+BOOST_AUTO_TEST_CASE(clicking_a_net_in_details_marks_it_and_double_click_zooms_to_it) {
+    ShownDesign shown("detailsnets");
+    LayoutView &view = *shown.window.layoutView();
+    DetailsPanel &details = *shown.window.detailsPanel();
+    view.selection().selectCells({3});
+    BOOST_REQUIRE(waitUntil([&] {
+        return details.title() == QStringLiteral("c3");
+    }));
+    const QList<QTableWidget *> tables = details.findChildren<QTableWidget *>();
+    BOOST_REQUIRE(tables.size() == 2);
+    QTableWidget *nets = tables[1];
+    BOOST_REQUIRE(nets->rowCount() == 1);
+    BOOST_TEST(nets->item(0, 0)->text() == QStringLiteral("n1"));
+    BOOST_TEST(nets->item(0, 1)->text() == QStringLiteral("4"));
+    BOOST_TEST(nets->item(0, 2)->text() == QStringLiteral("19.0"));
+
+    Q_EMIT nets->itemClicked(nets->item(0, 0));
+    BOOST_TEST(view.selection().nets() == (std::vector<std::uint32_t>{1}));
+    BOOST_TEST(view.selection().cells() == (std::vector<std::uint32_t>{3}));
+
+    view.zoomFit();
+    Q_EMIT nets->itemDoubleClicked(nets->item(0, 0));
+    const QPointF centre = view.screenToWorld({view.width() / 2.0, view.height() / 2.0});
+    BOOST_TEST(centre.x() == 10.0, boost::test_tools::tolerance(1e-6));
+}
+
+BOOST_AUTO_TEST_CASE(locate_buttons_select_and_zoom) {
+    ShownDesign shown("locatebuttons");
+    LayoutView &view = *shown.window.layoutView();
+    QAction *open = actionNamed(shown.window, QStringLiteral("Locate..."));
+    BOOST_REQUIRE(open != nullptr);
+    open->trigger();
+    LocateDialog &locate = *shown.window.locateDialog();
+    BOOST_TEST(locate.isVisible());
+    locate.search(QStringLiteral("c*"), LocateDialog::Target::Cells);
+    childNamed<QPushButton>(locate, QStringLiteral("Select"))->click();
+    BOOST_TEST(view.selection().cells() == (std::vector<std::uint32_t>{0, 1, 2, 3}));
+
+    locate.search(QStringLiteral("n0"), LocateDialog::Target::Nets);
+    view.zoomFit();
+    childNamed<QPushButton>(locate, QStringLiteral("Select and Zoom"))->click();
+    BOOST_TEST(view.selection().nets() == (std::vector<std::uint32_t>{0}));
+    const QPointF centre = view.screenToWorld({view.width() / 2.0, view.height() / 2.0});
+    BOOST_TEST(centre.x() == 3.5, boost::test_tools::tolerance(1e-6));
+    locate.hide();
+}
+
+BOOST_AUTO_TEST_CASE(menu_actions_select_none_and_zoom) {
+    ShownDesign shown("menuactions");
+    LayoutView &view = *shown.window.layoutView();
+    view.selection().selectCells({6});
+    actionNamed(shown.window, QStringLiteral("Zoom to Selection"))->trigger();
+    QPointF centre = view.screenToWorld({view.width() / 2.0, view.height() / 2.0});
+    BOOST_TEST(centre.x() == 16.0, boost::test_tools::tolerance(1e-6));
+    actionNamed(shown.window, QStringLiteral("Select None"))->trigger();
+    BOOST_TEST(view.selection().empty());
+    actionNamed(shown.window, QStringLiteral("Zoom Fit"))->trigger();
+    centre = view.screenToWorld({view.width() / 2.0, view.height() / 2.0});
+    const auto &die = view.frame().geometry->die;
+    BOOST_TEST(centre.x() == (die[0] + die[2]) / 2.0, boost::test_tools::tolerance(1e-6));
+}
+
+BOOST_AUTO_TEST_CASE(ctrl_click_adds_and_removes_cells) {
+    ShownDesign shown("ctrlclick");
+    LayoutView &view = *shown.window.layoutView();
+    view.resize(400, 300);
+    view.zoomFit();
+    sendClick(view, view.worldToScreen({16.0, 5.0}), Qt::NoModifier);
+    BOOST_TEST(view.selection().cells() == (std::vector<std::uint32_t>{6}));
+    sendClick(view, view.worldToScreen({6.5, 1.0}), Qt::ControlModifier);
+    BOOST_TEST(view.selection().cells() == (std::vector<std::uint32_t>{3, 6}));
+    sendClick(view, view.worldToScreen({16.0, 5.0}), Qt::ControlModifier);
+    BOOST_TEST(view.selection().cells() == (std::vector<std::uint32_t>{3}));
+    sendClick(view, view.worldToScreen({16.0, 5.0}), Qt::NoModifier);
+    BOOST_TEST(view.selection().cells() == (std::vector<std::uint32_t>{6}));
+}
+
+BOOST_AUTO_TEST_CASE(opened_designs_are_listed_under_recent_designs) {
+    const ScratchDir dir("recent");
+    const std::string design = dir.design();
+    MainWindow window({"", dir.file("work").string(), ""});
+    std::optional<RunResult> result;
+    window.onFinished([&result](const RunResult &r) {
+        result = r;
+    });
+    window.openDesign(QString::fromStdString(design));
+    BOOST_REQUIRE(waitUntil([&result] {
+        return result.has_value();
+    }));
+    const QSettings settings(QStringLiteral("KTPlace"), QStringLiteral("KTPlace"));
+    BOOST_TEST(settings.value(QStringLiteral("recentDesigns")).toStringList().front() ==
+               QString::fromStdString(design));
+
+    QMenu *recent = nullptr;
+    for (QMenu *menu : window.findChildren<QMenu *>()) {
+        if (menu->title() == QStringLiteral("Recent Designs")) {
+            recent = menu;
+        }
+    }
+    BOOST_REQUIRE(recent != nullptr);
+    Q_EMIT recent->aboutToShow();
+    BOOST_TEST(recent->actions().front()->text() == QString::fromStdString(design));
+    BOOST_TEST(!recent->actions().front()->isEnabled() == window.running());
+}
+
+BOOST_AUTO_TEST_CASE(a_layout_saved_by_an_older_version_is_ignored) {
+    {
+        QSettings settings(QStringLiteral("KTPlace"), QStringLiteral("KTPlace"));
+        QMainWindow old;
+        auto *dock = new QDockWidget(QStringLiteral("Visibility"), &old);
+        dock->setObjectName(QStringLiteral("visibility"));
+        old.addDockWidget(Qt::LeftDockWidgetArea, dock);
+        settings.setValue(QStringLiteral("window/geometry"), old.saveGeometry());
+        settings.setValue(QStringLiteral("window/state"), old.saveState(1));
+    }
+    const ScratchDir dir("oldlayout");
+    MainWindow window({"", dir.file("work").string(), ""});
+    auto *visibility = window.findChild<QDockWidget *>(QStringLiteral("visibility"));
+    BOOST_TEST((window.dockWidgetArea(visibility) == Qt::RightDockWidgetArea));
+    BOOST_TEST(visibility->isHidden());
+    QSettings(QStringLiteral("KTPlace"), QStringLiteral("KTPlace")).clear();
 }
