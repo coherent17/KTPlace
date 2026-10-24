@@ -136,12 +136,12 @@ BOOST_AUTO_TEST_CASE(the_input_directory_is_the_only_positional) {
 }
 
 BOOST_AUTO_TEST_CASE(the_cli_is_not_the_gui_unless_asked) {
-    BOOST_TEST(!parse({"ktplace", design}).gui);
+    BOOST_TEST((parse({"ktplace", design}).mode == Mode::Batch));
 }
 
 BOOST_AUTO_TEST_CASE(gui_takes_no_input_directory_or_one_anywhere_in_the_line) {
     const kt_option bare = parse({"ktplace", "--gui"});
-    BOOST_TEST(bare.gui);
+    BOOST_TEST((bare.mode == Mode::Gui));
     BOOST_TEST(bare.inputPath.empty());
 
     const ScratchDir dir("gui");
@@ -152,9 +152,21 @@ BOOST_AUTO_TEST_CASE(gui_takes_no_input_directory_or_one_anywhere_in_the_line) {
     BOOST_TEST(flagsOnly.tclFile == "run.tcl");
 
     const kt_option trailing = parse({"ktplace", design, "-w", work, "--gui"});
-    BOOST_TEST(trailing.gui);
+    BOOST_TEST((trailing.mode == Mode::Gui));
     BOOST_TEST(trailing.inputPath == design);
     BOOST_TEST(trailing.workDir == work);
+}
+
+BOOST_AUTO_TEST_CASE(the_shell_is_its_own_mode) {
+    BOOST_TEST((parse({"ktplace", "--shell"}).mode == Mode::Shell));
+    BOOST_TEST((parse({"ktplace", "--shell", "--shell"}).mode == Mode::Shell));
+}
+
+BOOST_AUTO_TEST_CASE(gui_and_shell_cannot_be_combined) {
+    const ChildRun run = parseInChild({"ktplace", "--gui", "--shell"});
+    BOOST_TEST(WIFEXITED(run.status));
+    BOOST_TEST(WEXITSTATUS(run.status) == EXIT_FAILURE);
+    BOOST_TEST(run.output.find("--gui and --shell cannot be combined") != std::string::npos);
 }
 
 BOOST_AUTO_TEST_CASE(every_artifact_is_derived_from_the_work_dir) {

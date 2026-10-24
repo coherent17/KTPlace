@@ -26,35 +26,53 @@ using Step = std::function<tcl::Value(FlowMgr &, const Words &)>;
 
 enum class Needs { Session, Design };
 
-void registerStep(tcl::CommandHelp help, std::size_t minWords, std::size_t maxWords, Needs needs,
-                  Step step) {
-    const std::string name = help.name;
-    const std::string usage = help.usage;
+struct Arity {
+    std::size_t min = 0;
+    std::size_t max = 0;
+};
+
+Step action(auto method) {
+    return [method](FlowMgr &flow, const Words &) {
+        std::invoke(method, flow);
+        return tcl::Value{};
+    };
+}
+
+Words substitutedWords(tcl::Interpreter &interp, const tcl::Arguments &args) {
+    Words words;
+    words.reserve(args.size() - 1);
+    for (std::size_t i = 1; i < args.size(); ++i) {
+        words.push_back(args[i].literal ? args[i].text : interp.substitute(args[i].text));
+    }
+    return words;
+}
+
+void registerStep(tcl::CommandHelp help, Arity arity, Needs needs, Step step) {
     tcl::TclMgr::instance().registerCommand(
-        std::move(help),
-        [=](tcl::Interpreter &self, const tcl::Arguments &args, tcl::Value &result) -> int {
+        help, [help, arity, needs, step = std::move(step)](
+                  tcl::Interpreter &interp, const tcl::Arguments &args, tcl::Value &result) {
             const std::size_t given = args.size() - 1;
-            if (given < minWords || given > maxWords) {
-                throw tcl::Error(std::format("wrong # args: should be \"{}\"", usage));
+            if (given < arity.min || given > arity.max) {
+                throw tcl::Error(std::format("wrong # args: should be \"{}\"", help.usage));
             }
             if (bound == nullptr) {
-                throw tcl::Error(std::format("{}: no placement session is open", name));
+                throw tcl::Error(std::format("{}: no placement session is open", help.name));
             }
             if (needs == Needs::Design && !bound->hasDesign()) {
                 throw tcl::Error(
-                    std::format("{}: no design is loaded; call read_design first", name));
-            }
-            Words words;
-            for (std::size_t i = 1; i < args.size(); ++i) {
-                words.push_back(args[i].literal ? args[i].text : self.substitute(args[i].text));
+                    std::format("{}: no design is loaded; call read_design first", help.name));
             }
             try {
-                result = step(*bound, words);
+                result = step(*bound, substitutedWords(interp, args));
             } catch (const std::logic_error &error) {
-                throw tcl::Error(std::format("{}: {}", name, error.what()));
+                throw tcl::Error(std::format("{}: {}", help.name, error.what()));
             }
             return 0;
         });
+}
+
+std::string firstOr(const Words &words, std::string fallback) {
+    return words.empty() ? std::move(fallback) : words.front();
 }
 
 void registerCommands() {
@@ -62,8 +80,8 @@ void registerCommands() {
         {.name = "read_design",
          .usage = "read_design [dir]",
          .summary = "load a Bookshelf or LEF/DEF design (default: the opened or given design)"},
-        0, 1, Needs::Session, [](FlowMgr &flow, const Words &words) {
-            const std::string dir = words.empty() ? flow.designPath() : words[0];
+        {.min = 0, .max = 1}, Needs::Session, [](FlowMgr &flow, const Words &words) {
+            const std::string dir = firstOr(words, flow.designPath());
             if (dir.empty()) {
                 throw std::logic_error("no design to read; give a directory or open a design");
             }
@@ -73,10 +91,10 @@ void registerCommands() {
     registerStep({.name = "gplace_design",
                   .usage = "gplace_design [simpl|ntuplace1]",
                   .summary = "global placement (default: the flow algorithm option)"},
-                 0, 1, Needs::Design, [](FlowMgr &flow, const Words &words) {
+                 {.min = 0, .max = 1}, Needs::Design, [](FlowMgr &flow, const Words &words) {
                      if (!words.empty()) {
                          OptionDb::instance().set(Component::Flow, "algorithm",
-                                                  OptionValue{words[0]});
+                                                  OptionValue{words.front()});
                      }
                      flow.globalPlace();
                      return tcl::Value{};
@@ -84,43 +102,33 @@ void registerCommands() {
     registerStep({.name = "legalize_placement",
                   .usage = "legalize_placement",
                   .summary = "legalize: Abacus, or the multi-row legalizer when cells span rows"},
-                 0, 0, Needs::Design, [](FlowMgr &flow, const Words &) {
-                     flow.legalize();
-                     return tcl::Value{};
-                 });
+                 {}, Needs::Design, action(&FlowMgr::legalize));
     registerStep(
         {.name = "detail_place", .usage = "detail_place", .summary = "detailed placement (FastDP)"},
-        0, 0, Needs::Design, [](FlowMgr &flow, const Words &) {
-            flow.detailPlace();
-            return tcl::Value{};
-        });
+        {}, Needs::Design, action(&FlowMgr::detailPlace));
     registerStep({.name = "place_design",
                   .usage = "place_design",
                   .summary = "gplace_design, legalize_placement and detail_place"},
-                 0, 0, Needs::Design, [](FlowMgr &flow, const Words &) {
+                 {}, Needs::Design, action([](FlowMgr &flow) {
                      flow.globalPlace();
                      flow.legalize();
                      flow.detailPlace();
-                     return tcl::Value{};
-                 });
+                 }));
     registerStep(
         {.name = "write_placement",
          .usage = "write_placement [file]",
          .summary = "write the placement (default <work-dir>/placed.pl); returns the path"},
-        0, 1, Needs::Design, [](FlowMgr &flow, const Words &words) {
-            return tcl::Value::string(flow.writePlacement(words.empty() ? "" : words[0]));
+        {.min = 0, .max = 1}, Needs::Design, [](FlowMgr &flow, const Words &words) {
+            return tcl::Value::string(flow.writePlacement(firstOr(words, "")));
         });
     registerStep({.name = "write_plots",
                   .usage = "write_plots",
                   .summary = "draw the GIFs and the final image now"},
-                 0, 0, Needs::Design, [](FlowMgr &flow, const Words &) {
-                     flow.writePlots();
-                     return tcl::Value{};
-                 });
+                 {}, Needs::Design, action(&FlowMgr::writePlots));
     registerStep({.name = "report_hpwl",
                   .usage = "report_hpwl",
                   .summary = "log the half-perimeter wirelength and return it"},
-                 0, 0, Needs::Design, [](FlowMgr &flow, const Words &) {
+                 {}, Needs::Design, [](FlowMgr &flow, const Words &) {
                      const double hpwl = flow.hpwl();
                      ktlog.echo("HPWL {:.6e}", hpwl);
                      return tcl::Value::real(hpwl);
@@ -128,14 +136,11 @@ void registerCommands() {
     registerStep({.name = "report_design",
                   .usage = "report_design",
                   .summary = "report the design's size and utilisation"},
-                 0, 0, Needs::Design, [](FlowMgr &flow, const Words &) {
-                     flow.reportDesign();
-                     return tcl::Value{};
-                 });
+                 {}, Needs::Design, action(&FlowMgr::reportDesign));
     registerStep({.name = "check_placement",
                   .usage = "check_placement",
                   .summary = "check overlaps, die and fences; returns 1 if the placement is legal"},
-                 0, 0, Needs::Design, [](FlowMgr &flow, const Words &) {
+                 {}, Needs::Design, [](FlowMgr &flow, const Words &) {
                      return tcl::Value::boolean(flow.checkPlacement());
                  });
 }
@@ -143,11 +148,8 @@ void registerCommands() {
 }  // namespace
 
 void bindTclCommands(FlowMgr &flow) {
-    static bool registered = false;
-    if (!registered) {
-        registerCommands();
-        registered = true;
-    }
+    static const bool registered = (registerCommands(), true);
+    (void)registered;
     bound = &flow;
 }
 

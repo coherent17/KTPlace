@@ -1,76 +1,32 @@
-#include "kt_flowMgr.h"
+#include "kt_batch.h"
 #include "kt_option.h"
 #include "kt_shell.h"
 
-#ifdef KTPLACE_GUI
 #include "gui/kt_gui.h"
-#endif
 #include "util/kt_log.h"
-#include "util/kt_scopedTimer.h"
 
-#include <chrono>
-#include <ctime>
 #include <exception>
 #include <iostream>
-#include <string>
+#include <utility>
 
 using namespace ktplace;
 
-int main(int argc, char *argv[]) {
-    const auto started = std::chrono::steady_clock::now();
-    const std::clock_t cpuStarted = std::clock();
-    try {
-        kt_option options;
-        if (!options.parse(argc, argv)) {
-            ktlog.shutdown();
-            return 0;
-        }
-        if (options.gui) {
-#ifdef KTPLACE_GUI
-            return runGui(options, argc, argv);
-#else
-            ktlog.fatal(
-                "this ktplace was built without the GUI; rebuild it with 'make GUI=1' (needs "
-                "Qt 6)");
-#endif
-        }
-
-        ktlog.configure(options.getLogFile(), options.verbose);
-        ktlog.trace("ktplace start: argc={}", argc);
-        ktlog.beginStep("setup");
-        ktlog.echo("KTPlace - Know Thyself Placement Engine v{}", version);
-        std::string command = argv[0];
-        for (int i = 1; i < argc; ++i) {
-            command += ' ';
-            command += argv[i];
-        }
-        ktlog.echo("Run started: {}", localDateTime());
-        ktlog.echo("Command: {}", command);
-        options.report();
-
-        if (options.shell) {
-            const int status = runShell(options, std::cin);
-            ktlog.shutdown();
-            return status;
-        }
-
-        FlowMgr flowMgr;
-        flowMgr.run(options);
-        ktlog.echo("Placement completed successfully!");
-        ktlog.echo("Results written to: {}", options.getOutputPath());
-        const double wall =
-            std::chrono::duration<double>(std::chrono::steady_clock::now() - started).count();
-        const double cpu =
-            static_cast<double>(std::clock() - cpuStarted) / static_cast<double>(CLOCKS_PER_SEC);
-        ktlog.echo("Run finished: {}; total {:.3f}s wall, {:.3f}s cpu, peak memory {:.1f} MiB",
-                   localDateTime(), wall, cpu,
-                   static_cast<double>(peakResidentBytes()) / (1024.0 * 1024.0));
-        ktlog.shutdown();
+int main(int argc, char *argv[]) try {
+    kt_option options;
+    if (!options.parse(argc, argv)) {
         return 0;
-
-    } catch (const std::exception &e) {
-        ktlog.fatal("Error: {}", e.what());
-    } catch (...) {
-        ktlog.fatal("Error: unknown exception");
     }
+    switch (options.mode) {
+        case Mode::Batch:
+            return runBatch(options);
+        case Mode::Shell:
+            return runShell(options, std::cin);
+        case Mode::Gui:
+            return runGui(options, argc, argv);
+    }
+    std::unreachable();
+} catch (const std::exception &e) {
+    ktlog.fatal("Error: {}", e.what());
+} catch (...) {
+    ktlog.fatal("Error: unknown exception");
 }

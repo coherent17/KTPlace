@@ -63,6 +63,19 @@ private:
     std::size_t depth = 0;
 };
 
+class Stopwatch {
+public:
+    void restart();
+
+    [[nodiscard]] double elapsedSeconds() const;
+
+    [[nodiscard]] double cpuElapsedSeconds() const;
+
+private:
+    std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now();
+    std::clock_t cpuStart = std::clock();
+};
+
 class ScopedTimer {
 public:
     explicit ScopedTimer(std::string name, bool announceOnExit = false);
@@ -82,8 +95,7 @@ public:
 
 private:
     std::string timerName;
-    std::chrono::steady_clock::time_point start;
-    std::clock_t cpuStart = 0;
+    Stopwatch stopwatch;
     bool announce = false;
 };
 

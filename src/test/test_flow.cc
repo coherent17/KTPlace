@@ -5,6 +5,7 @@
 #define BOOST_TEST_DYN_LINK
 #include <boost/test/unit_test.hpp>
 // Death tests verify the ktlog::fatal paths, which end the process on purpose.
+#include "kt_batch.h"
 #include "kt_flowMgr.h"
 #include "kt_option.h"
 #include "kt_shell.h"
@@ -471,6 +472,32 @@ BOOST_AUTO_TEST_CASE(the_shell_remembers_its_commands) {
     BOOST_TEST(runShell(optionsFor(dir, ""), input) == 0);
     const CommandHistory history;
     BOOST_TEST(std::ranges::count(history.entries(), "help") == 1);
+}
+
+BOOST_AUTO_TEST_CASE(a_batch_run_places_the_design_and_succeeds) {
+    const ScratchDir dir("batch");
+    writeBookshelfDesign(dir);
+    OptionDb::instance().set(Component::Visualizer, "plot", OptionValue{0});
+    const kt_option opt = optionsFor(dir, designDir(dir).string());
+    BOOST_TEST(runBatch(opt) == 0);
+    OptionDb::instance().clear();
+    BOOST_TEST(fs::exists(opt.getOutputPath()));
+}
+
+BOOST_AUTO_TEST_CASE(the_shell_exits_with_the_status_it_is_given) {
+    const ScratchDir dir("shellexit");
+    std::istringstream input("help\nexit 3\nhelp\n");
+    BOOST_TEST(runShell(optionsFor(dir, ""), input) == 3);
+}
+
+BOOST_AUTO_TEST_CASE(the_shell_fails_when_its_startup_script_fails) {
+    const ScratchDir dir("shellbadscript");
+    const fs::path script = dir.file("broken.tcl");
+    std::ofstream(script) << "no_such_command\n";
+    kt_option opt = optionsFor(dir, "");
+    opt.tclFile = script.string();
+    std::istringstream input("");
+    BOOST_TEST(runShell(opt, input) == 1);
 }
 
 BOOST_AUTO_TEST_CASE(the_shell_runs_commands_and_survives_a_bad_one) {

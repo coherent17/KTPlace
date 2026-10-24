@@ -121,10 +121,7 @@ void TimerRegistry::report() const {
 }
 
 ScopedTimer::ScopedTimer(std::string name, bool announceOnExit)
-    : timerName(std::move(name)),
-      start(std::chrono::steady_clock::now()),
-      cpuStart(std::clock()),
-      announce(announceOnExit) {
+    : timerName(std::move(name)), announce(announceOnExit) {
     TimerRegistry::instance().started(timerName);
 }
 
@@ -153,22 +150,34 @@ std::size_t peakResidentBytes() {
 void ScopedTimer::lap() {
     const double wall = elapsedSeconds();
     const double cpu = cpuElapsedSeconds();
-    start = std::chrono::steady_clock::now();
-    cpuStart = std::clock();
+    stopwatch.restart();
     TimerRegistry::instance().record(timerName, wall, cpu);
 }
 
-double ScopedTimer::elapsedSeconds() const {
+void Stopwatch::restart() {
+    start = std::chrono::steady_clock::now();
+    cpuStart = std::clock();
+}
+
+double Stopwatch::elapsedSeconds() const {
     using clock = std::chrono::steady_clock;
     return std::chrono::duration<double>(clock::now() - start).count();
 }
 
-double ScopedTimer::cpuElapsedSeconds() const {
+double Stopwatch::cpuElapsedSeconds() const {
     const std::clock_t now = std::clock();
     if (cpuStart == 0 || now == static_cast<std::clock_t>(-1)) {
         return 0.0;
     }
     return static_cast<double>(now - cpuStart) / static_cast<double>(CLOCKS_PER_SEC);
+}
+
+double ScopedTimer::elapsedSeconds() const {
+    return stopwatch.elapsedSeconds();
+}
+
+double ScopedTimer::cpuElapsedSeconds() const {
+    return stopwatch.cpuElapsedSeconds();
 }
 
 const std::string &ScopedTimer::name() const {
