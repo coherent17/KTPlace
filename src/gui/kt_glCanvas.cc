@@ -1,11 +1,20 @@
 #include "gui/kt_glCanvas.h"
 
+#include "util/kt_log.h"
+
 #include <QGuiApplication>
+#include <QOffscreenSurface>
 #include <QOpenGLContext>
+#include <QOpenGLFunctions>
 #include <QOpenGLShaderProgram>
 #include <QSurfaceFormat>
 #include <algorithm>
+#include <array>
+#include <cmath>
+#include <cstddef>
 #include <cstdint>
+#include <functional>
+#include <string_view>
 #include <utility>
 
 namespace ktplace::gui {
@@ -14,9 +23,14 @@ namespace {
 
 enum Kind : int { Macro = 0, Movable = 1, Pad = 2, DieFill = 3, Row = 4, DieEdge = 5 };
 constexpr int kinds = 6;
-constexpr int tweenMs = 120;
-constexpr int frameMs = 16;
+constexpr double firstTweenMs = 120.0;
+constexpr double shortestTweenMs = 60.0;
+constexpr double longestTweenMs = 1000.0;
+constexpr double intervalSmoothing = 0.3;
 constexpr double visibleRowPx = 5.0;
+constexpr double densityCellPx = 1.5;
+constexpr float movableMinAlpha = 0.35F;
+constexpr std::uint32_t movableFill = 0x4ab5e5;
 constexpr double outlinedCellPx = 5.0;
 
 const char *vertexShader = R"(#version 330 core
@@ -77,12 +91,71 @@ void main() {
 }
 )";
 
-QSurfaceFormat canvasFormat() {
+const char *densityVertexShader = R"(#version 330 core
+layout(location = 0) in vec2 corner;
+out vec2 uv;
+void main() {
+    uv = corner;
+    gl_Position = vec4(corner * 2.0 - 1.0, 0.0, 1.0);
+}
+)";
+
+const char *densityFragmentShader = R"(#version 330 core
+in vec2 uv;
+uniform sampler2D density;
+out vec4 color;
+void main() {
+    color = texture(density, uv);
+}
+)";
+
+bool isSoftwareRenderer(std::string_view renderer) {
+    return renderer.contains("llvmpipe") || renderer.contains("softpipe") ||
+           renderer.contains("SwiftShader");
+}
+
+QSurfaceFormat baseFormat() {
     QSurfaceFormat format;
     format.setVersion(3, 3);
     format.setProfile(QSurfaceFormat::CoreProfile);
-    format.setSamples(4);
     format.setAlphaBufferSize(0);
+    return format;
+}
+
+struct GlSupport {
+    bool usable = false;
+    bool software = false;
+};
+
+GlSupport probeSupport() {
+    QOpenGLContext context;
+    context.setFormat(baseFormat());
+    if (!context.create()) {
+        return {};
+    }
+    const QSurfaceFormat got = context.format();
+    GlSupport support{.usable = got.majorVersion() > 3 ||
+                                (got.majorVersion() == 3 && got.minorVersion() >= 3)};
+    QOffscreenSurface surface;
+    surface.setFormat(got);
+    surface.create();
+    if (context.makeCurrent(&surface)) {
+        const auto *name =
+            reinterpret_cast<const char *>(context.functions()->glGetString(GL_RENDERER));
+        support.software = name != nullptr && isSoftwareRenderer(name);
+        context.doneCurrent();
+    }
+    return support;
+}
+
+const GlSupport &glSupport() {
+    static const GlSupport support = probeSupport();
+    return support;
+}
+
+QSurfaceFormat canvasFormat() {
+    QSurfaceFormat format = baseFormat();
+    format.setSamples(glSupport().software ? 0 : 4);
     return format;
 }
 
@@ -98,11 +171,9 @@ GlCanvas::GlCanvas(QWidget *parent) : QOpenGLWidget(parent) {
     setFormat(canvasFormat());
     setAttribute(Qt::WA_TransparentForMouseEvents);
     setFocusPolicy(Qt::NoFocus);
-    animation.setInterval(frameMs);
-    connect(&animation, &QTimer::timeout, this, [this] {
-        update();
-        if (sinceFrame.elapsed() >= tweenMs) {
-            animation.stop();
+    connect(this, &QOpenGLWidget::frameSwapped, this, [this] {
+        if (paintedProgress < 1.0F) {
+            update();
         }
     });
 }
@@ -113,10 +184,14 @@ GlCanvas::~GlCanvas() {
     }
     makeCurrent();
     glDeleteVertexArrays(1, &vao);
+    glDeleteVertexArrays(1, &densityVao);
+    glDeleteTextures(1, &densityTexture);
     glDeleteBuffers(1, &quad);
     glDeleteBuffers(1, &shapeBuffer);
-    glDeleteBuffers(2, positionBuffers.data());
+    glDeleteBuffers(1, &fromBuffer);
+    glDeleteBuffers(1, &toBuffer);
     program.reset();
+    densityProgram.reset();
     doneCurrent();
 }
 
@@ -124,13 +199,7 @@ bool GlCanvas::available() {
     if (QGuiApplication::platformName() == QStringLiteral("offscreen")) {
         return false;
     }
-    QOpenGLContext context;
-    context.setFormat(canvasFormat());
-    if (!context.create()) {
-        return false;
-    }
-    const QSurfaceFormat got = context.format();
-    return got.majorVersion() > 3 || (got.majorVersion() == 3 && got.minorVersion() >= 3);
+    return glSupport().usable;
 }
 
 void GlCanvas::setFrame(const LayoutFrame &frame) {
@@ -139,25 +208,39 @@ void GlCanvas::setFrame(const LayoutFrame &frame) {
         update();
         return;
     }
-    if (frame.geometry != geometry) {
+    const bool freshGeometry = frame.geometry != geometry;
+    if (freshGeometry) {
         geometry = frame.geometry;
         geometryDirty = true;
-        tween = false;
+        arrivalClock.invalidate();
+        frameIntervalMs = firstTweenMs;
         const LayoutGeometry &g = *geometry;
+        const auto extent = [&g](std::uint32_t v) {
+            return std::max(g.width[v], g.height[v]);
+        };
         order.clear();
         for (const CellKind kind : {CellKind::Macro, CellKind::Movable, CellKind::Pad}) {
+            const auto first = static_cast<std::ptrdiff_t>(order.size());
             for (std::uint32_t v = 0; v < g.kind.size(); ++v) {
                 if (g.kind[v] == kind) {
                     order.push_back(v);
                 }
             }
+            if (kind == CellKind::Movable) {
+                std::ranges::stable_sort(order.begin() + first, order.end(), std::ranges::greater{},
+                                         extent);
+                movableExtent.clear();
+                for (auto at = order.begin() + first; at != order.end(); ++at) {
+                    movableExtent.push_back(extent(*at));
+                }
+            }
         }
         const auto &die = g.die;
         shape.clear();
-        nextPositions.clear();
+        toPositions.clear();
         const auto add = [this](float x, float y, float w, float h, int kind) {
-            nextPositions.push_back(x);
-            nextPositions.push_back(y);
+            toPositions.push_back(x);
+            toPositions.push_back(y);
             shape.push_back(w);
             shape.push_back(h);
             shape.push_back(static_cast<float>(kind));
@@ -189,20 +272,46 @@ void GlCanvas::setFrame(const LayoutFrame &frame) {
         mark(5);
         typicalWidth = g.typicalWidth;
         rowHeight = g.rows.empty() ? 0.0 : g.rows.front().height;
-    } else {
-        tween = true;
     }
     const std::size_t base = ranges[2].first * 2;
+    if (!freshGeometry) {
+        const float shown = tweenProgress();
+        for (std::size_t i = base; i < base + 2 * order.size(); ++i) {
+            fromPositions[i] += (toPositions[i] - fromPositions[i]) * shown;
+        }
+    }
     for (std::size_t i = 0; i < order.size(); ++i) {
-        nextPositions[base + 2 * i] = frame.x[order[i]];
-        nextPositions[base + 2 * i + 1] = frame.y[order[i]];
+        toPositions[base + 2 * i] = frame.x[order[i]];
+        toPositions[base + 2 * i + 1] = frame.y[order[i]];
     }
     positionsDirty = true;
-    sinceFrame.start();
-    if (tween) {
-        animation.start();
+    if (freshGeometry) {
+        fromPositions = toPositions;
+        tweenClock.invalidate();
+        paintedProgress = 1.0F;
+    } else {
+        startTween();
     }
     update();
+}
+
+void GlCanvas::startTween() {
+    if (arrivalClock.isValid()) {
+        const auto interval = static_cast<double>(arrivalClock.restart());
+        frameIntervalMs += intervalSmoothing * (interval - frameIntervalMs);
+    } else {
+        arrivalClock.start();
+    }
+    tweenMs = std::clamp(frameIntervalMs, shortestTweenMs, longestTweenMs);
+    tweenClock.start();
+    paintedProgress = 0.0F;
+}
+
+float GlCanvas::tweenProgress() const {
+    if (!tweenClock.isValid() || tweenMs <= 0.0) {
+        return 1.0F;
+    }
+    return std::min(1.0F, static_cast<float>(static_cast<double>(tweenClock.elapsed()) / tweenMs));
 }
 
 void GlCanvas::setCamera(QPointF newCenter, double newScale) {
@@ -228,38 +337,76 @@ void GlCanvas::initializeGL() {
     glEnableVertexAttribArray(0);
     glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, nullptr);
     glGenBuffers(1, &shapeBuffer);
-    glGenBuffers(2, positionBuffers.data());
+    glGenBuffers(1, &fromBuffer);
+    glGenBuffers(1, &toBuffer);
     for (unsigned attribute = 1; attribute <= 3; ++attribute) {
         glEnableVertexAttribArray(attribute);
         glVertexAttribDivisor(attribute, 1);
     }
     glBindVertexArray(0);
+
+    densityProgram = std::make_unique<QOpenGLShaderProgram>();
+    densityProgram->addShaderFromSourceCode(QOpenGLShader::Vertex, densityVertexShader);
+    densityProgram->addShaderFromSourceCode(QOpenGLShader::Fragment, densityFragmentShader);
+    if (!densityProgram->link()) {
+        return;
+    }
+    glGenVertexArrays(1, &densityVao);
+    glBindVertexArray(densityVao);
+    glBindBuffer(GL_ARRAY_BUFFER, quad);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 0, nullptr);
+    glBindVertexArray(0);
+    glGenTextures(1, &densityTexture);
+    glBindTexture(GL_TEXTURE_2D, densityTexture);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glBindTexture(GL_TEXTURE_2D, 0);
     ready = true;
+
+    const auto *name = reinterpret_cast<const char *>(glGetString(GL_RENDERER));
+    const std::string_view renderer = name != nullptr ? name : "";
+    if (isSoftwareRenderer(renderer)) {
+        ktlog.warning(
+            "layout view: OpenGL is rendering on the CPU ({}); large designs animate slowly",
+            renderer);
+    }
 }
 
 void GlCanvas::uploadGeometry() {
     glBindBuffer(GL_ARRAY_BUFFER, shapeBuffer);
     glBufferData(GL_ARRAY_BUFFER, static_cast<GLsizeiptr>(shape.size() * sizeof(float)),
                  shape.data(), GL_STATIC_DRAW);
-    for (const unsigned buffer : positionBuffers) {
+    for (const unsigned buffer : {fromBuffer, toBuffer}) {
         glBindBuffer(GL_ARRAY_BUFFER, buffer);
-        glBufferData(GL_ARRAY_BUFFER, static_cast<GLsizeiptr>(nextPositions.size() * sizeof(float)),
-                     nextPositions.data(), GL_DYNAMIC_DRAW);
+        glBufferData(GL_ARRAY_BUFFER, static_cast<GLsizeiptr>(toPositions.size() * sizeof(float)),
+                     nullptr, GL_DYNAMIC_DRAW);
     }
     geometryDirty = false;
+    uploadPositions();
+}
+
+void GlCanvas::uploadPositions() {
+    const auto bytes = static_cast<GLsizeiptr>(toPositions.size() * sizeof(float));
+    glBindBuffer(GL_ARRAY_BUFFER, fromBuffer);
+    glBufferSubData(GL_ARRAY_BUFFER, 0, bytes, fromPositions.data());
+    glBindBuffer(GL_ARRAY_BUFFER, toBuffer);
+    glBufferSubData(GL_ARRAY_BUFFER, 0, bytes, toPositions.data());
     positionsDirty = false;
 }
 
-void GlCanvas::drawRange(const Range &range, unsigned previous) {
+void GlCanvas::drawRange(const Range &range) {
     if (range.count == 0) {
         return;
     }
     const auto offset = [](std::size_t floats) {
         return reinterpret_cast<const void *>(floats * sizeof(float));
     };
-    glBindBuffer(GL_ARRAY_BUFFER, previous);
+    glBindBuffer(GL_ARRAY_BUFFER, fromBuffer);
     glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 0, offset(range.first * 2));
-    glBindBuffer(GL_ARRAY_BUFFER, positionBuffers[current]);
+    glBindBuffer(GL_ARRAY_BUFFER, toBuffer);
     glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, 0, offset(range.first * 2));
     glBindBuffer(GL_ARRAY_BUFFER, shapeBuffer);
     glVertexAttribPointer(3, 3, GL_FLOAT, GL_FALSE, 0, offset(range.first * 3));
@@ -275,16 +422,10 @@ void GlCanvas::paintGL() {
     if (geometryDirty) {
         uploadGeometry();
     } else if (positionsDirty) {
-        current ^= 1U;
-        glBindBuffer(GL_ARRAY_BUFFER, positionBuffers[current]);
-        glBufferSubData(GL_ARRAY_BUFFER, 0,
-                        static_cast<GLsizeiptr>(nextPositions.size() * sizeof(float)),
-                        nextPositions.data());
-        positionsDirty = false;
+        uploadPositions();
     }
-    const unsigned previous = tween ? positionBuffers[current ^ 1U] : positionBuffers[current];
-    const float t =
-        tween ? std::min(1.0F, static_cast<float>(sinceFrame.elapsed()) / tweenMs) : 1.0F;
+    const float t = tweenProgress();
+    paintedProgress = t;
 
     const qreal dpr = devicePixelRatioF();
     const double deviceScale = scale * dpr;
@@ -309,15 +450,94 @@ void GlCanvas::paintGL() {
     program->setUniformValueArray("edge", edges.data(), kinds);
 
     glBindVertexArray(vao);
-    drawRange(ranges[0], previous);
+    drawRange(ranges[0]);
     if (rowHeight * deviceScale >= visibleRowPx * dpr) {
-        drawRange(ranges[1], previous);
+        drawRange(ranges[1]);
     }
-    for (std::size_t slot = 2; slot < ranges.size(); ++slot) {
-        drawRange(ranges[slot], previous);
+    drawRange(ranges[2]);
+    if (typicalWidth * deviceScale < densityCellPx) {
+        const Range &movable = ranges[3];
+        const auto visible = static_cast<std::size_t>(
+            std::ranges::partition_point(movableExtent,
+                                         [deviceScale](float cellExtent) {
+                                             return cellExtent * deviceScale >= densityCellPx;
+                                         }) -
+            movableExtent.begin());
+        drawRange({movable.first, visible});
+        glBindVertexArray(0);
+        drawDensity({movable.first + visible, movable.count - visible}, t, deviceScale);
+        program->bind();
+        glBindVertexArray(vao);
+    } else {
+        drawRange(ranges[3]);
     }
+    drawRange(ranges[4]);
+    drawRange(ranges[5]);
     glBindVertexArray(0);
     program->release();
+}
+
+void GlCanvas::drawDensity(const Range &range, float progress, double deviceScale) {
+    const qreal dpr = devicePixelRatioF();
+    const auto pixelsWide = static_cast<int>(std::lround(width() * dpr));
+    const auto pixelsHigh = static_cast<int>(std::lround(height() * dpr));
+    if (pixelsWide <= 0 || pixelsHigh <= 0 || range.count == 0) {
+        return;
+    }
+    const auto columns = static_cast<std::size_t>(pixelsWide);
+    const auto pixels = columns * static_cast<std::size_t>(pixelsHigh);
+    transmittance.assign(pixels, 1.0F);
+    const double halfWide = pixelsWide * 0.5;
+    const double halfHigh = pixelsHigh * 0.5;
+    const double pixelArea = deviceScale * deviceScale;
+    for (std::size_t i = range.first; i < range.first + range.count; ++i) {
+        const float x =
+            fromPositions[2 * i] + (toPositions[2 * i] - fromPositions[2 * i]) * progress;
+        const float y = fromPositions[2 * i + 1] +
+                        (toPositions[2 * i + 1] - fromPositions[2 * i + 1]) * progress;
+        const double cellWidth = shape[3 * i];
+        const double cellHeight = shape[3 * i + 1];
+        const double column = (x + cellWidth * 0.5 - center.x()) * deviceScale + halfWide;
+        const double row = (y + cellHeight * 0.5 - center.y()) * deviceScale + halfHigh;
+        if (column < 0.0 || row < 0.0 || column >= pixelsWide || row >= pixelsHigh) {
+            continue;
+        }
+        const auto alpha = static_cast<float>(
+            std::clamp(cellWidth * cellHeight * pixelArea, double{movableMinAlpha}, 1.0));
+        transmittance[static_cast<std::size_t>(row) * columns + static_cast<std::size_t>(column)] *=
+            1.0F - alpha;
+    }
+
+    const auto red = static_cast<std::uint8_t>((movableFill >> 16) & 0xff);
+    const auto green = static_cast<std::uint8_t>((movableFill >> 8) & 0xff);
+    const auto blue = static_cast<std::uint8_t>(movableFill & 0xff);
+    densityPixels.resize(pixels * 4);
+    for (std::size_t p = 0; p < pixels; ++p) {
+        std::uint8_t *out = &densityPixels[4 * p];
+        out[0] = red;
+        out[1] = green;
+        out[2] = blue;
+        out[3] = static_cast<std::uint8_t>(std::lround((1.0F - transmittance[p]) * 255.0F));
+    }
+
+    glBindTexture(GL_TEXTURE_2D, densityTexture);
+    if (pixelsWide != densityWidth || pixelsHigh != densityHeight) {
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, pixelsWide, pixelsHigh, 0, GL_RGBA,
+                     GL_UNSIGNED_BYTE, densityPixels.data());
+        densityWidth = pixelsWide;
+        densityHeight = pixelsHigh;
+    } else {
+        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, pixelsWide, pixelsHigh, GL_RGBA, GL_UNSIGNED_BYTE,
+                        densityPixels.data());
+    }
+    densityProgram->bind();
+    glActiveTexture(GL_TEXTURE0);
+    densityProgram->setUniformValue("density", 0);
+    glBindVertexArray(densityVao);
+    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+    glBindVertexArray(0);
+    densityProgram->release();
+    glBindTexture(GL_TEXTURE_2D, 0);
 }
 
 }  // namespace ktplace::gui

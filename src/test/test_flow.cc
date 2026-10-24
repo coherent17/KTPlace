@@ -474,6 +474,32 @@ BOOST_AUTO_TEST_CASE(the_shell_remembers_its_commands) {
     BOOST_TEST(std::ranges::count(history.entries(), "help") == 1);
 }
 
+BOOST_AUTO_TEST_CASE(running_a_freshly_loaded_design_does_not_read_it_again) {
+    const ScratchDir dir("freshrun");
+    writeBookshelfDesign(dir);
+    OptionDb::instance().set(Component::Visualizer, "plot", OptionValue{0});
+    const kt_option opt = optionsFor(dir, designDir(dir).string());
+    const auto reads = [&opt] {
+        std::ifstream log(opt.getLogFile());
+        std::size_t count = 0;
+        for (std::string line; std::getline(log, line);) {
+            count += line.find("Reading bookshelf input") != std::string::npos ? 1 : 0;
+        }
+        return count;
+    };
+    FlowMgr flow;
+    flow.begin(opt);
+    flow.readDesign(opt.inputPath);
+    BOOST_TEST(flow.isFreshlyLoaded(opt.inputPath));
+    flow.run(opt);
+    BOOST_TEST(reads() == 1U);
+    BOOST_TEST(!flow.isFreshlyLoaded(opt.inputPath));
+    BOOST_TEST(fs::exists(opt.getOutputPath()));
+    flow.run(opt);
+    BOOST_TEST(reads() == 2U);
+    OptionDb::instance().clear();
+}
+
 BOOST_AUTO_TEST_CASE(a_batch_run_places_the_design_and_succeeds) {
     const ScratchDir dir("batch");
     writeBookshelfDesign(dir);

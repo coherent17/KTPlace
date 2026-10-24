@@ -99,7 +99,10 @@ void Runner::Impl::openSession() {
 
 RunResult Runner::Impl::place(const RunRequest &request) {
     OptionDb::instance().clear();
-    TimerRegistry::instance().reset();
+    const bool reuseSession = session && session->isFreshlyLoaded(request.design);
+    if (!reuseSession) {
+        TimerRegistry::instance().reset();
+    }
 
     kt_option options;
     options.inputPath = request.design;
@@ -109,7 +112,9 @@ RunResult Runner::Impl::place(const RunRequest &request) {
 
     std::error_code ec;
     std::filesystem::create_directories(options.workDir, ec);
-    openSession();
+    if (!reuseSession) {
+        openSession();
+    }
     RunResult result;
     try {
         session->run(options);

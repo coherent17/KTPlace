@@ -6,9 +6,9 @@
 #include <QOpenGLExtraFunctions>
 #include <QOpenGLWidget>
 #include <QPointF>
-#include <QTimer>
 #include <array>
 #include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <vector>
 
@@ -40,31 +40,47 @@ private:
     };
 
     void uploadGeometry();
-    void drawRange(const Range &range, unsigned buffer);
+    void uploadPositions();
+    void drawRange(const Range &range);
+    void drawDensity(const Range &range, float progress, double deviceScale);
+    void startTween();
+    [[nodiscard]] float tweenProgress() const;
 
     std::shared_ptr<const LayoutGeometry> geometry;
     std::vector<std::uint32_t> order;
+    std::vector<float> movableExtent;
     std::vector<float> shape;
-    std::vector<float> nextPositions;
+    std::vector<float> fromPositions;
+    std::vector<float> toPositions;
     std::array<Range, 6> ranges{};
     bool geometryDirty = false;
     bool positionsDirty = false;
-    bool tween = false;
 
     QPointF center;
     double scale = 1.0;
     double typicalWidth = 1.0;
     double rowHeight = 0.0;
 
-    QTimer animation;
-    QElapsedTimer sinceFrame;
+    QElapsedTimer tweenClock;
+    QElapsedTimer arrivalClock;
+    double tweenMs = 0.0;
+    double frameIntervalMs = 0.0;
+    float paintedProgress = 1.0F;
+
+    std::vector<float> transmittance;
+    std::vector<std::uint8_t> densityPixels;
 
     std::unique_ptr<QOpenGLShaderProgram> program;
+    std::unique_ptr<QOpenGLShaderProgram> densityProgram;
     unsigned vao = 0;
+    unsigned densityVao = 0;
+    unsigned densityTexture = 0;
+    int densityWidth = 0;
+    int densityHeight = 0;
     unsigned quad = 0;
     unsigned shapeBuffer = 0;
-    std::array<unsigned, 2> positionBuffers{};
-    std::size_t current = 0;
+    unsigned fromBuffer = 0;
+    unsigned toBuffer = 0;
     bool ready = false;
 };
 
