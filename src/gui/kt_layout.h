@@ -14,7 +14,7 @@ class ktDM;
 
 namespace ktplace::gui {
 
-enum class CellKind : std::uint8_t { Movable, Macro, Pad };
+enum class CellKind : std::uint8_t { Movable, Macro, Pad, MovableMacro };
 
 struct Bounds {
     double xlo = 0.0;

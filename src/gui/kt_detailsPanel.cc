@@ -1,10 +1,13 @@
 #include "gui/kt_detailsPanel.h"
 
 #include <QHeaderView>
+#include <QItemSelectionModel>
 #include <QLabel>
+#include <QSignalBlocker>
 #include <QTableWidget>
 #include <QTableWidgetItem>
 #include <QVBoxLayout>
+#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -23,9 +26,11 @@ constexpr int netIdRole = Qt::UserRole + 1;
 QString kindName(CellKind kind) {
     switch (kind) {
         case CellKind::Movable:
-            return QStringLiteral("Movable cell");
+            return QStringLiteral("Standard cell");
         case CellKind::Macro:
             return QStringLiteral("Fixed macro");
+        case CellKind::MovableMacro:
+            return QStringLiteral("Movable macro");
         case CellKind::Pad:
             return QStringLiteral("I/O pad");
     }
@@ -43,7 +48,14 @@ QString boundsText(const Bounds &box) {
 
 class NumericItem : public QTableWidgetItem {
 public:
-    NumericItem(double value, const QString &text) : QTableWidgetItem(text), sortKey(value) {}
+    NumericItem(double value, const QString &text) : QTableWidgetItem(text), sortKey(value) {
+        setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
+    }
+
+    void setValue(double value, const QString &text) {
+        sortKey = value;
+        setText(text);
+    }
 
     bool operator<(const QTableWidgetItem &other) const override {
         const auto *numeric = dynamic_cast<const NumericItem *>(&other);
@@ -63,6 +75,34 @@ public:
     QLabel *netsHeading = nullptr;
     QTableWidget *nets = nullptr;
     std::function<void(std::uint32_t, bool)> listener;
+    const LayoutGeometry *listedGeometry = nullptr;
+    std::vector<std::uint32_t> listedNets;
+
+    [[nodiscard]] std::uint32_t netInRow(int row) const {
+        return nets->item(row, 0)->data(netIdRole).toUInt();
+    }
+
+    void updateNetValues(const LayoutFrame &frame) {
+        for (int row = 0; row < nets->rowCount(); ++row) {
+            const std::optional<Bounds> box = frame.netBounds(netInRow(row));
+            const double hpwl = box ? box->halfPerimeter() : 0.0;
+            if (auto *item = dynamic_cast<NumericItem *>(nets->item(row, 2))) {
+                item->setValue(hpwl, number(hpwl));
+            }
+        }
+    }
+
+    void highlightNets(const std::vector<std::uint32_t> &shown) const {
+        const QSignalBlocker blocker(nets->selectionModel());
+        nets->clearSelection();
+        for (int row = 0; row < nets->rowCount(); ++row) {
+            if (std::ranges::binary_search(shown, netInRow(row))) {
+                nets->selectionModel()->select(
+                    nets->model()->index(row, 0),
+                    QItemSelectionModel::Select | QItemSelectionModel::Rows);
+            }
+        }
+    }
 
     void setProperties(std::span<const std::pair<QString, QString>> rows) {
         properties->setRowCount(static_cast<int>(rows.size()));
@@ -74,7 +114,14 @@ public:
     }
 
     void setNets(const LayoutFrame &frame, std::span<const std::uint32_t> ids) {
+        if (listedGeometry == frame.geometry.get() && std::ranges::equal(ids, listedNets)) {
+            updateNetValues(frame);
+            return;
+        }
+        listedGeometry = frame.geometry.get();
+        listedNets.assign(ids.begin(), ids.end());
         const LayoutGeometry &geometry = *frame.geometry;
+        nets->clearSelection();
         nets->setSortingEnabled(false);
         nets->setRowCount(static_cast<int>(ids.size()));
         for (int row = 0; row < static_cast<int>(ids.size()); ++row) {
@@ -130,7 +177,7 @@ public:
 
     void describeCells(const LayoutFrame &frame, std::span<const std::uint32_t> cells) {
         const LayoutGeometry &geometry = *frame.geometry;
-        std::array<std::size_t, 3> counts{};
+        std::array<std::size_t, 4> counts{};
         double area = 0.0;
         for (const std::uint32_t cell : cells) {
             ++counts[static_cast<std::size_t>(geometry.kind[cell])];
@@ -138,10 +185,14 @@ public:
         }
         heading->setText(QStringLiteral("%1 cells selected").arg(cells.size()));
         const std::optional<Bounds> box = frame.cellsBounds(cells);
-        const std::array<std::pair<QString, QString>, 5> rows{{
-            {kindName(CellKind::Movable), QString::number(counts[0])},
-            {kindName(CellKind::Macro), QString::number(counts[1])},
-            {kindName(CellKind::Pad), QString::number(counts[2])},
+        const auto count = [&counts](CellKind kind) {
+            return QString::number(counts[static_cast<std::size_t>(kind)]);
+        };
+        const std::array<std::pair<QString, QString>, 6> rows{{
+            {kindName(CellKind::Movable), count(CellKind::Movable)},
+            {kindName(CellKind::MovableMacro), count(CellKind::MovableMacro)},
+            {kindName(CellKind::Macro), count(CellKind::Macro)},
+            {kindName(CellKind::Pad), count(CellKind::Pad)},
             {QStringLiteral("Total area"), number(area)},
             {QStringLiteral("Bounds"), box ? boundsText(*box) : QString()},
         }};
@@ -180,6 +231,8 @@ public:
             {QStringLiteral("Ctrl+F"), QStringLiteral("locate cells or nets by name")},
         }};
         setProperties(rows);
+        listedGeometry = nullptr;
+        listedNets.clear();
         nets->setRowCount(0);
         nets->setVisible(false);
         netsHeading->setVisible(false);
@@ -256,6 +309,7 @@ void DetailsPanel::describe(const LayoutFrame &frame, const SelectionSet &select
     } else {
         pImpl->describeNothing();
     }
+    pImpl->highlightNets(selection.nets());
 }
 
 void DetailsPanel::onNetChosen(std::function<void(std::uint32_t, bool)> listener) {

@@ -21,8 +21,9 @@ constexpr std::array<LayerInfo, displayLayers.size()> layerInfo{{
     {"Die outline", "die", 0x8b97a3, true},
     {"Placement rows", "rows", 0x3b454e, true},
     {"Fixed macros", "macros", 0x7d8a99, true},
-    {"Movable cells", "cells", 0x4ab5e5, true},
-    {"I/O pads", "pads", 0xe0a030, true},
+    {"Movable macros", "blocks", 0xd08c45, true},
+    {"Standard cells", "cells", 0x4ab5e5, true},
+    {"I/O pads", "pads", 0xc9d1d9, true},
     {"Fence regions", "fences", 0x9b7fe6, true},
     {"Selection", "selection", 0xff3b30, true},
     {"Connectivity", "nets", 0xff3b30, true},
@@ -34,6 +35,20 @@ std::size_t indexOf(DisplayLayer layer) {
 }
 
 }  // namespace
+
+DisplayLayer layerOf(CellKind kind) {
+    switch (kind) {
+        case CellKind::Movable:
+            return DisplayLayer::MovableCells;
+        case CellKind::MovableMacro:
+            return DisplayLayer::MovableMacros;
+        case CellKind::Macro:
+            return DisplayLayer::Macros;
+        case CellKind::Pad:
+            return DisplayLayer::Pads;
+    }
+    return DisplayLayer::MovableCells;
+}
 
 DisplayStyle::DisplayStyle() {
     for (const DisplayLayer layer : displayLayers) {

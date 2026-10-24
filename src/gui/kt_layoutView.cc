@@ -379,15 +379,23 @@ std::optional<std::uint32_t> LayoutView::Impl::pick(QPointF screen) const {
     const QPointF at = view.screenToWorld(screen);
     const double slack = pickSlackPx / scale;
     const auto pickLayer = [](CellKind kind) {
-        return kind == CellKind::Pad ? 0 : (kind == CellKind::Movable ? 1 : 2);
+        switch (kind) {
+            case CellKind::Pad:
+                return 0;
+            case CellKind::Movable:
+                return 1;
+            case CellKind::MovableMacro:
+                return 2;
+            case CellKind::Macro:
+                return 3;
+        }
+        return 3;
     };
     const auto pickable = [this](CellKind kind) {
-        return style.shows(kind == CellKind::Pad       ? DisplayLayer::Pads
-                           : kind == CellKind::Movable ? DisplayLayer::MovableCells
-                                                       : DisplayLayer::Macros);
+        return style.shows(layerOf(kind));
     };
     std::optional<std::uint32_t> best;
-    int bestLayer = 3;
+    int bestLayer = 4;
     double bestDistance = 0.0;
     for (std::uint32_t v = 0; v < frame.x.size(); ++v) {
         const double x0 = frame.x[v];
@@ -451,6 +459,7 @@ void LayoutView::Impl::render() {
     std::vector<float> density;
     std::vector<QRectF> movable;
     std::vector<QRectF> macros;
+    std::vector<QRectF> blocks;
     std::vector<QRectF> pads;
     for (std::size_t v = 0; v < frame.x.size(); ++v) {
         const double x = frame.x[v];
@@ -482,7 +491,10 @@ void LayoutView::Impl::render() {
             }
             continue;
         }
-        (kind == CellKind::Macro ? macros : movable).push_back(rectOf(x, y, w, h));
+        (kind == CellKind::Macro          ? macros
+         : kind == CellKind::MovableMacro ? blocks
+                                          : movable)
+            .push_back(rectOf(x, y, w, h));
     }
 
     if (style.shows(DisplayLayer::Macros)) {
@@ -490,6 +502,16 @@ void LayoutView::Impl::render() {
                                                           : QPen(Qt::NoPen));
         painter.setBrush(macroFill);
         painter.drawRects(macros.data(), static_cast<int>(macros.size()));
+        painter.setPen(Qt::NoPen);
+        painter.setBrush(QBrush(macroFill.darker(edgeDarkening), Qt::BDiagPattern));
+        painter.drawRects(macros.data(), static_cast<int>(macros.size()));
+    }
+
+    if (style.shows(DisplayLayer::MovableMacros)) {
+        const QColor blockFill = style[DisplayLayer::MovableMacros].color;
+        painter.setPen(QPen(blockFill.darker(edgeDarkening), 0));
+        painter.setBrush(blockFill);
+        painter.drawRects(blocks.data(), static_cast<int>(blocks.size()));
     }
 
     if (style.shows(DisplayLayer::MovableCells)) {

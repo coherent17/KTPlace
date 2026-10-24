@@ -54,8 +54,12 @@ std::shared_ptr<const LayoutGeometry> LayoutGeometry::of(const ktDM &db) {
     const float macroArea =
         macroAreaInTypicalCells * geometry->typicalWidth * median(std::move(movableHeights));
     for (std::size_t v = 0; v < n; ++v) {
-        if (graph.getCell(v).isTerminal && geometry->width[v] * geometry->height[v] <= macroArea) {
+        const Vertex &cell = graph.getCell(v);
+        const bool large = geometry->width[v] * geometry->height[v] > macroArea;
+        if (cell.isTerminal && !large) {
             geometry->kind[v] = CellKind::Pad;
+        } else if (!cell.isFixed && large) {
+            geometry->kind[v] = CellKind::MovableMacro;
         }
     }
 

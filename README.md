@@ -141,8 +141,9 @@ script, press Run, and watch each stage move the cells while the log streams bel
   with pin counts and HPWL (click a net to show it, double-click to zoom to it); a summary for
   several cells or for shown nets.
 - **Visibility** panel (right, hidden until you press **Visibility** on the toolbar): show, hide and
-  recolour the die, rows, macros, cells, pads, fences, the selection, connectivity and the
-  routing-demand map.
+  recolour the die, rows, fixed macros (grey, hatched), movable macros (copper), standard cells
+  (blue), pads, fences, the selection and connectivity (red) and the routing-demand map. A movable
+  cell larger than 16 typical cells counts as a movable macro.
 - **Locate** (Ctrl+F): find cells or nets by name or pattern (`a12*`, `*clk*`, `n?7`), then select
   them and zoom to them.
 - Mouse and keys: click selects (outlined in red), Ctrl+click adds or removes, right-click >
@@ -161,7 +162,7 @@ script, press Run, and watch each stage move the cells while the log streams bel
 | `layout_clear` | drop the selection and the shown nets |
 | `layout_view_all`, `layout_view_selection` | show the whole die; show the selection |
 | `layout_view_area x1 y1 x2 y2` | show an area, in design units |
-| `layout_layer ?layer? ?on\|off?` | list the layers, or show or hide one (`macros`, `cells`, `nets`, ...) |
+| `layout_layer ?layer? ?on\|off?` | list the layers, or show or hide one (`macros`, `blocks`, `cells`, `nets`, ...) |
 | `layout_capture file.png` | save the view as an image |
 
 To try it without building anything, download the release's AppImage (Qt bundled in, see

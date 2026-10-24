@@ -55,7 +55,7 @@ private:
     std::vector<float> shape;
     std::vector<float> fromPositions;
     std::vector<float> toPositions;
-    std::array<Range, 6> ranges{};
+    std::array<Range, 7> ranges{};
     bool geometryDirty = false;
     bool positionsDirty = false;
 

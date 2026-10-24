@@ -99,6 +99,36 @@ public:
         out << content;
     }
 
+    [[nodiscard]] std::string blockDesign() const {
+        write("blocks/blocks.nodes",
+              "UCLA nodes 1.0\n\nNumNodes : 7\nNumTerminals : 2\n\n"
+              "\tc0\t1.0\t2.0\n\tc1\t1.0\t2.0\n\tc2\t1.0\t2.0\n\tc3\t1.0\t2.0\n"
+              "\tbig\t10.0\t6.0\n"
+              "\tpadA\t1.0\t2.0\tterminal\n\tpadB\t1.0\t2.0\tterminal\n");
+        write("blocks/blocks.nets",
+              "UCLA nets 1.0\n\nNumNets : 2\nNumPins : 6\n\n"
+              "NetDegree : 3\tn0\n\tpadA I\t: 0.0\t0.0\n\tc0 O\t: 0.0\t0.0\n"
+              "\tbig O\t: 0.0\t0.0\n"
+              "NetDegree : 3\tn1\n\tbig I\t: 0.0\t0.0\n\tpadB O\t: 0.0\t0.0\n"
+              "\tc1 O\t: 0.0\t0.0\n");
+        write("blocks/blocks.pl",
+              "UCLA pl 1.0\n\nc0\t0\t0 : N\nc1\t2\t0 : N\nc2\t4\t0 : N\nc3\t6\t0 : N\n"
+              "big\t8\t0 : N\npadA\t0\t0 : N /FIXED\npadB\t19\t0 : N /FIXED\n");
+        write("blocks/blocks.scl",
+              "UCLA scl 1.0\n\nNumRows : 4\n\n"
+              "CoreRow Horizontal\n  Coordinate   :  0\n  Height       :  2\n  Sitewidth    :  1\n"
+              "  Sitespacing  :  1\n  SubrowOrigin :  0 NumSites :  20\nEnd\n"
+              "CoreRow Horizontal\n  Coordinate   :  2\n  Height       :  2\n  Sitewidth    :  1\n"
+              "  Sitespacing  :  1\n  SubrowOrigin :  0 NumSites :  20\nEnd\n"
+              "CoreRow Horizontal\n  Coordinate   :  4\n  Height       :  2\n  Sitewidth    :  1\n"
+              "  Sitespacing  :  1\n  SubrowOrigin :  0 NumSites :  20\nEnd\n"
+              "CoreRow Horizontal\n  Coordinate   :  6\n  Height       :  2\n  Sitewidth    :  1\n"
+              "  Sitespacing  :  1\n  SubrowOrigin :  0 NumSites :  20\nEnd\n");
+        write("blocks/blocks.aux",
+              "RowBasedPlacement : blocks.nodes blocks.nets blocks.pl blocks.scl\n");
+        return file("blocks").string();
+    }
+
     [[nodiscard]] std::string design() const {
         std::string nodes = "UCLA nodes 1.0\n\nNumNodes : 7\nNumTerminals : 3\n\n";
         for (int i = 0; i < 4; ++i) {
@@ -533,7 +563,10 @@ BOOST_AUTO_TEST_CASE(every_display_layer_has_a_key_that_finds_it) {
     BOOST_TEST(!style.shows(DisplayLayer::RoutingDemand));
     BOOST_TEST(style.shows(DisplayLayer::Macros));
     BOOST_TEST((style[DisplayLayer::Macros].color == QColor(0x7d, 0x8a, 0x99)));
-    BOOST_TEST((style[DisplayLayer::Pads].color == QColor(0xe0, 0xa0, 0x30)));
+    BOOST_TEST((style[DisplayLayer::Pads].color == QColor(0xc9, 0xd1, 0xd9)));
+    BOOST_TEST((style[DisplayLayer::MovableMacros].color == QColor(0xd0, 0x8c, 0x45)));
+    BOOST_TEST((layerOf(CellKind::MovableMacro) == DisplayLayer::MovableMacros));
+    BOOST_TEST((layerOf(CellKind::Macro) == DisplayLayer::Macros));
     BOOST_TEST((style[DisplayLayer::Selection].color == QColor(0xff, 0x3b, 0x30)));
     BOOST_TEST((style[DisplayLayer::MarkedNets].color == QColor(0xff, 0x3b, 0x30)));
 }
@@ -981,4 +1014,87 @@ BOOST_AUTO_TEST_CASE(layout_connectivity_shows_and_hides_from_tcl) {
     BOOST_TEST(window.layoutView()->selection().nets().size() == 2U);
     BOOST_TEST(evaluate(QStringLiteral("layout_connectivity off")) == "0");
     BOOST_TEST(window.layoutView()->selection().nets().empty());
+}
+
+BOOST_AUTO_TEST_CASE(a_large_movable_cell_is_a_movable_macro_with_its_own_layer) {
+    const ScratchDir dir("blocks");
+    const std::unique_ptr<ktDM> db = readDesign(dir.blockDesign());
+    const auto geometry = LayoutGeometry::of(*db);
+    BOOST_REQUIRE_EQUAL(geometry->name[4], "big");
+    BOOST_TEST((geometry->kind[4] == CellKind::MovableMacro));
+    BOOST_TEST((geometry->kind[0] == CellKind::Movable));
+    BOOST_TEST((geometry->kind[5] == CellKind::Pad));
+
+    LayoutView view;
+    view.resize(400, 300);
+    view.setFrame(LayoutFrame::committed(geometry, *db, "load"));
+    const QPoint block = view.worldToScreen({13.0, 3.0}).toPoint();
+    BOOST_TEST((view.grab().toImage().pixelColor(block) == QColor(0xd0, 0x8c, 0x45)));
+    const QPoint cell = view.worldToScreen({0.5, 1.0}).toPoint();
+    BOOST_TEST((view.grab().toImage().pixelColor(cell) != QColor(0xd0, 0x8c, 0x45)));
+
+    DisplayStyle style = view.style();
+    style[DisplayLayer::MovableMacros].visible = false;
+    view.setStyle(style);
+    BOOST_TEST((view.grab().toImage().pixelColor(block) == QColor(0x10, 0x14, 0x18)));
+    view.selectAt(view.worldToScreen({13.0, 3.0}));
+    BOOST_TEST(!view.selectedCell().has_value());
+
+    view.setStyle(DisplayStyle());
+    view.selectAt(view.worldToScreen({13.0, 3.0}));
+    BOOST_REQUIRE(view.selectedCell().has_value());
+    BOOST_TEST(*view.selectedCell() == 4U);
+
+    DetailsPanel details;
+    details.describe(view.frame(), view.selection());
+    BOOST_TEST(details.title() == QStringLiteral("big"));
+    const QTableWidget *properties = details.findChildren<QTableWidget *>().front();
+    BOOST_TEST(properties->item(0, 1)->text() == QStringLiteral("Movable macro"));
+}
+
+BOOST_AUTO_TEST_CASE(the_clicked_net_stays_highlighted_while_the_table_refreshes) {
+    ShownDesign shown("stablenets");
+    LayoutView &view = *shown.window.layoutView();
+    DetailsPanel &details = *shown.window.detailsPanel();
+    view.selection().selectCells({0});
+    BOOST_REQUIRE(waitUntil([&] {
+        return details.title() == QStringLiteral("c0");
+    }));
+    QTableWidget *nets = details.findChildren<QTableWidget *>()[1];
+    BOOST_REQUIRE(nets->rowCount() == 2);
+    nets->sortByColumn(2, Qt::DescendingOrder);
+    const auto rowOf = [nets](const QString &name) {
+        for (int row = 0; row < nets->rowCount(); ++row) {
+            if (nets->item(row, 0)->text() == name) {
+                return row;
+            }
+        }
+        return -1;
+    };
+    const auto highlighted = [nets] {
+        QStringList names;
+        for (const QModelIndex &index : nets->selectionModel()->selectedRows()) {
+            names.push_back(nets->item(index.row(), 0)->text());
+        }
+        return names;
+    };
+    BOOST_REQUIRE(rowOf(QStringLiteral("n1")) == 0);
+
+    Q_EMIT nets->itemClicked(nets->item(rowOf(QStringLiteral("n0")), 0));
+    BOOST_TEST(view.selection().nets() == (std::vector<std::uint32_t>{0}));
+    QCoreApplication::processEvents();
+    BOOST_TEST(highlighted() == QStringList{QStringLiteral("n0")});
+
+    LayoutFrame moved = view.frame();
+    moved.x[2] += 30.0F;
+    view.setFrame(moved);
+    details.describe(view.frame(), view.selection());
+    BOOST_TEST(nets->rowCount() == 2);
+    BOOST_TEST(highlighted() == QStringList{QStringLiteral("n0")});
+    BOOST_TEST(nets->item(rowOf(QStringLiteral("n0")), 2)->text() == QStringLiteral("34.0"));
+    BOOST_TEST(rowOf(QStringLiteral("n0")) == 0);
+
+    view.selection().markNets({1});
+    QCoreApplication::processEvents();
+    BOOST_TEST(highlighted() == QStringList{QStringLiteral("n1")});
 }

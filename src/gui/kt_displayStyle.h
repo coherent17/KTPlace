@@ -1,5 +1,7 @@
 #pragma once
 
+#include "gui/kt_layout.h"
+
 #include <QColor>
 #include <array>
 #include <cstddef>
@@ -13,6 +15,7 @@ enum class DisplayLayer : std::uint8_t {
     Die,
     Rows,
     Macros,
+    MovableMacros,
     MovableCells,
     Pads,
     Fences,
@@ -22,9 +25,10 @@ enum class DisplayLayer : std::uint8_t {
 };
 
 inline constexpr std::array displayLayers{
-    DisplayLayer::Die,          DisplayLayer::Rows,       DisplayLayer::Macros,
-    DisplayLayer::MovableCells, DisplayLayer::Pads,       DisplayLayer::Fences,
-    DisplayLayer::Selection,    DisplayLayer::MarkedNets, DisplayLayer::RoutingDemand,
+    DisplayLayer::Die,           DisplayLayer::Rows,         DisplayLayer::Macros,
+    DisplayLayer::MovableMacros, DisplayLayer::MovableCells, DisplayLayer::Pads,
+    DisplayLayer::Fences,        DisplayLayer::Selection,    DisplayLayer::MarkedNets,
+    DisplayLayer::RoutingDemand,
 };
 
 struct LayerLook {
@@ -33,6 +37,8 @@ struct LayerLook {
 
     friend bool operator==(const LayerLook &, const LayerLook &) = default;
 };
+
+[[nodiscard]] DisplayLayer layerOf(CellKind kind);
 
 class DisplayStyle {
 public:
