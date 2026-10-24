@@ -3,12 +3,18 @@
 #include "adaptor/kt_inputReader.h"
 #include "datamodel/kt_dm.h"
 #include "gui/kt_congestion.h"
+#include "gui/kt_detailsPanel.h"
+#include "gui/kt_displayStyle.h"
 #include "gui/kt_layout.h"
 #include "gui/kt_layoutView.h"
+#include "gui/kt_locateDialog.h"
 #include "gui/kt_logView.h"
 #include "gui/kt_mainWindow.h"
+#include "gui/kt_namePattern.h"
 #include "gui/kt_runner.h"
+#include "gui/kt_selectionSet.h"
 #include "gui/kt_tclConsole.h"
+#include "gui/kt_visibilityPanel.h"
 #include "util/kt_history.h"
 #include "util/kt_log.h"
 
@@ -16,6 +22,7 @@
 #include <QColor>
 #include <QElapsedTimer>
 #include <QImage>
+#include <QMouseEvent>
 #include <QObject>
 #include <QThread>
 #include <boost/test/unit_test.hpp>
@@ -37,6 +44,7 @@ struct IsolatedHome {
             fs::temp_directory_path() / ("ktplace_gui_home_" + std::to_string(getpid()));
         fs::create_directories(home);
         setenv("HOME", home.c_str(), 1);
+        unsetenv("XDG_CONFIG_HOME");
     }
     ~IsolatedHome() {
         std::error_code ec;
@@ -420,4 +428,247 @@ BOOST_AUTO_TEST_CASE(opening_a_design_loads_it_and_read_design_reads_it_again) {
     }));
     BOOST_TEST((results.back().outcome == RunResult::Outcome::Evaluated));
     BOOST_TEST(results.back().message == design);
+}
+
+BOOST_AUTO_TEST_CASE(name_patterns_match_like_a_shell_glob) {
+    BOOST_TEST(NamePattern("c0").matches("c0"));
+    BOOST_TEST(!NamePattern("c0").matches("c01"));
+    BOOST_TEST(NamePattern("c0").isLiteral());
+    BOOST_TEST(NamePattern("c*").matches("c"));
+    BOOST_TEST(NamePattern("c*").matches("c123"));
+    BOOST_TEST(!NamePattern("c*").matches("pad"));
+    BOOST_TEST(NamePattern("*clk*").matches("u1/clk_buf"));
+    BOOST_TEST(NamePattern("a*b*c").matches("aXXbYYc"));
+    BOOST_TEST(!NamePattern("a*b*c").matches("aXXbYY"));
+    BOOST_TEST(NamePattern("n?7").matches("n17"));
+    BOOST_TEST(!NamePattern("n?7").matches("n7"));
+    BOOST_TEST(NamePattern("*").matches(""));
+    const std::vector<std::string> names{"c0", "c1", "padA", "c2"};
+    BOOST_TEST(matchNames(names, NamePattern("c*")) == (std::vector<std::uint32_t>{0, 1, 3}));
+    BOOST_TEST(matchNames(names, NamePattern("c*"), 2).size() == 2U);
+}
+
+BOOST_AUTO_TEST_CASE(a_selection_keeps_its_cells_sorted_and_tells_its_listeners) {
+    SelectionSet selection;
+    int notified = 0;
+    selection.subscribe([&notified] {
+        ++notified;
+    });
+    selection.selectCells({5, 1, 5});
+    BOOST_TEST(selection.cells() == (std::vector<std::uint32_t>{1, 5}));
+    BOOST_TEST(*selection.focus() == 5U);
+    selection.toggleCell(3);
+    BOOST_TEST(selection.contains(3));
+    BOOST_TEST(*selection.focus() == 3U);
+    selection.toggleCell(3);
+    BOOST_TEST(!selection.contains(3));
+    const std::vector<std::uint32_t> more{9, 1};
+    selection.addCells(more);
+    BOOST_TEST(selection.cells() == (std::vector<std::uint32_t>{1, 5, 9}));
+    selection.markNets({2, 2, 0});
+    BOOST_TEST(selection.nets() == (std::vector<std::uint32_t>{0, 2}));
+    selection.clear();
+    BOOST_TEST(selection.empty());
+    BOOST_TEST(!selection.focus().has_value());
+    BOOST_TEST(notified == 6);
+    selection.clear();
+    BOOST_TEST(notified == 6);
+}
+
+BOOST_AUTO_TEST_CASE(every_display_layer_has_a_key_that_finds_it) {
+    const DisplayStyle style;
+    for (const DisplayLayer layer : displayLayers) {
+        BOOST_TEST((DisplayStyle::fromKey(DisplayStyle::key(layer)) == layer));
+        BOOST_TEST(!DisplayStyle::title(layer).empty());
+    }
+    BOOST_TEST(!DisplayStyle::fromKey("bogus").has_value());
+    BOOST_TEST(!style.shows(DisplayLayer::RoutingDemand));
+    BOOST_TEST(style.shows(DisplayLayer::Macros));
+    BOOST_TEST((style[DisplayLayer::Macros].color == QColor(0xd9, 0x4d, 0x4a)));
+}
+
+BOOST_AUTO_TEST_CASE(geometry_knows_net_names_fences_and_net_extents) {
+    const ScratchDir dir("netnames");
+    const std::unique_ptr<ktDM> db = readDesign(dir.design());
+    const auto geometry = LayoutGeometry::of(*db);
+    BOOST_TEST(geometry->netName == (std::vector<std::string>{"n0", "n1"}),
+               boost::test_tools::per_element());
+    BOOST_TEST(geometry->fences.empty());
+    BOOST_TEST(std::ranges::all_of(geometry->fenceOf, [](std::int32_t fence) {
+        return fence < 0;
+    }));
+    const LayoutFrame frame = LayoutFrame::committed(geometry, *db, "load");
+    BOOST_TEST(frame.netBounds(0)->halfPerimeter() == 4.0);
+    BOOST_TEST(frame.netBounds(1)->halfPerimeter() == 19.0);
+    const std::vector<std::uint32_t> both{0, 1};
+    BOOST_TEST(frame.netsBounds(both)->xhi == 19.5);
+    const std::vector<std::uint32_t> cells{0, 6};
+    const std::optional<Bounds> box = frame.cellsBounds(cells);
+    BOOST_TEST(box->xlo == 0.0);
+    BOOST_TEST(box->xhi == 20.0);
+    BOOST_TEST(box->yhi == 8.0);
+}
+
+BOOST_AUTO_TEST_CASE(a_hidden_layer_is_not_drawn) {
+    const ScratchDir dir("hidden");
+    const std::unique_ptr<ktDM> db = readDesign(dir.design());
+    LayoutView view;
+    view.resize(400, 200);
+    view.setFrame(LayoutFrame::committed(LayoutGeometry::of(*db), *db, "load"));
+    const QPoint macro = view.worldToScreen({16.0, 5.0}).toPoint();
+    BOOST_TEST(view.grab().toImage().pixelColor(macro).red() == 0xd9);
+
+    DisplayStyle style = view.style();
+    style[DisplayLayer::Macros].visible = false;
+    view.setStyle(style);
+    BOOST_TEST((view.grab().toImage().pixelColor(macro) == QColor(0x10, 0x14, 0x18)));
+
+    style[DisplayLayer::Macros].visible = true;
+    style[DisplayLayer::Macros].color = QColor(0x20, 0xc0, 0x40);
+    view.setStyle(style);
+    BOOST_TEST(view.grab().toImage().pixelColor(macro).green() == 0xc0);
+}
+
+BOOST_AUTO_TEST_CASE(the_panels_follow_the_view) {
+    const ScratchDir dir("panels");
+    const std::unique_ptr<ktDM> db = readDesign(dir.design());
+    const fs::path work = dir.file("work");
+    MainWindow window({"", work.string(), ""});
+    LayoutView &view = *window.layoutView();
+    view.setFrame(LayoutFrame::committed(LayoutGeometry::of(*db), *db, "load"));
+    BOOST_TEST(window.detailsPanel()->title() == QStringLiteral("Nothing selected"));
+
+    view.selection().selectCells({6});
+    BOOST_REQUIRE(waitUntil([&] {
+        return window.detailsPanel()->title() == QStringLiteral("block");
+    }));
+    view.selection().selectCells({0});
+    BOOST_REQUIRE(waitUntil([&] {
+        return window.detailsPanel()->title() == QStringLiteral("c0");
+    }));
+    BOOST_TEST(window.detailsPanel()->netRows() == 2);
+    view.selection().selectCells({0, 1, 2});
+    BOOST_REQUIRE(waitUntil([&] {
+        return window.detailsPanel()->title() == QStringLiteral("3 cells selected");
+    }));
+    view.selection().clear();
+    view.selection().markNets({1});
+    BOOST_REQUIRE(waitUntil([&] {
+        return window.detailsPanel()->title() == QStringLiteral("n1");
+    }));
+
+    DisplayStyle style = view.style();
+    style[DisplayLayer::Rows].visible = false;
+    view.setStyle(style);
+    BOOST_TEST(!window.visibilityPanel()->style().shows(DisplayLayer::Rows));
+    view.showCongestion(true, 16);
+    BOOST_TEST(window.visibilityPanel()->style().shows(DisplayLayer::RoutingDemand));
+}
+
+BOOST_AUTO_TEST_CASE(locate_finds_cells_and_nets_by_pattern) {
+    const ScratchDir dir("locate");
+    const std::unique_ptr<ktDM> db = readDesign(dir.design());
+    LocateDialog locate;
+    locate.setLayoutGeometry(LayoutGeometry::of(*db));
+    locate.search(QStringLiteral("c?"), LocateDialog::Target::Cells);
+    BOOST_TEST(locate.matches() == (std::vector<std::uint32_t>{0, 1, 2, 3}));
+    locate.search(QStringLiteral("pad*"), LocateDialog::Target::Cells);
+    BOOST_TEST(locate.matches().size() == 2U);
+    locate.search(QStringLiteral("*"), LocateDialog::Target::Nets);
+    BOOST_TEST(locate.matches().size() == 2U);
+    locate.search(QStringLiteral("nothing*"), LocateDialog::Target::Nets);
+    BOOST_TEST(locate.matches().empty());
+}
+
+BOOST_AUTO_TEST_CASE(layout_commands_drive_the_view_from_the_console) {
+    const ScratchDir dir("layoutcmds");
+    const std::string design = dir.design();
+    const fs::path work = dir.file("work");
+    MainWindow window({"", work.string(), ""});
+    window.resize(900, 600);
+    std::vector<RunResult> results;
+    window.onFinished([&results](const RunResult &r) {
+        results.push_back(r);
+    });
+    const auto evaluate = [&](const QString &command) {
+        const std::size_t before = results.size();
+        window.tclConsole()->submit(command);
+        BOOST_REQUIRE(waitUntil([&] {
+            return results.size() > before;
+        }));
+        return results.back();
+    };
+    window.openDesign(QString::fromStdString(design));
+    BOOST_REQUIRE(waitUntil([&] {
+        return !results.empty();
+    }));
+    LayoutView &view = *window.layoutView();
+
+    RunResult result = evaluate(QStringLiteral("layout_select c*"));
+    BOOST_TEST((result.outcome == RunResult::Outcome::Evaluated));
+    BOOST_TEST(result.message == "4");
+    BOOST_TEST(view.selection().cells().size() == 4U);
+    BOOST_TEST(evaluate(QStringLiteral("layout_select -add block")).message == "1");
+    BOOST_TEST(view.selection().cells().size() == 5U);
+    BOOST_TEST(evaluate(QStringLiteral("layout_mark_nets n*")).message == "2");
+    BOOST_TEST(view.selection().nets().size() == 2U);
+    BOOST_TEST(evaluate(QStringLiteral("layout_view_selection")).message == "1");
+
+    BOOST_TEST(evaluate(QStringLiteral("layout_layer macros off")).message == "0");
+    BOOST_TEST(!view.style().shows(DisplayLayer::Macros));
+    BOOST_TEST(!window.visibilityPanel()->style().shows(DisplayLayer::Macros));
+    BOOST_TEST(evaluate(QStringLiteral("layout_layer macros")).message == "0");
+    BOOST_TEST(evaluate(QStringLiteral("layout_layer")).message.find("macros off") !=
+               std::string::npos);
+    result = evaluate(QStringLiteral("layout_layer bogus on"));
+    BOOST_TEST((result.outcome != RunResult::Outcome::Evaluated));
+    BOOST_TEST(result.message.find("unknown layer") != std::string::npos);
+
+    const fs::path image = dir.file("view.png");
+    BOOST_TEST(
+        evaluate(QStringLiteral("layout_capture %1").arg(QString::fromStdString(image.string())))
+            .message == image.string());
+    BOOST_TEST(fs::exists(image));
+    BOOST_TEST(!QImage(QString::fromStdString(image.string())).isNull());
+
+    evaluate(QStringLiteral("layout_view_area 0 0 10 10"));
+    BOOST_TEST(view.worldToScreen({5.0, 5.0}).x() == view.width() / 2.0);
+    result = evaluate(QStringLiteral("layout_view_area 0 0 ten 10"));
+    BOOST_TEST((result.outcome != RunResult::Outcome::Evaluated));
+
+    evaluate(QStringLiteral("layout_clear"));
+    BOOST_TEST(view.selection().empty());
+    BOOST_TEST(evaluate(QStringLiteral("layout_view_selection")).message == "0");
+}
+
+BOOST_AUTO_TEST_CASE(the_cursor_is_reported_and_shift_drag_zooms_to_the_box) {
+    const ScratchDir dir("cursor");
+    const std::unique_ptr<ktDM> db = readDesign(dir.design());
+    const fs::path work = dir.file("work");
+    MainWindow window({"", work.string(), ""});
+    LayoutView &view = *window.layoutView();
+    view.resize(400, 300);
+    view.setFrame(LayoutFrame::committed(LayoutGeometry::of(*db), *db, "load"));
+
+    const QPointF at = view.worldToScreen({4.0, 1.0});
+    QMouseEvent move(QEvent::MouseMove, at, view.mapToGlobal(at), Qt::NoButton, Qt::NoButton,
+                     Qt::NoModifier);
+    QApplication::sendEvent(&view, &move);
+    BOOST_TEST(window.cursorText() == QStringLiteral("x 4.0   y 1.0"));
+
+    const QPointF from = view.worldToScreen({12.0, 8.0});
+    const QPointF to = view.worldToScreen({20.0, 2.0});
+    QMouseEvent press(QEvent::MouseButtonPress, from, view.mapToGlobal(from), Qt::LeftButton,
+                      Qt::LeftButton, Qt::ShiftModifier);
+    QApplication::sendEvent(&view, &press);
+    QMouseEvent drag(QEvent::MouseMove, to, view.mapToGlobal(to), Qt::NoButton, Qt::LeftButton,
+                     Qt::ShiftModifier);
+    QApplication::sendEvent(&view, &drag);
+    QMouseEvent release(QEvent::MouseButtonRelease, to, view.mapToGlobal(to), Qt::LeftButton,
+                        Qt::NoButton, Qt::ShiftModifier);
+    QApplication::sendEvent(&view, &release);
+    const QPointF centre = view.screenToWorld({view.width() / 2.0, view.height() / 2.0});
+    BOOST_TEST(centre.x() == 16.0, boost::test_tools::tolerance(1e-6));
+    BOOST_TEST(centre.y() == 5.0, boost::test_tools::tolerance(1e-6));
+    BOOST_TEST(view.selection().empty());
 }

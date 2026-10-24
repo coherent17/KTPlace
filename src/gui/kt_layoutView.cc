@@ -15,6 +15,7 @@
 #include <array>
 #include <cmath>
 #include <cstddef>
+#include <cstdint>
 #include <functional>
 #include <optional>
 #include <utility>
@@ -25,16 +26,7 @@ namespace ktplace::gui {
 namespace {
 
 const QColor background(0x10, 0x14, 0x18);
-const QColor dieFill(0x10, 0x14, 0x18);
-const QColor dieEdge(0x8b, 0x97, 0xa3);
-const QColor rowLine(0x3b, 0x45, 0x4e);
-const QColor movableFill(0x4a, 0xb5, 0xe5);
-const QColor movableEdge(0x35, 0x82, 0xa5);
-const QColor macroFill(0xd9, 0x4d, 0x4a);
-const QColor macroEdge(0x9c, 0x37, 0x35);
-const QColor padFill(0xd9, 0x4d, 0x4a);
 const QColor hint(0x9a, 0x9a, 0x9a);
-const QColor selection(0xff, 0xd5, 0x4f);
 const QColor cardFill(0x10, 0x14, 0x18, 0xe6);
 const QColor cardText(0xe6, 0xed, 0xf3);
 
@@ -47,8 +39,16 @@ constexpr double fitMargin = 0.92;
 constexpr double dragThreshold = 4.0;
 constexpr std::size_t outlinedMacroLimit = 20000;
 constexpr std::uint32_t maxFlyLinePins = 1000;
+constexpr std::size_t maxDetailedNets = 2000;
+constexpr std::size_t thinOutlineCells = 1000;
 constexpr double pickSlackPx = 3.0;
 constexpr double pinMarkPx = 4.0;
+constexpr double minZoomCells = 20.0;
+constexpr int edgeDarkening = 140;
+constexpr int fenceFillAlpha = 0x26;
+constexpr int boxFillAlpha = 0x1c;
+constexpr int boxEdgeAlpha = 0x70;
+constexpr int flyLineAlpha = 0xc0;
 constexpr std::array<std::size_t, 4> congestionGrids{64, 128, 256, 512};
 
 QRgb heatColor(float value) {
@@ -56,9 +56,14 @@ QRgb heatColor(float value) {
     return qPremultiply(qRgba(c[0], c[1], c[2], c[3]));
 }
 
-class SelectionLayer : public QWidget {
+QColor withAlpha(QColor color, int alpha) {
+    color.setAlpha(alpha);
+    return color;
+}
+
+class OverlayLayer : public QWidget {
 public:
-    SelectionLayer(QWidget *parent, std::function<void(QPainter &)> painter)
+    OverlayLayer(QWidget *parent, std::function<void(QPainter &)> painter)
         : QWidget(parent), paint(std::move(painter)) {
         setAttribute(Qt::WA_TransparentForMouseEvents);
         setAttribute(Qt::WA_NoSystemBackground);
@@ -85,6 +90,8 @@ public:
     GlCanvas *gpu = nullptr;
     QWidget *layer = nullptr;
     LayoutFrame frame;
+    SelectionSet selection;
+    DisplayStyle style;
     QImage cache;
     bool dirty = true;
     double scale = 1.0;
@@ -92,11 +99,12 @@ public:
     std::optional<QPointF> pressAt;
     QPointF lastMouse;
     bool panning = false;
-    std::optional<std::uint32_t> selected;
-    bool congestion = false;
+    std::optional<QRectF> rubberBand;
     std::size_t congestionBins = 256;
     std::optional<DemandMap> demand;
     QImage heat;
+    std::function<void(const DisplayStyle &)> styleListener;
+    std::function<void(std::optional<QPointF>)> cursorListener;
 
     void invalidate() {
         if (gpu != nullptr) {
@@ -112,20 +120,51 @@ public:
         return {view.worldToScreen({x, y + h}), QSizeF(w * scale, h * scale)};
     }
 
+    [[nodiscard]] QRectF rectOf(const Bounds &box) const {
+        return rectOf(box.xlo, box.ylo, box.xhi - box.xlo, box.yhi - box.ylo);
+    }
+
+    [[nodiscard]] QPointF pinOnScreen(std::uint32_t pin) const {
+        const LayoutGeometry &geometry = *frame.geometry;
+        const std::uint32_t owner = geometry.pinCell[pin];
+        return view.worldToScreen(
+            {frame.x[owner] + geometry.pinDx[pin], frame.y[owner] + geometry.pinDy[pin]});
+    }
+
     void render();
     void refreshOverlay() const;
+    void applyStyle(const DisplayStyle &newStyle, bool announce);
     [[nodiscard]] std::optional<std::uint32_t> pick(QPointF screen) const;
-    void paintSelection(QPainter &painter) const;
     void updateCongestion();
+    void paintOverlay(QPainter &painter) const;
+    void paintFences(QPainter &painter) const;
     void paintCongestion(QPainter &painter) const;
-    void paintOverlay(QPainter &painter) const {
-        paintCongestion(painter);
-        paintSelection(painter);
-    }
+    void paintMarkedNets(QPainter &painter) const;
+    void paintSelection(QPainter &painter) const;
+    void paintNetsOf(QPainter &painter, std::uint32_t cell) const;
+    void paintRubberBand(QPainter &painter) const;
 };
 
+void LayoutView::Impl::applyStyle(const DisplayStyle &newStyle, bool announce) {
+    const bool demandChanged =
+        newStyle.shows(DisplayLayer::RoutingDemand) != style.shows(DisplayLayer::RoutingDemand);
+    style = newStyle;
+    if (demandChanged) {
+        updateCongestion();
+    }
+    if (gpu != nullptr) {
+        gpu->setStyle(style);
+    }
+    dirty = true;
+    view.update();
+    refreshOverlay();
+    if (announce && styleListener) {
+        styleListener(style);
+    }
+}
+
 void LayoutView::Impl::updateCongestion() {
-    if (!congestion || !frame.drawable()) {
+    if (!style.shows(DisplayLayer::RoutingDemand) || !frame.drawable()) {
         demand.reset();
         heat = QImage();
         return;
@@ -140,6 +179,41 @@ void LayoutView::Impl::updateCongestion() {
         for (std::size_t ix = 0; ix < map.nx; ++ix) {
             const float value = map.at(ix, iy);
             line[ix] = value > 0.0F ? heatColor(value / top) : qRgba(0, 0, 0, 0);
+        }
+    }
+}
+
+void LayoutView::Impl::paintOverlay(QPainter &painter) const {
+    if (frame.drawable()) {
+        paintFences(painter);
+        paintCongestion(painter);
+        paintMarkedNets(painter);
+        paintSelection(painter);
+    }
+    paintRubberBand(painter);
+}
+
+void LayoutView::Impl::paintFences(QPainter &painter) const {
+    const std::vector<LayoutGeometry::Fence> &fences = frame.geometry->fences;
+    if (fences.empty() || !style.shows(DisplayLayer::Fences)) {
+        return;
+    }
+    const QColor color = style[DisplayLayer::Fences].color;
+    painter.setPen(QPen(color, 1.0));
+    painter.setBrush(withAlpha(color, fenceFillAlpha));
+    for (const LayoutGeometry::Fence &fence : fences) {
+        for (const Bounds &rect : fence.rects) {
+            painter.drawRect(rectOf(rect));
+        }
+        if (fence.rects.empty()) {
+            continue;
+        }
+        const QRectF first = rectOf(fence.rects.front());
+        if (first.width() >
+                painter.fontMetrics().horizontalAdvance(QString::fromStdString(fence.name)) &&
+            first.height() > painter.fontMetrics().height()) {
+            painter.drawText(first.adjusted(4, 2, -4, -2), Qt::AlignLeft | Qt::AlignTop,
+                             QString::fromStdString(fence.name));
         }
     }
 }
@@ -182,7 +256,7 @@ void LayoutView::Impl::paintCongestion(QPainter &painter) const {
     const int height = static_cast<int>(lines.size()) * metrics.lineSpacing() + barH + 3 * pad;
     const QRect card(10, view.height() - height - 10, widest + 2 * pad, height);
     painter.setRenderHint(QPainter::Antialiasing);
-    painter.setPen(QPen(dieEdge, 1.0));
+    painter.setPen(QPen(style[DisplayLayer::Die].color, 1.0));
     painter.setBrush(cardFill);
     painter.drawRoundedRect(card, 4, 4);
     painter.setPen(cardText);
@@ -197,6 +271,127 @@ void LayoutView::Impl::paintCongestion(QPainter &painter) const {
                          QColor::fromRgba(qUnpremultiply(
                              heatColor(static_cast<float>(i) / static_cast<float>(barWidth - 1)))));
     }
+}
+
+void LayoutView::Impl::paintMarkedNets(QPainter &painter) const {
+    const std::vector<std::uint32_t> &nets = selection.nets();
+    if (nets.empty() || !style.shows(DisplayLayer::MarkedNets)) {
+        return;
+    }
+    const LayoutGeometry &geometry = *frame.geometry;
+    const QColor color = style[DisplayLayer::MarkedNets].color;
+    const bool detailed = nets.size() <= maxDetailedNets;
+    painter.setRenderHint(QPainter::Antialiasing, detailed);
+    for (const std::uint32_t net : nets) {
+        const std::optional<Bounds> box = frame.netBounds(net);
+        if (!box) {
+            continue;
+        }
+        const QRectF area = rectOf(*box);
+        painter.setPen(QPen(withAlpha(color, boxEdgeAlpha), 0));
+        painter.setBrush(withAlpha(color, boxFillAlpha));
+        painter.drawRect(area);
+        const std::uint32_t first = geometry.netPinStart[net];
+        const std::uint32_t last = geometry.netPinStart[net + 1];
+        if (!detailed || last - first > maxFlyLinePins) {
+            continue;
+        }
+        QPointF centroid;
+        for (std::uint32_t pin = first; pin < last; ++pin) {
+            centroid += pinOnScreen(pin);
+        }
+        centroid /= static_cast<double>(last - first);
+        painter.setPen(QPen(withAlpha(color, flyLineAlpha), 1.2));
+        for (std::uint32_t pin = first; pin < last; ++pin) {
+            painter.drawLine(centroid, pinOnScreen(pin));
+        }
+        painter.setPen(Qt::NoPen);
+        painter.setBrush(color);
+        for (std::uint32_t pin = first; pin < last; ++pin) {
+            painter.drawRect(QRectF(pinOnScreen(pin) - QPointF(pinMarkPx / 2, pinMarkPx / 2),
+                                    QSizeF(pinMarkPx, pinMarkPx)));
+        }
+    }
+}
+
+void LayoutView::Impl::paintNetsOf(QPainter &painter, std::uint32_t cell) const {
+    const LayoutGeometry &geometry = *frame.geometry;
+    const QColor color = style[DisplayLayer::Selection].color;
+    for (std::uint32_t k = geometry.cellNetStart[cell]; k < geometry.cellNetStart[cell + 1]; ++k) {
+        const std::uint32_t net = geometry.cellNet[k];
+        const std::uint32_t first = geometry.netPinStart[net];
+        const std::uint32_t last = geometry.netPinStart[net + 1];
+        const std::optional<Bounds> box = frame.netBounds(net);
+        if (!box) {
+            continue;
+        }
+        painter.setPen(QPen(withAlpha(color, boxEdgeAlpha), 0));
+        painter.setBrush(withAlpha(color, boxFillAlpha));
+        painter.drawRect(rectOf(*box));
+        std::optional<QPointF> own;
+        for (std::uint32_t pin = first; pin < last && !own; ++pin) {
+            if (geometry.pinCell[pin] == cell) {
+                own = pinOnScreen(pin);
+            }
+        }
+        if (!own || last - first > maxFlyLinePins) {
+            continue;
+        }
+        painter.setPen(QPen(withAlpha(color, flyLineAlpha), 1.2));
+        for (std::uint32_t pin = first; pin < last; ++pin) {
+            if (geometry.pinCell[pin] != cell) {
+                painter.drawLine(*own, pinOnScreen(pin));
+            }
+        }
+        painter.setPen(Qt::NoPen);
+        painter.setBrush(color);
+        for (std::uint32_t pin = first; pin < last; ++pin) {
+            painter.drawRect(QRectF(pinOnScreen(pin) - QPointF(pinMarkPx / 2, pinMarkPx / 2),
+                                    QSizeF(pinMarkPx, pinMarkPx)));
+        }
+    }
+}
+
+void LayoutView::Impl::paintSelection(QPainter &painter) const {
+    const std::vector<std::uint32_t> &cells = selection.cells();
+    if (cells.empty() || !style.shows(DisplayLayer::Selection)) {
+        return;
+    }
+    painter.setRenderHint(QPainter::Antialiasing, cells.size() <= thinOutlineCells);
+    if (cells.size() == 1) {
+        paintNetsOf(painter, cells.front());
+    }
+    const QPointF lo = view.screenToWorld({0.0, static_cast<double>(view.height())});
+    const QPointF hi = view.screenToWorld({static_cast<double>(view.width()), 0.0});
+    std::vector<QRectF> outlines;
+    outlines.reserve(std::min(cells.size(), outlinedMacroLimit));
+    for (const std::uint32_t cell : cells) {
+        const Bounds box = frame.cellBounds(cell);
+        if (box.xlo > hi.x() || box.xhi < lo.x() || box.ylo > hi.y() || box.yhi < lo.y()) {
+            continue;
+        }
+        QRectF outline = rectOf(box);
+        if (outline.width() < pinMarkPx || outline.height() < pinMarkPx) {
+            outline = QRectF(outline.center() - QPointF(pinMarkPx, pinMarkPx),
+                             QSizeF(2 * pinMarkPx, 2 * pinMarkPx));
+        }
+        outlines.push_back(outline);
+    }
+    painter.setPen(
+        QPen(style[DisplayLayer::Selection].color, cells.size() <= thinOutlineCells ? 2.0 : 1.0));
+    painter.setBrush(Qt::NoBrush);
+    painter.drawRects(outlines.data(), static_cast<int>(outlines.size()));
+}
+
+void LayoutView::Impl::paintRubberBand(QPainter &painter) const {
+    if (!rubberBand) {
+        return;
+    }
+    const QColor color = style[DisplayLayer::Selection].color;
+    painter.setRenderHint(QPainter::Antialiasing, false);
+    painter.setPen(QPen(color, 1.0, Qt::DashLine));
+    painter.setBrush(withAlpha(color, boxFillAlpha));
+    painter.drawRect(rubberBand->normalized());
 }
 
 void LayoutView::Impl::refreshOverlay() const {
@@ -217,6 +412,11 @@ std::optional<std::uint32_t> LayoutView::Impl::pick(QPointF screen) const {
     const auto pickLayer = [](CellKind kind) {
         return kind == CellKind::Pad ? 0 : (kind == CellKind::Movable ? 1 : 2);
     };
+    const auto pickable = [this](CellKind kind) {
+        return style.shows(kind == CellKind::Pad       ? DisplayLayer::Pads
+                           : kind == CellKind::Movable ? DisplayLayer::MovableCells
+                                                       : DisplayLayer::Macros);
+    };
     std::optional<std::uint32_t> best;
     int bestLayer = 3;
     double bestDistance = 0.0;
@@ -226,7 +426,7 @@ std::optional<std::uint32_t> LayoutView::Impl::pick(QPointF screen) const {
         const double x1 = x0 + geometry.width[v];
         const double y1 = y0 + geometry.height[v];
         if (at.x() < x0 - slack || at.x() > x1 + slack || at.y() < y0 - slack ||
-            at.y() > y1 + slack) {
+            at.y() > y1 + slack || !pickable(geometry.kind[v])) {
             continue;
         }
         const int cellLayer = pickLayer(geometry.kind[v]);
@@ -240,103 +440,6 @@ std::optional<std::uint32_t> LayoutView::Impl::pick(QPointF screen) const {
         }
     }
     return best;
-}
-
-void LayoutView::Impl::paintSelection(QPainter &painter) const {
-    if (!selected || !frame.drawable() || *selected >= frame.x.size()) {
-        return;
-    }
-    const LayoutGeometry &geometry = *frame.geometry;
-    const std::uint32_t cell = *selected;
-    const auto pinAt = [&](std::uint32_t pin) {
-        const std::uint32_t owner = geometry.pinCell[pin];
-        return view.worldToScreen(
-            {frame.x[owner] + geometry.pinDx[pin], frame.y[owner] + geometry.pinDy[pin]});
-    };
-    painter.setRenderHint(QPainter::Antialiasing);
-
-    QColor boxFill = selection;
-    boxFill.setAlpha(0x1c);
-    QColor boxEdge = selection;
-    boxEdge.setAlpha(0x70);
-    QColor flyLine = selection;
-    flyLine.setAlpha(0xc0);
-    std::size_t pins = 0;
-    const std::uint32_t netsBegin = geometry.cellNetStart[cell];
-    const std::uint32_t netsEnd = geometry.cellNetStart[cell + 1];
-    for (std::uint32_t k = netsBegin; k < netsEnd; ++k) {
-        const std::uint32_t net = geometry.cellNet[k];
-        const std::uint32_t first = geometry.netPinStart[net];
-        const std::uint32_t last = geometry.netPinStart[net + 1];
-        QRectF box;
-        std::optional<QPointF> own;
-        for (std::uint32_t p = first; p < last; ++p) {
-            const QPointF at = pinAt(p);
-            box = p == first ? QRectF(at, at) : box.united(QRectF(at, at));
-            if (geometry.pinCell[p] == cell) {
-                ++pins;
-                if (!own) {
-                    own = at;
-                }
-            }
-        }
-        painter.setPen(QPen(boxEdge, 0));
-        painter.setBrush(boxFill);
-        painter.drawRect(box);
-        if (!own || last - first > maxFlyLinePins) {
-            continue;
-        }
-        painter.setPen(QPen(flyLine, 1.2));
-        for (std::uint32_t p = first; p < last; ++p) {
-            if (geometry.pinCell[p] != cell) {
-                painter.drawLine(*own, pinAt(p));
-            }
-        }
-        painter.setPen(Qt::NoPen);
-        painter.setBrush(selection);
-        for (std::uint32_t p = first; p < last; ++p) {
-            painter.drawRect(QRectF(pinAt(p) - QPointF(pinMarkPx / 2, pinMarkPx / 2),
-                                    QSizeF(pinMarkPx, pinMarkPx)));
-        }
-    }
-
-    painter.setPen(QPen(selection, 2.0));
-    painter.setBrush(Qt::NoBrush);
-    QRectF outline =
-        rectOf(frame.x[cell], frame.y[cell], geometry.width[cell], geometry.height[cell]);
-    if (outline.width() < pinMarkPx || outline.height() < pinMarkPx) {
-        outline = QRectF(outline.center() - QPointF(pinMarkPx, pinMarkPx),
-                         QSizeF(2 * pinMarkPx, 2 * pinMarkPx));
-    }
-    painter.drawRect(outline);
-
-    const char *kindName = geometry.kind[cell] == CellKind::Movable ? "movable cell"
-                           : geometry.kind[cell] == CellKind::Macro ? "fixed macro"
-                                                                    : "I/O pad";
-    const QStringList lines{
-        QString::fromStdString(geometry.name[cell]),
-        QStringLiteral("%1, %2 x %3")
-            .arg(QString::fromUtf8(kindName))
-            .arg(geometry.width[cell])
-            .arg(geometry.height[cell]),
-        QStringLiteral("at (%1, %2)").arg(frame.x[cell], 0, 'f', 1).arg(frame.y[cell], 0, 'f', 1),
-        QStringLiteral("%1 pins on %2 nets").arg(pins).arg(netsEnd - netsBegin)};
-    const QFontMetrics metrics = painter.fontMetrics();
-    int widest = 0;
-    for (const QString &line : lines) {
-        widest = std::max(widest, metrics.horizontalAdvance(line));
-    }
-    const int pad = 8;
-    const QRect card(10, 10, widest + 2 * pad,
-                     static_cast<int>(lines.size()) * metrics.lineSpacing() + 2 * pad);
-    painter.setPen(QPen(selection, 1.0));
-    painter.setBrush(cardFill);
-    painter.drawRoundedRect(card, 4, 4);
-    painter.setPen(cardText);
-    for (int i = 0; i < lines.size(); ++i) {
-        painter.drawText(card.left() + pad,
-                         card.top() + pad + metrics.ascent() + i * metrics.lineSpacing(), lines[i]);
-    }
 }
 
 void LayoutView::Impl::render() {
@@ -354,15 +457,16 @@ void LayoutView::Impl::render() {
     }
     const LayoutGeometry &geometry = *frame.geometry;
     const auto &die = geometry.die;
+    const QColor movableFill = style[DisplayLayer::MovableCells].color;
+    const QColor macroFill = style[DisplayLayer::Macros].color;
 
     QPainter painter(&cache);
-    painter.fillRect(rectOf(die[0], die[1], die[2] - die[0], die[3] - die[1]), dieFill);
-
     const QPointF lo = view.screenToWorld({0.0, static_cast<double>(view.height())});
     const QPointF hi = view.screenToWorld({static_cast<double>(view.width()), 0.0});
 
-    if (!geometry.rows.empty() && geometry.rows.front().height * scale >= visibleRow) {
-        painter.setPen(QPen(rowLine, 0));
+    if (style.shows(DisplayLayer::Rows) && !geometry.rows.empty() &&
+        geometry.rows.front().height * scale >= visibleRow) {
+        painter.setPen(QPen(style[DisplayLayer::Rows].color, 0));
         for (const LayoutGeometry::Row &row : geometry.rows) {
             if (row.y > hi.y() || row.y + row.height < lo.y()) {
                 continue;
@@ -412,55 +516,67 @@ void LayoutView::Impl::render() {
         (kind == CellKind::Macro ? macros : movable).push_back(rectOf(x, y, w, h));
     }
 
-    painter.setPen(macros.size() < outlinedMacroLimit ? QPen(macroEdge, 0) : QPen(Qt::NoPen));
-    painter.setBrush(macroFill);
-    painter.drawRects(macros.data(), static_cast<int>(macros.size()));
-
-    if (!density.empty()) {
-        QImage overlay(pw, ph, QImage::Format_ARGB32_Premultiplied);
-        overlay.fill(Qt::transparent);
-        for (int py = 0; py < ph; ++py) {
-            auto *line = reinterpret_cast<QRgb *>(overlay.scanLine(py));
-            const float *sums = density.data() + static_cast<std::size_t>(py) * pw;
-            for (int px = 0; px < pw; ++px) {
-                if (sums[px] > 0.0F) {
-                    const int alpha = static_cast<int>(std::min(1.0F, 0.25F + sums[px]) * 255.0F);
-                    line[px] = qPremultiply(
-                        qRgba(movableFill.red(), movableFill.green(), movableFill.blue(), alpha));
-                }
-            }
-        }
-        overlay.setDevicePixelRatio(dpr);
-        painter.drawImage(QPointF(0.0, 0.0), overlay);
+    if (style.shows(DisplayLayer::Macros)) {
+        painter.setPen(macros.size() < outlinedMacroLimit ? QPen(macroFill.darker(edgeDarkening), 0)
+                                                          : QPen(Qt::NoPen));
+        painter.setBrush(macroFill);
+        painter.drawRects(macros.data(), static_cast<int>(macros.size()));
     }
 
-    const bool outline = geometry.typicalWidth * scale >= outlinedCell;
-    painter.setPen(outline ? QPen(movableEdge, 0) : QPen(Qt::NoPen));
-    painter.setBrush(outline
-                         ? QColor(movableFill.red(), movableFill.green(), movableFill.blue(), 170)
-                         : movableFill);
-    painter.drawRects(movable.data(), static_cast<int>(movable.size()));
+    if (style.shows(DisplayLayer::MovableCells)) {
+        if (!density.empty()) {
+            QImage overlay(pw, ph, QImage::Format_ARGB32_Premultiplied);
+            overlay.fill(Qt::transparent);
+            for (int py = 0; py < ph; ++py) {
+                auto *line = reinterpret_cast<QRgb *>(overlay.scanLine(py));
+                const float *sums = density.data() + static_cast<std::size_t>(py) * pw;
+                for (int px = 0; px < pw; ++px) {
+                    if (sums[px] > 0.0F) {
+                        const int alpha =
+                            static_cast<int>(std::min(1.0F, 0.25F + sums[px]) * 255.0F);
+                        line[px] = qPremultiply(qRgba(movableFill.red(), movableFill.green(),
+                                                      movableFill.blue(), alpha));
+                    }
+                }
+            }
+            overlay.setDevicePixelRatio(dpr);
+            painter.drawImage(QPointF(0.0, 0.0), overlay);
+        }
+        const bool outline = geometry.typicalWidth * scale >= outlinedCell;
+        painter.setPen(outline ? QPen(movableFill.darker(edgeDarkening), 0) : QPen(Qt::NoPen));
+        painter.setBrush(outline ? withAlpha(movableFill, 170) : movableFill);
+        painter.drawRects(movable.data(), static_cast<int>(movable.size()));
+    }
 
-    painter.setPen(Qt::NoPen);
-    painter.setBrush(padFill);
-    painter.drawRects(pads.data(), static_cast<int>(pads.size()));
+    if (style.shows(DisplayLayer::Pads)) {
+        painter.setPen(Qt::NoPen);
+        painter.setBrush(style[DisplayLayer::Pads].color);
+        painter.drawRects(pads.data(), static_cast<int>(pads.size()));
+    }
 
-    painter.setPen(QPen(dieEdge, 0));
-    painter.setBrush(Qt::NoBrush);
-    painter.drawRect(rectOf(die[0], die[1], die[2] - die[0], die[3] - die[1]));
+    if (style.shows(DisplayLayer::Die)) {
+        painter.setPen(QPen(style[DisplayLayer::Die].color, 0));
+        painter.setBrush(Qt::NoBrush);
+        painter.drawRect(rectOf(die[0], die[1], die[2] - die[0], die[3] - die[1]));
+    }
 }
 
 LayoutView::LayoutView(QWidget *parent) : QWidget(parent), pImpl(std::make_unique<Impl>(*this)) {
     setFocusPolicy(Qt::StrongFocus);
     setMinimumSize(200, 150);
+    setMouseTracking(true);
     setAttribute(Qt::WA_OpaquePaintEvent);
     if (GlCanvas::available()) {
         pImpl->gpu = new GlCanvas(this);
-        pImpl->layer = new SelectionLayer(this, [impl = pImpl.get()](QPainter &painter) {
+        pImpl->gpu->setStyle(pImpl->style);
+        pImpl->layer = new OverlayLayer(this, [impl = pImpl.get()](QPainter &painter) {
             impl->paintOverlay(painter);
         });
         pImpl->layer->raise();
     }
+    pImpl->selection.subscribe([impl = pImpl.get()] {
+        impl->refreshOverlay();
+    });
 }
 
 LayoutView::~LayoutView() = default;
@@ -468,10 +584,11 @@ LayoutView::~LayoutView() = default;
 void LayoutView::setFrame(LayoutFrame frame) {
     const bool refit = !pImpl->frame.drawable() || !frame.drawable() ||
                        pImpl->frame.geometry->die != frame.geometry->die;
-    if (!frame.drawable() || frame.geometry != pImpl->frame.geometry) {
-        pImpl->selected.reset();
-    }
+    const bool newGeometry = !frame.drawable() || frame.geometry != pImpl->frame.geometry;
     pImpl->frame = std::move(frame);
+    if (newGeometry) {
+        pImpl->selection.clear();
+    }
     pImpl->updateCongestion();
     if (pImpl->gpu != nullptr) {
         pImpl->gpu->setFrame(pImpl->frame);
@@ -487,26 +604,72 @@ const LayoutFrame &LayoutView::frame() const {
     return pImpl->frame;
 }
 
+SelectionSet &LayoutView::selection() {
+    return pImpl->selection;
+}
+
+const SelectionSet &LayoutView::selection() const {
+    return pImpl->selection;
+}
+
+void LayoutView::selectAt(QPointF screen, bool additive) {
+    const std::optional<std::uint32_t> hit = pImpl->pick(screen);
+    if (additive) {
+        if (hit) {
+            pImpl->selection.toggleCell(*hit);
+        }
+        return;
+    }
+    if (hit) {
+        pImpl->selection.selectCells({*hit});
+    } else {
+        pImpl->selection.clear();
+    }
+}
+
+std::optional<std::uint32_t> LayoutView::selectedCell() const {
+    return pImpl->selection.focus();
+}
+
+const DisplayStyle &LayoutView::style() const {
+    return pImpl->style;
+}
+
+void LayoutView::setStyle(const DisplayStyle &newStyle) {
+    if (newStyle != pImpl->style) {
+        pImpl->applyStyle(newStyle, true);
+    }
+}
+
+void LayoutView::onStyleChanged(std::function<void(const DisplayStyle &)> listener) {
+    pImpl->styleListener = std::move(listener);
+}
+
 void LayoutView::showCongestion(bool on, std::size_t binsAcross) {
-    pImpl->congestion = on;
     pImpl->congestionBins = binsAcross;
-    pImpl->updateCongestion();
-    pImpl->refreshOverlay();
+    DisplayStyle next = pImpl->style;
+    next[DisplayLayer::RoutingDemand].visible = on;
+    if (next == pImpl->style) {
+        pImpl->updateCongestion();
+        pImpl->refreshOverlay();
+        return;
+    }
+    pImpl->applyStyle(next, true);
 }
 
 bool LayoutView::showingCongestion() const {
-    return pImpl->congestion;
+    return pImpl->style.shows(DisplayLayer::RoutingDemand);
 }
 
 void LayoutView::contextMenuEvent(QContextMenuEvent *event) {
     QMenu menu(this);
-    QAction *toggle = menu.addAction(QStringLiteral("Routing congestion"));
+    QAction *toggle = menu.addAction(QStringLiteral("Routing Demand"));
     toggle->setCheckable(true);
-    toggle->setChecked(pImpl->congestion);
+    toggle->setChecked(showingCongestion());
     connect(toggle, &QAction::toggled, this, [this](bool on) {
         showCongestion(on, pImpl->congestionBins);
     });
-    QMenu *grid = menu.addMenu(QStringLiteral("Congestion grid"));
+    QMenu *grid = menu.addMenu(QStringLiteral("Demand Grid"));
     auto *choices = new QActionGroup(grid);
     for (const std::size_t bins : congestionGrids) {
         QAction *choice = grid->addAction(QStringLiteral("%1 bins across").arg(bins));
@@ -518,24 +681,19 @@ void LayoutView::contextMenuEvent(QContextMenuEvent *event) {
         });
     }
     menu.addSeparator();
-    QAction *clear = menu.addAction(QStringLiteral("Clear selection"));
-    clear->setEnabled(pImpl->selected.has_value());
+    QAction *focusSelection = menu.addAction(QStringLiteral("Zoom to Selection"));
+    focusSelection->setEnabled(!pImpl->selection.empty());
+    connect(focusSelection, &QAction::triggered, this, [this] {
+        zoomToSelection();
+    });
+    QAction *clear = menu.addAction(QStringLiteral("Select None"));
+    clear->setEnabled(!pImpl->selection.empty());
     connect(clear, &QAction::triggered, this, [this] {
-        pImpl->selected.reset();
-        pImpl->refreshOverlay();
+        pImpl->selection.clear();
     });
     menu.addSeparator();
-    menu.addAction(QStringLiteral("Zoom fit"), this, &LayoutView::zoomFit);
+    menu.addAction(QStringLiteral("Zoom Fit"), this, &LayoutView::zoomFit);
     menu.exec(event->globalPos());
-}
-
-void LayoutView::selectAt(QPointF screen) {
-    pImpl->selected = pImpl->pick(screen);
-    pImpl->refreshOverlay();
-}
-
-std::optional<std::uint32_t> LayoutView::selectedCell() const {
-    return pImpl->selected;
 }
 
 void LayoutView::zoomFit() {
@@ -546,14 +704,39 @@ void LayoutView::zoomFit() {
         return;
     }
     const auto &die = pImpl->frame.geometry->die;
-    const double w = std::max(die[2] - die[0], 1e-9);
-    const double h = std::max(die[3] - die[1], 1e-9);
+    zoomTo({die[0], die[1], die[2], die[3]});
+}
+
+void LayoutView::zoomTo(const Bounds &area) {
+    const double floor =
+        pImpl->frame.drawable() ? minZoomCells * pImpl->frame.geometry->typicalWidth : 1e-9;
+    const double w = std::max(area.xhi - area.xlo, floor);
+    const double h = std::max(area.yhi - area.ylo, floor);
     pImpl->scale = std::min(width() / w, height() / h) * fitMargin;
     if (!(pImpl->scale > 0.0) || !std::isfinite(pImpl->scale)) {
         pImpl->scale = 1.0;
     }
-    pImpl->center = {(die[0] + die[2]) / 2.0, (die[1] + die[3]) / 2.0};
+    pImpl->center = {(area.xlo + area.xhi) / 2.0, (area.ylo + area.yhi) / 2.0};
     pImpl->invalidate();
+}
+
+bool LayoutView::zoomToSelection() {
+    if (!pImpl->frame.drawable()) {
+        return false;
+    }
+    std::optional<Bounds> area = pImpl->frame.cellsBounds(pImpl->selection.cells());
+    if (const std::optional<Bounds> nets = pImpl->frame.netsBounds(pImpl->selection.nets())) {
+        if (area) {
+            area->include(*nets);
+        } else {
+            area = nets;
+        }
+    }
+    if (!area) {
+        return false;
+    }
+    zoomTo(*area);
+    return true;
 }
 
 void LayoutView::zoomBy(double factor, QPointF anchor) {
@@ -561,6 +744,14 @@ void LayoutView::zoomBy(double factor, QPointF anchor) {
     pImpl->scale = std::clamp(pImpl->scale * factor, 1e-9, 1e9);
     pImpl->center += before - screenToWorld(anchor);
     pImpl->invalidate();
+}
+
+void LayoutView::onCursorMoved(std::function<void(std::optional<QPointF>)> listener) {
+    pImpl->cursorListener = std::move(listener);
+}
+
+QImage LayoutView::capture() {
+    return grab().toImage();
 }
 
 QPointF LayoutView::worldToScreen(QPointF world) const {
@@ -611,6 +802,10 @@ void LayoutView::wheelEvent(QWheelEvent *event) {
 }
 
 void LayoutView::mousePressEvent(QMouseEvent *event) {
+    if (event->button() == Qt::LeftButton && event->modifiers().testFlag(Qt::ShiftModifier)) {
+        pImpl->rubberBand = QRectF(event->position(), event->position());
+        return;
+    }
     if (event->button() == Qt::LeftButton || event->button() == Qt::MiddleButton) {
         pImpl->pressAt = event->position();
         pImpl->lastMouse = event->position();
@@ -619,6 +814,14 @@ void LayoutView::mousePressEvent(QMouseEvent *event) {
 }
 
 void LayoutView::mouseMoveEvent(QMouseEvent *event) {
+    if (pImpl->cursorListener && pImpl->frame.drawable()) {
+        pImpl->cursorListener(screenToWorld(event->position()));
+    }
+    if (pImpl->rubberBand) {
+        pImpl->rubberBand->setBottomRight(event->position());
+        pImpl->refreshOverlay();
+        return;
+    }
     if (!pImpl->pressAt) {
         return;
     }
@@ -636,12 +839,29 @@ void LayoutView::mouseMoveEvent(QMouseEvent *event) {
 }
 
 void LayoutView::mouseReleaseEvent(QMouseEvent *event) {
+    if (pImpl->rubberBand) {
+        const QRectF band = pImpl->rubberBand->normalized();
+        pImpl->rubberBand.reset();
+        pImpl->refreshOverlay();
+        if (band.width() > dragThreshold && band.height() > dragThreshold) {
+            const QPointF lo = screenToWorld(band.bottomLeft());
+            const QPointF hi = screenToWorld(band.topRight());
+            zoomTo({lo.x(), lo.y(), hi.x(), hi.y()});
+        }
+        return;
+    }
     if (pImpl->pressAt && !pImpl->panning && event->button() == Qt::LeftButton) {
-        selectAt(event->position());
+        selectAt(event->position(), event->modifiers().testFlag(Qt::ControlModifier));
     }
     pImpl->pressAt.reset();
     pImpl->panning = false;
     unsetCursor();
+}
+
+void LayoutView::leaveEvent(QEvent *) {
+    if (pImpl->cursorListener) {
+        pImpl->cursorListener(std::nullopt);
+    }
 }
 
 void LayoutView::keyPressEvent(QKeyEvent *event) {
@@ -649,6 +869,9 @@ void LayoutView::keyPressEvent(QKeyEvent *event) {
     switch (event->key()) {
         case Qt::Key_F:
             zoomFit();
+            break;
+        case Qt::Key_Z:
+            zoomToSelection();
             break;
         case Qt::Key_Plus:
         case Qt::Key_Equal:

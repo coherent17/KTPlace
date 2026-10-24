@@ -30,7 +30,8 @@ constexpr double intervalSmoothing = 0.3;
 constexpr double visibleRowPx = 5.0;
 constexpr double densityCellPx = 1.5;
 constexpr float movableMinAlpha = 0.35F;
-constexpr std::uint32_t movableFill = 0x4ab5e5;
+constexpr int edgeDarkening = 140;
+constexpr QRgb canvasBackground = 0x101418;
 constexpr double outlinedCellPx = 5.0;
 
 const char *vertexShader = R"(#version 330 core
@@ -159,10 +160,9 @@ QSurfaceFormat canvasFormat() {
     return format;
 }
 
-QVector4D rgba(std::uint32_t rgb, float alpha = 1.0F) {
-    return {static_cast<float>((rgb >> 16) & 0xff) / 255.0F,
-            static_cast<float>((rgb >> 8) & 0xff) / 255.0F, static_cast<float>(rgb & 0xff) / 255.0F,
-            alpha};
+QVector4D rgba(const QColor &color, float alpha = 1.0F) {
+    return {static_cast<float>(color.redF()), static_cast<float>(color.greenF()),
+            static_cast<float>(color.blueF()), alpha};
 }
 
 }  // namespace
@@ -314,6 +314,11 @@ float GlCanvas::tweenProgress() const {
     return std::min(1.0F, static_cast<float>(static_cast<double>(tweenClock.elapsed()) / tweenMs));
 }
 
+void GlCanvas::setStyle(const DisplayStyle &newStyle) {
+    style = newStyle;
+    update();
+}
+
 void GlCanvas::setCamera(QPointF newCenter, double newScale) {
     center = newCenter;
     scale = newScale;
@@ -442,39 +447,62 @@ void GlCanvas::paintGL() {
     program->setUniformValue("edgePx", static_cast<float>(dpr));
     program->setUniformValue("outlineCells",
                              typicalWidth * deviceScale >= outlinedCellPx * dpr ? 1.0F : 0.0F);
-    const std::array<QVector4D, kinds> fills{rgba(0xd94d4a), rgba(0x4ab5e5), rgba(0xd94d4a),
-                                             rgba(0x101418), rgba(0x3b454e), rgba(0x000000, 0.0F)};
-    const std::array<QVector4D, kinds> edges{rgba(0x9c3735), rgba(0x3582a5), rgba(0x9c3735),
-                                             rgba(0x101418), rgba(0x3b454e), rgba(0x8b97a3)};
+    const QColor macro = style[DisplayLayer::Macros].color;
+    const QColor movable = style[DisplayLayer::MovableCells].color;
+    const QColor pad = style[DisplayLayer::Pads].color;
+    const QColor row = style[DisplayLayer::Rows].color;
+    const QColor background = QColor::fromRgb(canvasBackground);
+    const std::array<QVector4D, kinds> fills{
+        rgba(macro), rgba(movable), rgba(pad), rgba(background), rgba(row), rgba(background, 0.0F)};
+    const std::array<QVector4D, kinds> edges{rgba(macro.darker(edgeDarkening)),
+                                             rgba(movable.darker(edgeDarkening)),
+                                             rgba(pad.darker(edgeDarkening)),
+                                             rgba(background),
+                                             rgba(row),
+                                             rgba(style[DisplayLayer::Die].color)};
     program->setUniformValueArray("fill", fills.data(), kinds);
     program->setUniformValueArray("edge", edges.data(), kinds);
 
     glBindVertexArray(vao);
-    drawRange(ranges[0]);
-    if (rowHeight * deviceScale >= visibleRowPx * dpr) {
+    if (style.shows(DisplayLayer::Die)) {
+        drawRange(ranges[0]);
+    }
+    if (style.shows(DisplayLayer::Rows) && rowHeight * deviceScale >= visibleRowPx * dpr) {
         drawRange(ranges[1]);
     }
-    drawRange(ranges[2]);
-    if (typicalWidth * deviceScale < densityCellPx) {
-        const Range &movable = ranges[3];
-        const auto visible = static_cast<std::size_t>(
-            std::ranges::partition_point(movableExtent,
-                                         [deviceScale](float cellExtent) {
-                                             return cellExtent * deviceScale >= densityCellPx;
-                                         }) -
-            movableExtent.begin());
-        drawRange({movable.first, visible});
-        glBindVertexArray(0);
-        drawDensity({movable.first + visible, movable.count - visible}, t, deviceScale);
-        program->bind();
-        glBindVertexArray(vao);
-    } else {
-        drawRange(ranges[3]);
+    if (style.shows(DisplayLayer::Macros)) {
+        drawRange(ranges[2]);
     }
-    drawRange(ranges[4]);
-    drawRange(ranges[5]);
+    if (style.shows(DisplayLayer::MovableCells)) {
+        drawMovable(t, deviceScale);
+    }
+    if (style.shows(DisplayLayer::Pads)) {
+        drawRange(ranges[4]);
+    }
+    if (style.shows(DisplayLayer::Die)) {
+        drawRange(ranges[5]);
+    }
     glBindVertexArray(0);
     program->release();
+}
+
+void GlCanvas::drawMovable(float progress, double deviceScale) {
+    const Range &movable = ranges[3];
+    if (typicalWidth * deviceScale >= densityCellPx) {
+        drawRange(movable);
+        return;
+    }
+    const auto visible = static_cast<std::size_t>(
+        std::ranges::partition_point(movableExtent,
+                                     [deviceScale](float cellExtent) {
+                                         return cellExtent * deviceScale >= densityCellPx;
+                                     }) -
+        movableExtent.begin());
+    drawRange({movable.first, visible});
+    glBindVertexArray(0);
+    drawDensity({movable.first + visible, movable.count - visible}, progress, deviceScale);
+    program->bind();
+    glBindVertexArray(vao);
 }
 
 void GlCanvas::drawDensity(const Range &range, float progress, double deviceScale) {
@@ -508,9 +536,10 @@ void GlCanvas::drawDensity(const Range &range, float progress, double deviceScal
             1.0F - alpha;
     }
 
-    const auto red = static_cast<std::uint8_t>((movableFill >> 16) & 0xff);
-    const auto green = static_cast<std::uint8_t>((movableFill >> 8) & 0xff);
-    const auto blue = static_cast<std::uint8_t>(movableFill & 0xff);
+    const QColor fill = style[DisplayLayer::MovableCells].color;
+    const auto red = static_cast<std::uint8_t>(fill.red());
+    const auto green = static_cast<std::uint8_t>(fill.green());
+    const auto blue = static_cast<std::uint8_t>(fill.blue());
     densityPixels.resize(pixels * 4);
     for (std::size_t p = 0; p < pixels; ++p) {
         std::uint8_t *out = &densityPixels[4 * p];
