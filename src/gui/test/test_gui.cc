@@ -29,6 +29,7 @@
 #include <QMessageBox>
 #include <QMouseEvent>
 #include <QObject>
+#include <QPointer>
 #include <QPushButton>
 #include <QSettings>
 #include <QTableWidget>
@@ -788,22 +789,21 @@ BOOST_AUTO_TEST_CASE(about_and_keys_open_without_blocking_the_window) {
          {QStringLiteral("About KTPlace"), QStringLiteral("Mouse and Keys")}) {
         QAction *open = actionNamed(window, name);
         BOOST_REQUIRE(open != nullptr);
+        const QList<QMessageBox *> before = window.findChildren<QMessageBox *>();
         open->trigger();
-        QMessageBox *note = nullptr;
+        QPointer<QMessageBox> note;
         for (QMessageBox *box : window.findChildren<QMessageBox *>()) {
-            if (box->windowTitle() == name && box->isVisible()) {
+            if (!before.contains(box)) {
                 note = box;
             }
         }
         BOOST_REQUIRE(note != nullptr);
+        BOOST_TEST(!note->isHidden());
         BOOST_TEST(!note->isModal());
         BOOST_TEST(window.frameGeometry().contains(note->geometry().center()));
         note->close();
-        BOOST_REQUIRE(waitUntil([&window, &name] {
-            return std::ranges::none_of(window.findChildren<QMessageBox *>(),
-                                        [&name](const QMessageBox *box) {
-                                            return box->windowTitle() == name;
-                                        });
+        BOOST_REQUIRE(waitUntil([&note] {
+            return note.isNull();
         }));
     }
 }
