@@ -30,6 +30,8 @@ public:
     [[nodiscard]] const SelectionSet &selection() const;
     void selectAt(QPointF screen, bool additive = false);
     [[nodiscard]] std::optional<std::uint32_t> selectedCell() const;
+    std::size_t showConnectivity();
+    void hideConnectivity();
 
     [[nodiscard]] const DisplayStyle &style() const;
     void setStyle(const DisplayStyle &newStyle);

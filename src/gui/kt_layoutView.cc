@@ -40,6 +40,7 @@ constexpr double dragThreshold = 4.0;
 constexpr std::size_t outlinedMacroLimit = 20000;
 constexpr std::uint32_t maxFlyLinePins = 1000;
 constexpr std::size_t maxDetailedNets = 2000;
+constexpr std::size_t maxBoxedNets = 16;
 constexpr std::size_t thinOutlineCells = 1000;
 constexpr double pickSlackPx = 3.0;
 constexpr double pinMarkPx = 4.0;
@@ -131,6 +132,18 @@ public:
             {frame.x[owner] + geometry.pinDx[pin], frame.y[owner] + geometry.pinDy[pin]});
     }
 
+    [[nodiscard]] QPointF flyLineAnchor(std::uint32_t firstPin, std::uint32_t lastPin) const {
+        const LayoutGeometry &geometry = *frame.geometry;
+        QPointF centroid;
+        for (std::uint32_t pin = firstPin; pin < lastPin; ++pin) {
+            if (selection.contains(geometry.pinCell[pin])) {
+                return pinOnScreen(pin);
+            }
+            centroid += pinOnScreen(pin);
+        }
+        return centroid / static_cast<double>(lastPin - firstPin);
+    }
+
     void render();
     void refreshOverlay() const;
     void applyStyle(const DisplayStyle &newStyle, bool announce);
@@ -141,7 +154,6 @@ public:
     void paintCongestion(QPainter &painter) const;
     void paintMarkedNets(QPainter &painter) const;
     void paintSelection(QPainter &painter) const;
-    void paintNetsOf(QPainter &painter, std::uint32_t cell) const;
     void paintRubberBand(QPainter &painter) const;
 };
 
@@ -281,67 +293,27 @@ void LayoutView::Impl::paintMarkedNets(QPainter &painter) const {
     const LayoutGeometry &geometry = *frame.geometry;
     const QColor color = style[DisplayLayer::MarkedNets].color;
     const bool detailed = nets.size() <= maxDetailedNets;
+    const bool boxed = nets.size() <= maxBoxedNets;
     painter.setRenderHint(QPainter::Antialiasing, detailed);
     for (const std::uint32_t net : nets) {
         const std::optional<Bounds> box = frame.netBounds(net);
         if (!box) {
             continue;
         }
-        const QRectF area = rectOf(*box);
-        painter.setPen(QPen(withAlpha(color, boxEdgeAlpha), 0));
-        painter.setBrush(withAlpha(color, boxFillAlpha));
-        painter.drawRect(area);
+        if (boxed || !detailed) {
+            painter.setPen(QPen(withAlpha(color, boxEdgeAlpha), 0));
+            painter.setBrush(boxed ? withAlpha(color, boxFillAlpha) : QColor(Qt::transparent));
+            painter.drawRect(rectOf(*box));
+        }
         const std::uint32_t first = geometry.netPinStart[net];
         const std::uint32_t last = geometry.netPinStart[net + 1];
         if (!detailed || last - first > maxFlyLinePins) {
             continue;
         }
-        QPointF centroid;
-        for (std::uint32_t pin = first; pin < last; ++pin) {
-            centroid += pinOnScreen(pin);
-        }
-        centroid /= static_cast<double>(last - first);
+        const QPointF anchor = flyLineAnchor(first, last);
         painter.setPen(QPen(withAlpha(color, flyLineAlpha), 1.2));
         for (std::uint32_t pin = first; pin < last; ++pin) {
-            painter.drawLine(centroid, pinOnScreen(pin));
-        }
-        painter.setPen(Qt::NoPen);
-        painter.setBrush(color);
-        for (std::uint32_t pin = first; pin < last; ++pin) {
-            painter.drawRect(QRectF(pinOnScreen(pin) - QPointF(pinMarkPx / 2, pinMarkPx / 2),
-                                    QSizeF(pinMarkPx, pinMarkPx)));
-        }
-    }
-}
-
-void LayoutView::Impl::paintNetsOf(QPainter &painter, std::uint32_t cell) const {
-    const LayoutGeometry &geometry = *frame.geometry;
-    const QColor color = style[DisplayLayer::Selection].color;
-    for (std::uint32_t k = geometry.cellNetStart[cell]; k < geometry.cellNetStart[cell + 1]; ++k) {
-        const std::uint32_t net = geometry.cellNet[k];
-        const std::uint32_t first = geometry.netPinStart[net];
-        const std::uint32_t last = geometry.netPinStart[net + 1];
-        const std::optional<Bounds> box = frame.netBounds(net);
-        if (!box) {
-            continue;
-        }
-        painter.setPen(QPen(withAlpha(color, boxEdgeAlpha), 0));
-        painter.setBrush(withAlpha(color, boxFillAlpha));
-        painter.drawRect(rectOf(*box));
-        std::optional<QPointF> own;
-        for (std::uint32_t pin = first; pin < last && !own; ++pin) {
-            if (geometry.pinCell[pin] == cell) {
-                own = pinOnScreen(pin);
-            }
-        }
-        if (!own || last - first > maxFlyLinePins) {
-            continue;
-        }
-        painter.setPen(QPen(withAlpha(color, flyLineAlpha), 1.2));
-        for (std::uint32_t pin = first; pin < last; ++pin) {
-            if (geometry.pinCell[pin] != cell) {
-                painter.drawLine(*own, pinOnScreen(pin));
-            }
+            painter.drawLine(anchor, pinOnScreen(pin));
         }
         painter.setPen(Qt::NoPen);
         painter.setBrush(color);
@@ -358,9 +330,6 @@ void LayoutView::Impl::paintSelection(QPainter &painter) const {
         return;
     }
     painter.setRenderHint(QPainter::Antialiasing, cells.size() <= thinOutlineCells);
-    if (cells.size() == 1) {
-        paintNetsOf(painter, cells.front());
-    }
     const QPointF lo = view.screenToWorld({0.0, static_cast<double>(view.height())});
     const QPointF hi = view.screenToWorld({static_cast<double>(view.width()), 0.0});
     std::vector<QRectF> outlines;
@@ -686,6 +655,16 @@ void LayoutView::contextMenuEvent(QContextMenuEvent *event) {
     connect(focusSelection, &QAction::triggered, this, [this] {
         zoomToSelection();
     });
+    QAction *connectivity = menu.addAction(QStringLiteral("Show Connectivity"));
+    connectivity->setEnabled(!pImpl->selection.cells().empty());
+    connect(connectivity, &QAction::triggered, this, [this] {
+        showConnectivity();
+    });
+    QAction *hideNets = menu.addAction(QStringLiteral("Hide Connectivity"));
+    hideNets->setEnabled(!pImpl->selection.nets().empty());
+    connect(hideNets, &QAction::triggered, this, [this] {
+        hideConnectivity();
+    });
     QAction *clear = menu.addAction(QStringLiteral("Select None"));
     clear->setEnabled(!pImpl->selection.empty());
     connect(clear, &QAction::triggered, this, [this] {
@@ -694,6 +673,25 @@ void LayoutView::contextMenuEvent(QContextMenuEvent *event) {
     menu.addSeparator();
     menu.addAction(QStringLiteral("Zoom Fit"), this, &LayoutView::zoomFit);
     menu.exec(event->globalPos());
+}
+
+std::size_t LayoutView::showConnectivity() {
+    if (!pImpl->frame.drawable()) {
+        return 0;
+    }
+    const LayoutGeometry &geometry = *pImpl->frame.geometry;
+    std::vector<std::uint32_t> nets;
+    for (const std::uint32_t cell : pImpl->selection.cells()) {
+        const auto first = geometry.cellNet.begin() + geometry.cellNetStart[cell];
+        const auto last = geometry.cellNet.begin() + geometry.cellNetStart[cell + 1];
+        nets.insert(nets.end(), first, last);
+    }
+    pImpl->selection.markNets(std::move(nets));
+    return pImpl->selection.nets().size();
+}
+
+void LayoutView::hideConnectivity() {
+    pImpl->selection.markNets({});
 }
 
 void LayoutView::zoomFit() {

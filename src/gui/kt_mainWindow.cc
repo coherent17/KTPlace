@@ -284,6 +284,14 @@ void MainWindow::Impl::buildActions() {
                                  QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_A), [this] {
                                      view->selection().clear();
                                  });
+    QAction *showConnectivity =
+        action(QStringLiteral("Show Connectivity"), QKeySequence(Qt::CTRL | Qt::Key_E), [this] {
+            view->showConnectivity();
+        });
+    QAction *hideConnectivity = action(QStringLiteral("Hide Connectivity"),
+                                       QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_E), [this] {
+                                           view->hideConnectivity();
+                                       });
     QAction *fit = action(QStringLiteral("Zoom Fit"), QKeySequence(Qt::Key_F), [this] {
         view->zoomFit();
     });
@@ -314,7 +322,10 @@ void MainWindow::Impl::buildActions() {
                      "<tr><td><b>Z</b></td><td>zoom to the selection</td></tr>"
                      "<tr><td><b>Ctrl+F</b></td><td>locate cells or nets</td></tr>"
                      "<tr><td><b>Ctrl+Shift+A</b></td><td>select none</td></tr>"
-                     "<tr><td><b>Right-click</b></td><td>routing demand and view options</td></tr>"
+                     "<tr><td><b>Ctrl+E</b>, <b>Ctrl+Shift+E</b></td><td>show or hide the "
+                     "connectivity of the selection</td></tr>"
+                     "<tr><td><b>Right-click</b></td><td>connectivity, routing demand and view "
+                     "options</td></tr>"
                      "</table>"));
     });
     QAction *about = action(QStringLiteral("About KTPlace"), {}, [this] {
@@ -340,6 +351,9 @@ void MainWindow::Impl::buildActions() {
     QMenu *edit = window.menuBar()->addMenu(QStringLiteral("&Edit"));
     edit->addAction(locateAction);
     edit->addAction(selectNone);
+    edit->addSeparator();
+    edit->addAction(showConnectivity);
+    edit->addAction(hideConnectivity);
 
     QMenu *show = window.menuBar()->addMenu(QStringLiteral("&View"));
     show->addAction(fit);

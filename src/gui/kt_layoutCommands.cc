@@ -188,6 +188,19 @@ void registerCommands() {
                               view.selection().markNets(std::move(found));
                               return tcl::Value::integer(count);
                           });
+    registerLayoutCommand(
+        {.name = "layout_connectivity",
+         .usage = "layout_connectivity ?on|off?",
+         .summary = "show or hide the nets of the selected cells; returns how many are shown"},
+        {.min = 0, .max = 1}, [](LayoutView &view, const Words &words) {
+            shownFrame(view);
+            if (words.empty() || switchValue(words.front())) {
+                view.showConnectivity();
+            } else {
+                view.hideConnectivity();
+            }
+            return tcl::Value::integer(static_cast<std::int64_t>(view.selection().nets().size()));
+        });
     registerLayoutCommand({.name = "layout_clear",
                            .usage = "layout_clear",
                            .summary = "drop the selected cells and the marked nets"},

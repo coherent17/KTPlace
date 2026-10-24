@@ -173,9 +173,10 @@ public:
 
     void describeNothing() {
         heading->setText(QStringLiteral("Nothing selected"));
-        const std::array<std::pair<QString, QString>, 3> rows{{
+        const std::array<std::pair<QString, QString>, 4> rows{{
             {QStringLiteral("Click"), QStringLiteral("select a cell")},
             {QStringLiteral("Ctrl+click"), QStringLiteral("add or remove a cell")},
+            {QStringLiteral("Right-click"), QStringLiteral("show its connectivity")},
             {QStringLiteral("Ctrl+F"), QStringLiteral("locate cells or nets by name")},
         }};
         setProperties(rows);

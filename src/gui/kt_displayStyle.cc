@@ -20,12 +20,12 @@ struct LayerInfo {
 constexpr std::array<LayerInfo, displayLayers.size()> layerInfo{{
     {"Die outline", "die", 0x8b97a3, true},
     {"Placement rows", "rows", 0x3b454e, true},
-    {"Fixed macros", "macros", 0xd94d4a, true},
+    {"Fixed macros", "macros", 0x7d8a99, true},
     {"Movable cells", "cells", 0x4ab5e5, true},
-    {"I/O pads", "pads", 0xd94d4a, true},
+    {"I/O pads", "pads", 0xe0a030, true},
     {"Fence regions", "fences", 0x9b7fe6, true},
-    {"Selection", "selection", 0xffd54f, true},
-    {"Marked nets", "nets", 0x5cdb95, true},
+    {"Selection", "selection", 0xff3b30, true},
+    {"Connectivity", "nets", 0xff3b30, true},
     {"Routing demand", "demand", 0xff7043, false},
 }};
 

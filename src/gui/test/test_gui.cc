@@ -305,7 +305,7 @@ BOOST_AUTO_TEST_CASE(the_layout_view_draws_cells_inside_the_die) {
 
     const QPointF macroCentre = view.worldToScreen({16.0, 5.0});
     const QColor macro = image.pixelColor(macroCentre.toPoint());
-    BOOST_TEST(macro.red() == 0xd9);
+    BOOST_TEST((macro == QColor(0x7d, 0x8a, 0x99)));
     const QPointF cellCentre = view.worldToScreen({2.5, 1.0});
     const QColor cell = image.pixelColor(cellCentre.toPoint());
     BOOST_TEST(cell.blue() > cell.red() + 0x40);
@@ -532,7 +532,10 @@ BOOST_AUTO_TEST_CASE(every_display_layer_has_a_key_that_finds_it) {
     BOOST_TEST(!DisplayStyle::fromKey("bogus").has_value());
     BOOST_TEST(!style.shows(DisplayLayer::RoutingDemand));
     BOOST_TEST(style.shows(DisplayLayer::Macros));
-    BOOST_TEST((style[DisplayLayer::Macros].color == QColor(0xd9, 0x4d, 0x4a)));
+    BOOST_TEST((style[DisplayLayer::Macros].color == QColor(0x7d, 0x8a, 0x99)));
+    BOOST_TEST((style[DisplayLayer::Pads].color == QColor(0xe0, 0xa0, 0x30)));
+    BOOST_TEST((style[DisplayLayer::Selection].color == QColor(0xff, 0x3b, 0x30)));
+    BOOST_TEST((style[DisplayLayer::MarkedNets].color == QColor(0xff, 0x3b, 0x30)));
 }
 
 BOOST_AUTO_TEST_CASE(geometry_knows_net_names_fences_and_net_extents) {
@@ -564,7 +567,7 @@ BOOST_AUTO_TEST_CASE(a_hidden_layer_is_not_drawn) {
     view.resize(400, 200);
     view.setFrame(LayoutFrame::committed(LayoutGeometry::of(*db), *db, "load"));
     const QPoint macro = view.worldToScreen({16.0, 5.0}).toPoint();
-    BOOST_TEST(view.grab().toImage().pixelColor(macro).red() == 0xd9);
+    BOOST_TEST((view.grab().toImage().pixelColor(macro) == QColor(0x7d, 0x8a, 0x99)));
 
     DisplayStyle style = view.style();
     style[DisplayLayer::Macros].visible = false;
@@ -923,4 +926,59 @@ BOOST_AUTO_TEST_CASE(a_layout_saved_by_an_older_version_is_ignored) {
     BOOST_TEST((window.dockWidgetArea(visibility) == Qt::RightDockWidgetArea));
     BOOST_TEST(visibility->isHidden());
     QSettings(QStringLiteral("KTPlace"), QStringLiteral("KTPlace")).clear();
+}
+
+BOOST_AUTO_TEST_CASE(a_click_only_selects_and_connectivity_is_shown_on_request) {
+    ShownDesign shown("connectivity");
+    LayoutView &view = *shown.window.layoutView();
+    (void)shown.window.grab();
+    view.zoomFit();
+    const QPoint between = view.worldToScreen({10.0, 1.0}).toPoint();
+    const QColor empty = view.grab().toImage().pixelColor(between);
+
+    sendClick(view, view.worldToScreen({6.5, 1.0}), Qt::NoModifier);
+    BOOST_TEST(view.selection().cells() == (std::vector<std::uint32_t>{3}));
+    BOOST_TEST(view.selection().nets().empty());
+    BOOST_TEST((view.grab().toImage().pixelColor(between) == empty));
+
+    actionNamed(shown.window, QStringLiteral("Show Connectivity"))->trigger();
+    BOOST_TEST(view.selection().nets() == (std::vector<std::uint32_t>{1}));
+    const QColor line = view.grab().toImage().pixelColor(between);
+    BOOST_TEST(line.red() > 0xc0);
+    BOOST_TEST(line.red() > line.green() + 0x60);
+
+    actionNamed(shown.window, QStringLiteral("Hide Connectivity"))->trigger();
+    BOOST_TEST(view.selection().nets().empty());
+    BOOST_TEST(view.selection().cells() == (std::vector<std::uint32_t>{3}));
+    BOOST_TEST((view.grab().toImage().pixelColor(between) == empty));
+
+    view.selection().selectCells({0, 3});
+    BOOST_TEST(view.showConnectivity() == 2U);
+}
+
+BOOST_AUTO_TEST_CASE(layout_connectivity_shows_and_hides_from_tcl) {
+    const ScratchDir dir("connectivitycmd");
+    const std::string design = dir.design();
+    MainWindow window({"", dir.file("work").string(), ""});
+    std::vector<RunResult> results;
+    window.onFinished([&results](const RunResult &r) {
+        results.push_back(r);
+    });
+    const auto evaluate = [&](const QString &command) {
+        const std::size_t before = results.size();
+        window.tclConsole()->submit(command);
+        BOOST_REQUIRE(waitUntil([&] {
+            return results.size() > before;
+        }));
+        return results.back().message;
+    };
+    window.openDesign(QString::fromStdString(design));
+    BOOST_REQUIRE(waitUntil([&] {
+        return !results.empty();
+    }));
+    evaluate(QStringLiteral("layout_select c0"));
+    BOOST_TEST(evaluate(QStringLiteral("layout_connectivity")) == "2");
+    BOOST_TEST(window.layoutView()->selection().nets().size() == 2U);
+    BOOST_TEST(evaluate(QStringLiteral("layout_connectivity off")) == "0");
+    BOOST_TEST(window.layoutView()->selection().nets().empty());
 }
