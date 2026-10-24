@@ -21,7 +21,6 @@
 #include <boost/test/unit_test.hpp>
 #include <cstdlib>
 #include <filesystem>
-#include <fstream>
 #include <functional>
 #include <optional>
 #include <string>
@@ -373,6 +372,30 @@ BOOST_AUTO_TEST_CASE(the_tcl_console_drives_a_session_step_by_step) {
     BOOST_TEST(console.transcript().contains(QStringLiteral("no_such_command")));
     const CommandHistory history;
     BOOST_TEST(history.entries().back() == "write_placement");
+}
+
+BOOST_AUTO_TEST_CASE(run_after_open_places_the_loaded_design_without_reading_it_again) {
+    const ScratchDir dir("openrun");
+    const std::string design = dir.design();
+    const fs::path work = dir.file("work");
+    MainWindow window({"", work.string(), ""});
+    std::vector<RunResult> results;
+    window.onFinished([&results](const RunResult &r) {
+        results.push_back(r);
+    });
+    window.openDesign(QString::fromStdString(design));
+    BOOST_REQUIRE(waitUntil([&] {
+        return !results.empty();
+    }));
+    BOOST_TEST((results.back().outcome == RunResult::Outcome::Loaded));
+    fs::remove_all(design);
+
+    window.run();
+    BOOST_REQUIRE(waitUntil([&] {
+        return results.size() > 1;
+    }));
+    BOOST_TEST((results.back().outcome == RunResult::Outcome::Placed));
+    BOOST_TEST(fs::exists(work / "placed.pl"));
 }
 
 BOOST_AUTO_TEST_CASE(opening_a_design_loads_it_and_read_design_reads_it_again) {

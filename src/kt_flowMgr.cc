@@ -123,6 +123,7 @@ public:
     std::string writePlacement(const std::string &path);
     void writePlots();
     [[nodiscard]] const ktDM &design() const;
+    [[nodiscard]] bool isFreshlyLoaded(const std::string &dirPath) const;
     void reportDesign() const;
 
 private:
@@ -134,6 +135,8 @@ private:
     };
 
     PlotOptions plot;
+    std::string loadedDesign;
+    std::string sessionLog;
     std::unique_ptr<SnapshotWriter> snapshots;
     std::vector<Committed> committed;
     bool plotsReady = false;
@@ -193,6 +196,10 @@ bool FlowMgr::hasDesign() const {
     return pImpl->db != nullptr;
 }
 
+bool FlowMgr::isFreshlyLoaded(const std::string &dirPath) const {
+    return pImpl->isFreshlyLoaded(dirPath);
+}
+
 const std::string &FlowMgr::designPath() const {
     return pImpl->options.inputPath;
 }
@@ -237,14 +244,19 @@ bool FlowMgr::checkPlacement() const {
 
 void FlowMgr::Impl::begin(const kt_option &sessionOptions) {
     options = sessionOptions;
-    ktlog.configure(options.getLogFile(), options.verbose);
+    if (options.getLogFile() == sessionLog) {
+        return;
+    }
+    sessionLog = options.getLogFile();
+    ktlog.configure(sessionLog, options.verbose);
     ktlog.beginStep("setup");
     options.report();
 }
 
 void FlowMgr::Impl::run(const kt_option &runOptions) {
+    const bool alreadyLoaded = isFreshlyLoaded(runOptions.inputPath);
     begin(runOptions);
-    if (!options.inputPath.empty()) {
+    if (!options.inputPath.empty() && !alreadyLoaded) {
         readDesign(options.inputPath);
     }
     runScript();
@@ -276,8 +288,13 @@ void FlowMgr::Impl::finish() {
     }
 }
 
+bool FlowMgr::Impl::isFreshlyLoaded(const std::string &dirPath) const {
+    return db && !dirPath.empty() && dirPath == loadedDesign && !stepsRun && committed.size() == 1;
+}
+
 void FlowMgr::Impl::readDesign(const std::string &dirPath) {
     options.inputPath = dirPath;
+    loadedDesign = dirPath;
     snapshots.reset();
     plotsReady = false;
     committed.clear();

@@ -36,6 +36,7 @@ public:
     [[nodiscard]] std::string evaluate(const std::string &script);
     void finish();
     [[nodiscard]] bool hasDesign() const;
+    [[nodiscard]] bool isFreshlyLoaded(const std::string &dirPath) const;
     [[nodiscard]] const std::string &designPath() const;
 
     void readDesign(const std::string &dirPath);
