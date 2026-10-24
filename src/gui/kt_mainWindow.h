@@ -8,9 +8,12 @@
 
 namespace ktplace::gui {
 
+class DetailsPanel;
 class LayoutView;
+class LocateDialog;
 class LogView;
 class TclConsole;
+class VisibilityPanel;
 
 class MainWindow : public QMainWindow {
 public:
@@ -29,6 +32,10 @@ public:
     [[nodiscard]] LayoutView *layoutView() const;
     [[nodiscard]] LogView *logView() const;
     [[nodiscard]] TclConsole *tclConsole() const;
+    [[nodiscard]] VisibilityPanel *visibilityPanel() const;
+    [[nodiscard]] DetailsPanel *detailsPanel() const;
+    [[nodiscard]] LocateDialog *locateDialog() const;
+    [[nodiscard]] QString cursorText() const;
     [[nodiscard]] QString status() const;
 
     void onFinished(std::function<void(const RunResult &)> callback);

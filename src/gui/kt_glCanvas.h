@@ -1,5 +1,6 @@
 #pragma once
 
+#include "gui/kt_displayStyle.h"
 #include "gui/kt_layout.h"
 
 #include <QElapsedTimer>
@@ -26,6 +27,7 @@ public:
 
     void setFrame(const LayoutFrame &frame);
     void setCamera(QPointF center, double scale);
+    void setStyle(const DisplayStyle &newStyle);
 
     [[nodiscard]] static bool available();
 
@@ -42,6 +44,7 @@ private:
     void uploadGeometry();
     void uploadPositions();
     void drawRange(const Range &range);
+    void drawMovable(float progress, double deviceScale);
     void drawDensity(const Range &range, float progress, double deviceScale);
     void startTween();
     [[nodiscard]] float tweenProgress() const;
@@ -52,10 +55,11 @@ private:
     std::vector<float> shape;
     std::vector<float> fromPositions;
     std::vector<float> toPositions;
-    std::array<Range, 6> ranges{};
+    std::array<Range, 7> ranges{};
     bool geometryDirty = false;
     bool positionsDirty = false;
 
+    DisplayStyle style;
     QPointF center;
     double scale = 1.0;
     double typicalWidth = 1.0;

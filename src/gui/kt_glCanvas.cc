@@ -21,8 +21,34 @@ namespace ktplace::gui {
 
 namespace {
 
-enum Kind : int { Macro = 0, Movable = 1, Pad = 2, DieFill = 3, Row = 4, DieEdge = 5 };
-constexpr int kinds = 6;
+enum Kind : int {
+    Macro = 0,
+    Movable = 1,
+    Pad = 2,
+    DieFill = 3,
+    Row = 4,
+    DieEdge = 5,
+    MovableMacro = 6
+};
+constexpr int kinds = 7;
+
+struct CellSlot {
+    CellKind kind;
+    Kind shaderKind;
+    std::size_t range;
+    DisplayLayer layer;
+};
+
+constexpr std::size_t dieFillRange = 0;
+constexpr std::size_t rowRange = 1;
+constexpr std::size_t movableRange = 4;
+constexpr std::size_t dieEdgeRange = 6;
+constexpr std::array<CellSlot, 4> cellSlots{{
+    {CellKind::Macro, Macro, 2, DisplayLayer::Macros},
+    {CellKind::MovableMacro, MovableMacro, 3, DisplayLayer::MovableMacros},
+    {CellKind::Movable, Movable, movableRange, DisplayLayer::MovableCells},
+    {CellKind::Pad, Pad, 5, DisplayLayer::Pads},
+}};
 constexpr double firstTweenMs = 120.0;
 constexpr double shortestTweenMs = 60.0;
 constexpr double longestTweenMs = 1000.0;
@@ -30,7 +56,8 @@ constexpr double intervalSmoothing = 0.3;
 constexpr double visibleRowPx = 5.0;
 constexpr double densityCellPx = 1.5;
 constexpr float movableMinAlpha = 0.35F;
-constexpr std::uint32_t movableFill = 0x4ab5e5;
+constexpr int edgeDarkening = 140;
+constexpr QRgb canvasBackground = 0x101418;
 constexpr double outlinedCellPx = 5.0;
 
 const char *vertexShader = R"(#version 330 core
@@ -67,8 +94,8 @@ in vec2 local;
 in vec2 drawn;
 in float coverage;
 flat in int kind;
-uniform vec4 fill[6];
-uniform vec4 edge[6];
+uniform vec4 fill[7];
+uniform vec4 edge[7];
 uniform float edgePx;
 uniform float outlineCells;
 out vec4 color;
@@ -76,7 +103,10 @@ void main() {
     vec4 f = fill[kind];
     float e = min(min(local.x, drawn.x - local.x), min(local.y, drawn.y - local.y));
     float smallest = min(drawn.x, drawn.y);
-    bool outline = kind == 5 || ((kind == 0 || kind == 2) && smallest > 4.0 * edgePx) ||
+    if (kind == 0 && mod(gl_FragCoord.x + gl_FragCoord.y, 8.0) < 2.5) {
+        f.rgb *= 0.72;
+    }
+    bool outline = kind == 5 || ((kind == 0 || kind == 2 || kind == 6) && smallest > 4.0 * edgePx) ||
                    (kind == 1 && outlineCells > 0.5 && smallest > 3.0 * edgePx);
     if (outline && e < edgePx) {
         f = edge[kind];
@@ -159,10 +189,9 @@ QSurfaceFormat canvasFormat() {
     return format;
 }
 
-QVector4D rgba(std::uint32_t rgb, float alpha = 1.0F) {
-    return {static_cast<float>((rgb >> 16) & 0xff) / 255.0F,
-            static_cast<float>((rgb >> 8) & 0xff) / 255.0F, static_cast<float>(rgb & 0xff) / 255.0F,
-            alpha};
+QVector4D rgba(const QColor &color, float alpha = 1.0F) {
+    return {static_cast<float>(color.redF()), static_cast<float>(color.greenF()),
+            static_cast<float>(color.blueF()), alpha};
 }
 
 }  // namespace
@@ -219,14 +248,14 @@ void GlCanvas::setFrame(const LayoutFrame &frame) {
             return std::max(g.width[v], g.height[v]);
         };
         order.clear();
-        for (const CellKind kind : {CellKind::Macro, CellKind::Movable, CellKind::Pad}) {
+        for (const CellSlot &slot : cellSlots) {
             const auto first = static_cast<std::ptrdiff_t>(order.size());
             for (std::uint32_t v = 0; v < g.kind.size(); ++v) {
-                if (g.kind[v] == kind) {
+                if (g.kind[v] == slot.kind) {
                     order.push_back(v);
                 }
             }
-            if (kind == CellKind::Movable) {
+            if (slot.kind == CellKind::Movable) {
                 std::ranges::stable_sort(order.begin() + first, order.end(), std::ranges::greater{},
                                          extent);
                 movableExtent.clear();
@@ -246,34 +275,32 @@ void GlCanvas::setFrame(const LayoutFrame &frame) {
             shape.push_back(static_cast<float>(kind));
         };
         std::size_t at = 0;
-        const auto mark = [&](int slot) {
-            ranges[static_cast<std::size_t>(slot)] = {at, shape.size() / 3 - at};
+        const auto mark = [&](std::size_t range) {
+            ranges[range] = {at, shape.size() / 3 - at};
             at = shape.size() / 3;
         };
         add(static_cast<float>(die[0]), static_cast<float>(die[1]),
             static_cast<float>(die[2] - die[0]), static_cast<float>(die[3] - die[1]), DieFill);
-        mark(0);
+        mark(dieFillRange);
         for (const LayoutGeometry::Row &row : g.rows) {
             add(row.xlo, row.y, row.xhi - row.xlo, 0.0F, Row);
         }
-        mark(1);
-        for (const CellKind kind : {CellKind::Macro, CellKind::Movable, CellKind::Pad}) {
+        mark(rowRange);
+        for (const CellSlot &slot : cellSlots) {
             for (const std::uint32_t v : order) {
-                if (g.kind[v] == kind) {
-                    add(0.0F, 0.0F, g.width[v], g.height[v],
-                        kind == CellKind::Macro ? Macro
-                                                : (kind == CellKind::Movable ? Movable : Pad));
+                if (g.kind[v] == slot.kind) {
+                    add(0.0F, 0.0F, g.width[v], g.height[v], slot.shaderKind);
                 }
             }
-            mark(kind == CellKind::Macro ? 2 : (kind == CellKind::Movable ? 3 : 4));
+            mark(slot.range);
         }
         add(static_cast<float>(die[0]), static_cast<float>(die[1]),
             static_cast<float>(die[2] - die[0]), static_cast<float>(die[3] - die[1]), DieEdge);
-        mark(5);
+        mark(dieEdgeRange);
         typicalWidth = g.typicalWidth;
         rowHeight = g.rows.empty() ? 0.0 : g.rows.front().height;
     }
-    const std::size_t base = ranges[2].first * 2;
+    const std::size_t base = ranges[cellSlots.front().range].first * 2;
     if (!freshGeometry) {
         const float shown = tweenProgress();
         for (std::size_t i = base; i < base + 2 * order.size(); ++i) {
@@ -312,6 +339,11 @@ float GlCanvas::tweenProgress() const {
         return 1.0F;
     }
     return std::min(1.0F, static_cast<float>(static_cast<double>(tweenClock.elapsed()) / tweenMs));
+}
+
+void GlCanvas::setStyle(const DisplayStyle &newStyle) {
+    style = newStyle;
+    update();
 }
 
 void GlCanvas::setCamera(QPointF newCenter, double newScale) {
@@ -442,39 +474,64 @@ void GlCanvas::paintGL() {
     program->setUniformValue("edgePx", static_cast<float>(dpr));
     program->setUniformValue("outlineCells",
                              typicalWidth * deviceScale >= outlinedCellPx * dpr ? 1.0F : 0.0F);
-    const std::array<QVector4D, kinds> fills{rgba(0xd94d4a), rgba(0x4ab5e5), rgba(0xd94d4a),
-                                             rgba(0x101418), rgba(0x3b454e), rgba(0x000000, 0.0F)};
-    const std::array<QVector4D, kinds> edges{rgba(0x9c3735), rgba(0x3582a5), rgba(0x9c3735),
-                                             rgba(0x101418), rgba(0x3b454e), rgba(0x8b97a3)};
+    const QColor background = QColor::fromRgb(canvasBackground);
+    std::array<QVector4D, kinds> fills{};
+    std::array<QVector4D, kinds> edges{};
+    for (const CellSlot &slot : cellSlots) {
+        const QColor color = style[slot.layer].color;
+        fills[slot.shaderKind] = rgba(color);
+        edges[slot.shaderKind] = rgba(color.darker(edgeDarkening));
+    }
+    fills[DieFill] = rgba(background);
+    edges[DieFill] = rgba(background);
+    fills[Row] = rgba(style[DisplayLayer::Rows].color);
+    edges[Row] = fills[Row];
+    fills[DieEdge] = rgba(background, 0.0F);
+    edges[DieEdge] = rgba(style[DisplayLayer::Die].color);
     program->setUniformValueArray("fill", fills.data(), kinds);
     program->setUniformValueArray("edge", edges.data(), kinds);
 
     glBindVertexArray(vao);
-    drawRange(ranges[0]);
-    if (rowHeight * deviceScale >= visibleRowPx * dpr) {
-        drawRange(ranges[1]);
+    if (style.shows(DisplayLayer::Die)) {
+        drawRange(ranges[dieFillRange]);
     }
-    drawRange(ranges[2]);
-    if (typicalWidth * deviceScale < densityCellPx) {
-        const Range &movable = ranges[3];
-        const auto visible = static_cast<std::size_t>(
-            std::ranges::partition_point(movableExtent,
-                                         [deviceScale](float cellExtent) {
-                                             return cellExtent * deviceScale >= densityCellPx;
-                                         }) -
-            movableExtent.begin());
-        drawRange({movable.first, visible});
-        glBindVertexArray(0);
-        drawDensity({movable.first + visible, movable.count - visible}, t, deviceScale);
-        program->bind();
-        glBindVertexArray(vao);
-    } else {
-        drawRange(ranges[3]);
+    if (style.shows(DisplayLayer::Rows) && rowHeight * deviceScale >= visibleRowPx * dpr) {
+        drawRange(ranges[rowRange]);
     }
-    drawRange(ranges[4]);
-    drawRange(ranges[5]);
+    for (const CellSlot &slot : cellSlots) {
+        if (!style.shows(slot.layer)) {
+            continue;
+        }
+        if (slot.range == movableRange) {
+            drawMovable(t, deviceScale);
+        } else {
+            drawRange(ranges[slot.range]);
+        }
+    }
+    if (style.shows(DisplayLayer::Die)) {
+        drawRange(ranges[dieEdgeRange]);
+    }
     glBindVertexArray(0);
     program->release();
+}
+
+void GlCanvas::drawMovable(float progress, double deviceScale) {
+    const Range &movable = ranges[movableRange];
+    if (typicalWidth * deviceScale >= densityCellPx) {
+        drawRange(movable);
+        return;
+    }
+    const auto visible = static_cast<std::size_t>(
+        std::ranges::partition_point(movableExtent,
+                                     [deviceScale](float cellExtent) {
+                                         return cellExtent * deviceScale >= densityCellPx;
+                                     }) -
+        movableExtent.begin());
+    drawRange({movable.first, visible});
+    glBindVertexArray(0);
+    drawDensity({movable.first + visible, movable.count - visible}, progress, deviceScale);
+    program->bind();
+    glBindVertexArray(vao);
 }
 
 void GlCanvas::drawDensity(const Range &range, float progress, double deviceScale) {
@@ -508,9 +565,10 @@ void GlCanvas::drawDensity(const Range &range, float progress, double deviceScal
             1.0F - alpha;
     }
 
-    const auto red = static_cast<std::uint8_t>((movableFill >> 16) & 0xff);
-    const auto green = static_cast<std::uint8_t>((movableFill >> 8) & 0xff);
-    const auto blue = static_cast<std::uint8_t>(movableFill & 0xff);
+    const QColor fill = style[DisplayLayer::MovableCells].color;
+    const auto red = static_cast<std::uint8_t>(fill.red());
+    const auto green = static_cast<std::uint8_t>(fill.green());
+    const auto blue = static_cast<std::uint8_t>(fill.blue());
     densityPixels.resize(pixels * 4);
     for (std::size_t p = 0; p < pixels; ++p) {
         std::uint8_t *out = &densityPixels[4 * p];
