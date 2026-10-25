@@ -38,11 +38,9 @@ logs/
 
 # Local editor tooling (kept out of the repo)
 .cursorrules
-# Development notes are ignored; the curated write-ups are tracked.
-docs/*
-!docs/simpl.md
-!docs/visualization.md
-!docs/images/
+# MkDocs: `mkdocs build` writes the site to site/; docs/README.md builds it from .venv/.
+/site/
+/.venv/
 ref/
 *.whl
 
