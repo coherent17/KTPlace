@@ -40,15 +40,35 @@ target and then thrown away, never refined directly.
 
 The flow (paper Figure 2):
 
-```
- Initial placement                       Global placement iterations                 Post-global
- ┌─────────────────────────┐   ┌─────────────────────────────────────────────┐   ┌──────────────────┐
- │ uniform start            │   │ look-ahead legalization  → upper bound       │   │ final legalization│
- │ netlist → B2B graph      │   │ add pseudonets (cell → its anchor)           │   │ + detailed place  │
- │ CG solve (Jacobi)        │──▶│ B2B update                                   │──▶│ (FastPlace-DP)    │
- │ repeat until ΔHPWL small │   │ CG solve (Jacobi)        → lower bound       │   └──────────────────┘
- └─────────────────────────┘   │ repeat until gap + ΔHPWL say "converged"     │
-                               └─────────────────────────────────────────────┘
+```mermaid
+flowchart TB
+    subgraph ip["1 · Initial placement"]
+        direction LR
+        i1[uniform start]:::io --> i2["netlist → B2B graph"]:::found
+        i2 --> i3["CG solve (Jacobi)"]:::found
+        i3 --> i4{"HPWL still<br/>improving?"}:::stage
+        i4 -- yes --> i2
+    end
+    subgraph gp["2 · Global placement iterations"]
+        direction LR
+        g1["look-ahead legalization<br/>→ upper bound"]:::simpl --> g2{"converged?<br/>gap + ΔHPWL"}:::stage
+        g2 -- no --> g3["pseudonets to anchors<br/>+ B2B update"]:::simpl
+        g3 --> g4["CG solve (Jacobi)<br/>→ lower bound"]:::found
+        g4 --> g1
+    end
+    subgraph pg["3 · Post-global placement"]
+        direction LR
+        p1["last upper bound"]:::simpl --> p2["final legalization<br/>+ detailed placement"]:::io
+    end
+    ip -- "HPWL stopped improving" --> gp
+    gp -- "converged" --> pg
+    style ip fill:#eef2ff,stroke:#6366f1,color:#1e1b4b
+    style gp fill:#fdf2f8,stroke:#db2777,color:#500724
+    style pg fill:#fffbeb,stroke:#d97706,color:#451a03
+    classDef io fill:#fef3c7,stroke:#d97706,color:#451a03
+    classDef stage fill:#ccfbf1,stroke:#0f766e,color:#042f2e
+    classDef found fill:#e0e7ff,stroke:#4f46e5,color:#1e1b4b
+    classDef simpl fill:#fce7f3,stroke:#db2777,color:#500724
 ```
 
 ### 1.2 Initial placement
@@ -66,6 +86,13 @@ wirelength-optimal clump. Why bother iterating? The authors found that this firs
 shape strongly influences the final result, and B2B is more accurate than the
 star/clique models other placers used here. Only 5–7 rounds are needed regardless of
 design size, because the *relative order* of cells settles quickly.
+
+> [!IMPORTANT]
+> **Key takeaways**
+>
+> - SimPL keeps two placements: a lower bound (the linear solve, overlapping) and an upper bound (look-ahead legalized, nearly legal).
+> - Anchors tie each cell to its upper-bound location, which settles both the direction and the strength of spreading.
+> - Initial placement alternates Bound2Bound rebuilds and CG solves for 5 to 7 rounds, ignoring overlap.
 
 ---
 

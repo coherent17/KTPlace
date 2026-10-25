@@ -4,10 +4,18 @@ KTPlace places the cells of a chip design: it reads a netlist, finds a location 
 every cell so that the wires are short and no region is over-full, and writes the
 placement. A run goes through three stages, each a separate algorithm:
 
-```
-read design ──▶ global placement ──▶ legalization ──▶ detailed placement ──▶ placed.pl
-                (SimPL or NTUplace)   (Abacus, or       (FastDP)
-                                       multi-row)
+```mermaid
+flowchart LR
+    read[read design]:::io --> gp["global placement<br/>SimPL or NTUplace"]:::stage
+    gp --> lg["legalization<br/>Abacus or multi-row"]:::stage
+    lg --> dp["detailed placement<br/>FastDP"]:::stage
+    dp --> out[placed.pl]:::io
+    classDef io fill:#fef3c7,stroke:#d97706,color:#451a03
+    classDef stage fill:#ccfbf1,stroke:#0f766e,color:#042f2e
+    classDef found fill:#e0e7ff,stroke:#4f46e5,color:#1e1b4b
+    classDef simpl fill:#fce7f3,stroke:#db2777,color:#500724
+    classDef mov fill:#dbeafe,stroke:#2563eb,color:#172554
+    classDef fixed fill:#e5e7eb,stroke:#374151,color:#111827
 ```
 
 These pages explain the algorithms behind each stage from the ground up, for
@@ -15,14 +23,36 @@ readers who know basic calculus but no linear algebra and nothing about chip des
 
 ## How the documentation is organized
 
-| Section | What it is for |
-| --- | --- |
-| [Foundations](foundations/README.md) | The background every algorithm guide relies on: the placement problem, the math toolkit, quadratic placement, solving large linear systems, net models. Read it once; the guides link back into it. |
-| Global placement | One guide per global placer. |
-| Legalization | One guide per legalizer. |
-| Detailed placement | One guide per detailed placer. |
-| [Glossary](glossary.md) | Every symbol and term on one page. |
-| [References](references.md) | The papers the guides follow, with links. |
+<div class="grid cards" markdown>
+
+- **[Foundations](foundations/README.md)**
+
+    The background every algorithm guide relies on: the placement problem, the math
+    toolkit, quadratic placement, solving large linear systems, net models. Read it
+    once; the guides link back into it.
+
+- **Global placement**
+
+    One guide per global placer, starting with
+    [SimPL](global-placement/simpl/README.md).
+
+- **Legalization**
+
+    One guide per legalizer: Abacus and multi-row legalization (planned).
+
+- **Detailed placement**
+
+    One guide per detailed placer: FastDP (planned).
+
+- **[Glossary](glossary.md)**
+
+    Every symbol and term on one page, and SimPL in ten lines.
+
+- **[References](references.md)**
+
+    The papers the guides follow, with links.
+
+</div>
 
 ## Algorithm guides
 

@@ -118,6 +118,14 @@ footing. The more diagonally dominant $Q$ is, the better $P^{-1}Q$ is conditione
 which is why the anchors in [SimPL chapter 3](../global-placement/simpl/03-anchors-and-convergence.md), which only add to the diagonal, also speed up
 CG.
 
+> [!IMPORTANT]
+> **Key takeaways**
+>
+> - Elimination costs about $n^3$; iterative methods need only sparse matrix-vector products.
+> - The residual $\vec r = \vec b - Q\vec x$ is the force still acting on each cell; it is zero at the solution.
+> - Conjugate gradient walks downhill along directions that do not undo each other.
+> - The condition number $\kappa$ measures how stretched the bowl is; the Jacobi preconditioner (divide by the diagonal) makes it rounder.
+
 ---
 
 [← 3. Quadratic placement](03-quadratic-placement.md) · [Foundations contents](README.md) · [5. Net models: clique, star and Bound2Bound →](05-net-models.md)

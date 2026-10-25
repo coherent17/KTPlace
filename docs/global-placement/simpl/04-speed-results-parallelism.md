@@ -74,6 +74,13 @@ placement 46.2%; I/O 1.4%.
 1.91×. Gains saturate above 4 threads because LAL scales poorly. With 8 threads, CG
 was still the biggest part (36% of global placement) and LAL a close second (>31%).
 
+> [!IMPORTANT]
+> **Key takeaways**
+>
+> - One iteration costs $O(n \log^2 n)$, and fewer than 50 iterations are needed.
+> - On ISPD 2005, SimPL had shorter wires and shorter runtimes than Capo, NTUplace3, FastPlace3 and mPL6.
+> - CG and Bound2Bound construction parallelize well; look-ahead legalization limits the speed-up beyond four threads.
+
 ---
 
 [← 3. Anchors and convergence](03-anchors-and-convergence.md) · [SimPL contents](README.md)

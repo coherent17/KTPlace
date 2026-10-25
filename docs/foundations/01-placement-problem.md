@@ -68,11 +68,20 @@ generalizes it to many pins. HPWL is cheap to compute and is a surprisingly good
 predictor of the final routed length, which is why every placement benchmark
 reports it.
 
-**The difficulty.** HPWL is built from `max`, `min` and absolute values. These
-have sharp corners (think of the graph of $|x|$, a V shape), and the fast
-optimization methods we want need *smooth* functions. So placers replace HPWL with
-a smooth stand-in. SimPL's stand-in is a **quadratic** (squared) function, which
-[Chapter 3](03-quadratic-placement.md) builds. First the tools.
+> [!WARNING]
+> **The difficulty.** HPWL is built from `max`, `min` and absolute values. These
+> have sharp corners (think of the graph of $|x|$, a V shape), and the fast
+> optimization methods we want need *smooth* functions. So placers replace HPWL with
+> a smooth stand-in. SimPL's stand-in is a **quadratic** (squared) function, which
+> [Chapter 3](03-quadratic-placement.md) builds. First the tools.
+
+> [!IMPORTANT]
+> **Key takeaways**
+>
+> - A netlist is cells (rectangles) and nets (wires joining two or more cells); some cells are fixed in place.
+> - Global placement finds approximate locations; legalization and detailed placement finish the job.
+> - Wire is estimated by HPWL: half the perimeter of each net's bounding box, summed over all nets (Eq. 1).
+> - HPWL has sharp corners (max, min), so placers optimize a smooth stand-in for it.
 
 ---
 

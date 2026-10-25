@@ -26,9 +26,10 @@ linear equations. The price: the weight depends on the placement, so after cells
 move it is out of date and must be recomputed. That is the paper's "the B2B model
 captures the HPWL objective exactly, but only for the given placement".
 
-(If two pins coincide, $\ell = 0$ and $1/\ell$ is infinite. Implementations
-replace tiny lengths by a small minimum value. The paper does not discuss this
-detail.)
+> [!WARNING]
+> If two pins coincide, $\ell = 0$ and $1/\ell$ is infinite. Implementations
+> replace tiny lengths by a small minimum value. The paper does not discuss this
+> detail.
 
 ### 5.3 Many-pin nets: connect to the bounds
 
@@ -85,6 +86,13 @@ bounds, and the lengths, differ in each direction.
   only drawback is that it must be rebuilt as the placement changes. Most placers
   avoided that cost; SimPL accepts it because the rebuild is cheap compared with
   the gain in accuracy.
+
+> [!IMPORTANT]
+> **Key takeaways**
+>
+> - A weight of 1/length makes a squared cost equal the true length at the current placement.
+> - Bound2Bound joins every pin to the net's two extreme pins with weight $\frac{1}{(p-1)\,\ell}$ (up to a constant), which equals HPWL exactly.
+> - It uses fewer edges than a clique and no extra variables like a star, but it must be rebuilt as cells move.
 
 ---
 

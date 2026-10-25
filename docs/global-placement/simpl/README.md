@@ -32,11 +32,18 @@ part of the paper's own background section (§2) and are used throughout this gu
 | 3 | [Anchors and convergence](03-anchors-and-convergence.md) | pseudonets, the α schedule, the main loop, when it stops | §4.3, Figures 6–8 |
 | 4 | [Speed, results and parallelism](04-speed-results-parallelism.md) | complexity, benchmark results, multi-threading | §4.4, §5, §6, Table 1 |
 
-```
-Foundations 3, 4, 5 ──▶ 1 SimPL idea ──▶ 2 Look-ahead legalization ──▶ 3 Anchors and convergence
-                                                                          │
-                                                                          ▼
-                                                           4 Speed, results, parallelism
+```mermaid
+flowchart LR
+    f["Foundations 3, 4, 5"]:::found --> s1["1 · SimPL idea"]:::simpl
+    s1 --> s2["2 · Look-ahead legalization"]:::simpl
+    s2 --> s3["3 · Anchors and convergence"]:::simpl
+    s3 --> s4["4 · Speed, results, parallelism"]:::simpl
+    classDef io fill:#fef3c7,stroke:#d97706,color:#451a03
+    classDef stage fill:#ccfbf1,stroke:#0f766e,color:#042f2e
+    classDef found fill:#e0e7ff,stroke:#4f46e5,color:#1e1b4b
+    classDef simpl fill:#fce7f3,stroke:#db2777,color:#500724
+    classDef mov fill:#dbeafe,stroke:#2563eb,color:#172554
+    classDef fixed fill:#e5e7eb,stroke:#374151,color:#111827
 ```
 
 The [glossary](../../glossary.md) lists every symbol used here and has the whole

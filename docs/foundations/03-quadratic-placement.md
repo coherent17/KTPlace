@@ -84,12 +84,20 @@ The figure is a drawing and its exact wiring is hard to read from the text; the
 graph below uses exactly those weights and reproduces the paper's stated answer
 exactly, so it is the right system to learn from:
 
-```
- f1=1.0 --3-- x1 --1-- x2
-              |       /
-              1      1
-              |     /
-              x3 --2-- x4 --4-- f2=3.5
+```mermaid
+flowchart LR
+    f1(["f1 = 1.0 (fixed)"]):::fixed ---|3| x1((x1)):::mov
+    x1 ---|1| x2((x2)):::mov
+    x1 ---|1| x3((x3)):::mov
+    x2 ---|1| x3
+    x3 ---|2| x4((x4)):::mov
+    x4 ---|4| f2(["f2 = 3.5 (fixed)"]):::fixed
+    classDef io fill:#fef3c7,stroke:#d97706,color:#451a03
+    classDef stage fill:#ccfbf1,stroke:#0f766e,color:#042f2e
+    classDef found fill:#e0e7ff,stroke:#4f46e5,color:#1e1b4b
+    classDef simpl fill:#fce7f3,stroke:#db2777,color:#500724
+    classDef mov fill:#dbeafe,stroke:#2563eb,color:#172554
+    classDef fixed fill:#e5e7eb,stroke:#374151,color:#111827
 ```
 
 Edges: $f_1$–$x_1$ (3), $x_1$–$x_2$ (1), $x_1$–$x_3$ (1), $x_2$–$x_3$ (1),
@@ -176,10 +184,11 @@ $$
 x_i = \frac{\sum_j w_{ij}\,x_j}{\sum_j w_{ij}}
 $$
 
-over all neighbours $j$, movable or fixed: **each cell is at the weighted average
-of the cells it connects to.** This is force equilibrium: a stiffer spring pulls
-the average harder toward its end. Keep this picture; the Jacobi method ([§4.2](04-solving-linear-systems.md#42-the-simplest-idea-jacobi-iteration)) and
-the anchors ([SimPL chapter 3](../global-placement/simpl/03-anchors-and-convergence.md)) are both easy to understand with it.
+> [!IMPORTANT]
+> **Each cell sits at the weighted average of the cells it connects to**, over all
+> its neighbours $j$, movable or fixed. This is force equilibrium: a stiffer spring pulls
+> the average harder toward its end. Keep this picture; the Jacobi method ([§4.2](04-solving-linear-systems.md#42-the-simplest-idea-jacobi-iteration)) and
+> the anchors ([SimPL chapter 3](../global-placement/simpl/03-anchors-and-convergence.md)) are both easy to understand with it.
 
 ### 3.7 Why $Q$ is a strictly convex bowl (SPD), and diagonal dominance
 
@@ -216,18 +225,28 @@ cells. The more surplus, the "rounder" the bowl and the faster the solvers of
 
 ### 3.8 The catch: everything collapses
 
-Because every cell goes to the average of its neighbours, and the only things
-holding the netlist open are the fixed pads around the border, the solution of
-$Q\vec x = \vec b$ pulls almost all cells into a dense clump near the middle of the
-chip. Wirelength is wonderful; overlap is enormous. Every quadratic placer must add
-something that **spreads** cells out. The two classic questions (paper §3)
-are:
+> [!WARNING]
+> Because every cell goes to the average of its neighbours, and the only things
+> holding the netlist open are the fixed pads around the border, the solution of
+> $Q\vec x = \vec b$ pulls almost all cells into a dense clump near the middle of the
+> chip. Wirelength is wonderful; overlap is enormous. Every quadratic placer must add
+> something that **spreads** cells out.
+
+The two classic questions (paper §3) are:
 
 1. **Direction:** which way should each cell be pushed?
 2. **Force modulation:** how hard? Too weak and nothing spreads, too strong and
    the wirelength is destroyed or the iterations oscillate.
 
 SimPL's answer to both is look-ahead legalization plus anchors; the [SimPL guide](../global-placement/simpl/README.md) explains both.
+
+> [!IMPORTANT]
+> **Key takeaways**
+>
+> - Wires are springs: the cost is $\sum w_{ij}(x_i - x_j)^2$, solved separately in x and y.
+> - Setting the derivatives to zero gives $Q\vec x = \vec b$: the diagonal holds each cell's total weight, off-diagonals the negative weights, $\vec b$ the pull of fixed cells.
+> - Every cell ends up at the weighted average of its neighbours.
+> - The answer is unique when every group of cells touches something fixed, but the cells collapse into a clump, so something must spread them.
 
 ---
 
