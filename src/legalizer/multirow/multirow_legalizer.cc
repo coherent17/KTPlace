@@ -1,5 +1,6 @@
 #include "legalizer/multirow/multirow_legalizer.h"
 
+#include "datamodel/kt_hpwl.h"
 #include "util/kt_scopedTimer.h"
 
 #include <algorithm>
@@ -18,13 +19,6 @@ namespace {
 
 constexpr double eps = 1e-9;
 constexpr std::uint32_t none = std::numeric_limits<std::uint32_t>::max();
-
-struct Box {
-    double x0 = 0.0;
-    double y0 = 0.0;
-    double x1 = 0.0;
-    double y1 = 0.0;
-};
 
 using Intervals = std::vector<std::pair<double, double>>;
 
@@ -52,7 +46,7 @@ struct Lane {
     double xlo = 0.0;
     double xhi = 0.0;
     double pitch = 0.0;
-    int region = Fences::noRegion;
+    int region = noRegion;
     std::vector<std::uint32_t> clusters;
 };
 
@@ -134,12 +128,13 @@ private:
                        std::vector<double> &py) const;
     void writeFrame(const std::vector<double> &px, const std::vector<double> &py,
                     const std::string &note, std::size_t step, std::size_t total) const;
+    [[nodiscard]] double hpwlOf(const std::vector<double> &px, const std::vector<double> &py) const;
 
     Design &design;
     double hpwlInput = 0.0;
     double rowHeight = 0.0;
-    std::vector<RowInfo> rows;
-    std::vector<Box> blocked;
+    const std::vector<RowInfo> &rows = design.rows;
+    std::vector<Box> blocked = design.blockages;
     std::vector<Lane> lanes;
     std::vector<std::vector<std::uint32_t>> lanesOfRow;
     std::vector<Cluster> clusters;
@@ -187,10 +182,7 @@ std::vector<std::uint32_t> MultiRowLegalizer::Impl::fillGaps(
     for (const std::uint32_t v : pending) {
         const Cell &cell = design.cells[v];
         const std::size_t span = spanOf(cell.height);
-        const int region = cell.regionId >= 0 && static_cast<std::size_t>(cell.regionId) <
-                                                     design.fences.numRegions()
-                               ? cell.regionId
-                               : Fences::noRegion;
+        const int region = cell.region;
         std::iota(byDistance.begin(), byDistance.end(), 0u);
         std::stable_sort(byDistance.begin(), byDistance.end(), [&](std::size_t a, std::size_t b) {
             return std::abs(rows[a].coordinate - cell.y) < std::abs(rows[b].coordinate - cell.y);
@@ -619,10 +611,6 @@ MultiRowResult MultiRowLegalizer::Impl::run(const MultiRowOptions &params) {
     ScopedTimer timer("multirow");
     MultiRowResult res;
 
-    rows = design.rows;
-    std::stable_sort(rows.begin(), rows.end(), [](const RowInfo &a, const RowInfo &b) {
-        return a.coordinate < b.coordinate;
-    });
     rowHeight = std::numeric_limits<double>::max();
     for (const RowInfo &r : rows) {
         if (r.height > 0.0 && !r.subrows.empty()) {
@@ -639,10 +627,7 @@ MultiRowResult MultiRowLegalizer::Impl::run(const MultiRowOptions &params) {
         const Cell &c = design.cells[v];
         xs[v] = c.x;
         ys[v] = c.y;
-        if (c.isFixed || c.isTerminal) {
-            if (c.width > 0.0 && c.height > 0.0) {
-                blocked.push_back({c.x, c.y, c.x + c.width, c.y + c.height});
-            }
+        if (!c.movable) {
             continue;
         }
         ++res.movable;
@@ -656,7 +641,7 @@ MultiRowResult MultiRowLegalizer::Impl::run(const MultiRowOptions &params) {
         }
     }
     res.macros = macros.size();
-    res.hpwlBefore = netlistHPWL(design.cells, design.nets, design.pins, xs, ys);
+    res.hpwlBefore = hpwlOf(xs, ys);
     hpwlInput = res.hpwlBefore;
     const std::size_t total = cells.size() + macros.size();
     writeFrame(xs, ys, "Input - global placement", 0, total);
@@ -695,10 +680,7 @@ MultiRowResult MultiRowLegalizer::Impl::run(const MultiRowOptions &params) {
     for (const std::uint32_t v : cells) {
         const Cell &cell = design.cells[v];
         const std::size_t span = spanOf(cell.height);
-        const int region = cell.regionId >= 0 && static_cast<std::size_t>(cell.regionId) <
-                                                     design.fences.numRegions()
-                               ? cell.regionId
-                               : Fences::noRegion;
+        const int region = cell.region;
         const std::size_t home = static_cast<std::size_t>(
             std::lower_bound(rowY.begin(), rowY.end(), cell.y) - rowY.begin());
 
@@ -793,14 +775,14 @@ MultiRowResult MultiRowLegalizer::Impl::run(const MultiRowOptions &params) {
     res.unplaced = res.movable - res.placed;
     for (std::uint32_t v = 0; v < n; ++v) {
         const Cell &c = design.cells[v];
-        if (!c.isFixed && !c.isTerminal) {
+        if (c.movable) {
             const double moved =
                 std::sqrt((xs[v] - c.x) * (xs[v] - c.x) + (ys[v] - c.y) * (ys[v] - c.y));
             res.displacement += moved;
             res.maxDisplacement = std::max(res.maxDisplacement, moved);
         }
     }
-    res.hpwlAfter = netlistHPWL(design.cells, design.nets, design.pins, xs, ys);
+    res.hpwlAfter = hpwlOf(xs, ys);
     writeFrame(xs, ys, "Legal placement", res.placed, total);
     for (std::uint32_t v = 0; v < n; ++v) {
         design.cells[v].x = xs[v];
@@ -844,10 +826,22 @@ void MultiRowLegalizer::Impl::writeFrame(const std::vector<double> &px,
     info.note = note;
     info.step = step;
     info.numSteps = total;
-    info.hpwl = netlistHPWL(design.cells, design.nets, design.pins, px, py);
+    info.hpwl = hpwlOf(px, py);
     info.hpwlInitial = hpwlInput;
     info.mandatory = true;
     design.onFrame(fx, fy, info);
+}
+
+double MultiRowLegalizer::Impl::hpwlOf(const std::vector<double> &px,
+                                       const std::vector<double> &py) const {
+    return netHpwl(
+        design.nets.size(),
+        [this](std::size_t n) {
+            return design.nets[n];
+        },
+        [&](const NetPin &pin) {
+            return std::pair{px[pin.cellId] + pin.offX, py[pin.cellId] + pin.offY};
+        });
 }
 
 MultiRowLegalizer::MultiRowLegalizer(Design &design) : pImpl(std::make_unique<Impl>(design)) {}
