@@ -68,7 +68,7 @@ std::uint64_t getPhysicalMemory() {
 
 #if defined(__APPLE__)
 
-std::string sysctlString(const char *name) {
+std::string getSysctlString(const char *name) {
     std::size_t size = 0;
     if (sysctlbyname(name, nullptr, &size, nullptr, 0) != 0 || size == 0) {
         return {};
@@ -80,16 +80,16 @@ std::string sysctlString(const char *name) {
     return std::string(value.c_str());
 }
 
-unsigned sysctlUnsigned(const char *name) {
+unsigned getSysctlUnsigned(const char *name) {
     int value = 0;
     std::size_t size = sizeof(value);
     return sysctlbyname(name, &value, &size, nullptr, 0) == 0 ? static_cast<unsigned>(value) : 0;
 }
 
 void detectSystem(PlatformInfo &info) {
-    info.os = std::format("macOS {} ({})", sysctlString("kern.osproductversion"), kernel());
-    info.cpu = sysctlString("machdep.cpu.brand_string");
-    info.cores = sysctlUnsigned("hw.physicalcpu");
+    info.os = std::format("macOS {} ({})", getSysctlString("kern.osproductversion"), getKernel());
+    info.cpu = getSysctlString("machdep.cpu.brand_string");
+    info.cores = getSysctlUnsigned("hw.physicalcpu");
 }
 
 #else
