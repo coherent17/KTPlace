@@ -19,7 +19,7 @@ std::vector<RowInfo> copyRows(const std::vector<ktplace::RowInfo> &rows,
     out.reserve(rows.size());
     for (std::size_t i = 0; i < rows.size(); ++i) {
         const ktplace::RowInfo &r = rows[i];
-        RowInfo info{r.coordinate, r.height, r.pitch(), {}};
+        RowInfo info{r.coordinate, r.height, r.getPitch(), {}};
         info.subrows.reserve(pieces[i].size());
         for (const ktplace::RowPiece &p : pieces[i]) {
             info.subrows.push_back(Subrow{p.xlo, p.xhi, p.region});
@@ -30,7 +30,7 @@ std::vector<RowInfo> copyRows(const std::vector<ktplace::RowInfo> &rows,
     return out;
 }
 
-double rowHeightOf(const std::vector<RowInfo> &rows) {
+double getRowHeightOf(const std::vector<RowInfo> &rows) {
     double height = std::numeric_limits<double>::infinity();
     for (const RowInfo &row : rows) {
         if (row.height > 0.0) {
@@ -41,7 +41,7 @@ double rowHeightOf(const std::vector<RowInfo> &rows) {
 }
 
 std::size_t collectCells(const ktplace::Graph &graph, double macroHeight, Design &design) {
-    const double rowHeight = rowHeightOf(design.rows);
+    const double rowHeight = getRowHeightOf(design.rows);
     std::size_t placeable = 0;
     for (std::size_t v = 0; v < graph.getNumCells(); ++v) {
         const ktplace::Vertex &cell = graph.getCell(v);
@@ -105,7 +105,7 @@ void fastdpDM::run() {
     placer.place(opts);
 }
 
-fastdpSolution fastdpDM::solution() const {
+fastdpSolution fastdpDM::getSolution() const {
     fastdpSolution out;
     out.xs = d.vertexX;
     out.ys = d.vertexY;
@@ -119,15 +119,15 @@ fastdpSolution fastdpDM::solution() const {
 fastdpDM buildFastdpDM(const ktDM &db) {
     const ktplace::Graph &graph = db.getGraph();
     Design design;
-    design.rows = copyRows(db.getRows(), db.fencedSubrows());
-    const std::size_t placeable = collectCells(graph, db.macroHeight(), design);
+    design.rows = copyRows(db.getRows(), db.getFencedSubrows());
+    const std::size_t placeable = collectCells(graph, db.getMacroHeight(), design);
     collectNets(graph, design);
-    design.die = placementDieBox(db.die(), graph);
+    design.die = getPlacementDieBox(db.getDie(), graph);
 
     const StageCounts counts{graph.getNumCells(), placeable, graph.getNumNets(), graph.getNumPins(),
                              design.rows.size()};
     fastdpDM dm(std::move(design), loadOptions<FastdpOptions>());
-    reportStageBuild(counts, db.checksum(), dm.options());
+    reportStageBuild(counts, db.getChecksum(), dm.getOptions());
     return dm;
 }
 

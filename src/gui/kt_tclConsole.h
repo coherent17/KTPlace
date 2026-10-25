@@ -21,7 +21,7 @@ public:
     void append(const QString &text, Kind kind);
     void setBusy(bool busy);
     void focusInput();
-    [[nodiscard]] QString transcript() const;
+    [[nodiscard]] QString getTranscript() const;
     void submit(const QString &command);
 
 protected:

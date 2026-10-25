@@ -78,7 +78,7 @@ struct RowInfo {
     double height = 0.0;
     double sitePitch = 0.0;
 
-    [[nodiscard]] double pitch() const noexcept {
+    [[nodiscard]] double getPitch() const noexcept {
         return sitePitch;
     }
     std::vector<Subrow> subrows;
@@ -131,13 +131,13 @@ class abacusDM {
 public:
     abacusDM(Design design, AbacusOptions options);
 
-    [[nodiscard]] const AbacusOptions &options() const noexcept {
+    [[nodiscard]] const AbacusOptions &getOptions() const noexcept {
         return opts;
     }
-    [[nodiscard]] AbacusOptions &options() noexcept {
+    [[nodiscard]] AbacusOptions &getOptions() noexcept {
         return opts;
     }
-    [[nodiscard]] const Design &design() const noexcept {
+    [[nodiscard]] const Design &getDesign() const noexcept {
         return d;
     }
 
@@ -146,7 +146,7 @@ public:
     }
 
     AbacusResult run();
-    [[nodiscard]] abacusSolution solution() const;
+    [[nodiscard]] abacusSolution getSolution() const;
 
 private:
     Design d;

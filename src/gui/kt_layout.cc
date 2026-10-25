@@ -16,7 +16,7 @@ namespace {
 
 constexpr float macroAreaInTypicalCells = 16.0F;
 
-float median(std::vector<float> values) {
+float getMedian(std::vector<float> values) {
     if (values.empty()) {
         return 1.0F;
     }
@@ -50,9 +50,9 @@ std::shared_ptr<const LayoutGeometry> LayoutGeometry::of(const ktDM &db) {
             movableHeights.push_back(static_cast<float>(cell.height));
         }
     }
-    geometry->typicalWidth = median(movableWidths);
+    geometry->typicalWidth = getMedian(movableWidths);
     const float macroArea =
-        macroAreaInTypicalCells * geometry->typicalWidth * median(std::move(movableHeights));
+        macroAreaInTypicalCells * geometry->typicalWidth * getMedian(std::move(movableHeights));
     for (std::size_t v = 0; v < n; ++v) {
         const Vertex &cell = graph.getCell(v);
         const bool large = geometry->width[v] * geometry->height[v] > macroArea;
@@ -65,11 +65,11 @@ std::shared_ptr<const LayoutGeometry> LayoutGeometry::of(const ktDM &db) {
 
     for (const RowInfo &row : db.getRows()) {
         geometry->rows.push_back({static_cast<float>(row.coordinate),
-                                  static_cast<float>(row.height), static_cast<float>(row.xlo()),
-                                  static_cast<float>(row.xhi())});
+                                  static_cast<float>(row.height), static_cast<float>(row.getXlo()),
+                                  static_cast<float>(row.getXhi())});
     }
-    geometry->die = db.placementDieBox();
-    for (const Region &region : db.constraints().regions()) {
+    geometry->die = db.getPlacementDieBox();
+    for (const Region &region : db.getConstraints().getRegions()) {
         LayoutGeometry::Fence &fence = geometry->fences.emplace_back();
         fence.name = region.name;
         for (const Rect &rect : region.rects) {
@@ -104,8 +104,8 @@ std::shared_ptr<const LayoutGeometry> LayoutGeometry::of(const ktDM &db) {
     return geometry;
 }
 
-LayoutFrame LayoutFrame::committed(std::shared_ptr<const LayoutGeometry> geometry, const ktDM &db,
-                                   std::string stage) {
+LayoutFrame LayoutFrame::getCommitted(std::shared_ptr<const LayoutGeometry> geometry,
+                                      const ktDM &db, std::string stage) {
     LayoutFrame frame;
     const Graph &graph = db.getGraph();
     const std::size_t n = graph.getNumCells();
@@ -116,12 +116,12 @@ LayoutFrame LayoutFrame::committed(std::shared_ptr<const LayoutGeometry> geometr
         frame.y.push_back(static_cast<float>(graph.getCell(v).y));
     }
     frame.geometry = std::move(geometry);
-    frame.hpwl = db.hpwl();
+    frame.hpwl = db.getHpwl();
     frame.stage = std::move(stage);
     return frame;
 }
 
-bool LayoutFrame::drawable() const {
+bool LayoutFrame::isDrawable() const {
     return geometry && x.size() == geometry->width.size() && y.size() == x.size();
 }
 
@@ -137,18 +137,18 @@ void Bounds::include(const Bounds &other) {
     include(other.xhi, other.yhi);
 }
 
-double Bounds::halfPerimeter() const {
+double Bounds::getHalfPerimeter() const {
     return (xhi - xlo) + (yhi - ylo);
 }
 
-Bounds LayoutFrame::cellBounds(std::uint32_t cell) const {
+Bounds LayoutFrame::getCellBounds(std::uint32_t cell) const {
     return {x[cell], y[cell], x[cell] + geometry->width[cell], y[cell] + geometry->height[cell]};
 }
 
-std::optional<Bounds> LayoutFrame::cellsBounds(std::span<const std::uint32_t> cells) const {
+std::optional<Bounds> LayoutFrame::getCellsBounds(std::span<const std::uint32_t> cells) const {
     std::optional<Bounds> box;
     for (const std::uint32_t cell : cells) {
-        const Bounds own = cellBounds(cell);
+        const Bounds own = getCellBounds(cell);
         if (box) {
             box->include(own);
         } else {
@@ -158,7 +158,7 @@ std::optional<Bounds> LayoutFrame::cellsBounds(std::span<const std::uint32_t> ce
     return box;
 }
 
-std::optional<Bounds> LayoutFrame::netBounds(std::uint32_t net) const {
+std::optional<Bounds> LayoutFrame::getNetBounds(std::uint32_t net) const {
     const LayoutGeometry &g = *geometry;
     std::optional<Bounds> box;
     for (std::uint32_t pin = g.netPinStart[net]; pin < g.netPinStart[net + 1]; ++pin) {
@@ -174,10 +174,10 @@ std::optional<Bounds> LayoutFrame::netBounds(std::uint32_t net) const {
     return box;
 }
 
-std::optional<Bounds> LayoutFrame::netsBounds(std::span<const std::uint32_t> nets) const {
+std::optional<Bounds> LayoutFrame::getNetsBounds(std::span<const std::uint32_t> nets) const {
     std::optional<Bounds> box;
     for (const std::uint32_t net : nets) {
-        if (const std::optional<Bounds> own = netBounds(net)) {
+        if (const std::optional<Bounds> own = getNetBounds(net)) {
             if (box) {
                 box->include(*own);
             } else {

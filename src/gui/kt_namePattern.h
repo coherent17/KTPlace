@@ -13,9 +13,9 @@ class NamePattern {
 public:
     explicit NamePattern(std::string_view glob);
 
-    [[nodiscard]] bool matches(std::string_view name) const;
+    [[nodiscard]] bool isMatch(std::string_view name) const;
     [[nodiscard]] bool isLiteral() const;
-    [[nodiscard]] const std::string &text() const;
+    [[nodiscard]] const std::string &getText() const;
 
 private:
     std::string glob;

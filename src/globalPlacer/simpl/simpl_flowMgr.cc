@@ -8,8 +8,8 @@ SimplResult flowMgr::run() {
     return simplDb.run();
 }
 
-simplSolution flowMgr::solution() const {
-    return simplDb.solution();
+simplSolution flowMgr::getSolution() const {
+    return simplDb.getSolution();
 }
 
 }  // namespace ktplace::simpl

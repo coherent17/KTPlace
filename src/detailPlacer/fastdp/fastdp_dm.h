@@ -79,7 +79,7 @@ struct RowInfo {
     double height = 0.0;
     double sitePitch = 0.0;
 
-    [[nodiscard]] double pitch() const noexcept {
+    [[nodiscard]] double getPitch() const noexcept {
         return sitePitch;
     }
     std::vector<Subrow> subrows;
@@ -118,13 +118,13 @@ class fastdpDM {
 public:
     fastdpDM(Design design, FastdpOptions options);
 
-    [[nodiscard]] const FastdpOptions &options() const noexcept {
+    [[nodiscard]] const FastdpOptions &getOptions() const noexcept {
         return opts;
     }
-    [[nodiscard]] FastdpOptions &options() noexcept {
+    [[nodiscard]] FastdpOptions &getOptions() noexcept {
         return opts;
     }
-    [[nodiscard]] const Design &design() const noexcept {
+    [[nodiscard]] const Design &getDesign() const noexcept {
         return d;
     }
 
@@ -133,7 +133,7 @@ public:
     }
 
     void run();
-    [[nodiscard]] fastdpSolution solution() const;
+    [[nodiscard]] fastdpSolution getSolution() const;
 
 private:
     Design d;

@@ -90,10 +90,10 @@ std::vector<RowInfo> copyRows(const std::vector<ktplace::RowInfo> &rows) {
     std::vector<RowInfo> out;
     out.reserve(rows.size());
     for (const ktplace::RowInfo &row : rows) {
-        RowInfo info{row.coordinate, row.height, row.pitch(), {}};
+        RowInfo info{row.coordinate, row.height, row.getPitch(), {}};
         info.subrows.reserve(row.subrows.size());
         for (const ktplace::SubrowInfo &subrow : row.subrows) {
-            info.subrows.push_back(Subrow{subrow.xlo(), subrow.xhi(row.pitch())});
+            info.subrows.push_back(Subrow{subrow.getXlo(), subrow.getXhi(row.getPitch())});
         }
         out.push_back(std::move(info));
     }
@@ -102,8 +102,8 @@ std::vector<RowInfo> copyRows(const std::vector<ktplace::RowInfo> &rows) {
 
 Fences copyFences(const ktplace::constraintMgr &constraints) {
     Fences out;
-    for (int id = 0; id < static_cast<int>(constraints.numRegions()); ++id) {
-        const ktplace::Region *source = constraints.region(id);
+    for (int id = 0; id < static_cast<int>(constraints.getNumRegions()); ++id) {
+        const ktplace::Region *source = constraints.getRegion(id);
         if (source == nullptr) {
             continue;
         }
@@ -119,18 +119,18 @@ Fences copyFences(const ktplace::constraintMgr &constraints) {
     return out;
 }
 
-std::string scientific(double value) {
+std::string getScientific(double value) {
     return std::format("{:.6e}", value);
 }
 
 void reportRun(const SimplResult &res) {
     ktReportTable table("SimPL solver results");
     table.setHeaders({"metric", "initial", "final"});
-    table.addRow({"HPWL", scientific(res.hpwlSeed), scientific(res.hpwlFinal)});
-    table.addRow({"lower bound", "", scientific(res.hpwlLower)});
-    table.addRow({"gap", "", scientific(res.gap)});
-    table.addRow({"scaled overflow (lower)", "", scientific(res.overflowLower)});
-    table.addRow({"scaled overflow (final)", "", scientific(res.overflowFinal)});
+    table.addRow({"HPWL", getScientific(res.hpwlSeed), getScientific(res.hpwlFinal)});
+    table.addRow({"lower bound", "", getScientific(res.hpwlLower)});
+    table.addRow({"gap", "", getScientific(res.gap)});
+    table.addRow({"scaled overflow (lower)", "", getScientific(res.overflowLower)});
+    table.addRow({"scaled overflow (final)", "", getScientific(res.overflowFinal)});
     table.addRow({"init iterations", "", std::to_string(res.initIters)});
     table.addRow({"global iterations", "", std::to_string(res.globalIters)});
     if (res.fenceRegions > 0) {
@@ -192,7 +192,7 @@ bool Fences::clampToRegion(int id, double &x, double &y) const {
 
 namespace {
 
-bool insideAnyRegion(const std::vector<Region> &regions, double x, double y) {
+bool isInsideAnyRegion(const std::vector<Region> &regions, double x, double y) {
     for (const Region &r : regions) {
         if (r.contains(x, y)) {
             return true;
@@ -201,7 +201,7 @@ bool insideAnyRegion(const std::vector<Region> &regions, double x, double y) {
     return false;
 }
 
-double escapeEpsilon(const std::vector<Region> &regions) {
+double getEscapeEpsilon(const std::vector<Region> &regions) {
     double scale = 0.0;
     for (const Region &r : regions) {
         scale = std::max(scale, std::max(r.maxX - r.minX, r.maxY - r.minY));
@@ -225,7 +225,7 @@ bool Fences::pushOutOfRegions(double &x, double &y, double dieMinX, double dieMi
         double hostArea = std::numeric_limits<double>::max();
         for (const Region &r : regions) {
             for (const Rect &cand : r.rects) {
-                const double area = cand.width() * cand.height();
+                const double area = cand.getWidth() * cand.getHeight();
                 if (cand.contains(x, y) && area < hostArea) {
                     hostArea = area;
                     host = &cand;
@@ -240,7 +240,7 @@ bool Fences::pushOutOfRegions(double &x, double &y, double dieMinX, double dieMi
         // so it is scaled to the overall geometry rather than to the rectangle
         // that caught the point: a per-rectangle epsilon can fall below the
         // output resolution, and the cell then lands back on the boundary.
-        const double eps = escapeEpsilon(regions);
+        const double eps = getEscapeEpsilon(regions);
         const double exits[4][2] = {
             {host->xlo - eps, y}, {host->xhi + eps, y}, {x, host->ylo - eps}, {x, host->yhi + eps}};
         const double dists[4] = {x - host->xlo, host->xhi - x, y - host->ylo, host->yhi - y};
@@ -251,7 +251,7 @@ bool Fences::pushOutOfRegions(double &x, double &y, double dieMinX, double dieMi
         for (int k = 0; k < 4; ++k) {
             const bool onDie = exits[k][0] >= dieMinX && exits[k][0] <= dieMaxX &&
                                exits[k][1] >= dieMinY && exits[k][1] <= dieMaxY;
-            const bool legal = onDie && !insideAnyRegion(regions, exits[k][0], exits[k][1]);
+            const bool legal = onDie && !isInsideAnyRegion(regions, exits[k][0], exits[k][1]);
             if (legal && (!bestLegal || dists[k] < bestDist)) {
                 best = k;
                 bestDist = dists[k];
@@ -297,7 +297,7 @@ SimplResult simplDM::run() {
     return result;
 }
 
-simplSolution simplDM::solution() const {
+simplSolution simplDM::getSolution() const {
     simplSolution out;
     out.xs = d.netlist.fixedX;
     out.ys = d.netlist.fixedY;
@@ -314,13 +314,13 @@ simplDM buildSimplDM(const ktDM &db) {
     collectCells(graph, design);
     collectNets(graph, design.netlist);
     design.rows = copyRows(db.getRows());
-    design.fences = copyFences(db.constraints());
-    design.die = placementDieBox(db.die(), db.getGraph());
+    design.fences = copyFences(db.getConstraints());
+    design.die = getPlacementDieBox(db.getDie(), db.getGraph());
 
     const StageCounts counts{graph.getNumCells(), design.netlist.numMovable, graph.getNumNets(),
                              graph.getNumPins(), design.rows.size()};
     simplDM dm(std::move(design), loadOptions<SimplOptions>());
-    reportStageBuild(counts, db.checksum(), dm.options());
+    reportStageBuild(counts, db.getChecksum(), dm.getOptions());
     return dm;
 }
 

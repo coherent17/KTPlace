@@ -16,14 +16,14 @@ struct TimerStats {
     double cpuSeconds = 0.0;
     std::size_t calls = 0;
 
-    [[nodiscard]] double parallelism() const {
+    [[nodiscard]] double getParallelism() const {
         return wallSeconds > 0.0 ? cpuSeconds / wallSeconds : 0.0;
     }
 };
 
 class TimerRegistry {
 public:
-    static TimerRegistry &instance();
+    static TimerRegistry &getInstance();
 
     TimerRegistry(const TimerRegistry &) = delete;
     TimerRegistry &operator=(const TimerRegistry &) = delete;
@@ -39,11 +39,11 @@ public:
 
     [[nodiscard]] const TimerStats *find(const std::string &name) const;
 
-    [[nodiscard]] std::vector<std::pair<std::string, TimerStats>> snapshot() const;
+    [[nodiscard]] std::vector<std::pair<std::string, TimerStats>> getSnapshot() const;
 
-    [[nodiscard]] double totalWallSeconds() const;
+    [[nodiscard]] double getTotalWallSeconds() const;
 
-    [[nodiscard]] double totalCpuSeconds() const;
+    [[nodiscard]] double getTotalCpuSeconds() const;
 
     void reset();
 
@@ -67,9 +67,9 @@ class Stopwatch {
 public:
     void restart();
 
-    [[nodiscard]] double elapsedSeconds() const;
+    [[nodiscard]] double getElapsedSeconds() const;
 
-    [[nodiscard]] double cpuElapsedSeconds() const;
+    [[nodiscard]] double getCpuElapsedSeconds() const;
 
 private:
     std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now();
@@ -87,11 +87,11 @@ public:
 
     void lap();
 
-    [[nodiscard]] double elapsedSeconds() const;
+    [[nodiscard]] double getElapsedSeconds() const;
 
-    [[nodiscard]] double cpuElapsedSeconds() const;
+    [[nodiscard]] double getCpuElapsedSeconds() const;
 
-    [[nodiscard]] const std::string &name() const;
+    [[nodiscard]] const std::string &getName() const;
 
 private:
     std::string timerName;
@@ -100,6 +100,6 @@ private:
 };
 
 /// The largest resident set this process has had, in bytes.
-[[nodiscard]] std::size_t peakResidentBytes();
+[[nodiscard]] std::size_t getPeakResidentBytes();
 
 }  // namespace ktplace

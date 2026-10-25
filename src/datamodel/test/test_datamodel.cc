@@ -172,10 +172,10 @@ BOOST_AUTO_TEST_CASE(counts_rows) {
     BOOST_REQUIRE(rows.size() == 2);
     BOOST_TEST(rows[0].coordinate == 0.0);
     BOOST_TEST(rows[0].height == 10.0);
-    BOOST_TEST(rows[0].pitch() == 1.0);
+    BOOST_TEST(rows[0].getPitch() == 1.0);
     BOOST_REQUIRE(rows[0].subrows.size() == 1);
-    BOOST_TEST(rows[0].subrows[0].xlo() == 0.0);
-    BOOST_TEST(rows[0].subrows[0].xhi(1.0) == 100.0);
+    BOOST_TEST(rows[0].subrows[0].getXlo() == 0.0);
+    BOOST_TEST(rows[0].subrows[0].getXhi(1.0) == 100.0);
     BOOST_TEST(rows[1].coordinate == 10.0);
 }
 
@@ -259,11 +259,11 @@ BOOST_AUTO_TEST_CASE(the_checksum_follows_the_placement) {
     ktDM b;
     build(a);
     build(b);
-    BOOST_TEST(a.checksum() == b.checksum());
+    BOOST_TEST(a.getChecksum() == b.getChecksum());
     b.setCellPosition("c1", 1.0, 0.0);
-    BOOST_TEST(a.checksum() != b.checksum());
+    BOOST_TEST(a.getChecksum() != b.getChecksum());
     a.setCellPosition("c1", 1.0, 0.0);
-    BOOST_TEST(a.checksum() == b.checksum());
+    BOOST_TEST(a.getChecksum() == b.getChecksum());
 }
 
 BOOST_AUTO_TEST_CASE(ktDM_clear_resets_everything) {
@@ -358,7 +358,7 @@ BOOST_AUTO_TEST_CASE(fenced_subrows_label_each_piece_with_its_region) {
     (void)mgr.assignByPrefix(id, "m", db.getGraph());
     db.setConstraints(std::move(mgr));
 
-    const std::vector<std::vector<RowPiece>> rows = db.fencedSubrows();
+    const std::vector<std::vector<RowPiece>> rows = db.getFencedSubrows();
     BOOST_TEST_REQUIRE(rows.size() == 1u);
     BOOST_TEST_REQUIRE(rows[0].size() == 3u);
     BOOST_TEST(rows[0][0].region == openSpace);
@@ -379,7 +379,7 @@ BOOST_AUTO_TEST_CASE(a_net_spreads_one_unit_evenly_over_its_bounding_box) {
     const std::vector<float> x{0.5F, 3.5F};
     const std::vector<float> y{0.5F, 1.5F};
     const RoutingDemand map =
-        routingDemand(netPinStart, pinCell, offsets, offsets, x, y, {0.0, 0.0, 4.0, 2.0}, 2);
+        getRoutingDemand(netPinStart, pinCell, offsets, offsets, x, y, {0.0, 0.0, 4.0, 2.0}, 2);
     BOOST_REQUIRE_EQUAL(map.nx, 2U);
     BOOST_REQUIRE_EQUAL(map.ny, 1U);
     BOOST_TEST(map.at(0, 0) == 0.5F, boost::test_tools::tolerance(1e-6F));
@@ -394,7 +394,7 @@ BOOST_AUTO_TEST_CASE(a_net_on_one_line_still_adds_its_whole_unit) {
     const std::vector<float> x{1.0F, 1.0F};
     const std::vector<float> y{0.2F, 3.8F};
     const RoutingDemand map =
-        routingDemand(netPinStart, pinCell, offsets, offsets, x, y, {0.0, 0.0, 4.0, 4.0}, 4);
+        getRoutingDemand(netPinStart, pinCell, offsets, offsets, x, y, {0.0, 0.0, 4.0, 4.0}, 4);
     double total = 0.0;
     for (const float value : map.demand) {
         total += value;

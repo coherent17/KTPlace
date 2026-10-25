@@ -90,7 +90,8 @@ void collectRows(const std::vector<ktplace::RowInfo> &rows, Design &design) {
                      -std::numeric_limits<double>::max(), -std::numeric_limits<double>::max()};
     for (const ktplace::RowInfo &r : rows) {
         for (const ktplace::SubrowInfo &s : r.subrows) {
-            const AreaRect rr{s.xlo(), r.coordinate, s.xhi(r.pitch()), r.coordinate + r.height};
+            const AreaRect rr{s.getXlo(), r.coordinate, s.getXhi(r.getPitch()),
+                              r.coordinate + r.height};
             if (rr.x1 <= rr.x0) {
                 continue;
             }
@@ -145,7 +146,7 @@ Ntuplace1Result ntuplace1DM::run() {
     return result;
 }
 
-ntuplace1Solution ntuplace1DM::solution() const {
+ntuplace1Solution ntuplace1DM::getSolution() const {
     ntuplace1Solution out;
     out.xs = d.vertexX;
     out.ys = d.vertexY;
@@ -161,14 +162,14 @@ ntuplace1DM buildNtuplace1DM(const ktDM &db) {
     const ktplace::Graph &graph = db.getGraph();
     const std::size_t movable = collectCells(graph, design);
     collectHyperNets(graph, design);
-    design.die = placementDieBox(db.die(), graph);
+    design.die = getPlacementDieBox(db.getDie(), graph);
     collectRows(db.getRows(), design);
-    design.fences = db.constraints();
+    design.fences = db.getConstraints();
 
     const StageCounts counts{graph.getNumCells(), movable, graph.getNumNets(), graph.getNumPins(),
                              db.getRows().size()};
     ntuplace1DM dm(std::move(design), loadOptions<Ntuplace1Options>());
-    reportStageBuild(counts, db.checksum(), dm.options());
+    reportStageBuild(counts, db.getChecksum(), dm.getOptions());
     return dm;
 }
 

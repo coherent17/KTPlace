@@ -19,7 +19,7 @@ std::vector<RowInfo> copyRows(const std::vector<ktplace::RowInfo> &rows,
     out.reserve(rows.size());
     for (std::size_t i = 0; i < rows.size(); ++i) {
         const ktplace::RowInfo &r = rows[i];
-        RowInfo info{r.coordinate, r.height, r.pitch(), {}};
+        RowInfo info{r.coordinate, r.height, r.getPitch(), {}};
         info.subrows.reserve(pieces[i].size());
         for (const ktplace::RowPiece &p : pieces[i]) {
             info.subrows.push_back(Subrow{p.xlo, p.xhi, p.region});
@@ -120,7 +120,7 @@ AbacusResult abacusDM::run() {
     return result;
 }
 
-abacusSolution abacusDM::solution() const {
+abacusSolution abacusDM::getSolution() const {
     abacusSolution out;
     out.xs = d.vertexX;
     out.ys = d.vertexY;
@@ -134,15 +134,15 @@ abacusSolution abacusDM::solution() const {
 abacusDM buildAbacusDM(const ktDM &db) {
     const ktplace::Graph &graph = db.getGraph();
     Design design;
-    const std::size_t movable = collectCells(graph, db.constraints().numRegions(), design);
+    const std::size_t movable = collectCells(graph, db.getConstraints().getNumRegions(), design);
     collectNets(graph, design);
-    design.rows = copyRows(db.getRows(), db.fencedSubrows());
-    design.die = placementDieBox(db.die(), graph);
+    design.rows = copyRows(db.getRows(), db.getFencedSubrows());
+    design.die = getPlacementDieBox(db.getDie(), graph);
 
     const StageCounts counts{graph.getNumCells(), movable, graph.getNumNets(), graph.getNumPins(),
                              design.rows.size()};
     abacusDM dm(std::move(design), loadOptions<AbacusOptions>());
-    reportStageBuild(counts, db.checksum(), dm.options());
+    reportStageBuild(counts, db.getChecksum(), dm.getOptions());
     return dm;
 }
 

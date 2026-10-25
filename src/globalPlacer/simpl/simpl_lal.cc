@@ -27,12 +27,12 @@ struct Stripe {
     std::vector<std::uint32_t> cells;
 };
 
-double LookAheadLegalizer::centre(const std::vector<double> &pos, std::uint32_t i,
-                                  bool vertical) const {
+double LookAheadLegalizer::getCentre(const std::vector<double> &pos, std::uint32_t i,
+                                     bool vertical) const {
     return pos[i] + 0.5 * (vertical ? width[i] : height[i]);
 }
 
-double LookAheadLegalizer::density(const std::vector<double> &occ, const BinRect &r) const {
+double LookAheadLegalizer::getDensity(const std::vector<double> &occ, const BinRect &r) const {
     const double cells = grid.sum(occ, r);
     const double room = grid.sum(grid.avail, r);
     if (room > 0.0) {
@@ -43,10 +43,10 @@ double LookAheadLegalizer::density(const std::vector<double> &occ, const BinRect
 
 void LookAheadLegalizer::legalize(std::vector<double> &x, std::vector<double> &y) const {
     std::vector<std::vector<std::uint32_t>> members(grid.size());
-    std::vector<std::uint32_t> binOf(numMovable());
+    std::vector<std::uint32_t> binOf(getNumMovable());
     std::vector<double> occ(grid.size(), 0.0);
-    for (std::uint32_t i = 0; i < numMovable(); ++i) {
-        const std::size_t k = grid.binOf(centre(x, i, true), centre(y, i, false));
+    for (std::uint32_t i = 0; i < getNumMovable(); ++i) {
+        const std::size_t k = grid.getBinOf(getCentre(x, i, true), getCentre(y, i, false));
         binOf[i] = static_cast<std::uint32_t>(k);
         members[k].push_back(i);
         occ[k] += area[i];
@@ -65,9 +65,9 @@ void LookAheadLegalizer::legalize(std::vector<double> &x, std::vector<double> &y
         return a.x0 <= b.x1 && b.x0 <= a.x1 && a.y0 <= b.y1 && b.y0 <= a.y1;
     };
 
-    std::vector<std::uint32_t> taken(numMovable(), 0);
+    std::vector<std::uint32_t> taken(getNumMovable(), 0);
     const auto legalizeRegion = [&](const Turn &t) {
-        Block top{grid.box(t.bins), 1, true, {}, grid.sum(grid.avail, t.bins)};
+        Block top{grid.getBox(t.bins), 1, true, {}, grid.sum(grid.avail, t.bins)};
         for (std::size_t iy = t.bins.y0; iy <= t.bins.y1; ++iy) {
             for (std::size_t ix = t.bins.x0; ix <= t.bins.x1; ++ix) {
                 const std::size_t k = grid.at(ix, iy);
@@ -82,7 +82,7 @@ void LookAheadLegalizer::legalize(std::vector<double> &x, std::vector<double> &y
         const std::vector<std::uint32_t> cells = top.cells;
         legalizeBlock(top, x, y);
         for (const std::uint32_t i : cells) {
-            const std::size_t k = grid.binOf(centre(x, i, true), centre(y, i, false));
+            const std::size_t k = grid.getBinOf(getCentre(x, i, true), getCentre(y, i, false));
             if (k != binOf[i]) {
                 occ[binOf[i]] -= area[i];
                 occ[k] += area[i];
@@ -100,8 +100,8 @@ void LookAheadLegalizer::legalize(std::vector<double> &x, std::vector<double> &y
         batch.clear();
     };
     std::uint32_t turn = 0;
-    for (const BinRect &cluster : overfilledClusters(occ)) {
-        BinRect bins = grown(cluster, occ);
+    for (const BinRect &cluster : getOverfilledClusters(occ)) {
+        BinRect bins = getGrown(cluster, occ);
         const auto clashes = [&] {
             return std::ranges::any_of(batch, [&](const Turn &t) {
                 return touches(t.reach, reachOf(bins));
@@ -109,7 +109,7 @@ void LookAheadLegalizer::legalize(std::vector<double> &x, std::vector<double> &y
         };
         if (clashes()) {
             runBatch();
-            bins = grown(cluster, occ);
+            bins = getGrown(cluster, occ);
         }
         batch.push_back({bins, reachOf(bins), ++turn});
     }
@@ -132,7 +132,8 @@ void LookAheadLegalizer::legalizeBlock(Block &block, std::vector<double> &x,
         });
 }
 
-std::vector<BinRect> LookAheadLegalizer::overfilledClusters(const std::vector<double> &occ) const {
+std::vector<BinRect> LookAheadLegalizer::getOverfilledClusters(
+    const std::vector<double> &occ) const {
     std::vector<char> over(grid.size(), 0);
     for (std::size_t k = 0; k < grid.size(); ++k) {
         over[k] = occ[k] > densityLimit * grid.avail[k] ? 1 : 0;
@@ -152,7 +153,7 @@ std::vector<BinRect> LookAheadLegalizer::overfilledClusters(const std::vector<do
             frontier.pop_back();
             const std::size_t ix = k % grid.nx;
             const std::size_t iy = k / grid.nx;
-            r = r.merged({ix, ix, iy, iy});
+            r = r.getMerged({ix, ix, iy, iy});
             const std::array<std::pair<long, long>, 4> steps{{{1, 0}, {-1, 0}, {0, 1}, {0, -1}}};
             for (const auto &[sx, sy] : steps) {
                 const long nx = static_cast<long>(ix) + sx;
@@ -174,8 +175,8 @@ std::vector<BinRect> LookAheadLegalizer::overfilledClusters(const std::vector<do
     return regions;
 }
 
-BinRect LookAheadLegalizer::grown(BinRect r, const std::vector<double> &occ) const {
-    while (density(occ, r) > densityLimit) {
+BinRect LookAheadLegalizer::getGrown(BinRect r, const std::vector<double> &occ) const {
+    while (getDensity(occ, r) > densityLimit) {
         const std::array<BinRect, 4> wider{
             BinRect{r.x0 > 0 ? r.x0 - 1 : r.x0, r.x1, r.y0, r.y1},
             BinRect{r.x0, r.x1 + 1 < grid.nx ? r.x1 + 1 : r.x1, r.y0, r.y1},
@@ -184,10 +185,10 @@ BinRect LookAheadLegalizer::grown(BinRect r, const std::vector<double> &occ) con
         const BinRect *best = nullptr;
         double bestDensity = std::numeric_limits<double>::infinity();
         for (const BinRect &w : wider) {
-            if (w.bins() == r.bins()) {
+            if (w.getBins() == r.getBins()) {
                 continue;
             }
-            const double d = density(occ, w);
+            const double d = getDensity(occ, w);
             if (best == nullptr || d < bestDensity) {
                 best = &w;
                 bestDensity = d;
@@ -212,7 +213,7 @@ std::optional<std::pair<Block, Block>> LookAheadLegalizer::split(Block &region,
 
     std::vector<std::uint32_t> &cells = region.cells;
     sortCells(cells, [&](std::uint32_t i) {
-        return centre(pos, i, vertical);
+        return getCentre(pos, i, vertical);
     });
     const double cellArea =
         std::accumulate(cells.begin(), cells.end(), 0.0, [&](double s, std::uint32_t i) {
@@ -229,10 +230,10 @@ std::optional<std::pair<Block, Block>> LookAheadLegalizer::split(Block &region,
     const Box &box = region.box;
     const double lo = vertical ? box.x0 : box.y0;
     const double hi = vertical ? box.x1 : box.y1;
-    const AxisProfile room = freeSpace.profile(box, vertical);
+    const AxisProfile room = freeSpace.getProfile(box, vertical);
     const double share = cellArea > 0.0 ? lowArea / cellArea : 0.5;
-    const double cutline =
-        room.total() > 0.0 ? room.coordinateAt(share * room.total()) : lo + share * (hi - lo);
+    const double cutline = room.getTotal() > 0.0 ? room.getCoordinateAt(share * room.getTotal())
+                                                 : lo + share * (hi - lo);
 
     Box lowBox = box;
     Box highBox = box;
@@ -247,11 +248,11 @@ std::optional<std::pair<Block, Block>> LookAheadLegalizer::split(Block &region,
         Block{highBox, region.level + 1, !vertical, std::move(high), region.regionRoom}};
 }
 
-std::vector<Stripe> LookAheadLegalizer::stripes(const Box &box, bool vertical, double cellArea,
-                                                double regionRoom) const {
+std::vector<Stripe> LookAheadLegalizer::getStripes(const Box &box, bool vertical, double cellArea,
+                                                   double regionRoom) const {
     const double lo = vertical ? box.x0 : box.y0;
     const double hi = vertical ? box.x1 : box.y1;
-    const AxisProfile room = freeSpace.profile(box, vertical);
+    const AxisProfile room = freeSpace.getProfile(box, vertical);
 
     std::vector<double> cuts{lo, hi};
     for (const Box &o : obstacles) {
@@ -267,14 +268,15 @@ std::vector<Stripe> LookAheadLegalizer::stripes(const Box &box, bool vertical, d
     std::stable_sort(cuts.begin(), cuts.end());
     cuts.erase(std::unique(cuts.begin(), cuts.end()), cuts.end());
 
-    const double limit = opts.stripeAreaFraction * (regionRoom > 0.0 ? regionRoom : room.total());
+    const double limit =
+        opts.stripeAreaFraction * (regionRoom > 0.0 ? regionRoom : room.getTotal());
     const double fill =
-        room.total() > 0.0 ? std::min(densityLimit, cellArea / room.total()) : densityLimit;
+        room.getTotal() > 0.0 ? std::min(densityLimit, cellArea / room.getTotal()) : densityLimit;
     for (std::size_t s = 0; s + 1 < cuts.size();) {
         const double a = cuts[s];
         const double b = cuts[s + 1];
-        const double here = room.between(a, b);
-        const double mid = room.coordinateAt(room.before(a) + 0.5 * here);
+        const double here = room.getBetween(a, b);
+        const double mid = room.getCoordinateAt(room.getBefore(a) + 0.5 * here);
         if (here > limit && mid > a && mid < b) {
             cuts.insert(cuts.begin() + static_cast<long>(s) + 1, mid);
         } else {
@@ -284,7 +286,8 @@ std::vector<Stripe> LookAheadLegalizer::stripes(const Box &box, bool vertical, d
 
     std::vector<Stripe> out;
     for (std::size_t s = 0; s + 1 < cuts.size(); ++s) {
-        out.push_back({cuts[s], cuts[s + 1], fill * room.between(cuts[s], cuts[s + 1]), 0.0, {}});
+        out.push_back(
+            {cuts[s], cuts[s + 1], fill * room.getBetween(cuts[s], cuts[s + 1]), 0.0, {}});
     }
     return out;
 }
@@ -299,7 +302,7 @@ void LookAheadLegalizer::nonlinearScale(const std::vector<std::uint32_t> &cells,
         std::accumulate(cells.begin(), cells.end(), 0.0, [&](double sum, std::uint32_t i) {
             return sum + area[i];
         });
-    std::vector<Stripe> strips = stripes(box, vertical, cellArea, regionRoom);
+    std::vector<Stripe> strips = getStripes(box, vertical, cellArea, regionRoom);
     const auto fromCut = [&](double c) {
         return belowCut ? cutline - c : c - cutline;
     };
@@ -309,7 +312,7 @@ void LookAheadLegalizer::nonlinearScale(const std::vector<std::uint32_t> &cells,
 
     std::vector<std::uint32_t> order = cells;
     sortCells(order, [&](std::uint32_t i) {
-        return -fromCut(centre(pos, i, vertical));
+        return -fromCut(getCentre(pos, i, vertical));
     });
     std::size_t s = 0;
     for (const std::uint32_t i : order) {
@@ -327,11 +330,11 @@ void LookAheadLegalizer::nonlinearScale(const std::vector<std::uint32_t> &cells,
         double lo = std::numeric_limits<double>::max();
         double hi = -lo;
         for (const std::uint32_t i : strip.cells) {
-            lo = std::min(lo, centre(pos, i, vertical));
-            hi = std::max(hi, centre(pos, i, vertical));
+            lo = std::min(lo, getCentre(pos, i, vertical));
+            hi = std::max(hi, getCentre(pos, i, vertical));
         }
         for (const std::uint32_t i : strip.cells) {
-            const double t = hi > lo ? (centre(pos, i, vertical) - lo) / (hi - lo) : 0.5;
+            const double t = hi > lo ? (getCentre(pos, i, vertical) - lo) / (hi - lo) : 0.5;
             const double size = vertical ? width[i] : height[i];
             const double c = strip.lo + t * (strip.hi - strip.lo);
             pos[i] = std::clamp(c - 0.5 * size, strip.lo, std::max(strip.lo, strip.hi - size));
@@ -340,7 +343,7 @@ void LookAheadLegalizer::nonlinearScale(const std::vector<std::uint32_t> &cells,
 }
 
 void LookAheadLegalizer::clampToDie(std::vector<double> &x, std::vector<double> &y) const {
-    for (std::size_t i = 0; i < numMovable(); ++i) {
+    for (std::size_t i = 0; i < getNumMovable(); ++i) {
         x[i] = std::clamp(x[i], die[0], std::max(die[0], die[2] - width[i]));
         y[i] = std::clamp(y[i], die[1], std::max(die[1], die[3] - height[i]));
     }

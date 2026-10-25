@@ -47,7 +47,7 @@ public:
     ScratchDir(const ScratchDir &) = delete;
     ScratchDir &operator=(const ScratchDir &) = delete;
 
-    [[nodiscard]] std::filesystem::path file(const std::string &name) const {
+    [[nodiscard]] std::filesystem::path getFile(const std::string &name) const {
         return tempDir / name;
     }
 
@@ -59,7 +59,7 @@ private:
 /// exercise the parser, not the reader.
 const char *design = "./benchmark/bookshelf/ISPD_2005/adaptec1";
 
-std::vector<char *> argvOf(std::vector<std::string> &args) {
+std::vector<char *> getArgvOf(std::vector<std::string> &args) {
     std::vector<char *> argv;
     argv.reserve(args.size());
     for (std::string &a : args) {
@@ -70,7 +70,7 @@ std::vector<char *> argvOf(std::vector<std::string> &args) {
 
 kt_option parse(const std::vector<std::string> &args) {
     std::vector<std::string> copy = args;
-    std::vector<char *> argv = argvOf(copy);
+    std::vector<char *> argv = getArgvOf(copy);
     kt_option opt;
     opt.parse(static_cast<int>(argv.size()), argv.data());
     return opt;
@@ -116,14 +116,14 @@ ChildRun runInChild(Fn body) {
 /// Parse a command line in a child, since a bad one may exit rather than throw.
 ChildRun parseInChild(const std::vector<std::string> &args) {
     std::vector<std::string> copy = args;
-    std::vector<char *> argv = argvOf(copy);
+    std::vector<char *> argv = getArgvOf(copy);
     return runInChild([&argv] {
         kt_option opt;
         opt.parse(static_cast<int>(argv.size()), argv.data());
     });
 }
 
-std::string cwd() {
+std::string getCwd() {
     return std::filesystem::current_path().string();
 }
 
@@ -145,7 +145,7 @@ BOOST_AUTO_TEST_CASE(gui_takes_no_input_directory_or_one_anywhere_in_the_line) {
     BOOST_TEST(bare.inputPath.empty());
 
     const ScratchDir dir("gui");
-    const std::string work = dir.file("run").string();
+    const std::string work = dir.getFile("run").string();
     const kt_option flagsOnly = parse({"ktplace", "--gui", "-w", work, "-tcl", "run.tcl"});
     BOOST_TEST(flagsOnly.inputPath.empty());
     BOOST_TEST(flagsOnly.workDir == work);
@@ -171,7 +171,7 @@ BOOST_AUTO_TEST_CASE(gui_and_shell_cannot_be_combined) {
 
 BOOST_AUTO_TEST_CASE(every_artifact_is_derived_from_the_work_dir) {
     const ScratchDir dir("derive");
-    const std::string work = dir.file("run").string();
+    const std::string work = dir.getFile("run").string();
     const kt_option opt = parse({"ktplace", design, "-w", work});
 
     BOOST_TEST(opt.workDir == work);
@@ -184,14 +184,14 @@ BOOST_AUTO_TEST_CASE(every_artifact_is_derived_from_the_work_dir) {
 
 BOOST_AUTO_TEST_CASE(the_work_dir_defaults_to_the_current_directory) {
     const kt_option opt = parse({"ktplace", design});
-    BOOST_TEST(opt.workDir == cwd());
-    BOOST_TEST(opt.getOutputPath() == cwd() + "/placed.pl");
-    BOOST_TEST(opt.getLogFile() == cwd() + "/ktplace.log");
+    BOOST_TEST(opt.workDir == getCwd());
+    BOOST_TEST(opt.getOutputPath() == getCwd() + "/placed.pl");
+    BOOST_TEST(opt.getLogFile() == getCwd() + "/ktplace.log");
 }
 
 BOOST_AUTO_TEST_CASE(a_work_dir_is_created_when_asked_for) {
     const ScratchDir dir("create");
-    const std::string work = (dir.file("a") / "b").string();
+    const std::string work = (dir.getFile("a") / "b").string();
     BOOST_TEST(!std::filesystem::exists(work));
     parse({"ktplace", design, "-w", work});
     BOOST_TEST(std::filesystem::is_directory(work));
@@ -201,8 +201,8 @@ BOOST_AUTO_TEST_CASE(an_uncreatable_work_dir_is_reported) {
     // A work dir under an existing *file* cannot be made. Reporting it beats
     // silently writing somewhere else.
     const ScratchDir dir("badwork");
-    std::filesystem::create_directories(dir.file("blockerdir"));
-    const std::string blocker = dir.file("blockerdir").string() + "/blocker";
+    std::filesystem::create_directories(dir.getFile("blockerdir"));
+    const std::string blocker = dir.getFile("blockerdir").string() + "/blocker";
     {
         std::ofstream out(blocker);
         out << "not a directory\n";
@@ -228,7 +228,7 @@ BOOST_AUTO_TEST_CASE(every_flag_is_accepted_in_both_its_short_and_long_form) {
     // directory: a bare relative name left an empty folder behind in whatever
     // directory the test ran from (src/ under `make test`, or the repository root).
     const ScratchDir dir("forms");
-    const std::string work = dir.file("work").string();
+    const std::string work = dir.getFile("work").string();
     const struct {
         const char *shortForm;
         const char *longForm;
@@ -294,7 +294,7 @@ BOOST_AUTO_TEST_CASE(help_and_version_stop_before_anything_else) {
     // would be an error instead of an answer.
     for (const char *flag : {"-h", "--help", "-V", "--version"}) {
         std::vector<std::string> copy{"ktplace", flag};
-        std::vector<char *> argv = argvOf(copy);
+        std::vector<char *> argv = getArgvOf(copy);
         const ChildRun run = runInChild([&argv] {
             kt_option opt;
             const bool ready = opt.parse(static_cast<int>(argv.size()), argv.data());
@@ -340,11 +340,11 @@ BOOST_AUTO_TEST_CASE(the_parser_can_be_moved) {
 BOOST_AUTO_TEST_CASE(parsing_twice_uses_the_second_command_line) {
     kt_option opt;
     std::vector<std::string> first{"ktplace", design};
-    std::vector<char *> fargv = argvOf(first);
+    std::vector<char *> fargv = getArgvOf(first);
     BOOST_TEST(opt.parse(static_cast<int>(fargv.size()), fargv.data()));
 
     std::vector<std::string> second{"ktplace", design, "-v", "-tcl", "run.tcl"};
-    std::vector<char *> sargv = argvOf(second);
+    std::vector<char *> sargv = getArgvOf(second);
     BOOST_TEST(opt.parse(static_cast<int>(sargv.size()), sargv.data()));
     BOOST_TEST(opt.verbose);
     BOOST_TEST(opt.tclFile == "run.tcl");

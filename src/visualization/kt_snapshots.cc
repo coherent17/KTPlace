@@ -39,7 +39,7 @@ public:
     In(const In &) = delete;
     In &operator=(const In &) = delete;
 
-    bool tag(std::uint8_t &t) {
+    bool readTag(std::uint8_t &t) {
         const int c = gzgetc(f);
         if (c < 0) {
             return false;
@@ -73,14 +73,14 @@ public:
         return static_cast<std::size_t>(get<std::uint64_t>());
     }
 
-    std::string str() {
+    std::string getStr() {
         std::string s(get<std::uint32_t>(), '\0');
         raw(s.data(), s.size());
         return s;
     }
 
     template <class T>
-    std::vector<T> vec() {
+    std::vector<T> getVec() {
         std::vector<T> v(size());
         raw(v.data(), v.size() * sizeof(T));
         return v;
@@ -144,7 +144,7 @@ public:
     }
 
     template <class T>
-    void vec(std::span<const T> v) {
+    void getVec(std::span<const T> v) {
         size(v.size());
         raw(v.data(), v.size_bytes());
     }
@@ -175,7 +175,7 @@ void SnapshotWriter::frame(const std::vector<float> &x, const std::vector<float>
                            const VisualFrame &what) {
     out->put(Tag::Frame);
     out->put<std::uint8_t>(withFences ? 1 : 0);
-    out->vec<double>(die);
+    out->getVec<double>(die);
     out->str(what.series);
     out->size(what.step);
     out->size(what.numSteps);
@@ -184,8 +184,8 @@ void SnapshotWriter::frame(const std::vector<float> &x, const std::vector<float>
     out->put<double>(what.hpwlInitial);
     out->put<double>(what.overflow);
     out->put<std::uint8_t>(what.mandatory ? 1 : 0);
-    out->vec<float>(x);
-    out->vec<float>(y);
+    out->getVec<float>(x);
+    out->getVec<float>(y);
     ++frames;
 }
 
@@ -195,7 +195,7 @@ void SnapshotWriter::boundsCurve(std::string_view name, std::string_view title,
     out->put(Tag::Bounds);
     out->str(name);
     out->str(title);
-    out->vec(curve);
+    out->getVec(curve);
 }
 
 void SnapshotWriter::holdBack(std::size_t n) {
@@ -208,42 +208,42 @@ std::size_t replaySnapshots(const std::string &path, Visualizer &viz, const Grap
     In in(path);
     std::size_t frames = 0;
     std::uint8_t t = 0;
-    while (in.tag(t)) {
+    while (in.readTag(t)) {
         switch (static_cast<Tag>(t)) {
             case Tag::Stage: {
                 StageVisual stage;
-                stage.stage = in.str();
-                stage.subdir = in.str();
+                stage.stage = in.getStr();
+                stage.subdir = in.getStr();
                 stage.cadence = in.size();
                 viz.beginStage(std::move(stage));
                 break;
             }
             case Tag::Frame: {
                 const bool withFences = in.get<std::uint8_t>() != 0;
-                const std::vector<double> die = in.vec<double>();
+                const std::vector<double> die = in.getVec<double>();
                 if (die.size() != 4) {
                     ktlog.fatal("snapshot file {}: a frame's die is not a box", path);
                 }
                 VisualFrame what;
-                what.series = in.str();
+                what.series = in.getStr();
                 what.step = in.size();
                 what.numSteps = in.size();
-                what.note = in.str();
+                what.note = in.getStr();
                 what.hpwl = in.get<double>();
                 what.hpwlInitial = in.get<double>();
                 what.overflow = in.get<double>();
                 what.mandatory = in.get<std::uint8_t>() != 0;
-                const std::vector<float> x = in.vec<float>();
-                const std::vector<float> y = in.vec<float>();
+                const std::vector<float> x = in.getVec<float>();
+                const std::vector<float> y = in.getVec<float>();
                 viz.frame(graph, x, y, {die[0], die[1], die[2], die[3]},
                           withFences ? fences : nullptr, what);
                 ++frames;
                 break;
             }
             case Tag::Bounds: {
-                const std::string name = in.str();
-                const std::string title = in.str();
-                viz.boundsCurve(name, title, in.vec<BoundsSample>());
+                const std::string name = in.getStr();
+                const std::string title = in.getStr();
+                viz.boundsCurve(name, title, in.getVec<BoundsSample>());
                 break;
             }
             case Tag::HoldBack:

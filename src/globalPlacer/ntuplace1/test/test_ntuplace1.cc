@@ -73,10 +73,10 @@ struct Placed {
 
 Placed place(const ktDM &db, const Ntuplace1Options &params) {
     ntuplace1::flowMgr flow(db);
-    flow.dm().options() = params;
+    flow.getDm().getOptions() = params;
     Placed out;
     out.result = flow.run();
-    out.solution = flow.solution();
+    out.solution = flow.getSolution();
     return out;
 }
 
@@ -93,7 +93,7 @@ void expectInRows(const Placed &placed, const std::vector<std::size_t> &ids) {
 
 /// Small leaves, so the recursion goes deep enough on a toy design to show
 /// where it sends things.
-Ntuplace1Options smallLeaves() {
+Ntuplace1Options getSmallLeaves() {
     Ntuplace1Options p;
     p.targetLeafCells = 4;
     return p;
@@ -113,7 +113,7 @@ BOOST_AUTO_TEST_CASE(cells_avoid_a_macro_marked_as_terminal) {
         addNet(db, "n" + std::to_string(i), {"c" + std::to_string(i), "c" + std::to_string(i + 1)});
     }
 
-    const Placed placed = place(db, smallLeaves());
+    const Placed placed = place(db, getSmallLeaves());
     const ntuplace1::Ntuplace1Result &res = placed.result;
 
     BOOST_TEST(res.numFixed == 1u);
@@ -150,7 +150,7 @@ BOOST_AUTO_TEST_CASE(cells_follow_their_pads) {
         addNet(db, "pb" + std::to_string(i), {"padR", "b" + std::to_string(i)});
     }
 
-    const Placed placed = place(db, smallLeaves());
+    const Placed placed = place(db, getSmallLeaves());
 
     double meanA = 0.0, meanB = 0.0;
     for (const std::size_t id : a) {
@@ -236,7 +236,7 @@ BOOST_AUTO_TEST_CASE(fenced_cells_are_placed_in_their_region_and_others_kept_out
         db.setConstraints(std::move(mgr));
     }
 
-    const Placed placed = place(db, smallLeaves());
+    const Placed placed = place(db, getSmallLeaves());
     const ntuplace1::Ntuplace1Result &res = placed.result;
 
     BOOST_TEST(res.fenceRegions == 1u);
@@ -262,27 +262,27 @@ BOOST_AUTO_TEST_CASE(frame_hook_sees_every_cut_and_does_not_change_the_placement
     for (int i = 0; i + 1 < 40; ++i) {
         addNet(db, "n" + std::to_string(i), {"c" + std::to_string(i), "c" + std::to_string(i + 1)});
     }
-    const Placed plain = place(db, smallLeaves());
+    const Placed plain = place(db, getSmallLeaves());
 
     ntuplace1::flowMgr flow(db);
     std::size_t frames = 0;
     bool wholeDesign = true;
     bool depthInRange = true;
-    flow.dm().setFrameHook([&](const std::vector<float> &xs, const std::vector<float> &ys,
-                               const ntuplace1::FrameInfo &info) {
+    flow.getDm().setFrameHook([&](const std::vector<float> &xs, const std::vector<float> &ys,
+                                  const ntuplace1::FrameInfo &info) {
         ++frames;
         wholeDesign =
             wholeDesign && xs.size() == db.getGraph().getNumCells() && ys.size() == xs.size();
         depthInRange = depthInRange && info.step <= info.numSteps && !info.note.empty();
     });
-    flow.dm().options() = smallLeaves();
+    flow.getDm().getOptions() = getSmallLeaves();
     const ntuplace1::Ntuplace1Result res = flow.run();
 
     BOOST_TEST(frames == res.cuts);
     BOOST_TEST(wholeDesign);
     BOOST_TEST(depthInRange);
-    BOOST_TEST(flow.solution().xs == plain.solution.xs);
-    BOOST_TEST(flow.solution().ys == plain.solution.ys);
+    BOOST_TEST(flow.getSolution().xs == plain.solution.xs);
+    BOOST_TEST(flow.getSolution().ys == plain.solution.ys);
 }
 
 BOOST_AUTO_TEST_SUITE_END()

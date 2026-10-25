@@ -31,7 +31,7 @@ namespace ktplace {
 
 namespace {
 /// Case-insensitive token comparison, for .scl field names.
-bool lowerEq(const std::string &a, const char *b) {
+bool isEqualIgnoringCase(const std::string &a, const char *b) {
     if (a.size() != std::strlen(b)) {
         return false;
     }
@@ -51,7 +51,7 @@ class InputTextFile {
 public:
     explicit InputTextFile(const std::string &path) : gzFile(path) {}
 
-    std::istream &stream() {
+    std::istream &getStream() {
         return gzFile;
     }
     explicit operator bool() const {
@@ -120,7 +120,7 @@ BookshelfInputAdapter::BookshelfInputAdapter(BookshelfInputAdapter &&) noexcept 
 BookshelfInputAdapter &BookshelfInputAdapter::operator=(BookshelfInputAdapter &&) noexcept =
     default;
 
-bool BookshelfInputAdapter::recognises(const std::string &dirPath) const {
+bool BookshelfInputAdapter::isRecognised(const std::string &dirPath) const {
     // The design's files are named after the directory holding them.
     const std::string stem = std::filesystem::path(dirPath).filename().string();
     if (stem.empty()) {
@@ -231,7 +231,7 @@ bool BookshelfInputAdapter::parseNodesFile(const std::string &filePath) {
     std::vector<std::string> lines;
     lines.reserve(1u << 18);
     std::string line;
-    while (std::getline(file.stream(), line)) {
+    while (std::getline(file.getStream(), line)) {
         lines.push_back(std::move(line));
     }
 
@@ -309,7 +309,7 @@ bool BookshelfInputAdapter::parseNetsFile(const std::string &filePath) {
     // Read all lines once
     std::vector<std::string> lines;
     std::string line;
-    while (std::getline(file.stream(), line)) {
+    while (std::getline(file.getStream(), line)) {
         lines.push_back(std::move(line));
     }
 
@@ -446,7 +446,7 @@ bool BookshelfInputAdapter::parsePlacementFile(const std::string &filePath) {
 
     bool inHeader = true;
     std::string line;
-    while (std::getline(file.stream(), line)) {
+    while (std::getline(file.getStream(), line)) {
         std::string stripped = stripComments(line);
         if (stripped.empty())
             continue;
@@ -508,7 +508,7 @@ bool BookshelfInputAdapter::parseSclFile(const std::string &filePath) {
     std::vector<std::string> currentRowTokens;
     bool inRow = false;
 
-    while (std::getline(file.stream(), line)) {
+    while (std::getline(file.getStream(), line)) {
         std::string stripped = stripComments(line);
         if (stripped.empty())
             continue;
@@ -598,7 +598,7 @@ bool BookshelfInputAdapter::parseSclRow(const std::vector<std::string> &tokens) 
                 pendingNumSites = 0.0;
                 // Format: "SubrowOrigin : <value> NumSites : <count>"
                 for (std::size_t p = 0; p + 1 < parts.size(); ++p) {
-                    if (lowerEq(parts[p], "numsites")) {
+                    if (isEqualIgnoringCase(parts[p], "numsites")) {
                         std::size_t m = p + 1;
                         while (m < parts.size() && parts[m] == ":") {
                             ++m;
@@ -638,7 +638,7 @@ bool BookshelfInputAdapter::parseWtsFile(const std::string &filePath) {
 
     std::string line;
     bool inHeader = true;
-    while (std::getline(file.stream(), line)) {
+    while (std::getline(file.getStream(), line)) {
         std::string stripped = stripComments(line);
         if (stripped.empty())
             continue;

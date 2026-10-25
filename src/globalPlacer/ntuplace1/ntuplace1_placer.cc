@@ -21,7 +21,7 @@ struct RatioRegion {
     std::size_t depth = 0;
 };
 
-double overlap(const AreaRect &a, double x0, double y0, double x1, double y1) {
+double getOverlap(const AreaRect &a, double x0, double y0, double x1, double y1) {
     const double w = std::min(a.x1, x1) - std::max(a.x0, x0);
     const double h = std::min(a.y1, y1) - std::max(a.y0, y0);
     return (w > 0.0 && h > 0.0) ? w * h : 0.0;
@@ -40,14 +40,14 @@ public:
 
 private:
     void build();
-    double freeAreaIn(double x0, double y0, double x1, double y1) const;
-    double movableArea(const std::vector<std::uint32_t> &) const;
+    double getFreeAreaIn(double x0, double y0, double x1, double y1) const;
+    double getMovableArea(const std::vector<std::uint32_t> &) const;
     void divide(RatioRegion r);
-    [[nodiscard]] int forcedSide(int region, const RatioRegion &r0, const RatioRegion &r1) const;
+    [[nodiscard]] int getForcedSide(int region, const RatioRegion &r0, const RatioRegion &r1) const;
     std::size_t applyFences();
-    std::size_t bipartition(const std::vector<std::uint32_t> &cells, bool vertical, double cut,
-                            double target, double tol, const std::vector<std::int8_t> &forced,
-                            std::vector<std::uint8_t> &side);
+    std::size_t getBipartition(const std::vector<std::uint32_t> &cells, bool vertical, double cut,
+                               double target, double tol, const std::vector<std::int8_t> &forced,
+                               std::vector<std::uint8_t> &side);
     void placeLeaf(const RatioRegion &r);
     void setRegionCentre(const RatioRegion &r);
     void writeFrame(std::size_t depth, const char *note) const;
@@ -91,7 +91,7 @@ void RatioPlacer::Impl::build() {
     posY.assign(mov.size(), 0.5 * (rowBox[1] + rowBox[3]));
 }
 
-double RatioPlacer::Impl::freeAreaIn(double x0, double y0, double x1, double y1) const {
+double RatioPlacer::Impl::getFreeAreaIn(double x0, double y0, double x1, double y1) const {
     if (rowRects.empty()) {
         return std::max(0.0, (x1 - x0) * (y1 - y0));
     }
@@ -101,20 +101,20 @@ double RatioPlacer::Impl::freeAreaIn(double x0, double y0, double x1, double y1)
                                    return r.y0 < y;
                                });
     for (; it != rowRects.end() && it->y0 < y1; ++it) {
-        rows += overlap(*it, x0, y0, x1, y1);
+        rows += getOverlap(*it, x0, y0, x1, y1);
     }
     const double cx0 = std::max(x0, rowBox[0]), cy0 = std::max(y0, rowBox[1]);
     const double cx1 = std::min(x1, rowBox[2]), cy1 = std::min(y1, rowBox[3]);
     double fixed = 0.0;
     if (cx1 > cx0 && cy1 > cy0) {
         for (const AreaRect &f : fixedRects) {
-            fixed += overlap(f, cx0, cy0, cx1, cy1);
+            fixed += getOverlap(f, cx0, cy0, cx1, cy1);
         }
     }
     return std::max(0.0, rows - fixed);
 }
 
-double RatioPlacer::Impl::movableArea(const std::vector<std::uint32_t> &cells) const {
+double RatioPlacer::Impl::getMovableArea(const std::vector<std::uint32_t> &cells) const {
     double a = 0.0;
     for (const std::uint32_t c : cells) {
         a += cellArea[c];
@@ -122,10 +122,10 @@ double RatioPlacer::Impl::movableArea(const std::vector<std::uint32_t> &cells) c
     return a;
 }
 
-std::size_t RatioPlacer::Impl::bipartition(const std::vector<std::uint32_t> &cells, bool vertical,
-                                           double cut, double target, double tol,
-                                           const std::vector<std::int8_t> &forced,
-                                           std::vector<std::uint8_t> &side) {
+std::size_t RatioPlacer::Impl::getBipartition(const std::vector<std::uint32_t> &cells,
+                                              bool vertical, double cut, double target, double tol,
+                                              const std::vector<std::int8_t> &forced,
+                                              std::vector<std::uint8_t> &side) {
     const std::size_t n = cells.size();
     side.assign(n, 0);
     ++gen;
@@ -368,8 +368,9 @@ void RatioPlacer::Impl::writeFrame(std::size_t depth, const char *note) const {
     design.onFrame(xs, ys, FrameInfo{note, depth, opts.maxLevels});
 }
 
-int RatioPlacer::Impl::forcedSide(int region, const RatioRegion &r0, const RatioRegion &r1) const {
-    const Region *reg = fences->region(region);
+int RatioPlacer::Impl::getForcedSide(int region, const RatioRegion &r0,
+                                     const RatioRegion &r1) const {
+    const Region *reg = fences->getRegion(region);
     if (reg == nullptr) {
         return -1;
     }
@@ -395,7 +396,7 @@ int RatioPlacer::Impl::forcedSide(int region, const RatioRegion &r0, const Ratio
 }
 
 std::size_t RatioPlacer::Impl::applyFences() {
-    if (fences == nullptr || fences->numRegions() == 0) {
+    if (fences == nullptr || fences->getNumRegions() == 0) {
         return 0;
     }
     std::size_t outside = 0;
@@ -438,8 +439,8 @@ void RatioPlacer::Impl::divide(RatioRegion r) {
     (vertical ? r0.x1 : r0.y1) = cut;
     (vertical ? r1.x0 : r1.y0) = cut;
 
-    const double free0 = freeAreaIn(r0.x0, r0.y0, r0.x1, r0.y1);
-    const double free1 = freeAreaIn(r1.x0, r1.y0, r1.x1, r1.y1);
+    const double free0 = getFreeAreaIn(r0.x0, r0.y0, r0.x1, r0.y1);
+    const double free1 = getFreeAreaIn(r1.x0, r1.y0, r1.x1, r1.y1);
     if (free0 <= 0.0 || free1 <= 0.0) {
         RatioRegion &keep = (free0 > 0.0) ? r0 : r1;
         if (free0 <= 0.0 && free1 <= 0.0) {
@@ -452,7 +453,7 @@ void RatioPlacer::Impl::divide(RatioRegion r) {
         return;
     }
 
-    const double total = movableArea(r.cells);
+    const double total = getMovableArea(r.cells);
     const double target = total * free0 / (free0 + free1);
     double maxCell = 0.0;
     for (const std::uint32_t c : r.cells) {
@@ -461,13 +462,13 @@ void RatioPlacer::Impl::divide(RatioRegion r) {
     double tol = std::max(balanceSlack * total, 2.0 * maxCell);
 
     std::vector<std::int8_t> forced;
-    if (fences != nullptr && fences->numRegions() > 0) {
+    if (fences != nullptr && fences->getNumRegions() > 0) {
         bool any = false;
         forced.assign(r.cells.size(), -1);
         for (std::size_t i = 0; i < r.cells.size(); ++i) {
             const int reg = cellRegion[r.cells[i]];
             if (reg != constraintMgr::noRegion) {
-                forced[i] = static_cast<std::int8_t>(forcedSide(reg, r0, r1));
+                forced[i] = static_cast<std::int8_t>(getForcedSide(reg, r0, r1));
                 any = any || forced[i] >= 0;
             }
         }
@@ -479,13 +480,13 @@ void RatioPlacer::Impl::divide(RatioRegion r) {
     std::vector<std::uint8_t> side;
     std::size_t cutNets = 0;
     for (std::size_t attempt = 0;; ++attempt) {
-        cutNets = bipartition(r.cells, vertical, cut, target, tol, forced, side);
+        cutNets = getBipartition(r.cells, vertical, cut, target, tol, forced, side);
         r0.cells.clear();
         r1.cells.clear();
         for (std::size_t i = 0; i < r.cells.size(); ++i) {
             (side[i] == 0 ? r0.cells : r1.cells).push_back(r.cells[i]);
         }
-        const double a0 = movableArea(r0.cells), a1 = total - a0;
+        const double a0 = getMovableArea(r0.cells), a1 = total - a0;
         const bool fits = (a0 <= free0 && a1 <= free1) || total > free0 + free1;
         if (fits || attempt >= opts.maxRatioRetries || tol <= 2.0 * maxCell) {
             break;
@@ -532,7 +533,7 @@ Ntuplace1Result RatioPlacer::Impl::place(const Ntuplace1Options &params) {
         design.cells.y[i] =
             std::clamp(posY[i] - 0.5 * h, rowBox[1], std::max(rowBox[1], rowBox[3] - h));
     }
-    result.fenceRegions = fences != nullptr ? fences->numRegions() : 0;
+    result.fenceRegions = fences != nullptr ? fences->getNumRegions() : 0;
     result.fenceViolations = applyFences();
 
     double total = 0.0;

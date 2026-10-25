@@ -22,7 +22,7 @@ namespace ktplace {
 
 namespace {
 
-std::string trimmed(std::string_view text) {
+std::string getTrimmed(std::string_view text) {
     const auto first = text.find_first_not_of(" \t\"");
     if (first == std::string_view::npos) {
         return {};
@@ -30,17 +30,17 @@ std::string trimmed(std::string_view text) {
     return std::string(text.substr(first, text.find_last_not_of(" \t\"") - first + 1));
 }
 
-std::string valueAfter(std::string_view line, char separator) {
+std::string getValueAfter(std::string_view line, char separator) {
     const auto at = line.find(separator);
-    return at == std::string_view::npos ? std::string() : trimmed(line.substr(at + 1));
+    return at == std::string_view::npos ? std::string() : getTrimmed(line.substr(at + 1));
 }
 
-std::string hostName() {
+std::string getHostName() {
     std::array<char, 256> name{};
     return gethostname(name.data(), name.size() - 1) == 0 ? std::string(name.data()) : "";
 }
 
-std::string kernel() {
+std::string getKernel() {
     utsname uts{};
     if (uname(&uts) != 0) {
         return {};
@@ -48,7 +48,7 @@ std::string kernel() {
     return std::format("{} {} {}", uts.sysname, uts.release, uts.machine);
 }
 
-std::string compilerName() {
+std::string getCompilerName() {
 #if defined(__clang__)
     return std::format("clang {}", __clang_version__);
 #elif defined(__GNUC__)
@@ -58,7 +58,7 @@ std::string compilerName() {
 #endif
 }
 
-std::uint64_t physicalMemory() {
+std::uint64_t getPhysicalMemory() {
     const long pages = sysconf(_SC_PHYS_PAGES);
     const long pageSize = sysconf(_SC_PAGE_SIZE);
     return pages > 0 && pageSize > 0
@@ -94,41 +94,41 @@ void detectSystem(PlatformInfo &info) {
 
 #else
 
-std::string osRelease() {
+std::string getOsRelease() {
     std::ifstream in("/etc/os-release");
     for (std::string line; std::getline(in, line);) {
         if (line.starts_with("PRETTY_NAME=")) {
-            return valueAfter(line, '=');
+            return getValueAfter(line, '=');
         }
     }
     return {};
 }
 
-std::uint64_t availableMemory() {
+std::uint64_t getAvailableMemory() {
     std::ifstream in("/proc/meminfo");
     for (std::string line; std::getline(in, line);) {
         if (line.starts_with("MemAvailable:")) {
-            return std::stoull(valueAfter(line, ':')) * 1024;
+            return std::stoull(getValueAfter(line, ':')) * 1024;
         }
     }
     return 0;
 }
 
 void detectSystem(PlatformInfo &info) {
-    const std::string release = osRelease();
-    info.os = release.empty() ? kernel() : std::format("{} ({})", release, kernel());
-    info.availableBytes = availableMemory();
+    const std::string release = getOsRelease();
+    info.os = release.empty() ? getKernel() : std::format("{} ({})", release, getKernel());
+    info.availableBytes = getAvailableMemory();
 
     std::ifstream in("/proc/cpuinfo");
     std::set<std::pair<std::string, std::string> > physicalCores;
     std::string package;
     for (std::string line; std::getline(in, line);) {
         if (info.cpu.empty() && line.starts_with("model name")) {
-            info.cpu = valueAfter(line, ':');
+            info.cpu = getValueAfter(line, ':');
         } else if (line.starts_with("physical id")) {
-            package = valueAfter(line, ':');
+            package = getValueAfter(line, ':');
         } else if (line.starts_with("core id")) {
-            physicalCores.emplace(package, valueAfter(line, ':'));
+            physicalCores.emplace(package, getValueAfter(line, ':'));
         }
     }
     info.cores = static_cast<unsigned>(physicalCores.size());
@@ -136,7 +136,7 @@ void detectSystem(PlatformInfo &info) {
 
 #endif
 
-std::string gibibytes(std::uint64_t bytes) {
+std::string getGibibytes(std::uint64_t bytes) {
     return std::format("{:.1f} GiB", static_cast<double>(bytes) / (1024.0 * 1024.0 * 1024.0));
 }
 
@@ -144,10 +144,10 @@ std::string gibibytes(std::uint64_t bytes) {
 
 PlatformInfo PlatformInfo::detect() {
     PlatformInfo info;
-    info.host = hostName();
-    info.compiler = compilerName();
+    info.host = getHostName();
+    info.compiler = getCompilerName();
     info.threads = std::thread::hardware_concurrency();
-    info.memoryBytes = physicalMemory();
+    info.memoryBytes = getPhysicalMemory();
     detectSystem(info);
     if (info.cpu.empty()) {
         info.cpu = "unknown";
@@ -165,9 +165,9 @@ void PlatformInfo::report() const {
     table.add("cpu", cpu);
     table.add("cores / threads", std::format("{} / {}", cores, threads));
     table.add("memory", availableBytes > 0
-                            ? std::format("{} ({} available)", gibibytes(memoryBytes),
-                                          gibibytes(availableBytes))
-                            : gibibytes(memoryBytes));
+                            ? std::format("{} ({} available)", getGibibytes(memoryBytes),
+                                          getGibibytes(availableBytes))
+                            : getGibibytes(memoryBytes));
     table.add("compiler", compiler);
     table.emit();
 }

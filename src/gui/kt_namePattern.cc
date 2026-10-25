@@ -11,7 +11,7 @@ namespace ktplace::gui {
 NamePattern::NamePattern(std::string_view pattern)
     : glob(pattern), literal(pattern.find_first_of("*?") == std::string_view::npos) {}
 
-bool NamePattern::matches(std::string_view name) const {
+bool NamePattern::isMatch(std::string_view name) const {
     if (literal) {
         return name == glob;
     }
@@ -43,7 +43,7 @@ bool NamePattern::isLiteral() const {
     return literal;
 }
 
-const std::string &NamePattern::text() const {
+const std::string &NamePattern::getText() const {
     return glob;
 }
 
@@ -51,7 +51,7 @@ std::vector<std::uint32_t> matchNames(const std::vector<std::string> &names,
                                       const NamePattern &pattern, std::size_t limit) {
     std::vector<std::uint32_t> found;
     for (std::uint32_t id = 0; id < names.size() && found.size() < limit; ++id) {
-        if (pattern.matches(names[id])) {
+        if (pattern.isMatch(names[id])) {
             found.push_back(id);
         }
     }

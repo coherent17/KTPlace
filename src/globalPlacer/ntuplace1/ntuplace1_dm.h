@@ -92,13 +92,13 @@ class ntuplace1DM {
 public:
     ntuplace1DM(Design design, Ntuplace1Options options);
 
-    [[nodiscard]] const Ntuplace1Options &options() const noexcept {
+    [[nodiscard]] const Ntuplace1Options &getOptions() const noexcept {
         return opts;
     }
-    [[nodiscard]] Ntuplace1Options &options() noexcept {
+    [[nodiscard]] Ntuplace1Options &getOptions() noexcept {
         return opts;
     }
-    [[nodiscard]] const Design &design() const noexcept {
+    [[nodiscard]] const Design &getDesign() const noexcept {
         return d;
     }
 
@@ -107,7 +107,7 @@ public:
     }
 
     Ntuplace1Result run();
-    [[nodiscard]] ntuplace1Solution solution() const;
+    [[nodiscard]] ntuplace1Solution getSolution() const;
 
 private:
     Design d;

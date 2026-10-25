@@ -9,12 +9,12 @@ class flowMgr {
 public:
     explicit flowMgr(const ktDM &db);
 
-    [[nodiscard]] ntuplace1DM &dm() noexcept {
+    [[nodiscard]] ntuplace1DM &getDm() noexcept {
         return ntuplace1Db;
     }
 
     Ntuplace1Result run();
-    [[nodiscard]] ntuplace1Solution solution() const;
+    [[nodiscard]] ntuplace1Solution getSolution() const;
 
 private:
     ntuplace1DM ntuplace1Db;

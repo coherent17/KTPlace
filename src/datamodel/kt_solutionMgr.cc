@@ -8,8 +8,9 @@
 
 namespace ktplace {
 
-double netlistHPWL(const Graph &graph, const std::vector<double> &x, const std::vector<double> &y) {
-    return netHpwl(
+double getNetlistHPWL(const Graph &graph, const std::vector<double> &x,
+                      const std::vector<double> &y) {
+    return getNetHpwl(
         graph.getNumNets(),
         [&](std::size_t n) -> const std::vector<std::size_t> & {
             return graph.getNetPins(n);

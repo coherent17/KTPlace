@@ -20,7 +20,7 @@ std::vector<RowInfo> copyRows(const std::vector<ktplace::RowInfo> &rows,
     out.reserve(rows.size());
     for (std::size_t i = 0; i < rows.size(); ++i) {
         const ktplace::RowInfo &r = rows[i];
-        RowInfo info{r.coordinate, r.height, r.pitch(), {}};
+        RowInfo info{r.coordinate, r.height, r.getPitch(), {}};
         info.subrows.reserve(pieces[i].size());
         for (const ktplace::RowPiece &p : pieces[i]) {
             info.subrows.push_back(Subrow{p.xlo, p.xhi, p.region});
@@ -101,7 +101,7 @@ MultiRowResult multirowDM::run() {
     return result;
 }
 
-multiRowSolution multirowDM::solution() const {
+multiRowSolution multirowDM::getSolution() const {
     multiRowSolution out;
     out.xs.reserve(d.cells.size());
     out.ys.reserve(d.cells.size());
@@ -115,15 +115,15 @@ multiRowSolution multirowDM::solution() const {
 multirowDM buildMultiRowDM(const ktDM &db) {
     Design design;
     const ktplace::Graph &graph = db.getGraph();
-    const std::size_t movable = collectCells(graph, db.constraints().numRegions(), design);
+    const std::size_t movable = collectCells(graph, db.getConstraints().getNumRegions(), design);
     collectNets(graph, design);
-    design.rows = copyRows(db.getRows(), db.fencedSubrows());
-    design.die = placementDieBox(db.die(), graph);
+    design.rows = copyRows(db.getRows(), db.getFencedSubrows());
+    design.die = getPlacementDieBox(db.getDie(), graph);
 
     const StageCounts counts{graph.getNumCells(), movable, graph.getNumNets(), graph.getNumPins(),
                              design.rows.size()};
     multirowDM dm(std::move(design), loadOptions<MultiRowOptions>());
-    reportStageBuild(counts, db.checksum(), dm.options());
+    reportStageBuild(counts, db.getChecksum(), dm.getOptions());
     return dm;
 }
 

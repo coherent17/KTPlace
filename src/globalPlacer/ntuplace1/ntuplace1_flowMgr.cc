@@ -8,8 +8,8 @@ Ntuplace1Result flowMgr::run() {
     return ntuplace1Db.run();
 }
 
-ntuplace1Solution flowMgr::solution() const {
-    return ntuplace1Db.solution();
+ntuplace1Solution flowMgr::getSolution() const {
+    return ntuplace1Db.getSolution();
 }
 
 }  // namespace ktplace::ntuplace1

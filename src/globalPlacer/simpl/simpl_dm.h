@@ -28,10 +28,10 @@ struct Rect {
     [[nodiscard]] bool contains(double x, double y) const noexcept {
         return x >= xlo && x <= xhi && y >= ylo && y <= yhi;
     }
-    [[nodiscard]] double width() const noexcept {
+    [[nodiscard]] double getWidth() const noexcept {
         return xhi - xlo;
     }
-    [[nodiscard]] double height() const noexcept {
+    [[nodiscard]] double getHeight() const noexcept {
         return yhi - ylo;
     }
 };
@@ -62,10 +62,10 @@ class Fences {
 public:
     static constexpr int noRegion = -1;
 
-    [[nodiscard]] std::size_t numRegions() const noexcept {
+    [[nodiscard]] std::size_t getNumRegions() const noexcept {
         return regions.size();
     }
-    [[nodiscard]] const Region &region(int id) const {
+    [[nodiscard]] const Region &getRegion(int id) const {
         return regions.at(static_cast<std::size_t>(id));
     }
 
@@ -95,7 +95,7 @@ struct RowInfo {
     double height = 0.0;
     double sitePitch = 0.0;
 
-    [[nodiscard]] double pitch() const noexcept {
+    [[nodiscard]] double getPitch() const noexcept {
         return sitePitch;
     }
     std::vector<Subrow> subrows;
@@ -176,13 +176,13 @@ class simplDM {
 public:
     simplDM(Design design, SimplOptions options);
 
-    [[nodiscard]] const SimplOptions &options() const noexcept {
+    [[nodiscard]] const SimplOptions &getOptions() const noexcept {
         return opts;
     }
-    [[nodiscard]] SimplOptions &options() noexcept {
+    [[nodiscard]] SimplOptions &getOptions() noexcept {
         return opts;
     }
-    [[nodiscard]] const Design &design() const noexcept {
+    [[nodiscard]] const Design &getDesign() const noexcept {
         return d;
     }
 
@@ -194,7 +194,7 @@ public:
     }
 
     SimplResult run();
-    [[nodiscard]] simplSolution solution() const;
+    [[nodiscard]] simplSolution getSolution() const;
 
 private:
     Design d;

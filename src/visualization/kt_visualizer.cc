@@ -55,7 +55,7 @@ constexpr int pngLevel = 6;
 
 /// Zero-padded so directory order is frame order. Matches the GIF writer's
 /// expectation of "frame_NNNN.ppm".
-std::string frameName(std::size_t n) {
+std::string getFrameName(std::size_t n) {
     std::string s = std::to_string(n);
     while (s.size() < 4) {
         s.insert(s.begin(), '0');
@@ -65,7 +65,7 @@ std::string frameName(std::size_t n) {
 
 }  // namespace
 
-Visualizer &Visualizer::instance() noexcept {
+Visualizer &Visualizer::getInstance() noexcept {
     static Visualizer viz;
     return viz;
 }
@@ -132,7 +132,7 @@ void Visualizer::configure(const std::string &outDir, const PlotOptions &options
     stride = 1;
     cappedNow = false;
     havePrev = false;
-    if (!enabled() || !opts.animate) {
+    if (!isEnabled() || !opts.animate) {
         return;
     }
 
@@ -149,9 +149,9 @@ void Visualizer::configure(const std::string &outDir, const PlotOptions &options
     // above one honours the request, so a byte cap that leaves room for only a
     // handful is respected rather than quietly rounded up.
     maxFrames = std::max<std::size_t>(1, std::min(opts.frameBudget, sizeCapFrames));
-    animDir = opts.sub("frames");
+    animDir = opts.getSub("frames");
     (void)ensureDir(animDir.string());
-    demandDir = opts.congestionBins > 0 ? std::filesystem::path(opts.sub("frames_demand"))
+    demandDir = opts.congestionBins > 0 ? std::filesystem::path(opts.getSub("frames_demand"))
                                         : std::filesystem::path();
     if (!demandDir.empty()) {
         (void)ensureDir(demandDir.string());
@@ -166,14 +166,14 @@ void Visualizer::beginStage(StageVisual s) {
     flush();
     stage = std::move(s);
     drawingNow = false;
-    if (!enabled() || stage.stage.empty()) {
+    if (!isEnabled() || stage.stage.empty()) {
         return;
     }
     drawingNow =
         !opts.svgFrames || ensureDir(dir + (stage.subdir.empty() ? "" : "/" + stage.subdir));
 }
 
-bool Visualizer::enabled() const noexcept {
+bool Visualizer::isEnabled() const noexcept {
     return !dir.empty();
 }
 
@@ -187,14 +187,14 @@ void Visualizer::holdBack(std::size_t frames) {
     cappedNow = false;
 }
 
-std::string Visualizer::framePath(const VisualFrame &shot) const {
+std::string Visualizer::getFramePath(const VisualFrame &shot) const {
     char buf[16];
     std::snprintf(buf, sizeof(buf), "%06zu", shot.step);
     return dir + (stage.subdir.empty() ? "" : "/" + stage.subdir) + "/" + stage.stage +
            (shot.series.empty() ? "" : "_" + shot.series) + "_" + buf + ".svg";
 }
 
-std::string Visualizer::heading(const std::string &note) const {
+std::string Visualizer::getHeading(const std::string &note) const {
     if (note == finalNote) {
         return "Final placement";
     }
@@ -220,7 +220,7 @@ void Visualizer::frame(const Graph &graph, const std::vector<float> &x, const st
     // Every framesKept of a sequence is drawn at the same die-relative scale, so step
     // 7 and step 8 are comparable instead of being auto-zoomed apart.
     if (opts.svgFrames) {
-        render([path = framePath(what), &graph, x, y, dieBox, what, fences] {
+        render([path = getFramePath(what), &graph, x, y, dieBox, what, fences] {
             writeFrameSvg(path, graph, x, y, dieBox, what.step, what.numSteps, what.hpwl,
                           what.hpwlInitial, what.overflow, what.note, fences, /*fixedView=*/true);
         });
@@ -236,14 +236,14 @@ void Visualizer::frame(const Graph &graph, const std::vector<float> &x, const st
 
 void Visualizer::boundsCurve(std::string_view name, std::string_view title,
                              std::span<const BoundsSample> curve) {
-    if (!enabled()) {
+    if (!isEnabled()) {
         return;
     }
     (void)writeBoundsPng(dir + "/" + std::string(name) + ".png", title, curve);
 }
 
 void Visualizer::finalImage(const Graph &graph, const constraintMgr *fences, double hpwl) {
-    if (!enabled()) {
+    if (!isEnabled()) {
         return;
     }
     flush();
@@ -356,30 +356,30 @@ void Visualizer::record(const Graph &g, const std::vector<float> &x, const std::
             stride *= 2;
             return true;
         }
-        const std::string path = (animDir / frameName(framesKept)).string();
+        const std::string path = (animDir / getFrameName(framesKept)).string();
         // The caller's constraints, not nullptr: a run with fences drew them in
         // the per-iteration SVGs and then dropped them from the GIF, so the one
         // picture that gets looked at was missing the regions the placement was
         // required to respect.
         if (inBackground) {
             render([path, &g, ix, iy, die, step, total, hpwl, hpwlInitial, resid, note, constraints,
-                    zoom = frameZoom, title = heading(note)] {
+                    zoom = frameZoom, title = getHeading(note)] {
                 writeFrameRaster(path, g, ix, iy, die, hpwl, hpwlInitial, resid, note, constraints,
                                  /*fixedView=*/true, zoom, /*drawRows=*/false, title);
             });
         } else {
             writeFrameRaster(path, g, ix, iy, die, hpwl, hpwlInitial, resid, note, constraints,
-                             /*fixedView=*/true, frameZoom, /*drawRows=*/false, heading(note));
+                             /*fixedView=*/true, frameZoom, /*drawRows=*/false, getHeading(note));
         }
         if (!demandDir.empty()) {
-            const std::string demandPath = (demandDir / frameName(framesKept)).string();
+            const std::string demandPath = (demandDir / getFrameName(framesKept)).string();
             if (inBackground) {
-                render([demandPath, &g, ix, iy, die, note, title = heading(note), zoom = frameZoom,
-                        bins = opts.congestionBins] {
+                render([demandPath, &g, ix, iy, die, note, title = getHeading(note),
+                        zoom = frameZoom, bins = opts.congestionBins] {
                     writeDemandRaster(demandPath, g, ix, iy, die, note, title, zoom, bins);
                 });
             } else {
-                writeDemandRaster(demandPath, g, ix, iy, die, note, heading(note), frameZoom,
+                writeDemandRaster(demandPath, g, ix, iy, die, note, getHeading(note), frameZoom,
                                   opts.congestionBins);
             }
         }
@@ -433,7 +433,7 @@ constexpr double imageH = 768.0;
 constexpr const char *textPrimary = "#e6edf3";
 constexpr const char *textSecondary = "#9aa7b4";
 
-std::string grouped(std::size_t n) {
+std::string getGrouped(std::size_t n) {
     std::string digits = std::to_string(n);
     for (std::size_t at = digits.size(); at > 3; at -= 3) {
         digits.insert(at - 3, ",");
@@ -448,11 +448,11 @@ constexpr const char *framePrefix = "frame_";
 // cell, and constructing a stream per number was most of the cost of writing one.
 // "{:.Nf}" is the same correctly rounded fixed notation as std::fixed with
 // setprecision(N), so the text is unchanged.
-std::string fmt(double v, int prec = 1) {
+std::string getFmt(double v, int prec = 1) {
     return std::format("{:.{}f}", v, prec);
 }
 
-std::string sci(double v) {
+std::string getSci(double v) {
     std::ostringstream os;
     os << std::scientific << std::setprecision(1) << v;
     return os.str();
@@ -512,7 +512,7 @@ ViewPort makeViewPort(const Graph &g, const std::vector<float> &x, const std::ve
 }
 
 /// Viewport spanning exactly the die, so a series of frames shares one scale.
-ViewPort dieViewPort(const BBox &dieBox, double zoom) {
+ViewPort getDieViewPort(const BBox &dieBox, double zoom) {
     ViewPort vp;
     const double spanX = std::max(dieBox[2] - dieBox[0], 1.0);
     const double spanY = std::max(dieBox[3] - dieBox[1], 1.0);
@@ -541,7 +541,7 @@ double toPxY(const ViewPort &vp, double v) {
 constexpr Rgb24 bgColor{0x10, 0x14, 0x18};
 
 /// Parse "#rrggbb" as used throughout the SVG renderer.
-Rgb24 hexColor(const char *s) {
+Rgb24 getHexColor(const char *s) {
     Rgb24 c;
     unsigned v = 0;
     std::sscanf(s, "#%x", &v);
@@ -579,7 +579,7 @@ Rgb24 blendOnBg(const Rgb24 &c, double alpha) {
 
 // The placement rows, as a y interval each, recovered from the cells.// A frame wants to draw the rows behind the cells -- it is the one thing in the// picture that says whether the placement is legal, because a cell that is on a// row and a cell that is not look identical otherwise -- and the renderer is// handed a graph and a set of coordinates, not a row list.// The rows are recovered from the cells instead, which works because a legal// placement is defined by it: every cell in a row has the same y. The distinct y// values are clustered with a tolerance of a fraction of the cell height, and// each cluster becomes one row. Before legalization there is no row structure to// recover -- the y values are continuous and the cluster count explodes -- so a// cluster count that is not plausible is reported as "no rows" and nothing is// drawn, rather than a frame covered in thousands of lines that mean nothing.
 
-std::vector<std::array<double, 2>> rowBands(const Graph &g, const std::vector<float> &y) {
+std::vector<std::array<double, 2>> getRowBands(const Graph &g, const std::vector<float> &y) {
     std::vector<double> ys;
     std::vector<double> heights;
     const std::size_t nv = g.getNumCells();
@@ -666,8 +666,8 @@ std::uint32_t packRgb(std::uint8_t r, std::uint8_t g, std::uint8_t b) {
 /// colour occurs is what keeps the result faithful: a background that covers half
 /// the frame gets half the palette, and a one-off antialiased edge shade that
 /// appears on four pixels does not.
-std::vector<Rgb24> medianCutPalette(const std::map<std::uint32_t, std::uint32_t> &hist,
-                                    std::size_t maxColors) {
+std::vector<Rgb24> getMedianCutPalette(const std::map<std::uint32_t, std::uint32_t> &hist,
+                                       std::size_t maxColors) {
     std::vector<Rgb24> out;
     if (hist.empty()) {
         return out;
@@ -765,7 +765,7 @@ class GifPalette {
 public:
     /// Register @p c if new and return its index. Falls back to the closest
     /// existing entry once the table is full (256 colours, GIF's hard limit).
-    std::uint8_t index(const Rgb24 &c) {
+    std::uint8_t getIndex(const Rgb24 &c) {
         const std::uint32_t key = pack(c);
         auto it = cache.find(key);
         if (it != cache.end()) {
@@ -777,18 +777,18 @@ public:
             cache.emplace(key, idx);
             return idx;
         }
-        return nearest(c);
+        return getNearest(c);
     }
 
-    const std::vector<Rgb24> &colors() const {
+    const std::vector<Rgb24> &getColors() const {
         return colorTable;
     }
 
     /// CImg colour pointer (cimg::spectrum() consecutive values) for drawing.
     /// The slot is (re)written on every call, which is idempotent because
     /// index() is stable for a given colour.
-    const std::uint8_t *ptr(const Rgb24 &c) {
-        const std::size_t i = index(c);
+    const std::uint8_t *getPtr(const Rgb24 &c) {
+        const std::size_t i = getIndex(c);
         lut[3 * i + 0] = c.r;
         lut[3 * i + 1] = c.g;
         lut[3 * i + 2] = c.b;
@@ -797,8 +797,8 @@ public:
 
     /// The same colour as a 3-value image, for fill(), which takes values
     /// rather than a pointer.
-    CImg<unsigned char> value(const Rgb24 &c) {
-        return CImg<unsigned char>(ptr(c), 3, 1, 1);
+    CImg<unsigned char> getValue(const Rgb24 &c) {
+        return CImg<unsigned char>(getPtr(c), 3, 1, 1);
     }
 
 private:
@@ -807,7 +807,7 @@ private:
                static_cast<std::uint32_t>(c.b);
     }
 
-    std::uint8_t nearest(const Rgb24 &c) const {
+    std::uint8_t getNearest(const Rgb24 &c) const {
         std::size_t best = 0;
         long bestD = std::numeric_limits<long>::max();
         for (std::size_t i = 0; i < colorTable.size(); ++i) {
@@ -843,7 +843,7 @@ void pixelSpan(double a, double b, int &lo, int &hi) {
 ///
 /// CImg's draw_text() returns the image, not the drawn width, so a legend that
 /// has to place the next swatch after a label has to measure the text itself.
-int textWidth(const CImgList<unsigned char> &font, const char *s) {
+int getTextWidth(const CImgList<unsigned char> &font, const char *s) {
     if (font._width <= 0) {
         return 0;
     }
@@ -1016,7 +1016,7 @@ CImg<unsigned char> renderFrameCImg(const Graph &g, const std::vector<float> &x,
                                     const std::string &heading) {
     zoom = std::max(zoom, 1.0);
     const std::size_t nv = g.getNumCells();
-    ViewPort vp = fixedView ? dieViewPort(dieBox, zoom) : makeViewPort(g, x, y, dieBox, zoom);
+    ViewPort vp = fixedView ? getDieViewPort(dieBox, zoom) : makeViewPort(g, x, y, dieBox, zoom);
     if (fixedView) {
         const double drawn = 1.02 * std::max(dieBox[2] - dieBox[0], 1.0) * vp.sx;
         vp.offsetX = std::max(0.0, 0.5 * (zoom * imageW - 2.0 * vp.margin - drawn));
@@ -1029,7 +1029,7 @@ CImg<unsigned char> renderFrameCImg(const Graph &g, const std::vector<float> &x,
     // used here: its repeat loop never advances the source pointer, so everything
     // past the first pixel would repeat the red channel and the image would come
     // out grey (r,r,r) instead of the intended background colour.
-    const std::array<std::uint8_t, 3> bgv = bgColor.rgb();
+    const std::array<std::uint8_t, 3> bgv = bgColor.getRgb();
     cimg_forXYC(img, px, py, ch) {
         img(px, py, 0, ch) = bgv[ch];
     }
@@ -1059,31 +1059,32 @@ CImg<unsigned char> renderFrameCImg(const Graph &g, const std::vector<float> &x,
         // behind it. Inside: near-white, so it reads as a wall. Both antialiased,
         // because a border is exactly the thing the eye uses to judge whether the
         // placement inside it is aligned, and a staircase there is very visible.
-        strokeRectAA(img, x0 - 1, y0 - 1, x1 + 1, y1 + 1, 1.0, pal.ptr(hexColor("#000000")), 1.0);
+        strokeRectAA(img, x0 - 1, y0 - 1, x1 + 1, y1 + 1, 1.0, pal.getPtr(getHexColor("#000000")),
+                     1.0);
         strokeRectAA(img, gx0, gy0, gx1, gy1, std::max(1.0, 1.25 * zoom),
-                     pal.ptr(hexColor("#8b97a3")), 1.0);
+                     pal.getPtr(getHexColor("#8b97a3")), 1.0);
     }
 
     // Fence regions, under the cells so the placement stays readable.
     if (constraints != nullptr) {
         static const char *fenceColors[] = {"#ffb74d", "#ba68c8", "#4db6ac", "#f06292",
                                             "#9575cd", "#ffd54f", "#4fc3f7", "#a1887f"};
-        for (std::size_t ri = 0; ri < constraints->numRegions(); ++ri) {
-            const Region &reg = *constraints->region(static_cast<int>(ri));
+        for (std::size_t ri = 0; ri < constraints->getNumRegions(); ++ri) {
+            const Region &reg = *constraints->getRegion(static_cast<int>(ri));
             const char *hex = fenceColors[ri % (sizeof(fenceColors) / sizeof(char *))];
-            const Rgb24 flat = blendOnBg(hexColor(hex), 0.13);
-            const Rgb24 edge = blendOnBg(hexColor(hex), 0.9);
+            const Rgb24 flat = blendOnBg(getHexColor(hex), 0.13);
+            const Rgb24 edge = blendOnBg(getHexColor(hex), 0.9);
             for (const Rect &r : reg.rects) {
                 int x0, y0, x1, y1;
                 pixelSpan(toPxX(vp, r.lo.x), toPxX(vp, r.hi.x), x0, x1);
                 pixelSpan(toPxY(vp, r.hi.y), toPxY(vp, r.lo.y), y0, y1);
-                img.draw_rectangle(x0, y0, x1, y1, pal.ptr(flat), 1.0f);
-                outlineRect(img, x0, y0, x1, y1, pal.ptr(edge));
+                img.draw_rectangle(x0, y0, x1, y1, pal.getPtr(flat), 1.0f);
+                outlineRect(img, x0, y0, x1, y1, pal.getPtr(edge));
             }
             img.draw_text(
                 static_cast<int>(toPxX(vp, reg.minX)) + static_cast<int>(3 * zoom),
                 static_cast<int>(toPxY(vp, reg.minY)) - static_cast<int>(3 * zoom), "%s",
-                pal.ptr(edge), 0, 1.0f,
+                pal.getPtr(edge), 0, 1.0f,
                 &CImgList<unsigned char>::font(static_cast<unsigned int>(std::lround(13.0 * zoom))),
                 reg.name.c_str());
         }
@@ -1093,7 +1094,7 @@ CImg<unsigned char> renderFrameCImg(const Graph &g, const std::vector<float> &x,
         CImgList<unsigned char>::font(static_cast<unsigned int>(std::lround(13.0 * zoom)));
 
     const std::vector<std::array<double, 2>> rows =
-        drawRows ? rowBands(g, y) : std::vector<std::array<double, 2>>{};
+        drawRows ? getRowBands(g, y) : std::vector<std::array<double, 2>>{};
 
     // Row lines, at the very back. Faint, and only every eighth row, which turns
     // them from a hatch into a ruler: a line at every row pitch on a design with a
@@ -1101,7 +1102,7 @@ CImg<unsigned char> renderFrameCImg(const Graph &g, const std::vector<float> &x,
     // stripes, and the cells disappear into the ruling. Every eighth still shows
     // the row structure and the pitch, and leaves the picture alone.
     if (!rows.empty()) {
-        const Rgb24 line = blendOnBg(hexColor("#8fa3b8"), 0.34);
+        const Rgb24 line = blendOnBg(getHexColor("#8fa3b8"), 0.34);
         int rx0, rx1, ry0, ry1;
         pixelSpan(toPxX(vp, dieBox[0]), toPxX(vp, dieBox[2]), rx0, rx1);
         constexpr std::size_t every = 8;
@@ -1109,7 +1110,7 @@ CImg<unsigned char> renderFrameCImg(const Graph &g, const std::vector<float> &x,
             // The top edge of the row is the line that matters: a cell sitting in
             // this row has its bottom exactly there.
             pixelSpan(toPxY(vp, rows[i][1]), toPxY(vp, rows[i][1]), ry0, ry1);
-            fillRectAA(img, rx0, ry0, rx1, std::max(ry0 + 1, ry1), pal.ptr(line), 1.0);
+            fillRectAA(img, rx0, ry0, rx1, std::max(ry0 + 1, ry1), pal.getPtr(line), 1.0);
         }
     }
 
@@ -1123,9 +1124,9 @@ CImg<unsigned char> renderFrameCImg(const Graph &g, const std::vector<float> &x,
     // larger shape, and a cell drawn over one shows the macro's extent by the part
     // of it that nothing covers.
     {
-        const Rgb24 flat = blendOnBg(hexColor("#ef5350"), 0.9);
-        const std::uint8_t *c = pal.ptr(flat);
-        const std::uint8_t *rim = pal.ptr(darken(flat, 0.72));
+        const Rgb24 flat = blendOnBg(getHexColor("#ef5350"), 0.9);
+        const std::uint8_t *c = pal.getPtr(flat);
+        const std::uint8_t *rim = pal.getPtr(darken(flat, 0.72));
         const auto drawFixed = [&](std::size_t v) {
             const Vertex &vert = g.getCell(v);
             const double x0 = toPxX(vp, x[v]);
@@ -1155,9 +1156,9 @@ CImg<unsigned char> renderFrameCImg(const Graph &g, const std::vector<float> &x,
     // blob. The rim costs one outline per cell and it is the difference between "a
     // picture of a placement" and "a picture of cells".
     {
-        const Rgb24 flat = blendOnBg(hexColor("#4fc3f7"), 0.92);
-        const std::uint8_t *c = pal.ptr(flat);
-        const std::uint8_t *rim = pal.ptr(darken(flat, 0.72));
+        const Rgb24 flat = blendOnBg(getHexColor("#4fc3f7"), 0.92);
+        const std::uint8_t *c = pal.getPtr(flat);
+        const std::uint8_t *rim = pal.getPtr(darken(flat, 0.72));
         for (std::size_t v = 0; v < nv; ++v) {
             const Vertex &vert = g.getCell(v);
             if (vert.isFixed || vert.isTerminal) {
@@ -1186,7 +1187,7 @@ CImg<unsigned char> renderFrameCImg(const Graph &g, const std::vector<float> &x,
         return static_cast<int>(std::lround(v * zoom));
     };
     const auto ink = [&pal](const char *hex) {
-        return pal.ptr(hexColor(hex));
+        return pal.getPtr(getHexColor(hex));
     };
     const CImgList<unsigned char> &titleFont =
         CImgList<unsigned char>::font(static_cast<unsigned int>(std::lround(19.0 * zoom)));
@@ -1198,8 +1199,8 @@ CImg<unsigned char> renderFrameCImg(const Graph &g, const std::vector<float> &x,
 
     if (hpwl > 0.0) {
         const std::string wl = std::format("HPWL {:.4e}", hpwl);
-        img.draw_text(right - textWidth(titleFont, wl.c_str()), px(14), "%s", ink(textPrimary), 0,
-                      1.0f, &titleFont, wl.c_str());
+        img.draw_text(right - getTextWidth(titleFont, wl.c_str()), px(14), "%s", ink(textPrimary),
+                      0, 1.0f, &titleFont, wl.c_str());
         std::string detail;
         if (hpwlInitial > 0.0) {
             const double change = 100.0 * (hpwl - hpwlInitial) / hpwlInitial;
@@ -1209,8 +1210,8 @@ CImg<unsigned char> renderFrameCImg(const Graph &g, const std::vector<float> &x,
             detail += std::format("{}overflow {:.1f}%", detail.empty() ? "" : "   ", 100.0 * resid);
         }
         if (!detail.empty()) {
-            img.draw_text(right - textWidth(font, detail.c_str()), px(40), "%s", ink(textSecondary),
-                          0, 1.0f, &font, detail.c_str());
+            img.draw_text(right - getTextWidth(font, detail.c_str()), px(40), "%s",
+                          ink(textSecondary), 0, 1.0f, &font, detail.c_str());
         }
     }
 
@@ -1231,20 +1232,21 @@ CImg<unsigned char> renderFrameCImg(const Graph &g, const std::vector<float> &x,
         const int swatchY = legendY + (font[0]._height - swatch) / 2;
         int cx = left;
         const auto entry = [&](Rgb24 colour, const std::string &label) {
-            img.draw_rectangle(cx, swatchY, cx + swatch, swatchY + swatch, pal.ptr(colour), 1.0f);
+            img.draw_rectangle(cx, swatchY, cx + swatch, swatchY + swatch, pal.getPtr(colour),
+                               1.0f);
             cx += swatch + px(7);
             img.draw_text(cx, legendY, "%s", ink(textSecondary), 0, 1.0f, &font, label.c_str());
-            cx += textWidth(font, label.c_str()) + px(22);
+            cx += getTextWidth(font, label.c_str()) + px(22);
         };
-        entry(blendOnBg(hexColor("#4fc3f7"), 0.92), "Movable cells " + grouped(movable));
+        entry(blendOnBg(getHexColor("#4fc3f7"), 0.92), "Movable cells " + getGrouped(movable));
         if (fixed > 0) {
-            entry(blendOnBg(hexColor("#ef5350"), 0.9), "Fixed macros " + grouped(fixed));
+            entry(blendOnBg(getHexColor("#ef5350"), 0.9), "Fixed macros " + getGrouped(fixed));
         }
         if (pads > 0) {
-            entry(blendOnBg(hexColor("#ef5350"), 0.9), "I/O pads " + grouped(pads));
+            entry(blendOnBg(getHexColor("#ef5350"), 0.9), "I/O pads " + getGrouped(pads));
         }
         if (!rows.empty()) {
-            entry(blendOnBg(hexColor("#5c6b7a"), 0.9), "Rows " + grouped(rows.size()));
+            entry(blendOnBg(getHexColor("#5c6b7a"), 0.9), "Rows " + getGrouped(rows.size()));
         }
     }
 
@@ -1253,7 +1255,7 @@ CImg<unsigned char> renderFrameCImg(const Graph &g, const std::vector<float> &x,
 
 namespace {
 
-std::shared_ptr<const NetlistPins> pinsOf(const Graph &g) {
+std::shared_ptr<const NetlistPins> getPinsOf(const Graph &g) {
     static std::mutex guard;
     static const Graph *cachedGraph = nullptr;
     static std::size_t cachedPins = 0;
@@ -1272,24 +1274,25 @@ CImg<unsigned char> renderDemandCImg(const Graph &g, const std::vector<float> &x
                                      const std::string &note, const std::string &heading,
                                      GifPalette &pal, double zoom, std::size_t bins) {
     zoom = std::max(zoom, 1.0);
-    ViewPort vp = dieViewPort(dieBox, zoom);
+    ViewPort vp = getDieViewPort(dieBox, zoom);
     const double drawn = 1.02 * std::max(dieBox[2] - dieBox[0], 1.0) * vp.sx;
     vp.offsetX = std::max(0.0, 0.5 * (zoom * imageW - 2.0 * vp.margin - drawn));
     const int imgW = static_cast<int>(std::lround(zoom * imageW));
     const int imgH = static_cast<int>(std::lround(zoom * imageH));
     CImg<unsigned char> img(imgW, imgH, 1, 3);
-    const std::array<std::uint8_t, 3> bgv = bgColor.rgb();
+    const std::array<std::uint8_t, 3> bgv = bgColor.getRgb();
     cimg_forXYC(img, px, py, ch) {
         img(px, py, 0, ch) = bgv[ch];
     }
 
-    const std::shared_ptr<const NetlistPins> pins = pinsOf(g);
-    const RoutingDemand map = routingDemand(pins->netPinStart, pins->pinCell, pins->pinDx,
-                                            pins->pinDy, x, y, dieBox, bins);
+    const std::shared_ptr<const NetlistPins> pins = getPinsOf(g);
+    const RoutingDemand map = getRoutingDemand(pins->netPinStart, pins->pinCell, pins->pinDx,
+                                               pins->pinDy, x, y, dieBox, bins);
     const float top = map.p99 > 0.0F ? map.p99 : std::max(map.peak, 1e-9F);
     const auto heat = [&pal](float scaled) {
-        const std::array<std::uint8_t, 4> c = demandColour(scaled);
-        return std::make_pair(pal.ptr(blendOnBg(Rgb24{c[0], c[1], c[2]}, c[3] / 255.0)), c[3] > 0);
+        const std::array<std::uint8_t, 4> c = getDemandColour(scaled);
+        return std::make_pair(pal.getPtr(blendOnBg(Rgb24{c[0], c[1], c[2]}, c[3] / 255.0)),
+                              c[3] > 0);
     };
     for (std::size_t iy = 0; iy < map.ny; ++iy) {
         const double y0 = map.y0 + static_cast<double>(iy) * map.binH;
@@ -1304,7 +1307,7 @@ CImg<unsigned char> renderDemandCImg(const Graph &g, const std::vector<float> &x
         }
     }
 
-    const std::uint8_t *macroEdge = pal.ptr(blendOnBg(hexColor("#ef5350"), 0.6));
+    const std::uint8_t *macroEdge = pal.getPtr(blendOnBg(getHexColor("#ef5350"), 0.6));
     for (std::size_t v = 0; v < g.getNumCells(); ++v) {
         const Vertex &cell = g.getCell(v);
         if (!cell.isFixed) {
@@ -1319,16 +1322,17 @@ CImg<unsigned char> renderDemandCImg(const Graph &g, const std::vector<float> &x
         pixelSpan(toPxX(vp, dieBox[0]), toPxX(vp, dieBox[2]), x0, x1);
         pixelSpan(toPxY(vp, dieBox[3]), toPxY(vp, dieBox[1]), y0, y1);
         const int inset = std::max(1, static_cast<int>(std::lround(2.0 * zoom)));
-        strokeRectAA(img, x0 - 1, y0 - 1, x1 + 1, y1 + 1, 1.0, pal.ptr(hexColor("#000000")), 1.0);
+        strokeRectAA(img, x0 - 1, y0 - 1, x1 + 1, y1 + 1, 1.0, pal.getPtr(getHexColor("#000000")),
+                     1.0);
         strokeRectAA(img, x0 + inset, y0 + inset, x1 - inset, y1 - inset,
-                     std::max(1.0, 1.25 * zoom), pal.ptr(hexColor("#8b97a3")), 1.0);
+                     std::max(1.0, 1.25 * zoom), pal.getPtr(getHexColor("#8b97a3")), 1.0);
     }
 
     const auto px = [zoom](double v) {
         return static_cast<int>(std::lround(v * zoom));
     };
     const auto ink = [&pal](const char *hex) {
-        return pal.ptr(hexColor(hex));
+        return pal.getPtr(getHexColor(hex));
     };
     const CImgList<unsigned char> &font =
         CImgList<unsigned char>::font(static_cast<unsigned int>(std::lround(13.0 * zoom)));
@@ -1340,17 +1344,17 @@ CImg<unsigned char> renderDemandCImg(const Graph &g, const std::vector<float> &x
                   ("Routing demand - " + heading).c_str());
     img.draw_text(left, px(40), "%s", ink(textSecondary), 0, 1.0f, &font, note.c_str());
     const std::string peak = std::format("peak {:.2f} nets/bin", map.peak);
-    img.draw_text(right - textWidth(titleFont, peak.c_str()), px(14), "%s", ink(textPrimary), 0,
+    img.draw_text(right - getTextWidth(titleFont, peak.c_str()), px(14), "%s", ink(textPrimary), 0,
                   1.0f, &titleFont, peak.c_str());
     const std::string spread = std::format("99th pct {:.2f}   mean {:.2f}   grid {}x{}", map.p99,
                                            map.mean, map.nx, map.ny);
-    img.draw_text(right - textWidth(font, spread.c_str()), px(40), "%s", ink(textSecondary), 0,
+    img.draw_text(right - getTextWidth(font, spread.c_str()), px(40), "%s", ink(textSecondary), 0,
                   1.0f, &font, spread.c_str());
 
     const std::string label = "nets per bin: 0";
     const int legendY = px(68);
     img.draw_text(left, legendY, "%s", ink(textSecondary), 0, 1.0f, &font, label.c_str());
-    const int barLeft = left + textWidth(font, label.c_str()) + px(8);
+    const int barLeft = left + getTextWidth(font, label.c_str()) + px(8);
     const int barWidth = px(220);
     const int barTop = legendY + px(2);
     for (int i = 0; i < barWidth; ++i) {
@@ -1367,7 +1371,7 @@ CImg<unsigned char> renderDemandCImg(const Graph &g, const std::vector<float> &x
 }  // namespace
 
 /// Read one header integer, skipping whitespace and `#` comments.
-int ppmNextInt(std::istream &in, const std::string &path) {
+int getPpmNextInt(std::istream &in, const std::string &path) {
     for (;;) {
         const int c = in.peek();
         if (c == '#') {
@@ -1403,9 +1407,9 @@ void loadPpm6(const std::string &path, int &w, int &h, std::vector<std::uint8_t>
     if (!(in >> magic) || magic != "P6") {
         throw std::runtime_error(path + ": not a binary PPM");
     }
-    w = ppmNextInt(in, path);
-    h = ppmNextInt(in, path);
-    const int maxVal = ppmNextInt(in, path);
+    w = getPpmNextInt(in, path);
+    h = getPpmNextInt(in, path);
+    const int maxVal = getPpmNextInt(in, path);
     if (maxVal != 255) {
         throw std::runtime_error(path + ": only 8-bit PPM is supported");
     }
@@ -1599,7 +1603,7 @@ bool ensureDir(const std::string &dir) {
     return !ec;
 }
 
-BBox fixedCellBBox(const Graph &g) {
+BBox getFixedCellBBox(const Graph &g) {
     // The "die" is taken as the bounding box of all fixed/terminal cells.
     // Vertices store their lower-left corner, so the box must also include
     // corner + (width, height): pads anchored at the right/top rim would
@@ -1672,8 +1676,8 @@ void writeFrameSvg(const std::string &path, const Graph &g, const std::vector<fl
     // "exact one rect per cell" artefact stops being exact. In world units it is
     // exact at any size, and still opens at a sensible size because width/height
     // carry the on-screen size separately from the viewBox.
-    ViewPort vp =
-        fixedView ? dieViewPort(dieBox, /*zoom=*/1.0) : makeViewPort(g, x, y, dieBox, /*zoom=*/1.0);
+    ViewPort vp = fixedView ? getDieViewPort(dieBox, /*zoom=*/1.0)
+                            : makeViewPort(g, x, y, dieBox, /*zoom=*/1.0);
     double vbX = 0.0, vbY = 0.0, vbW = imageW, vbH = imageH;
     int prec = 1;
     if (worldUnits) {
@@ -1700,8 +1704,8 @@ void writeFrameSvg(const std::string &path, const Graph &g, const std::vector<fl
         return;
     }
     out << R"(<svg xmlns="http://www.w3.org/2000/svg" width=")" << imageW << "\" height=\""
-        << imageH << "\" viewBox=\"" << fmt(vbX, prec) << " " << fmt(vbY, prec) << " "
-        << fmt(vbW, prec) << " " << fmt(vbH, prec) << "\">\n";
+        << imageH << "\" viewBox=\"" << getFmt(vbX, prec) << " " << getFmt(vbY, prec) << " "
+        << getFmt(vbW, prec) << " " << getFmt(vbH, prec) << "\">\n";
     out << "<rect width=\"100%\" height=\"100%\" fill=\"#101418\"/>\n";
     out << "<title>step " << step << ": " << note << "</title>\n";
 
@@ -1718,24 +1722,26 @@ void writeFrameSvg(const std::string &path, const Graph &g, const std::vector<fl
         << (imageW - 2 * margin / 3) * pct / 100.0 << "\" height=\"6\" fill=\"#4fc3f7\"/>\n";
 
     // Die (fixed-pad) frame.
-    out << "<rect x=\"" << fmt(toPxX(vp, dieBox[0]), prec) << "\" y=\""
-        << fmt(toPxY(vp, dieBox[3]), prec) << "\" width=\"" << fmt((dieBox[2] - dieBox[0]) * vp.sx)
-        << "\" height=\"" << fmt((dieBox[3] - dieBox[1]) * vp.sy)
+    out << "<rect x=\"" << getFmt(toPxX(vp, dieBox[0]), prec) << "\" y=\""
+        << getFmt(toPxY(vp, dieBox[3]), prec) << "\" width=\""
+        << getFmt((dieBox[2] - dieBox[0]) * vp.sx) << "\" height=\""
+        << getFmt((dieBox[3] - dieBox[1]) * vp.sy)
         << "\" fill=\"none\" stroke=\"#bdbdbd\" stroke-width=\"1\"/>\n";
 
     // The rows, under the cells, as in the raster frame. Recovered from the cells
     // rather than passed in, so a frame of a design with no row structure -- an
     // unlegalized placement -- simply has none.
-    const std::vector<std::array<double, 2>> rows = rowBands(g, y);
+    const std::vector<std::array<double, 2>> rows = getRowBands(g, y);
     if (!rows.empty()) {
         // Every eighth row, for the same reason as in the raster renderer: a line
         // at every pitch hatches the whole placement.
         constexpr std::size_t every = 8;
         out << "<g stroke=\"#8fa3b8\" stroke-opacity=\"0.34\" stroke-width=\"1\">\n";
         for (std::size_t i = 0; i < rows.size(); i += every) {
-            out << "<line x1=\"" << fmt(toPxX(vp, dieBox[0]), prec) << "\" y1=\""
-                << fmt(toPxY(vp, rows[i][1]), prec) << "\" x2=\"" << fmt(toPxX(vp, dieBox[2]), prec)
-                << "\" y2=\"" << fmt(toPxY(vp, rows[i][1]), prec) << "\"/>\n";
+            out << "<line x1=\"" << getFmt(toPxX(vp, dieBox[0]), prec) << "\" y1=\""
+                << getFmt(toPxY(vp, rows[i][1]), prec) << "\" x2=\""
+                << getFmt(toPxX(vp, dieBox[2]), prec) << "\" y2=\""
+                << getFmt(toPxY(vp, rows[i][1]), prec) << "\"/>\n";
         }
         out << "</g>\n";
     }
@@ -1746,19 +1752,19 @@ void writeFrameSvg(const std::string &path, const Graph &g, const std::vector<fl
     if (constraints != nullptr) {
         static const char *fenceColors[] = {"#ffb74d", "#ba68c8", "#4db6ac", "#f06292",
                                             "#9575cd", "#ffd54f", "#4fc3f7", "#a1887f"};
-        for (std::size_t ri = 0; ri < constraints->numRegions(); ++ri) {
-            const Region &reg = *constraints->region(static_cast<int>(ri));
+        for (std::size_t ri = 0; ri < constraints->getNumRegions(); ++ri) {
+            const Region &reg = *constraints->getRegion(static_cast<int>(ri));
             const char *color = fenceColors[ri % (sizeof(fenceColors) / sizeof(char *))];
             for (const Rect &r : reg.rects) {
-                out << "<rect x=\"" << fmt(toPxX(vp, r.lo.x), prec) << "\" y=\""
-                    << fmt(toPxY(vp, r.hi.y), prec) << "\" width=\""
-                    << fmt((r.hi.x - r.lo.x) * vp.sx) << "\" height=\""
-                    << fmt((r.hi.y - r.lo.y) * vp.sy) << "\" fill=\"" << color
+                out << "<rect x=\"" << getFmt(toPxX(vp, r.lo.x), prec) << "\" y=\""
+                    << getFmt(toPxY(vp, r.hi.y), prec) << "\" width=\""
+                    << getFmt((r.hi.x - r.lo.x) * vp.sx) << "\" height=\""
+                    << getFmt((r.hi.y - r.lo.y) * vp.sy) << "\" fill=\"" << color
                     << R"(" fill-opacity="0.13" stroke=")" << color
                     << "\" stroke-width=\"1.5\" stroke-opacity=\"0.9\"/>\n";
             }
-            out << "<text x=\"" << fmt(toPxX(vp, reg.minX) + 3) << "\" y=\""
-                << fmt(toPxY(vp, reg.minY) - 3) << "\" fill=\"" << color
+            out << "<text x=\"" << getFmt(toPxX(vp, reg.minX) + 3) << "\" y=\""
+                << getFmt(toPxY(vp, reg.minY) - 3) << "\" fill=\"" << color
                 << R"(" font-family="monospace" font-size="11">)" << reg.name << "</text>\n";
         }
     }
@@ -1775,9 +1781,9 @@ void writeFrameSvg(const std::string &path, const Graph &g, const std::vector<fl
         }
         const double w = std::max(2.0, vert.width * vp.sx);
         const double h = std::max(2.0, vert.height * vp.sy);
-        out << "<rect x=\"" << fmt(toPxX(vp, x[v]), prec) << "\" y=\""
-            << fmt(toPxY(vp, y[v] + vert.height), prec) << "\" width=\"" << fmt(w, prec)
-            << "\" height=\"" << fmt(h, prec) << "\"/>\n";
+        out << "<rect x=\"" << getFmt(toPxX(vp, x[v]), prec) << "\" y=\""
+            << getFmt(toPxY(vp, y[v] + vert.height), prec) << "\" width=\"" << getFmt(w, prec)
+            << "\" height=\"" << getFmt(h, prec) << "\"/>\n";
     }
     // I/O pads / terminals: never decimated; every pad is drawn.
     for (std::size_t v = 0; v < nv; ++v) {
@@ -1787,9 +1793,9 @@ void writeFrameSvg(const std::string &path, const Graph &g, const std::vector<fl
         }
         const double w = std::max(2.0, vert.width * vp.sx);
         const double h = std::max(2.0, vert.height * vp.sy);
-        out << "<rect x=\"" << fmt(toPxX(vp, x[v]), prec) << "\" y=\""
-            << fmt(toPxY(vp, y[v] + vert.height), prec) << "\" width=\"" << fmt(w, prec)
-            << "\" height=\"" << fmt(h, prec) << "\"/>\n";
+        out << "<rect x=\"" << getFmt(toPxX(vp, x[v]), prec) << "\" y=\""
+            << getFmt(toPxY(vp, y[v] + vert.height), prec) << "\" width=\"" << getFmt(w, prec)
+            << "\" height=\"" << getFmt(h, prec) << "\"/>\n";
     }
     // Movable cells, one flat blue, matching the raster renderer so the two
     // representations of a frame are the same picture. One <g> for the whole set
@@ -1824,8 +1830,9 @@ void writeFrameSvg(const std::string &path, const Graph &g, const std::vector<fl
                 const double h = std::max(0.75, vert.height * vp.sy);
                 std::format_to(std::back_inserter(text),
                                "<rect x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\"/>\n",
-                               fmt(toPxX(vp, x[v]), prec), fmt(toPxY(vp, y[v] + vert.height), prec),
-                               fmt(w, prec), fmt(h, prec));
+                               getFmt(toPxX(vp, x[v]), prec),
+                               getFmt(toPxY(vp, y[v] + vert.height), prec), getFmt(w, prec),
+                               getFmt(h, prec));
             }
         });
         for (const std::string &text : chunks) {
@@ -1844,14 +1851,14 @@ void writeFrameSvg(const std::string &path, const Graph &g, const std::vector<fl
     if (hpwl > 0.0) {
         out << "<text x=\"" << margin / 3
             << R"(" y="44" fill="#90caf9" font-family="monospace" font-size="13">)"
-            << "HPWL = " << fmt(hpwl, prec)
-            << (hpwlInitial > 0.0 ? "  (initial " + fmt(hpwlInitial, prec) + ")" : "")
+            << "HPWL = " << getFmt(hpwl, prec)
+            << (hpwlInitial > 0.0 ? "  (initial " + getFmt(hpwlInitial, prec) + ")" : "")
             << "</text>\n";
     }
     if (resid > 0.0) {
         out << "<text x=\"" << margin / 3
             << R"(" y="62" fill="#ffeb3b" font-family="monospace" font-size="12">)"
-            << "density overflow = " << sci(resid) << "</text>\n";
+            << "density overflow = " << getSci(resid) << "</text>\n";
     }
     // Legend: a swatch and a count per category, matching the raster frame.
     {
@@ -1941,7 +1948,7 @@ void writeFinalFrameRaster(const std::string &path, const Graph &g,
         x[v] = static_cast<float>(g.getCell(v).x);
         y[v] = static_cast<float>(g.getCell(v).y);
     }
-    const BBox die = fixedCellBBox(g);
+    const BBox die = getFixedCellBBox(g);
     // fixedView pins the viewport to the die, which for one final still is the
     // right frame: the anchor scene the whole run has been using.
     // The finished placement has no "initial" to compare against, so none is
@@ -2069,17 +2076,17 @@ bool writeAnimatedGif(const std::string &dir, const std::string &gifPath, int de
                      static_cast<std::uint8_t>(key & 0xff)};
     };
     GifPalette pal;
-    for (const Rgb24 &c : medianCutPalette(histogram, maxPalette)) {
-        pal.index(c);
+    for (const Rgb24 &c : getMedianCutPalette(histogram, maxPalette)) {
+        pal.getIndex(c);
     }
     // Any colour the sample missed still needs an entry, or it would be mapped to
     // whatever happened to be nearest. Appending the remainder keeps the mapping
     // exact where it can be and only approximate at the long tail.
-    if (pal.colors().size() < maxPalette) {
+    if (pal.getColors().size() < maxPalette) {
         for (const auto &[key, count] : histogram) {
             (void)count;
-            pal.index(unpack(key));
-            if (pal.colors().size() >= maxPalette) {
+            pal.getIndex(unpack(key));
+            if (pal.getColors().size() >= maxPalette) {
                 break;
             }
         }
@@ -2092,7 +2099,7 @@ bool writeAnimatedGif(const std::string &dir, const std::string &gifPath, int de
             const std::uint64_t bit = std::uint64_t{1} << (key & 63u);
             if ((assigned[key >> 6] & bit) == 0) {
                 assigned[key >> 6] |= bit;
-                indexOf[key] = pal.index(unpack(key));
+                indexOf[key] = pal.getIndex(unpack(key));
             }
         }
     }
@@ -2110,8 +2117,8 @@ bool writeAnimatedGif(const std::string &dir, const std::string &gifPath, int de
     std::vector<Frame> &quantised = loaded;
 
     std::vector<Rgb> palRgb;
-    palRgb.reserve(pal.colors().size());
-    for (const Rgb24 &c : pal.colors()) {
+    palRgb.reserve(pal.getColors().size());
+    for (const Rgb24 &c : pal.getColors()) {
         palRgb.push_back(Rgb{c.r, c.g, c.b});
     }
 

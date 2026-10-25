@@ -8,8 +8,8 @@ MultiRowResult flowMgr::run() {
     return multirowDb.run();
 }
 
-multiRowSolution flowMgr::solution() const {
-    return multirowDb.solution();
+multiRowSolution flowMgr::getSolution() const {
+    return multirowDb.getSolution();
 }
 
 }  // namespace ktplace::multirow

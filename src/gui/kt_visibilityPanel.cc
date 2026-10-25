@@ -24,12 +24,12 @@ namespace {
 
 constexpr int swatchPx = 14;
 
-QString titleOf(DisplayLayer layer) {
-    const std::string_view title = DisplayStyle::title(layer);
+QString getTitleOf(DisplayLayer layer) {
+    const std::string_view title = DisplayStyle::getTitle(layer);
     return QString::fromUtf8(title.data(), static_cast<qsizetype>(title.size()));
 }
 
-QIcon swatch(const QColor &color) {
+QIcon getSwatch(const QColor &color) {
     QPixmap pixmap(swatchPx, swatchPx);
     pixmap.fill(color);
     return QIcon(pixmap);
@@ -52,8 +52,8 @@ public:
         for (const DisplayLayer layer : displayLayers) {
             const Row &row = rows[static_cast<std::size_t>(layer)];
             const QSignalBlocker blocker(row.shown);
-            row.shown->setChecked(style.shows(layer));
-            row.color->setIcon(swatch(style[layer].color));
+            row.shown->setChecked(style.isShown(layer));
+            row.color->setIcon(getSwatch(style[layer].color));
         }
     }
 
@@ -80,7 +80,7 @@ VisibilityPanel::VisibilityPanel(QWidget *parent)
     for (const DisplayLayer layer : displayLayers) {
         const auto index = static_cast<int>(layer);
         Impl::Row &row = pImpl->rows[static_cast<std::size_t>(layer)];
-        row.shown = new QCheckBox(titleOf(layer), this);
+        row.shown = new QCheckBox(getTitleOf(layer), this);
         row.color = new QToolButton(this);
         row.color->setAutoRaise(true);
         row.color->setToolTip(QStringLiteral("Change the colour"));
@@ -92,7 +92,7 @@ VisibilityPanel::VisibilityPanel(QWidget *parent)
         });
         connect(row.color, &QToolButton::clicked, this, [this, layer] {
             QColorDialog picker(pImpl->style[layer].color, this);
-            picker.setWindowTitle(QStringLiteral("Colour of %1").arg(titleOf(layer)));
+            picker.setWindowTitle(QStringLiteral("Colour of %1").arg(getTitleOf(layer)));
             placeOver(picker, *this);
             if (picker.exec() == QDialog::Accepted) {
                 pImpl->style[layer].color = picker.selectedColor();
@@ -133,7 +133,7 @@ void VisibilityPanel::setStyle(const DisplayStyle &style) {
     pImpl->sync();
 }
 
-const DisplayStyle &VisibilityPanel::style() const {
+const DisplayStyle &VisibilityPanel::getStyle() const {
     return pImpl->style;
 }
 

@@ -24,7 +24,7 @@ public:
     void search(const QString &pattern, Target target);
     void onChosen(
         std::function<void(Target target, std::vector<std::uint32_t> ids, bool zoom)> listener);
-    [[nodiscard]] const std::vector<std::uint32_t> &matches() const;
+    [[nodiscard]] const std::vector<std::uint32_t> &isMatch() const;
 
 private:
     class Impl;

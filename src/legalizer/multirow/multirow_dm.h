@@ -70,7 +70,7 @@ struct RowInfo {
     double height = 0.0;
     double sitePitch = 0.0;
 
-    [[nodiscard]] double pitch() const noexcept {
+    [[nodiscard]] double getPitch() const noexcept {
         return sitePitch;
     }
     std::vector<Subrow> subrows;
@@ -120,13 +120,13 @@ class multirowDM {
 public:
     multirowDM(Design design, MultiRowOptions options);
 
-    [[nodiscard]] const MultiRowOptions &options() const noexcept {
+    [[nodiscard]] const MultiRowOptions &getOptions() const noexcept {
         return opts;
     }
-    [[nodiscard]] MultiRowOptions &options() noexcept {
+    [[nodiscard]] MultiRowOptions &getOptions() noexcept {
         return opts;
     }
-    [[nodiscard]] const Design &design() const noexcept {
+    [[nodiscard]] const Design &getDesign() const noexcept {
         return d;
     }
 
@@ -135,7 +135,7 @@ public:
     }
 
     MultiRowResult run();
-    [[nodiscard]] multiRowSolution solution() const;
+    [[nodiscard]] multiRowSolution getSolution() const;
 
 private:
     Design d;

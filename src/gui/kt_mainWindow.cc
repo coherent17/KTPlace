@@ -48,13 +48,13 @@ QString describe(const LayoutFrame &frame) {
         .arg(frame.hpwl, 0, 'e', 6);
 }
 
-std::string defaultWorkDir(const QString &design) {
+std::string getDefaultWorkDir(const QString &design) {
     return (std::filesystem::current_path() / "output" / QFileInfo(design).fileName().toStdString())
         .string();
 }
 
-QDockWidget *dockFor(QMainWindow &window, const QString &title, const QString &name,
-                     QWidget *content) {
+QDockWidget *getDockFor(QMainWindow &window, const QString &title, const QString &name,
+                        QWidget *content) {
     auto *dock = new QDockWidget(title, &window);
     dock->setObjectName(name);
     dock->setWidget(content);
@@ -78,7 +78,7 @@ QString chooseNewFile(QWidget &parent, const QString &title, const QString &star
     return dialog.exec() == QDialog::Accepted ? dialog.selectedFiles().value(0) : QString();
 }
 
-QString versionText() {
+QString getVersionText() {
     return QString::fromUtf8(version.data(), static_cast<qsizetype>(version.size()));
 }
 
@@ -142,11 +142,11 @@ public:
     void rememberDesign(const QString &design) const;
     void fillRecentMenu();
     void saveViewImage();
-    [[nodiscard]] RunRequest consoleRequest() const;
+    [[nodiscard]] RunRequest getConsoleRequest() const;
     void finished(const RunResult &result);
 
-    [[nodiscard]] QAction *action(const QString &text, const QKeySequence &shortcut,
-                                  std::function<void()> trigger) const {
+    [[nodiscard]] QAction *getAction(const QString &text, const QKeySequence &shortcut,
+                                     std::function<void()> trigger) const {
         auto *created = new QAction(text, &window);
         created->setShortcut(shortcut);
         QObject::connect(created, &QAction::triggered, &window, std::move(trigger));
@@ -169,11 +169,11 @@ void MainWindow::Impl::build() {
 }
 
 void MainWindow::Impl::buildPanels() {
-    logDock = dockFor(window, QStringLiteral("Log"), QStringLiteral("log"), log);
+    logDock = getDockFor(window, QStringLiteral("Log"), QStringLiteral("log"), log);
     logDock->setFeatures(QDockWidget::DockWidgetMovable | QDockWidget::DockWidgetFloatable);
     window.addDockWidget(Qt::BottomDockWidgetArea, logDock);
     consoleDock =
-        dockFor(window, QStringLiteral("Tcl Console"), QStringLiteral("tclConsole"), console);
+        getDockFor(window, QStringLiteral("Tcl Console"), QStringLiteral("tclConsole"), console);
     consoleDock->setFeatures(QDockWidget::DockWidgetMovable | QDockWidget::DockWidgetFloatable);
     window.setTabPosition(Qt::BottomDockWidgetArea, QTabWidget::North);
     window.tabifyDockWidget(logDock, consoleDock);
@@ -181,15 +181,15 @@ void MainWindow::Impl::buildPanels() {
     consoleDock->setTitleBarWidget(new QWidget(consoleDock));
     logDock->raise();
 
-    detailsDock = dockFor(window, QStringLiteral("Details"), QStringLiteral("details"), details);
+    detailsDock = getDockFor(window, QStringLiteral("Details"), QStringLiteral("details"), details);
     window.addDockWidget(Qt::LeftDockWidgetArea, detailsDock);
     visibilityDock =
-        dockFor(window, QStringLiteral("Visibility"), QStringLiteral("visibility"), visibility);
+        getDockFor(window, QStringLiteral("Visibility"), QStringLiteral("visibility"), visibility);
     window.addDockWidget(Qt::RightDockWidgetArea, visibilityDock);
     visibilityDock->hide();
 
     console->onCommand([this](const QString &command) {
-        if (!runner.execute(command.toStdString(), consoleRequest())) {
+        if (!runner.execute(command.toStdString(), getConsoleRequest())) {
             console->append(QStringLiteral("busy: wait for the current run, or press Stop"),
                             TclConsole::Kind::Error);
             return;
@@ -197,7 +197,7 @@ void MainWindow::Impl::buildPanels() {
         refresh();
     });
 
-    visibility->setStyle(view->style());
+    visibility->setStyle(view->getStyle());
     visibility->onChanged([this](const DisplayStyle &style) {
         view->setStyle(style);
     });
@@ -207,15 +207,15 @@ void MainWindow::Impl::buildPanels() {
 
     detailsTimer.setSingleShot(true);
     QObject::connect(&detailsTimer, &QTimer::timeout, &window, [this] {
-        details->describe(view->frame(), view->selection());
+        details->describe(view->getFrame(), view->getSelection());
     });
-    view->selection().subscribe([this] {
+    view->getSelection().subscribe([this] {
         detailsTimer.start(0);
     });
     details->onNetChosen([this](std::uint32_t net, bool zoom) {
-        view->selection().markNets({net});
+        view->getSelection().markNets({net});
         if (zoom) {
-            if (const std::optional<Bounds> area = view->frame().netBounds(net)) {
+            if (const std::optional<Bounds> area = view->getFrame().getNetBounds(net)) {
                 view->zoomTo(*area);
             }
         }
@@ -230,9 +230,9 @@ void MainWindow::Impl::buildPanels() {
     locate->onChosen(
         [this](LocateDialog::Target target, std::vector<std::uint32_t> ids, bool zoom) {
             if (target == LocateDialog::Target::Cells) {
-                view->selection().selectCells(std::move(ids));
+                view->getSelection().selectCells(std::move(ids));
             } else {
-                view->selection().markNets(std::move(ids));
+                view->getSelection().markNets(std::move(ids));
             }
             if (zoom) {
                 view->zoomToSelection();
@@ -241,7 +241,7 @@ void MainWindow::Impl::buildPanels() {
 }
 
 void MainWindow::Impl::buildActions() {
-    openAction = action(QStringLiteral("Open Design..."), QKeySequence::Open, [this] {
+    openAction = getAction(QStringLiteral("Open Design..."), QKeySequence::Open, [this] {
         const QString design =
             chooseExisting(window, QStringLiteral("Open a design directory"),
                            QString::fromStdString(request.design), QFileDialog::Directory);
@@ -249,7 +249,7 @@ void MainWindow::Impl::buildActions() {
             window.openDesign(design);
         }
     });
-    scriptAction = action(QStringLiteral("Tcl Script..."), {}, [this] {
+    scriptAction = getAction(QStringLiteral("Tcl Script..."), {}, [this] {
         const QString script = chooseExisting(
             window, QStringLiteral("Configure the run"), QString::fromStdString(request.script),
             QFileDialog::ExistingFile, QStringLiteral("Tcl scripts (*.tcl)"));
@@ -258,21 +258,21 @@ void MainWindow::Impl::buildActions() {
         }
         refresh();
     });
-    runAction = action(QStringLiteral("Run"), QKeySequence(Qt::CTRL | Qt::Key_R), [this] {
+    runAction = getAction(QStringLiteral("Run"), QKeySequence(Qt::CTRL | Qt::Key_R), [this] {
         window.run();
     });
-    stopAction = action(QStringLiteral("Stop"), QKeySequence(Qt::Key_Escape), [this] {
+    stopAction = getAction(QStringLiteral("Stop"), QKeySequence(Qt::Key_Escape), [this] {
         window.stop();
     });
-    QAction *saveImage = action(QStringLiteral("Save View Image..."),
-                                QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_S), [this] {
-                                    saveViewImage();
-                                });
-    QAction *quit = action(QStringLiteral("Quit"), QKeySequence::Quit, [this] {
+    QAction *saveImage = getAction(QStringLiteral("Save View Image..."),
+                                   QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_S), [this] {
+                                       saveViewImage();
+                                   });
+    QAction *quit = getAction(QStringLiteral("Quit"), QKeySequence::Quit, [this] {
         window.close();
     });
-    QAction *locateAction = action(QStringLiteral("Locate..."), QKeySequence::Find, [this] {
-        locate->setLayoutGeometry(view->frame().geometry);
+    QAction *locateAction = getAction(QStringLiteral("Locate..."), QKeySequence::Find, [this] {
+        locate->setLayoutGeometry(view->getFrame().geometry);
         if (!locate->isVisible()) {
             placeOver(*locate, window);
         }
@@ -280,36 +280,36 @@ void MainWindow::Impl::buildActions() {
         locate->raise();
         locate->activateWindow();
     });
-    QAction *selectNone = action(QStringLiteral("Select None"),
-                                 QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_A), [this] {
-                                     view->selection().clear();
-                                 });
+    QAction *selectNone = getAction(QStringLiteral("Select None"),
+                                    QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_A), [this] {
+                                        view->getSelection().clear();
+                                    });
     QAction *showConnectivity =
-        action(QStringLiteral("Show Connectivity"), QKeySequence(Qt::CTRL | Qt::Key_E), [this] {
+        getAction(QStringLiteral("Show Connectivity"), QKeySequence(Qt::CTRL | Qt::Key_E), [this] {
             view->showConnectivity();
         });
-    QAction *hideConnectivity = action(QStringLiteral("Hide Connectivity"),
-                                       QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_E), [this] {
-                                           view->hideConnectivity();
-                                       });
-    QAction *fit = action(QStringLiteral("Zoom Fit"), QKeySequence(Qt::Key_F), [this] {
+    QAction *hideConnectivity = getAction(QStringLiteral("Hide Connectivity"),
+                                          QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_E), [this] {
+                                              view->hideConnectivity();
+                                          });
+    QAction *fit = getAction(QStringLiteral("Zoom Fit"), QKeySequence(Qt::Key_F), [this] {
         view->zoomFit();
     });
     QAction *toSelection =
-        action(QStringLiteral("Zoom to Selection"), QKeySequence(Qt::Key_Z), [this] {
+        getAction(QStringLiteral("Zoom to Selection"), QKeySequence(Qt::Key_Z), [this] {
             view->zoomToSelection();
         });
-    QAction *showLog = action(QStringLiteral("Log"), QKeySequence(Qt::CTRL | Qt::Key_L), [this] {
+    QAction *showLog = getAction(QStringLiteral("Log"), QKeySequence(Qt::CTRL | Qt::Key_L), [this] {
         logDock->show();
         logDock->raise();
     });
     QAction *showConsole =
-        action(QStringLiteral("Tcl Console"), QKeySequence(Qt::CTRL | Qt::Key_T), [this] {
+        getAction(QStringLiteral("Tcl Console"), QKeySequence(Qt::CTRL | Qt::Key_T), [this] {
             consoleDock->show();
             consoleDock->raise();
             console->focusInput();
         });
-    QAction *keys = action(QStringLiteral("Mouse and Keys"), {}, [this] {
+    QAction *keys = getAction(QStringLiteral("Mouse and Keys"), {}, [this] {
         showNote(window, QStringLiteral("Mouse and Keys"),
                  QStringLiteral(
                      "<table cellpadding=3>"
@@ -328,12 +328,12 @@ void MainWindow::Impl::buildActions() {
                      "options</td></tr>"
                      "</table>"));
     });
-    QAction *about = action(QStringLiteral("About KTPlace"), {}, [this] {
+    QAction *about = getAction(QStringLiteral("About KTPlace"), {}, [this] {
         showNote(window, QStringLiteral("About KTPlace"),
                  QStringLiteral("<h3>KTPlace %1</h3><p>Know Thyself Placement "
                                 "Engine: global placement, legalization and "
                                 "detailed placement for standard-cell designs.</p>")
-                     .arg(versionText()));
+                     .arg(getVersionText()));
     });
 
     QMenu *file = window.menuBar()->addMenu(QStringLiteral("&File"));
@@ -421,7 +421,7 @@ void MainWindow::Impl::fillRecentMenu() {
         QAction *entry = recentMenu->addAction(design, &window, [this, design] {
             window.openDesign(design);
         });
-        entry->setEnabled(!runner.running() && QFileInfo(design).isDir());
+        entry->setEnabled(!runner.isRunning() && QFileInfo(design).isDir());
     }
     if (recent.isEmpty()) {
         recentMenu->addAction(QStringLiteral("No recent designs"))->setEnabled(false);
@@ -450,28 +450,28 @@ void MainWindow::Impl::saveViewImage() {
 
 void MainWindow::Impl::showFrame(LayoutFrame frame) {
     stage->setText(describe(frame));
-    const bool newGeometry = frame.geometry != view->frame().geometry;
+    const bool newGeometry = frame.geometry != view->getFrame().geometry;
     view->setFrame(std::move(frame));
     if (newGeometry) {
-        locate->setLayoutGeometry(view->frame().geometry);
+        locate->setLayoutGeometry(view->getFrame().geometry);
         detailsTimer.start(0);
-    } else if (!detailsTimer.isActive() && !view->selection().empty()) {
+    } else if (!detailsTimer.isActive() && !view->getSelection().empty()) {
         detailsTimer.start(liveDetailsMs);
     }
 }
 
-RunRequest MainWindow::Impl::consoleRequest() const {
+RunRequest MainWindow::Impl::getConsoleRequest() const {
     RunRequest session = request;
     if (session.workDir.empty()) {
         session.workDir = session.design.empty()
                               ? (std::filesystem::current_path() / "output" / "session").string()
-                              : defaultWorkDir(QString::fromStdString(session.design));
+                              : getDefaultWorkDir(QString::fromStdString(session.design));
     }
     return session;
 }
 
 void MainWindow::Impl::refresh() {
-    const bool busy = runner.running();
+    const bool busy = runner.isRunning();
     console->setBusy(busy);
     openAction->setEnabled(!busy);
     scriptAction->setEnabled(!busy);
@@ -539,18 +539,18 @@ MainWindow::MainWindow(RunRequest request, QWidget *parent)
 MainWindow::~MainWindow() = default;
 
 void MainWindow::openDesign(const QString &design) {
-    if (pImpl->runner.running()) {
+    if (pImpl->runner.isRunning()) {
         return;
     }
     pImpl->request.design = design.toStdString();
     if (!pImpl->keepWorkDir) {
-        pImpl->request.workDir = defaultWorkDir(design);
+        pImpl->request.workDir = getDefaultWorkDir(design);
     }
     pImpl->rememberDesign(design);
     pImpl->view->setFrame({});
     pImpl->stage->clear();
     pImpl->log->clear();
-    pImpl->loading = pImpl->runner.open(pImpl->consoleRequest());
+    pImpl->loading = pImpl->runner.open(pImpl->getConsoleRequest());
     pImpl->refresh();
 }
 
@@ -559,7 +559,7 @@ void MainWindow::run() {
         return;
     }
     if (pImpl->request.workDir.empty()) {
-        pImpl->request.workDir = defaultWorkDir(QString::fromStdString(pImpl->request.design));
+        pImpl->request.workDir = getDefaultWorkDir(QString::fromStdString(pImpl->request.design));
     }
     pImpl->rememberDesign(QString::fromStdString(pImpl->request.design));
     pImpl->log->clear();
@@ -572,15 +572,15 @@ void MainWindow::stop() {
     pImpl->runner.stop();
 }
 
-const RunRequest &MainWindow::request() const {
+const RunRequest &MainWindow::getRequest() const {
     return pImpl->request;
 }
 
-bool MainWindow::running() const {
-    return pImpl->runner.running();
+bool MainWindow::isRunning() const {
+    return pImpl->runner.isRunning();
 }
 
-LayoutView *MainWindow::layoutView() const {
+LayoutView *MainWindow::getLayoutView() const {
     return pImpl->view;
 }
 
@@ -588,15 +588,15 @@ LogView *MainWindow::logView() const {
     return pImpl->log;
 }
 
-TclConsole *MainWindow::tclConsole() const {
+TclConsole *MainWindow::getTclConsole() const {
     return pImpl->console;
 }
 
-VisibilityPanel *MainWindow::visibilityPanel() const {
+VisibilityPanel *MainWindow::getVisibilityPanel() const {
     return pImpl->visibility;
 }
 
-DetailsPanel *MainWindow::detailsPanel() const {
+DetailsPanel *MainWindow::getDetailsPanel() const {
     return pImpl->details;
 }
 
@@ -604,11 +604,11 @@ LocateDialog *MainWindow::locateDialog() const {
     return pImpl->locate;
 }
 
-QString MainWindow::cursorText() const {
+QString MainWindow::getCursorText() const {
     return pImpl->cursor->text();
 }
 
-QString MainWindow::status() const {
+QString MainWindow::getStatus() const {
     return statusBar()->currentMessage();
 }
 

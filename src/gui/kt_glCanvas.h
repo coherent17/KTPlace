@@ -29,7 +29,7 @@ public:
     void setCamera(QPointF center, double scale);
     void setStyle(const DisplayStyle &newStyle);
 
-    [[nodiscard]] static bool available();
+    [[nodiscard]] static bool isAvailable();
 
 protected:
     void initializeGL() override;

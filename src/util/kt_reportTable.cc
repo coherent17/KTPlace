@@ -9,7 +9,7 @@ namespace ktplace {
 
 namespace {
 
-std::size_t displayWidth(const std::string &text) {
+std::size_t getDisplayWidth(const std::string &text) {
     std::size_t width = 0;
     for (const unsigned char c : text) {
         if ((c & 0xC0) != 0x80) {
@@ -19,7 +19,7 @@ std::size_t displayWidth(const std::string &text) {
     return width;
 }
 
-bool looksNumeric(const std::string &text) {
+bool isNumeric(const std::string &text) {
     if (text.empty()) {
         return false;
     }
@@ -35,8 +35,8 @@ bool looksNumeric(const std::string &text) {
     return digit;
 }
 
-std::string pad(const std::string &text, std::size_t width, bool rightAlign) {
-    const std::size_t len = displayWidth(text);
+std::string getPad(const std::string &text, std::size_t width, bool rightAlign) {
+    const std::size_t len = getDisplayWidth(text);
     if (len >= width) {
         return text;
     }
@@ -86,7 +86,7 @@ std::string ktReportTable::render() const {
     const auto measure = [&](const std::vector<std::string> &cells) {
         for (std::size_t i = 0; i < columns; ++i) {
             const std::string &cell = i < cells.size() ? cells[i] : empty;
-            widths[i] = std::max(widths[i], displayWidth(cell));
+            widths[i] = std::max(widths[i], getDisplayWidth(cell));
         }
     };
     if (!headers.empty()) {
@@ -105,7 +105,7 @@ std::string ktReportTable::render() const {
                 continue;
             }
             any = true;
-            if (!looksNumeric(row[i])) {
+            if (!isNumeric(row[i])) {
                 allNumeric = false;
                 break;
             }
@@ -130,7 +130,7 @@ std::string ktReportTable::render() const {
         for (std::size_t i = 0; i < columns; ++i) {
             const std::string &cell = i < cells.size() ? cells[i] : empty;
             out += ' ';
-            out += pad(cell, widths[i], numeric[i]);
+            out += getPad(cell, widths[i], numeric[i]);
             out += " |";
         }
         out += '\n';

@@ -28,12 +28,12 @@ static Run runAndCommit(ktplace::ktDM &db, const ktplace::FastdpOptions &params 
     for (std::size_t i = 0; i < db.getNumCells(); ++i) {
         before.push_back(db.getCellPosition(i));
     }
-    Run run{.hpwlBefore = db.hpwl()};
+    Run run{.hpwlBefore = db.getHpwl()};
     ktplace::fastdp::flowMgr flow(db);
-    flow.dm().options() = params;
+    flow.getDm().getOptions() = params;
     flow.run();
-    db.setFastdpSolution(flow.solution());
-    run.hpwlAfter = db.hpwl();
+    db.setFastdpSolution(flow.getSolution());
+    run.hpwlAfter = db.getHpwl();
     for (std::size_t i = 0; i < db.getNumCells(); ++i) {
         run.moved += db.getCellPosition(i) != before[i] ? 1 : 0;
     }
@@ -45,7 +45,7 @@ static Run runAndCommit(ktplace::ktDM &db, const ktplace::FastdpOptions &params 
 std::vector<double> gWidths;
 
 /// Size of a cell as the database was told, for the legality checks.
-double widthOf(std::size_t id) {
+double getWidthOf(std::size_t id) {
     return id < gWidths.size() ? gWidths[id] : 1.0;
 }
 
@@ -151,7 +151,7 @@ void addNet(ktDM &db, const std::string &net, const std::string &a, const std::s
         }
         const auto [x, y] = db.getCellPosition(i);
         (void)y;
-        const double rem = std::fmod(x - rows.front().xlo(), site);
+        const double rem = std::fmod(x - rows.front().getXlo(), site);
         if (std::abs(rem) > 1e-6 && std::abs(rem - site) > 1e-6) {
             ++off;
         }
@@ -186,14 +186,14 @@ void addNet(ktDM &db, const std::string &net, const std::string &a, const std::s
     std::vector<Box> boxes;
     for (std::size_t i = 0; i < db.getNumCells(); ++i) {
         const auto [x, y] = db.getCellPosition(i);
-        const double w = widthOf(i);
+        const double w = getWidthOf(i);
         const double h = rowHeight;
         if (db.isCellFixed(i)) {
             boxes.push_back({x, x + w, y, y + h});
             continue;
         }
         // On a site, to within floating point.
-        const double rem = std::fmod(x - rows.front().xlo(), site);
+        const double rem = std::fmod(x - rows.front().getXlo(), site);
         if (std::abs(rem) > 1e-6 && std::abs(rem - site) > 1e-6) {
             return false;
         }
@@ -209,8 +209,8 @@ void addNet(ktDM &db, const std::string &net, const std::string &a, const std::s
             return false;
         }
         // Within the row's sites.
-        const double xhi = rows.front().xhi();
-        const bool withinRow = x >= rows.front().xlo() - 1e-6 && x + w <= xhi + 1e-6;
+        const double xhi = rows.front().getXhi();
+        const bool withinRow = x >= rows.front().getXlo() - 1e-6 && x + w <= xhi + 1e-6;
         if (!withinRow) {
             return false;
         }
@@ -844,11 +844,11 @@ BOOST_AUTO_TEST_CASE(a_vertical_swap_does_not_carry_cells_across_a_fence) {
 
     // Run twice on one placer object, which also checks that no per-run state
     // (the cells' regions among it) carries over between calls.
-    fastdp::Design design = fastdp::buildFastdpDM(db).design();
+    fastdp::Design design = fastdp::buildFastdpDM(db).getDesign();
     fastdp::FastDetailedPlacer dp(design);
     (void)dp.place(only(1));
     (void)dp.place(only(1));
-    db.setFastdpSolution(fastdp::fastdpDM(std::move(design), only(1)).solution());
+    db.setFastdpSolution(fastdp::fastdpDM(std::move(design), only(1)).getSolution());
 
     const auto [mx, my] = db.getCellPosition("m0");
     BOOST_TEST((my == 10.0 && mx >= 0.0 && mx + 1.0 <= 30.0 + 1e-9),

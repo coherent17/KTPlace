@@ -15,7 +15,7 @@ namespace ktplace::tcl {
 
 namespace {
 
-std::string joined(const auto &names) {
+std::string getJoined(const auto &names) {
     std::string out;
     for (const std::string_view name : names) {
         out += out.empty() ? "" : ", ";
@@ -28,7 +28,7 @@ std::string joined(const auto &names) {
 // word's own spelling, so 64 is an int, 1e-6 a double, and a braced {64} a string
 // that happens to look like one.
 OptionValue toOptionValue(const Value &value) {
-    switch (value.kind()) {
+    switch (value.getKind()) {
         case Value::Kind::Int:
             return OptionValue{static_cast<int>(value.asInt())};
         case Value::Kind::Bool:
@@ -44,7 +44,7 @@ OptionValue toOptionValue(const Value &value) {
 
 }  // namespace
 
-TclMgr &TclMgr::instance() {
+TclMgr &TclMgr::getInstance() {
     static TclMgr manager;
     return manager;
 }
@@ -67,15 +67,15 @@ void TclMgr::installCommands() {
             if (component.empty() || key.empty()) {
                 throw tcl::Error("add_option: the component and the key must not be empty");
             }
-            const std::optional<Component> id = componentFromName(component);
+            const std::optional<Component> id = getComponentFromName(component);
             if (!id) {
                 throw tcl::Error(
                     std::format("add_option: '{}' is not a known component (try one of: {})",
-                                component, joined(componentNames)));
+                                component, getJoined(componentNames)));
             }
             const Value value = args[3].literal ? Value::string(args[3].text)
                                                 : parseLiteral(self.substitute(args[3].text));
-            OptionDb::instance().set(*id, key, toOptionValue(value));
+            OptionDb::getInstance().set(*id, key, toOptionValue(value));
             return 0;
         });
 }
@@ -89,7 +89,7 @@ void TclMgr::registerCommand(tcl::CommandHelp help, tcl::Command command) {
 // error to come back rather than the process to end.
 void TclMgr::loadScript(const std::string &path) {
     (void)interpreter.evalFile(path);
-    OptionDb::instance().report();
+    OptionDb::getInstance().report();
 }
 
 }  // namespace ktplace::tcl

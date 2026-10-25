@@ -17,7 +17,7 @@ std::unique_ptr<InputReader> makeInputReader(const std::string &dirPath) {
     candidates.push_back(std::make_unique<BookshelfInputAdapter>());
     candidates.push_back(std::make_unique<LefDefInputAdapter>());
     for (std::unique_ptr<InputReader> &candidate : candidates) {
-        if (candidate->recognises(dirPath)) {
+        if (candidate->isRecognised(dirPath)) {
             return std::move(candidate);
         }
     }

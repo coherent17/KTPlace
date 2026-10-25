@@ -5,8 +5,8 @@
 namespace ktplace {
 
 void reportAssertion(const AssertionFailed &e) {
-    ktlog.echo("assertion failed: {} ({}:{} in {})", e.what(), e.file(), e.line(),
-               e.function() != nullptr ? e.function() : "?");
+    ktlog.echo("assertion failed: {} ({}:{} in {})", e.what(), e.getFile(), e.getLine(),
+               e.getFunction() != nullptr ? e.getFunction() : "?");
 }
 
 }  // namespace ktplace

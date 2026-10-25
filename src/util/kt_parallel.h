@@ -8,7 +8,7 @@
 namespace ktplace {
 
 template <typename Term>
-double orderedSum(std::size_t n, Term term) {
+double getOrderedSum(std::size_t n, Term term) {
     std::vector<double> terms(n);
     tbb::parallel_for(tbb::blocked_range<std::size_t>(0, n, 1024),
                       [&](const tbb::blocked_range<std::size_t> &range) {

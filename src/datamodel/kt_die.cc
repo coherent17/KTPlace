@@ -49,7 +49,7 @@ void DieInfo::clear() {
     rows.clear();
 }
 
-std::array<double, 4> placementDieBox(const DieInfo &die, const Graph &graph) {
+std::array<double, 4> getPlacementDieBox(const DieInfo &die, const Graph &graph) {
     const double inf = std::numeric_limits<double>::max();
     // The fixed cells: the I/O pad ring bounds the die in a Bookshelf design.
     double lo[2] = {inf, inf};
@@ -95,13 +95,13 @@ std::array<double, 4> placementDieBox(const DieInfo &die, const Graph &graph) {
     double rlo = inf, rhi = -inf, blo = inf, bhi = -inf;
     bool anyRow = false;
     for (const RowInfo &ri : die.getRows()) {
-        if (!(ri.pitch() > 0.0)) {
+        if (!(ri.getPitch() > 0.0)) {
             continue;
         }
         rlo = std::min(rlo, ri.coordinate);
         rhi = std::max(rhi, ri.coordinate + ri.height);
-        blo = std::min(blo, ri.xlo());
-        bhi = std::max(bhi, ri.xhi());
+        blo = std::min(blo, ri.getXlo());
+        bhi = std::max(bhi, ri.getXhi());
         anyRow = true;
     }
     if (anyRow && (bhi > blo) && (rhi > rlo)) {

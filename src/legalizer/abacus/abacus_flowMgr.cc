@@ -8,8 +8,8 @@ AbacusResult flowMgr::run() {
     return abacusDb.run();
 }
 
-abacusSolution flowMgr::solution() const {
-    return abacusDb.solution();
+abacusSolution flowMgr::getSolution() const {
+    return abacusDb.getSolution();
 }
 
 }  // namespace ktplace::abacus

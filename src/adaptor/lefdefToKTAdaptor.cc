@@ -27,7 +27,7 @@ class InputTextFile {
 public:
     explicit InputTextFile(const std::string &path) : in(path) {}
 
-    std::istream &stream() {
+    std::istream &getStream() {
         return in;
     }
     explicit operator bool() const {
@@ -52,7 +52,7 @@ bool tryDouble(const std::string &s, double &out) {
 
 using Box = std::array<double, 4>;
 
-std::pair<double, double> oriented(double x, double y, const std::string &orient) {
+std::pair<double, double> getOriented(double x, double y, const std::string &orient) {
     if (orient == "S") {
         return {-x, -y};
     }
@@ -77,9 +77,9 @@ std::pair<double, double> oriented(double x, double y, const std::string &orient
     return {x, y};
 }
 
-Box orientedBox(const Box &shape, const std::string &orient) {
-    const auto [ax, ay] = oriented(shape[0], shape[1], orient);
-    const auto [bx, by] = oriented(shape[2], shape[3], orient);
+Box getOrientedBox(const Box &shape, const std::string &orient) {
+    const auto [ax, ay] = getOriented(shape[0], shape[1], orient);
+    const auto [bx, by] = getOriented(shape[2], shape[3], orient);
     return {std::min(ax, bx), std::min(ay, by), std::max(ax, bx), std::max(ay, by)};
 }
 
@@ -157,7 +157,7 @@ LefDefInputAdapter::~LefDefInputAdapter() = default;
 LefDefInputAdapter::LefDefInputAdapter(LefDefInputAdapter &&) noexcept = default;
 LefDefInputAdapter &LefDefInputAdapter::operator=(LefDefInputAdapter &&) noexcept = default;
 
-bool LefDefInputAdapter::recognises(const std::string &dirPath) const {
+bool LefDefInputAdapter::isRecognised(const std::string &dirPath) const {
     namespace fs = std::filesystem;
     std::error_code ec;
     for (fs::directory_iterator it(dirPath, fs::directory_options::skip_permission_denied, ec), end;
@@ -253,7 +253,7 @@ void LefDefInputAdapter::peekDefUnits(const std::string &filePath) {
     }
     unitsPerMicron = 1.0;
     std::string line;
-    while (std::getline(file.stream(), line)) {
+    while (std::getline(file.getStream(), line)) {
         if (line.find("UNITS") == std::string::npos && line.find("MICRONS") == std::string::npos) {
             continue;
         }
@@ -289,7 +289,7 @@ bool LefDefInputAdapter::parseLefFile(const std::string &filePath) {
     std::string site;
     std::size_t lineNum = 0;
 
-    while (std::getline(file.stream(), line)) {
+    while (std::getline(file.getStream(), line)) {
         ++lineNum;
         const auto tokens = tokenize(line);
         if (tokens.empty()) {
@@ -465,7 +465,7 @@ bool LefDefInputAdapter::parseDefFile(const std::string &filePath) {
             w = mIt->second.widthMicrons * unitsPerMicron;
             h = mIt->second.heightMicrons * unitsPerMicron;
         } else if (pinShaped) {
-            const Box shape = orientedBox(pinShape, pinOrient);
+            const Box shape = getOrientedBox(pinShape, pinOrient);
             lowX = shape[0];
             lowY = shape[1];
             w = shape[2] - shape[0];
@@ -479,7 +479,7 @@ bool LefDefInputAdapter::parseDefFile(const std::string &filePath) {
         ioPinOffset[pname] = {-lowX, -lowY};
     };
 
-    while (std::getline(file.stream(), line)) {
+    while (std::getline(file.getStream(), line)) {
         ++lineNum;
         const auto tokens = tokenize(line);
         if (tokens.empty()) {
@@ -887,8 +887,8 @@ bool LefDefInputAdapter::parseDefFile(const std::string &filePath) {
     // can only be applied now that every cell vertex exists.
     for (const auto &[regionName, pattern] : pendingGroups) {
         int regionId = constraintMgr::noRegion;
-        for (std::size_t i = 0; i < fences.numRegions(); ++i) {
-            if (fences.region(static_cast<int>(i))->name == regionName) {
+        for (std::size_t i = 0; i < fences.getNumRegions(); ++i) {
+            if (fences.getRegion(static_cast<int>(i))->name == regionName) {
                 regionId = static_cast<int>(i);
                 break;
             }

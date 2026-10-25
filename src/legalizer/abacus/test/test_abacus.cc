@@ -59,13 +59,13 @@ void addFence(ktDM &db, double x0, double y0, double x1, double y1, const std::s
 /// Legalize and commit, returning the legalizer's own result.
 abacus::AbacusResult legalize(ktDM &db) {
     abacus::flowMgr flow(db);
-    flow.dm().options() = AbacusOptions{};
+    flow.getDm().getOptions() = AbacusOptions{};
     const abacus::AbacusResult res = flow.run();
-    db.setAbacusSolution(flow.solution());
+    db.setAbacusSolution(flow.getSolution());
     return res;
 }
 
-bool insideBox(const ktDM &db, std::size_t id, double x0, double y0, double x1, double y1) {
+bool isInsideBox(const ktDM &db, std::size_t id, double x0, double y0, double x1, double y1) {
     const auto [x, y] = db.getCellPosition(id);
     return x >= x0 - 1e-9 && x + 1.0 <= x1 + 1e-9 && y >= y0 - 1e-9 && y + rowHeight <= y1 + 1e-9;
 }
@@ -79,10 +79,10 @@ bool overlapsBox(const ktDM &db, std::size_t id, double x0, double y0, double x1
 
 struct ScopedOption {
     ScopedOption(Component component, std::string key, OptionValue value) {
-        OptionDb::instance().set(component, std::move(key), std::move(value));
+        OptionDb::getInstance().set(component, std::move(key), std::move(value));
     }
     ~ScopedOption() {
-        OptionDb::instance().clear();
+        OptionDb::getInstance().clear();
     }
     ScopedOption(const ScopedOption &) = delete;
     ScopedOption &operator=(const ScopedOption &) = delete;
@@ -100,7 +100,7 @@ BOOST_AUTO_TEST_CASE(members_far_outside_are_brought_into_their_fence) {
     const abacus::AbacusResult res = legalize(db);
     BOOST_TEST(res.unplaced == 0u);
     for (const std::size_t id : members) {
-        BOOST_TEST(insideBox(db, id, 20.0, 20.0, 50.0, 60.0), "member " << id << " outside");
+        BOOST_TEST(isInsideBox(db, id, 20.0, 20.0, 50.0, 60.0), "member " << id << " outside");
     }
 }
 
@@ -117,7 +117,7 @@ BOOST_AUTO_TEST_CASE(non_members_inside_a_fence_are_moved_out) {
         BOOST_TEST(!overlapsBox(db, id, 20.0, 20.0, 50.0, 60.0), "non-member " << id << " inside");
     }
     for (const std::size_t id : members) {
-        BOOST_TEST(insideBox(db, id, 20.0, 20.0, 50.0, 60.0));
+        BOOST_TEST(isInsideBox(db, id, 20.0, 20.0, 50.0, 60.0));
     }
 }
 
@@ -134,7 +134,7 @@ BOOST_AUTO_TEST_CASE(a_fence_whose_edge_overflows_is_filled_from_the_left) {
     BOOST_TEST(res.unplaced == 0u);
     BOOST_TEST(res.overlappingPairs == 0u);
     for (const std::size_t id : members) {
-        BOOST_TEST(insideBox(db, id, 10.0, 40.0, 22.0, 50.0), "member " << id << " outside");
+        BOOST_TEST(isInsideBox(db, id, 10.0, 40.0, 22.0, 50.0), "member " << id << " outside");
     }
 }
 

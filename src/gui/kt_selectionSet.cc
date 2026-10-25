@@ -70,11 +70,11 @@ void SelectionSet::clear() {
     notify();
 }
 
-const std::vector<std::uint32_t> &SelectionSet::cells() const {
+const std::vector<std::uint32_t> &SelectionSet::getCells() const {
     return selectedCells;
 }
 
-const std::vector<std::uint32_t> &SelectionSet::nets() const {
+const std::vector<std::uint32_t> &SelectionSet::getNets() const {
     return markedNets;
 }
 

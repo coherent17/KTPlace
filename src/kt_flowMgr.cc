@@ -41,12 +41,12 @@ namespace {
 
 enum class GlobalPlacer { Simpl, Ntuplace1 };
 
-std::string snapshotFile(const std::string &plotDir) {
+std::string getSnapshotFile(const std::string &plotDir) {
     return (std::filesystem::path(plotDir) / "snapshots.ktsnap").string();
 }
 
-GlobalPlacer chosenGlobalPlacer() {
-    const std::string algorithm = OptionDb::instance()
+GlobalPlacer getChosenGlobalPlacer() {
+    const std::string algorithm = OptionDb::getInstance()
                                       .getComponentOption(Component::Flow)
                                       .get<std::string>("algorithm")
                                       .value_or("simpl");
@@ -59,7 +59,7 @@ GlobalPlacer chosenGlobalPlacer() {
     ktlog.fatal("unknown placer '{}'; expected simpl or ntuplace1", algorithm);
 }
 
-std::vector<float> cellCoordinates(const Graph &graph, double Vertex::*axis) {
+std::vector<float> getCellCoordinates(const Graph &graph, double Vertex::*axis) {
     std::vector<float> out(graph.getNumCells());
     for (std::size_t v = 0; v < out.size(); ++v) {
         out[v] = static_cast<float>(graph.getCell(v).*axis);
@@ -76,7 +76,7 @@ bool recordStage(auto &dm, SnapshotWriter *snapshots, const FlowObserver &observ
         snapshots->beginStage(stage);
     }
     dm.setFrameHook(
-        [snapshots, frame = observer.frame, name = stage.stage, die = dm.design().die](
+        [snapshots, frame = observer.frame, name = stage.stage, die = dm.getDesign().die](
             const std::vector<float> &xs, const std::vector<float> &ys, const auto &info) {
             if (snapshots != nullptr) {
                 snapshots->frame(
@@ -122,7 +122,7 @@ public:
     void detailPlace();
     std::string writePlacement(const std::string &path);
     void writePlots();
-    [[nodiscard]] const ktDM &design() const;
+    [[nodiscard]] const ktDM &getDesign() const;
     [[nodiscard]] bool isFreshlyLoaded(const std::string &dirPath) const;
     void reportDesign() const;
 
@@ -200,7 +200,7 @@ bool FlowMgr::isFreshlyLoaded(const std::string &dirPath) const {
     return pImpl->isFreshlyLoaded(dirPath);
 }
 
-const std::string &FlowMgr::designPath() const {
+const std::string &FlowMgr::getDesignPath() const {
     return pImpl->options.inputPath;
 }
 
@@ -228,8 +228,8 @@ void FlowMgr::writePlots() {
     pImpl->writePlots();
 }
 
-double FlowMgr::hpwl() const {
-    return pImpl->design().hpwl();
+double FlowMgr::getHpwl() const {
+    return pImpl->getDesign().getHpwl();
 }
 
 void FlowMgr::reportDesign() const {
@@ -237,7 +237,7 @@ void FlowMgr::reportDesign() const {
 }
 
 bool FlowMgr::checkPlacement() const {
-    const ktDM &db = pImpl->design();
+    const ktDM &db = pImpl->getDesign();
     db.isLegalizePlacement();
     return db.verify().empty();
 }
@@ -273,7 +273,7 @@ void FlowMgr::Impl::run(const kt_option &runOptions) {
 }
 
 std::string FlowMgr::Impl::evaluate(const std::string &script) {
-    return tcl::TclMgr::instance().interpreter.eval(script).asString();
+    return tcl::TclMgr::getInstance().interpreter.eval(script).asString();
 }
 
 void FlowMgr::Impl::finish() {
@@ -283,7 +283,7 @@ void FlowMgr::Impl::finish() {
     drawPictures();
     if (!committed.empty()) {
         ktlog.beginStep("summary");
-        TimerRegistry::instance().report();
+        TimerRegistry::getInstance().report();
         reportSummary();
     }
 }
@@ -329,7 +329,7 @@ void FlowMgr::Impl::writePlots() {
     drawPictures();
 }
 
-const ktDM &FlowMgr::Impl::design() const {
+const ktDM &FlowMgr::Impl::getDesign() const {
     if (!db) {
         throw std::logic_error("no design is loaded; call read_design first");
     }
@@ -337,14 +337,14 @@ const ktDM &FlowMgr::Impl::design() const {
 }
 
 void FlowMgr::Impl::reportDesign() const {
-    const ktDM &loaded = design();
+    const ktDM &loaded = getDesign();
     loaded.report();
     loaded.reportStatistics();
     loaded.reportUtilisation();
 }
 
 void FlowMgr::Impl::startStep() {
-    (void)design();
+    (void)getDesign();
     stepsRun = true;
 }
 
@@ -376,7 +376,7 @@ void FlowMgr::Impl::runScript() {
         return;
     }
     try {
-        tcl::TclMgr::instance().loadScript(options.tclFile);
+        tcl::TclMgr::getInstance().loadScript(options.tclFile);
     } catch (const tcl::Error &error) {
         ktlog.fatal("{}: {}", options.tclFile, error.what());
     }
@@ -388,9 +388,9 @@ void FlowMgr::Impl::preparePlots() {
     }
     plotsReady = true;
     plot = PlotOptions::fromOptions(options.getPlotDir());
-    Visualizer::instance().configure(plot.dir, plot);
-    if (plot.enabled()) {
-        snapshots = std::make_unique<SnapshotWriter>(snapshotFile(plot.dir));
+    Visualizer::getInstance().configure(plot.dir, plot);
+    if (plot.isEnabled()) {
+        snapshots = std::make_unique<SnapshotWriter>(getSnapshotFile(plot.dir));
         snapshots->holdBack(plot.frameBudget * 2 / 5);
     }
 }
@@ -399,22 +399,22 @@ template <class Stage, class Solution>
 void FlowMgr::Impl::runStage(Stage &stage, void (ktDM::*apply)(const Solution &),
                              std::string_view name) {
     (void)stage.run();
-    ((*db).*apply)(stage.solution());
+    ((*db).*apply)(stage.getSolution());
     commit(name);
 }
 
 void FlowMgr::Impl::runGlobalPlacement() {
     ScopedTimer timer("global placement", true);
-    const GlobalPlacer placer = chosenGlobalPlacer();
+    const GlobalPlacer placer = getChosenGlobalPlacer();
     preparePlots();
 
     switch (placer) {
         case GlobalPlacer::Simpl: {
             simpl::flowMgr stage(*db);
-            if (recordStage(stage.dm(), snapshots.get(), observer, {"simpl", "simpl", 0})) {
-                recordSimplBounds(stage.dm(), *snapshots);
+            if (recordStage(stage.getDm(), snapshots.get(), observer, {"simpl", "simpl", 0})) {
+                recordSimplBounds(stage.getDm(), *snapshots);
             }
-            if (!stage.dm().options().fences) {
+            if (!stage.getDm().getOptions().fences) {
                 ktlog.echo("SimPL: fence enforcement disabled by 'add_option simpl fences 0'");
             }
             runStage(stage, &ktDM::setSimplSolution, "global placement");
@@ -435,16 +435,16 @@ void FlowMgr::Impl::runLegalization() {
         snapshots->holdBack(0);
     }
 
-    if (const std::size_t tall = db->multiRowCells(); tall > 0) {
+    if (const std::size_t tall = db->getMultiRowCells(); tall > 0) {
         multirow::flowMgr stage(*db);
         ktlog.echo("multi-row legalization ({} cell(s) taller than a row)", tall);
-        recordStage(stage.dm(), snapshots.get(), observer, {"legalize_multi", "", 0});
+        recordStage(stage.getDm(), snapshots.get(), observer, {"legalize_multi", "", 0});
         runStage(stage, &ktDM::setMultiRowSolution, "legalization");
         return;
     }
 
     abacus::flowMgr stage(*db);
-    recordStage(stage.dm(), snapshots.get(), observer, {"legalize", "", 0});
+    recordStage(stage.getDm(), snapshots.get(), observer, {"legalize", "", 0});
     runStage(stage, &ktDM::setAbacusSolution, "legalization");
 }
 
@@ -452,7 +452,7 @@ void FlowMgr::Impl::runDetailedPlacement() {
     ScopedTimer timer("detailed placement", true);
     preparePlots();
     fastdp::flowMgr stage(*db);
-    recordStage(stage.dm(), snapshots.get(), observer, {"detailplace", "", 0});
+    recordStage(stage.getDm(), snapshots.get(), observer, {"detailplace", "", 0});
     runStage(stage, &ktDM::setFastdpSolution, "detailed placement");
 }
 
@@ -479,16 +479,16 @@ void FlowMgr::Impl::drawPictures() {
     ktlog.beginStep("draw");
     ScopedTimer timer("draw", true);
     snapshots->close();
-    ktlog.echo("replaying {} recorded snapshot(s)", snapshots->frameCount());
-    (void)replaySnapshots(snapshots->path(), Visualizer::instance(), db->getGraph(),
-                          &db->constraints());
-    Visualizer::instance().finalImage(db->getGraph(), &db->constraints(), db->hpwl());
+    ktlog.echo("replaying {} recorded snapshot(s)", snapshots->getFrameCount());
+    (void)replaySnapshots(snapshots->getPath(), Visualizer::getInstance(), db->getGraph(),
+                          &db->getConstraints());
+    Visualizer::getInstance().finalImage(db->getGraph(), &db->getConstraints(), db->getHpwl());
     finishAnimation();
     if (plot.keepSnapshots) {
-        ktlog.echo("Kept the recorded snapshots: {}", snapshots->path());
+        ktlog.echo("Kept the recorded snapshots: {}", snapshots->getPath());
     } else {
         std::error_code ec;
-        std::filesystem::remove(snapshots->path(), ec);
+        std::filesystem::remove(snapshots->getPath(), ec);
     }
     snapshots.reset();
     plotsReady = false;
@@ -496,25 +496,26 @@ void FlowMgr::Impl::drawPictures() {
 
 void FlowMgr::Impl::finishAnimation() {
     const Graph &graph = db->getGraph();
-    Visualizer &viz = Visualizer::instance();
-    const bool written =
-        viz.finish(graph, cellCoordinates(graph, &Vertex::x), cellCoordinates(graph, &Vertex::y),
-                   db->placementDieBox(), &db->constraints(), db->hpwl());
+    Visualizer &viz = Visualizer::getInstance();
+    const bool written = viz.finish(graph, getCellCoordinates(graph, &Vertex::x),
+                                    getCellCoordinates(graph, &Vertex::y), db->getPlacementDieBox(),
+                                    &db->getConstraints(), db->getHpwl());
     if (written) {
         ktlog.echo(
             "animation: {} frames -> {}/placement.gif (global placement, then "
             "legalization, then detailed placement)",
-            viz.frameCount(), viz.directory());
+            viz.getFrameCount(), viz.getDirectory());
     } else {
         ktlog.echo(
             "animation: {} frame(s) recorded, no GIF written (one animation needs at "
             "least two frames)",
-            viz.frameCount());
+            viz.getFrameCount());
     }
 }
 
 void FlowMgr::Impl::commit(std::string_view stage) {
-    committed.push_back({std::string(stage), ktlog.currentStep(), db->hpwl(), db->checksum()});
+    committed.push_back(
+        {std::string(stage), ktlog.getCurrentStep(), db->getHpwl(), db->getChecksum()});
     const Committed &entry = committed.back();
     ktlog.echo("committed to ktDM: HPWL {:.6e}, checksum {:08x}", entry.hpwl, entry.checksum);
     if (observer.committed) {
@@ -530,7 +531,7 @@ void FlowMgr::Impl::reportSummary() const {
     table.setHeaders({"stage", "HPWL", "change", "wall", "cpu", "ktDM"});
     for (std::size_t i = 0; i < committed.size(); ++i) {
         const Committed &entry = committed[i];
-        const TimerStats *time = TimerRegistry::instance().find(entry.stage);
+        const TimerStats *time = TimerRegistry::getInstance().find(entry.stage);
         const double before = i > 0 ? committed[i - 1].hpwl : 0.0;
         table.addRow({entry.step == entry.stage ? entry.stage
                                                 : std::format("{} ({})", entry.stage, entry.step),

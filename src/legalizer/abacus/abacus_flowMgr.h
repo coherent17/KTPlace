@@ -9,12 +9,12 @@ class flowMgr {
 public:
     explicit flowMgr(const ktDM &db);
 
-    [[nodiscard]] abacusDM &dm() noexcept {
+    [[nodiscard]] abacusDM &getDm() noexcept {
         return abacusDb;
     }
 
     AbacusResult run();
-    [[nodiscard]] abacusSolution solution() const;
+    [[nodiscard]] abacusSolution getSolution() const;
 
 private:
     abacusDM abacusDb;

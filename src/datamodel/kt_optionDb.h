@@ -39,7 +39,7 @@ static_assert(componentNames.size() == std::to_underlying(Component::Flow) + 1);
     return componentNames[std::to_underlying(component)];
 }
 
-[[nodiscard]] std::optional<Component> componentFromName(std::string_view name) noexcept;
+[[nodiscard]] std::optional<Component> getComponentFromName(std::string_view name) noexcept;
 
 using OptionValue = std::variant<int, bool, double, std::string>;
 using OptionMap = std::map<std::string, OptionValue, std::less<>>;
@@ -80,7 +80,7 @@ template <OptionType T>
 }
 
 template <OptionType T>
-[[nodiscard]] constexpr std::string_view optionTypeName() noexcept {
+[[nodiscard]] constexpr std::string_view getOptionTypeName() noexcept {
     if constexpr (std::same_as<T, int>) {
         return "int";
     } else if constexpr (std::same_as<T, bool>) {
@@ -98,7 +98,7 @@ class ComponentOptions {
 public:
     explicit ComponentOptions(Component component, OptionMap configured = {});
 
-    [[nodiscard]] Component component() const noexcept {
+    [[nodiscard]] Component getComponent() const noexcept {
         return id;
     }
     [[nodiscard]] bool empty() const noexcept {
@@ -120,7 +120,7 @@ public:
         }
         std::optional<T> typed = convertOption<T>(found->second);
         if (!typed) {
-            warnWrongType(key, found->second, optionTypeName<T>());
+            warnWrongType(key, found->second, getOptionTypeName<T>());
         }
         return typed;
     }
@@ -135,7 +135,7 @@ private:
 
 class OptionDb {
 public:
-    static OptionDb &instance();
+    static OptionDb &getInstance();
 
     void set(Component component, std::string key, OptionValue value);
     void clear() noexcept;
@@ -167,7 +167,8 @@ concept ComponentOptionSet = requires {
 
 template <ComponentOptionSet Options>
 [[nodiscard]] Options loadOptions() {
-    const ComponentOptions configured = OptionDb::instance().getComponentOption(Options::component);
+    const ComponentOptions configured =
+        OptionDb::getInstance().getComponentOption(Options::component);
     Options out;
     std::apply(
         [&](const auto &...key) {

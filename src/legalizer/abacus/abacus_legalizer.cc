@@ -26,10 +26,10 @@ struct Span {
     double a = 0.0;
     double b = 0.0;
 
-    [[nodiscard]] double costAt(double pos) const {
+    [[nodiscard]] double getCostAt(double pos) const {
         return n * pos * pos + 2.0 * a * pos + b;
     }
-    [[nodiscard]] double ideal() const {
+    [[nodiscard]] double getIdeal() const {
         return n > 0.0 ? -a / n : 0.0;
     }
     void append(const Span &right) {
@@ -60,10 +60,10 @@ struct Segment {
     std::vector<Cluster> clusters;
     double used = 0.0;
 
-    [[nodiscard]] double width() const {
+    [[nodiscard]] double getWidth() const {
         return xhi - xlo;
     }
-    [[nodiscard]] double free() const {
+    [[nodiscard]] double getFree() const {
         return xhi - used;
     }
 };
@@ -74,10 +74,10 @@ struct RowTrack {
     double siteWidth = 1.0;
     std::vector<Segment> subrows;
 
-    [[nodiscard]] double capacity() const {
+    [[nodiscard]] double getCapacity() const {
         double t = 0.0;
         for (const Segment &sr : subrows) {
-            t += sr.free();
+            t += sr.getFree();
         }
         return t;
     }
@@ -103,10 +103,11 @@ private:
                                     std::size_t frameInterval);
     void placedPositions(const std::vector<RowTrack> &rows, bool mirrored, std::vector<double> &xs,
                          std::vector<double> &ys) const;
-    [[nodiscard]] Trial trial(const Segment &sr, double grid, std::size_t i,
-                              const std::vector<double> &sortKey) const;
+    [[nodiscard]] Trial getTrial(const Segment &sr, double grid, std::size_t i,
+                                 const std::vector<double> &sortKey) const;
     void commit(Segment &sr, std::size_t i, const Trial &t);
-    [[nodiscard]] double hpwlOf(const std::vector<double> &x, const std::vector<double> &y) const;
+    [[nodiscard]] double getHpwlOf(const std::vector<double> &x,
+                                   const std::vector<double> &y) const;
     void writeFrame(const std::vector<double> &xs, const std::vector<double> &ys,
                     const std::string &note, std::size_t step, std::size_t total) const;
     void selfCheck(AbacusResult &res) const;
@@ -133,7 +134,7 @@ std::vector<RowTrack> AbacusLegalizer::Impl::buildRows(bool mirrored) const {
         RowTrack r;
         r.y = ri.coordinate;
         r.height = ri.height;
-        r.siteWidth = ri.pitch();
+        r.siteWidth = ri.getPitch();
         if (!(r.siteWidth > 0.0)) {
             r.siteWidth = 1.0;
         }
@@ -210,7 +211,7 @@ std::vector<RowTrack> AbacusLegalizer::Impl::buildRows(bool mirrored) const {
     for (RowTrack &r : rows) {
         std::vector<Segment> kept;
         for (Segment &piece : r.subrows) {
-            if (piece.width() >= r.siteWidth * minSubrowSites) {
+            if (piece.getWidth() >= r.siteWidth * minSubrowSites) {
                 kept.push_back(std::move(piece));
             }
         }
@@ -219,10 +220,10 @@ std::vector<RowTrack> AbacusLegalizer::Impl::buildRows(bool mirrored) const {
     return rows;
 }
 
-Trial AbacusLegalizer::Impl::trial(const Segment &sr, double grid, std::size_t i,
-                                   const std::vector<double> &sortKey) const {
+Trial AbacusLegalizer::Impl::getTrial(const Segment &sr, double grid, std::size_t i,
+                                      const std::vector<double> &sortKey) const {
     const auto position = [&](const Span &span) {
-        double x = std::clamp(span.ideal(), sr.xlo, std::max(sr.xlo, sr.xhi - span.w));
+        double x = std::clamp(span.getIdeal(), sr.xlo, std::max(sr.xlo, sr.xhi - span.w));
         if (grid > 0.0) {
             x = std::round(x / grid) * grid;
             if (x + span.w > sr.xhi + 1e-9) {
@@ -241,7 +242,7 @@ Trial AbacusLegalizer::Impl::trial(const Segment &sr, double grid, std::size_t i
     double x = position(span);
     while (first > 0 && sr.clusters[first - 1].x + sr.clusters[first - 1].span.w > x + 1e-9) {
         const Cluster &prev = sr.clusters[first - 1];
-        before += prev.span.costAt(prev.x);
+        before += prev.span.getCostAt(prev.x);
         Span merged = prev.span;
         merged.append(span);
         span = merged;
@@ -251,7 +252,7 @@ Trial AbacusLegalizer::Impl::trial(const Segment &sr, double grid, std::size_t i
     if (x < sr.xlo - 1e-9 || x + span.w > sr.xhi + 1e-9) {
         return {};
     }
-    return {span.costAt(x) - before, first, x, span};
+    return {span.getCostAt(x) - before, first, x, span};
 }
 
 void AbacusLegalizer::Impl::commit(Segment &sr, std::size_t i, const Trial &t) {
@@ -268,9 +269,9 @@ void AbacusLegalizer::Impl::commit(Segment &sr, std::size_t i, const Trial &t) {
     sr.used = t.x + t.span.w;
 }
 
-double AbacusLegalizer::Impl::hpwlOf(const std::vector<double> &x,
-                                     const std::vector<double> &y) const {
-    return netHpwl(
+double AbacusLegalizer::Impl::getHpwlOf(const std::vector<double> &x,
+                                        const std::vector<double> &y) const {
+    return getNetHpwl(
         design.nets.size(),
         [this](std::size_t n) {
             return design.nets[n];
@@ -299,8 +300,8 @@ void AbacusLegalizer::Impl::writeFrame(const std::vector<double> &xs, const std:
         info.note = note;
         info.step = step;
         info.numSteps = total;
-        info.hpwl = hpwlOf(xs, ys);
-        info.hpwlInitial = hpwlOf(targetX, targetY);
+        info.hpwl = getHpwlOf(xs, ys);
+        info.hpwlInitial = getHpwlOf(targetX, targetY);
         info.mandatory = true;
         design.onFrame(fx, fy, info);
     }
@@ -397,7 +398,7 @@ AbacusResult AbacusLegalizer::Impl::run(const AbacusOptions &params) {
     if (mov.empty()) {
         return res;
     }
-    res.hpwlBefore = hpwlOf(liveX, liveY);
+    res.hpwlBefore = getHpwlOf(liveX, liveY);
 
     tracks = buildRows(false);
     if (tracks.empty()) {
@@ -439,7 +440,7 @@ AbacusResult AbacusLegalizer::Impl::run(const AbacusOptions &params) {
         res.totalSquaredDisplacement += dx * dx + dy * dy;
         res.maxDisplacement = std::max(res.maxDisplacement, std::sqrt(dx * dx + dy * dy));
     }
-    res.hpwlAfter = hpwlOf(liveX, liveY);
+    res.hpwlAfter = getHpwlOf(liveX, liveY);
 
     design.cells.x = liveX;
     design.cells.y = liveY;
@@ -448,7 +449,7 @@ AbacusResult AbacusLegalizer::Impl::run(const AbacusOptions &params) {
         writeFrame(liveX, liveY, "Legal placement", chosen.placed, mov.size());
     }
     selfCheck(res);
-    res.seconds = timer.elapsedSeconds();
+    res.seconds = timer.getElapsedSeconds();
     return res;
 }
 
@@ -528,7 +529,7 @@ AbacusLegalizer::Impl::Pass AbacusLegalizer::Impl::legalizePass(const AbacusOpti
             for (std::size_t si = 0; si < track.subrows.size(); ++si) {
                 const Segment &sr = track.subrows[si];
                 if (cellH[i] > track.height + 1e-9 || sr.region != cellRegion[i] ||
-                    cellW[i] > sr.width() + 1e-9) {
+                    cellW[i] > sr.getWidth() + 1e-9) {
                     continue;
                 }
                 const double dx = (sortKey[i] < sr.xlo) ? (sr.xlo - sortKey[i])
@@ -538,7 +539,7 @@ AbacusLegalizer::Impl::Pass AbacusLegalizer::Impl::legalizePass(const AbacusOpti
                 if (dx * dx + dy * dy >= bestCost) {
                     continue;
                 }
-                const Trial t = trial(sr, track.siteWidth, i, sortKey);
+                const Trial t = getTrial(sr, track.siteWidth, i, sortKey);
                 if (!std::isfinite(t.delta)) {
                     continue;
                 }

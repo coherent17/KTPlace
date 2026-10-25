@@ -224,20 +224,20 @@ Residuals solveBothAxes(const SparseSystem &sysX, std::vector<double> &x, const 
             ax.r[i] = sys.rhs[i] - ax.ap[i];
             ax.z[i] = ax.r[i] / sys.diag[i];
         });
-        ax.bNorm = std::sqrt(dot(sys.rhs, sys.rhs));
+        ax.bNorm = std::sqrt(getDot(sys.rhs, sys.rhs));
         if (!(ax.bNorm > 0.0)) {
             return;
         }
         ax.p = ax.z;
-        ax.rho = dot(ax.r, ax.z);
-        ax.resid = std::sqrt(dot(ax.r, ax.r)) / ax.bNorm;
+        ax.rho = getDot(ax.r, ax.z);
+        ax.resid = std::sqrt(getDot(ax.r, ax.r)) / ax.bNorm;
         ax.active = true;
     };
 
     const auto step = [](Axis &ax) {
         const SparseSystem &sys = *ax.sys;
         sys.multiply(ax.p, ax.ap);
-        const double pap = dot(ax.p, ax.ap);
+        const double pap = getDot(ax.p, ax.ap);
         if (!(pap > 0.0)) {
             return false;
         }
@@ -247,8 +247,8 @@ Residuals solveBothAxes(const SparseSystem &sysX, std::vector<double> &x, const 
             ax.r[i] -= a * ax.ap[i];
             ax.z[i] = ax.r[i] / sys.diag[i];
         });
-        ax.resid = std::sqrt(dot(ax.r, ax.r)) / ax.bNorm;
-        const double rhoNext = dot(ax.r, ax.z);
+        ax.resid = std::sqrt(getDot(ax.r, ax.r)) / ax.bNorm;
+        const double rhoNext = getDot(ax.r, ax.z);
         if (!(rhoNext > 0.0)) {
             return false;
         }

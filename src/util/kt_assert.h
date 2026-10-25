@@ -16,16 +16,16 @@ public:
           functionName(func),
           conditionText(expr) {}
 
-    [[nodiscard]] const char *file() const {
+    [[nodiscard]] const char *getFile() const {
         return sourceFile;
     }
-    [[nodiscard]] int line() const {
+    [[nodiscard]] int getLine() const {
         return sourceLine;
     }
-    [[nodiscard]] const char *function() const {
+    [[nodiscard]] const char *getFunction() const {
         return functionName;
     }
-    [[nodiscard]] const char *expression() const {
+    [[nodiscard]] const char *getExpression() const {
         return conditionText;
     }
 

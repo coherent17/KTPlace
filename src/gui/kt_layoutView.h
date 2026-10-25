@@ -24,20 +24,20 @@ public:
     LayoutView &operator=(const LayoutView &) = delete;
 
     void setFrame(LayoutFrame frame);
-    [[nodiscard]] const LayoutFrame &frame() const;
+    [[nodiscard]] const LayoutFrame &getFrame() const;
 
-    [[nodiscard]] SelectionSet &selection();
-    [[nodiscard]] const SelectionSet &selection() const;
+    [[nodiscard]] SelectionSet &getSelection();
+    [[nodiscard]] const SelectionSet &getSelection() const;
     void selectAt(QPointF screen, bool additive = false);
-    [[nodiscard]] std::optional<std::uint32_t> selectedCell() const;
+    [[nodiscard]] std::optional<std::uint32_t> getSelectedCell() const;
     std::size_t showConnectivity();
     void hideConnectivity();
 
-    [[nodiscard]] const DisplayStyle &style() const;
+    [[nodiscard]] const DisplayStyle &getStyle() const;
     void setStyle(const DisplayStyle &newStyle);
     void onStyleChanged(std::function<void(const DisplayStyle &)> listener);
     void showCongestion(bool on, std::size_t binsAcross = 256);
-    [[nodiscard]] bool showingCongestion() const;
+    [[nodiscard]] bool isShowingCongestion() const;
 
     void zoomFit();
     void zoomTo(const Bounds &area);
@@ -46,8 +46,8 @@ public:
     void onCursorMoved(std::function<void(std::optional<QPointF>)> listener);
     [[nodiscard]] QImage capture();
 
-    [[nodiscard]] QPointF worldToScreen(QPointF world) const;
-    [[nodiscard]] QPointF screenToWorld(QPointF screen) const;
+    [[nodiscard]] QPointF getWorldToScreen(QPointF world) const;
+    [[nodiscard]] QPointF getScreenToWorld(QPointF screen) const;
 
 protected:
     void paintEvent(QPaintEvent *event) override;

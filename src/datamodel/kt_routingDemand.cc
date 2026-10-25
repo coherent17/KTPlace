@@ -32,11 +32,11 @@ NetlistPins NetlistPins::of(const Graph &graph) {
     return pins;
 }
 
-RoutingDemand routingDemand(std::span<const std::uint32_t> netPinStart,
-                            std::span<const std::uint32_t> pinCell, std::span<const float> pinDx,
-                            std::span<const float> pinDy, std::span<const float> x,
-                            std::span<const float> y, const std::array<double, 4> &die,
-                            std::size_t binsAcross) {
+RoutingDemand getRoutingDemand(std::span<const std::uint32_t> netPinStart,
+                               std::span<const std::uint32_t> pinCell, std::span<const float> pinDx,
+                               std::span<const float> pinDy, std::span<const float> x,
+                               std::span<const float> y, const std::array<double, 4> &die,
+                               std::size_t binsAcross) {
     RoutingDemand map;
     const double spanX = std::max(die[2] - die[0], 1e-9);
     const double spanY = std::max(die[3] - die[1], 1e-9);
@@ -127,7 +127,7 @@ RoutingDemand routingDemand(std::span<const std::uint32_t> netPinStart,
     return map;
 }
 
-std::array<std::uint8_t, 4> demandColour(float scaled) {
+std::array<std::uint8_t, 4> getDemandColour(float scaled) {
     const float v = std::clamp(scaled, 0.0F, 1.0F);
     struct Stop {
         float at;

@@ -16,7 +16,7 @@ public:
     void addRow(std::vector<std::string> cells);
 
     template <typename... Args>
-    void row(std::format_string<Args...> fmtStr, Args &&...args) {
+    void getRow(std::format_string<Args...> fmtStr, Args &&...args) {
         addRow({std::format(fmtStr, std::forward<Args>(args)...)});
     }
 

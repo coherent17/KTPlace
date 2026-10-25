@@ -10,8 +10,8 @@
 namespace ktplace {
 
 template <typename NetPins, typename PinPosition>
-[[nodiscard]] double netHpwl(std::size_t numNets, NetPins netPins, PinPosition pinPosition) {
-    return orderedSum(numNets, [&](std::size_t n) {
+[[nodiscard]] double getNetHpwl(std::size_t numNets, NetPins netPins, PinPosition pinPosition) {
+    return getOrderedSum(numNets, [&](std::size_t n) {
         decltype(auto) pins = netPins(n);
         if (std::ranges::size(pins) < 2) {
             return 0.0;

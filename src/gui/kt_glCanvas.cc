@@ -144,7 +144,7 @@ bool isSoftwareRenderer(std::string_view renderer) {
            renderer.contains("SwiftShader");
 }
 
-QSurfaceFormat baseFormat() {
+QSurfaceFormat getBaseFormat() {
     QSurfaceFormat format;
     format.setVersion(3, 3);
     format.setProfile(QSurfaceFormat::CoreProfile);
@@ -159,7 +159,7 @@ struct GlSupport {
 
 GlSupport probeSupport() {
     QOpenGLContext context;
-    context.setFormat(baseFormat());
+    context.setFormat(getBaseFormat());
     if (!context.create()) {
         return {};
     }
@@ -178,18 +178,18 @@ GlSupport probeSupport() {
     return support;
 }
 
-const GlSupport &glSupport() {
+const GlSupport &getGlSupport() {
     static const GlSupport support = probeSupport();
     return support;
 }
 
-QSurfaceFormat canvasFormat() {
-    QSurfaceFormat format = baseFormat();
-    format.setSamples(glSupport().software ? 0 : 4);
+QSurfaceFormat getCanvasFormat() {
+    QSurfaceFormat format = getBaseFormat();
+    format.setSamples(getGlSupport().software ? 0 : 4);
     return format;
 }
 
-QVector4D rgba(const QColor &color, float alpha = 1.0F) {
+QVector4D getRgba(const QColor &color, float alpha = 1.0F) {
     return {static_cast<float>(color.redF()), static_cast<float>(color.greenF()),
             static_cast<float>(color.blueF()), alpha};
 }
@@ -197,7 +197,7 @@ QVector4D rgba(const QColor &color, float alpha = 1.0F) {
 }  // namespace
 
 GlCanvas::GlCanvas(QWidget *parent) : QOpenGLWidget(parent) {
-    setFormat(canvasFormat());
+    setFormat(getCanvasFormat());
     setAttribute(Qt::WA_TransparentForMouseEvents);
     setFocusPolicy(Qt::NoFocus);
     connect(this, &QOpenGLWidget::frameSwapped, this, [this] {
@@ -224,15 +224,15 @@ GlCanvas::~GlCanvas() {
     doneCurrent();
 }
 
-bool GlCanvas::available() {
+bool GlCanvas::isAvailable() {
     if (QGuiApplication::platformName() == QStringLiteral("offscreen")) {
         return false;
     }
-    return glSupport().usable;
+    return getGlSupport().usable;
 }
 
 void GlCanvas::setFrame(const LayoutFrame &frame) {
-    if (!frame.drawable()) {
+    if (!frame.isDrawable()) {
         geometry.reset();
         update();
         return;
@@ -479,27 +479,27 @@ void GlCanvas::paintGL() {
     std::array<QVector4D, kinds> edges{};
     for (const CellSlot &slot : cellSlots) {
         const QColor color = style[slot.layer].color;
-        fills[slot.shaderKind] = rgba(color);
-        edges[slot.shaderKind] = rgba(color.darker(edgeDarkening));
+        fills[slot.shaderKind] = getRgba(color);
+        edges[slot.shaderKind] = getRgba(color.darker(edgeDarkening));
     }
-    fills[DieFill] = rgba(background);
-    edges[DieFill] = rgba(background);
-    fills[Row] = rgba(style[DisplayLayer::Rows].color);
+    fills[DieFill] = getRgba(background);
+    edges[DieFill] = getRgba(background);
+    fills[Row] = getRgba(style[DisplayLayer::Rows].color);
     edges[Row] = fills[Row];
-    fills[DieEdge] = rgba(background, 0.0F);
-    edges[DieEdge] = rgba(style[DisplayLayer::Die].color);
+    fills[DieEdge] = getRgba(background, 0.0F);
+    edges[DieEdge] = getRgba(style[DisplayLayer::Die].color);
     program->setUniformValueArray("fill", fills.data(), kinds);
     program->setUniformValueArray("edge", edges.data(), kinds);
 
     glBindVertexArray(vao);
-    if (style.shows(DisplayLayer::Die)) {
+    if (style.isShown(DisplayLayer::Die)) {
         drawRange(ranges[dieFillRange]);
     }
-    if (style.shows(DisplayLayer::Rows) && rowHeight * deviceScale >= visibleRowPx * dpr) {
+    if (style.isShown(DisplayLayer::Rows) && rowHeight * deviceScale >= visibleRowPx * dpr) {
         drawRange(ranges[rowRange]);
     }
     for (const CellSlot &slot : cellSlots) {
-        if (!style.shows(slot.layer)) {
+        if (!style.isShown(slot.layer)) {
             continue;
         }
         if (slot.range == movableRange) {
@@ -508,7 +508,7 @@ void GlCanvas::paintGL() {
             drawRange(ranges[slot.range]);
         }
     }
-    if (style.shows(DisplayLayer::Die)) {
+    if (style.isShown(DisplayLayer::Die)) {
         drawRange(ranges[dieEdgeRange]);
     }
     glBindVertexArray(0);

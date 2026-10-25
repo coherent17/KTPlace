@@ -41,7 +41,7 @@ void CommandHistory::add(const std::string &command) {
     }
 }
 
-std::string CommandHistory::defaultFile() {
+std::string CommandHistory::getDefaultFile() {
     const char *home = std::getenv("HOME");
     if (home == nullptr || *home == '\0') {
         return {};

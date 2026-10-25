@@ -9,12 +9,12 @@ class flowMgr {
 public:
     explicit flowMgr(const ktDM &db);
 
-    [[nodiscard]] multirowDM &dm() noexcept {
+    [[nodiscard]] multirowDM &getDm() noexcept {
         return multirowDb;
     }
 
     MultiRowResult run();
-    [[nodiscard]] multiRowSolution solution() const;
+    [[nodiscard]] multiRowSolution getSolution() const;
 
 private:
     multirowDM multirowDb;

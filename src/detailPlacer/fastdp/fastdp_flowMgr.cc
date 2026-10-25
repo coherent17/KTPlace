@@ -8,8 +8,8 @@ void flowMgr::run() {
     fastdpDb.run();
 }
 
-fastdpSolution flowMgr::solution() const {
-    return fastdpDb.solution();
+fastdpSolution flowMgr::getSolution() const {
+    return fastdpDb.getSolution();
 }
 
 }  // namespace ktplace::fastdp
