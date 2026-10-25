@@ -8,6 +8,8 @@ Plain GNU make, C++23 with g++ 13+. oneTBB, zlib and CImg are git submodules und
 
 ```sh
 make -j"$(nproc)"          # build/bin/ktplace, and copies ktplace.sh/.csh to the repo root
+make clean                 # every build tree (build/, build-static/, build-cov/), the env wrappers and site/
+make distclean             # also compile_commands.json, clangd's .cache/, .venv/ and __pycache__/
 make -j"$(nproc)" test     # build and run every Boost.Test suite (alias: make check)
 make format                # clang-format -i on every tracked src/*.cc, src/*.h
 make format-check          # what CI checks; it fails on any unformatted file

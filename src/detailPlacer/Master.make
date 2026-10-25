@@ -9,7 +9,7 @@
 CXX ?= g++
 CXXFLAGS ?= -std=c++23 -Wall -Wextra -O2 -g -pthread
 override INCLUDES := -I.. $(THIRD_PARTY_INCLUDES)
-OBJ_DIR ?= ../build/obj/detailPlacer
+OBJ_DIR ?= ../../build/obj/detailPlacer
 
 # Source files in this directory
 SRCS := fastdp/fastdp_placer.cc fastdp/fastdp_dm.cc \

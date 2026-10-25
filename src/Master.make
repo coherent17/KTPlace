@@ -123,8 +123,9 @@ LOCAL_OBJS := $(LOCAL_SRCS:%.cc=$(OBJ_DIR)/%.o)
 # MAKEFLAGS is cleared for these. $(MAKE) inside $(shell ...) is not handed the
 # jobserver, so every one of them announced "jobserver unavailable: using -j1"
 # -- once per subdirectory, on every build. The target only echoes a list of
-# paths, so dropping -j along with the warning costs nothing. The builds
-# themselves go through the recipe at line 103, which does get the jobserver.
+# paths, so dropping -j along with the warning costs nothing. The objects
+# themselves are compiled by the $(OBJ_DIR)/%.o rule below, which does get the
+# jobserver.
 SUBDIR_OBJS := $(foreach dir,$(SUBDIRS),$(shell MAKEFLAGS= $(MAKE) -s -C $(dir) -f Master.make objlist OBJ_DIR=$(OBJ_DIR)/$(dir)))
 
 # All object files
@@ -156,7 +157,7 @@ endif
 # Phony targets
 # ============================================================================
 
-.PHONY: all clean rebuild lib test test-build check $(SUBDIRS) dirs help print-subdirs
+.PHONY: all clean rebuild lib test test-build check dirs help print-subdirs
 
 .DEFAULT_GOAL := all
 
@@ -167,20 +168,15 @@ endif
 print-subdirs:
 	@for d in $(SUBDIRS); do echo $$d; done
 
-all: dirs $(SUBDIRS) $(TARGET) env
+all: dirs $(TARGET) env
 
 # Static library
-lib: dirs $(SUBDIRS) $(STATIC_LIB)
+lib: dirs $(STATIC_LIB)
 
 # Create necessary directories
 dirs:
 	@mkdir -p $(OBJ_DIR) $(BIN_DIR) $(LIB_DIR)
 	@mkdir -p $(foreach dir,$(SUBDIRS),$(OBJ_DIR)/$(dir))
-
-# Build subdirectories
-$(SUBDIRS):
-	@echo "Building $@..."
-	@$(MAKE) -C $@ -f Master.make OBJ_DIR=$(OBJ_DIR)/$@ INCLUDES="$(INCLUDES)" THIRD_PARTY_INCLUDES="$(THIRD_PARTY_INCLUDES)" CXX="$(CXX)" CXXFLAGS="$(CXXFLAGS)"
 
 # Main executable
 $(TARGET): $(LIB_OBJS) $(OBJ_DIR)/kt_place.o $(FRONT_OBJS) $(BUNDLED_LIBS) $(GUI_STAMP) | dirs
@@ -412,13 +408,12 @@ coverage-clean:
 	@rm -rf $(BUILD_DIR)-cov
 
 # Clean
+# The env wrappers point at $(BIN_DIR)/ktplace, so leaving them behind would
+# leave a ktplace.sh that reports a missing binary until the next build.
 clean:
-	@echo "Cleaning..."
-	# The env wrappers point at $(BIN_DIR)/ktplace, so leaving them behind would
-	# leave a ktplace.sh that reports a missing binary until the next build.
+	@echo "Cleaning $(BUILD_DIR)..."
 	@rm -f $(ENV_SCRIPTS)
 	@rm -rf $(BUILD_DIR)
-	@$(foreach dir,$(SUBDIRS),$(MAKE) -C $(dir) -f Master.make clean;)
 
 # Rebuild
 rebuild: clean all

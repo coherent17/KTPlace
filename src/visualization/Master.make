@@ -13,7 +13,7 @@ CXXFLAGS ?= -std=c++23 -Wall -Wextra -O2 -g -pthread
 # is running in.  `override` is required because the parent makefile
 # passes INCLUDES on the command line.
 override INCLUDES := -I.. $(THIRD_PARTY_INCLUDES)
-OBJ_DIR ?= ../build/obj/visualization
+OBJ_DIR ?= ../../build/obj/visualization
 
 # CImg is vendored in this directory and reached through the -I.. above; it is
 # header-only, and the parent Makefile already links -lz for its PNG support.
