@@ -53,7 +53,7 @@ To build the site locally:
 
 ```sh
 python3 -m venv .venv && .venv/bin/pip install -r docs/requirements.txt
-.venv/bin/mkdocs serve        # http://127.0.0.1:8000, rebuilds on every save
+.venv/bin/mkdocs serve        # http://127.0.0.1:8000/KTPlace/, reloads on every save
 .venv/bin/mkdocs build --strict
 ```
 
