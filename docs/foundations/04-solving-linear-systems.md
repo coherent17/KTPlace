@@ -45,6 +45,27 @@ $$
 \Phi(\vec x + t\vec p) = \Phi(\vec x) - t\,\vec p^T\vec r + \tfrac12 t^2\,\vec p^TQ\vec p
 $$
 
+<details class="info" markdown>
+<summary>Where does this parabola come from?</summary>
+
+Put $\vec x + t\vec p$ into $\Phi(\vec x) = \tfrac12\vec x^TQ\vec x - \vec b^T\vec x$ and
+multiply out:
+
+$$
+\Phi(\vec x + t\vec p) = \tfrac12\vec x^TQ\vec x + \tfrac12 t\,\vec x^TQ\vec p + \tfrac12 t\,\vec p^TQ\vec x + \tfrac12 t^2\,\vec p^TQ\vec p - \vec b^T\vec x - t\,\vec b^T\vec p
+$$
+
+$Q$ is symmetric, so $\vec x^TQ\vec p = \vec p^TQ\vec x$ and the two middle terms add up
+to $t\,\vec p^TQ\vec x$. Group the terms by powers of $t$:
+
+$$
+\Phi(\vec x + t\vec p) = \underbrace{\tfrac12\vec x^TQ\vec x - \vec b^T\vec x}_{\Phi(\vec x)} + t\,\vec p^T(Q\vec x - \vec b) + \tfrac12 t^2\,\vec p^TQ\vec p
+$$
+
+and $Q\vec x - \vec b = -\vec r$, which gives the formula above.
+
+</details>
+
 Its derivative in $t$ is $-\vec p^T\vec r + t\,\vec p^TQ\vec p$, zero at
 
 $$
@@ -125,6 +146,44 @@ CG.
 > - The residual $\vec r = \vec b - Q\vec x$ is the force still acting on each cell; it is zero at the solution.
 > - Conjugate gradient walks downhill along directions that do not undo each other.
 > - The condition number $\kappa$ measures how stretched the bowl is; the Jacobi preconditioner (divide by the diagonal) makes it rounder.
+
+### Exercises
+
+**1.** Take the system of Foundations chapter 3, exercise 2: $2x_1 - x_2 = 0$, $-x_1 + 3x_2 = 18$. Starting from $(0, 0)$, do three Jacobi steps.
+
+<details class="success" markdown>
+<summary>Answer</summary>
+
+Each step sets $x_1 = x_2/2$ and $x_2 = (18 + x_1)/3$, using the old values. Step 1: $(0, 6)$. Step 2: $(3, 6)$. Step 3: $(3, 7)$. It is heading for the solution $(3.6, 7.2)$.
+
+</details>
+
+**2.** For the same system, what is the residual at $\vec x = (3, 6)$, and what does it mean?
+
+<details class="success" markdown>
+<summary>Answer</summary>
+
+$Q\vec x = [2\cdot3 - 6,\ -3 + 3\cdot6] = [0, 15]$, so $\vec r = \vec b - Q\vec x = [0, 3]$. Cell 1 is balanced; cell 2 still feels a force of 3 pulling it to the right.
+
+</details>
+
+**3.** From $\vec x = (3, 6)$, take one steepest-descent step along $\vec p = \vec r = [0, 3]$. Where do you land?
+
+<details class="success" markdown>
+<summary>Answer</summary>
+
+$Q\vec p = [-3, 9]$, so $\vec p^TQ\vec p = 27$, and $\vec p^T\vec r = 9$. The best step is $t = 9/27 = 1/3$, so the new point is $(3, 6) + \tfrac13(0, 3) = (3, 7)$.
+
+</details>
+
+**4.** Why do SimPL's anchors make Jacobi-preconditioned CG converge faster?
+
+<details class="success" markdown>
+<summary>Answer</summary>
+
+Anchors only add to the diagonal of $Q$. A larger diagonal makes $Q$ more diagonally dominant, so dividing by the diagonal brings $P^{-1}Q$ closer to the identity: a rounder bowl, a smaller $\kappa$, fewer iterations.
+
+</details>
 
 ---
 

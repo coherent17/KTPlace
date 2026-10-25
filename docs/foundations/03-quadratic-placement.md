@@ -159,7 +159,11 @@ Check the rules of [§3.4](#34-matrix-form-equation-3) against it:
 - $b_1 = 3 \cdot f_1 = 3\cdot1.0 = 3$; $b_4 = 4 \cdot f_2 = 4\cdot 3.5 = 14$;
   $x_2, x_3$ touch no fixed cell, so $b_2 = b_3 = 0$.
 
-**Step 4: solve by hand** (substitution, which is fine for 4 unknowns):
+**Step 4: solve by hand.** Substitution is fine for 4 unknowns; open the steps if
+you want to follow them, or skip to the result.
+
+<details class="info" markdown>
+<summary>Show the substitution steps</summary>
 
 - Row 2: $x_2 = (x_1 + x_3)/2$.
 - Row 4: $x_4 = (14 + 2x_3)/6 = (7 + x_3)/3$.
@@ -167,6 +171,8 @@ Check the rules of [§3.4](#34-matrix-form-equation-3) against it:
   2: $9x_1 - 3x_3 = 6$, so $x_1 = (2 + x_3)/3$.
 - Row 3 with $x_2$ and $x_4$ substituted, multiplied by 6:
   $-9x_1 + 17x_3 = 28$. Put in $x_1$: $-3(2 + x_3) + 17x_3 = 28$, so $14x_3 = 34$.
+
+</details>
 
 $$
 x_3 = \tfrac{17}{7} \approx 2.4286,\quad x_1 = \tfrac{31}{21} \approx 1.4762,\quad x_2 = \tfrac{41}{21} \approx 1.9524,\quad x_4 = \tfrac{22}{7} \approx 3.1429
@@ -247,6 +253,35 @@ SimPL's answer to both is look-ahead legalization plus anchors; the [SimPL guide
 > - Setting the derivatives to zero gives $Q\vec x = \vec b$: the diagonal holds each cell's total weight, off-diagonals the negative weights, $\vec b$ the pull of fixed cells.
 > - Every cell ends up at the weighted average of its neighbours.
 > - The answer is unique when every group of cells touches something fixed, but the cells collapse into a clump, so something must spread them.
+
+### Exercises
+
+**1.** One movable cell is wired to a fixed pin at 0 with weight 1 and to a fixed pin at 6 with weight 2. Where does it go?
+
+<details class="success" markdown>
+<summary>Answer</summary>
+
+To the weighted average of its neighbours: $x = \frac{1\cdot0 + 2\cdot6}{1 + 2} = 4$. The stiffer spring pulls it closer to 6.
+
+</details>
+
+**2.** Cell $x_1$ is wired to a fixed pin at 0 (weight 1) and to cell $x_2$ (weight 1); $x_2$ is also wired to a fixed pin at 9 (weight 2). Write $Q$ and $\vec b$ and solve.
+
+<details class="success" markdown>
+<summary>Answer</summary>
+
+Row 1: $2x_1 - x_2 = 0$. Row 2: $-x_1 + 3x_2 = 18$. So $Q = \begin{bmatrix} 2 & -1\\ -1 & 3 \end{bmatrix}$, $\vec b = \begin{bmatrix} 0\\ 18 \end{bmatrix}$. From row 1, $x_2 = 2x_1$; then $5x_1 = 18$, so $x_1 = 3.6$ and $x_2 = 7.2$. Check: $x_1 = (0 + 7.2)/2$ and $x_2 = (3.6 + 2\cdot9)/3$.
+
+</details>
+
+**3.** Two movable cells are wired only to each other, with weight 1. What goes wrong?
+
+<details class="success" markdown>
+<summary>Answer</summary>
+
+$Q = \begin{bmatrix} 1 & -1\\ -1 & 1 \end{bmatrix}$ and $\vec b = \vec 0$: every placement with $x_1 = x_2$ has zero cost, so there is a flat trough instead of a single bottom. $Q$ is degenerate (its rows add up to zero) and there is no unique answer.
+
+</details>
 
 ---
 

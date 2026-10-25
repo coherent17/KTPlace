@@ -118,6 +118,35 @@ HPWL 1.50e8, and by iteration 20–21 the lower and upper placements look alike
 > - The anchor weight is $\alpha$/distance with $\alpha = 0.01(1 + \text{iteration})$: weak at first, strong later.
 > - The loop stops when the gap between the bounds is small compared with iteration 10; the last upper bound is the result.
 
+### Exercises
+
+**1.** A cell is wired to a fixed pin at 0 (weight 1), with its anchor at 10 and a fixed anchor weight $\alpha$. Where is it for $\alpha = 0.25$ and for $\alpha = 4$?
+
+<details class="success" markdown>
+<summary>Answer</summary>
+
+$x = \frac{10\alpha}{1 + \alpha}$: $\frac{2.5}{1.25} = 2$ for $\alpha = 0.25$, and $\frac{40}{5} = 8$ for $\alpha = 4$.
+
+</details>
+
+**2.** What is $\alpha$ at iteration 20?
+
+<details class="success" markdown>
+<summary>Answer</summary>
+
+$\alpha = 0.01 \times (1 + 20) = 0.21$.
+
+</details>
+
+**3.** The gap at iteration 10 was $4\times10^7$. At iteration 35 it is $3.5\times10^6$. Does SimPL stop?
+
+<details class="success" markdown>
+<summary>Answer</summary>
+
+Yes. $3.5\times10^6$ is below 10% of the iteration-10 gap ($4\times10^6$), which stops the loop regardless of whether the upper bound is still improving.
+
+</details>
+
 ---
 
 [← 2. Look-ahead legalization](02-look-ahead-legalization.md) · [SimPL contents](README.md) · [4. Speed, results and parallelism →](04-speed-results-parallelism.md)

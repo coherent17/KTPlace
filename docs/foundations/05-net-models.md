@@ -94,6 +94,35 @@ bounds, and the lengths, differ in each direction.
 > - Bound2Bound joins every pin to the net's two extreme pins with weight $\frac{1}{(p-1)\,\ell}$ (up to a constant), which equals HPWL exactly.
 > - It uses fewer edges than a clique and no extra variables like a star, but it must be rebuilt as cells move.
 
+### Exercises
+
+**1.** A 3-pin net has pins at $x = 1, 4, 9$. List its B2B edges with their weights $\frac{1}{(p-1)\ell}$, and check that the quadratic cost equals the HPWL in x.
+
+<details class="success" markdown>
+<summary>Answer</summary>
+
+$p = 3$. Edges: $1$–$9$ ($\ell = 8$, $w = 1/16$), $4$–$1$ ($\ell = 3$, $w = 1/6$), $4$–$9$ ($\ell = 5$, $w = 1/10$). Each edge costs $w\ell^2 = \ell/2$, so the total is $(8 + 3 + 5)/2 = 8 = 9 - 1$.
+
+</details>
+
+**2.** A net has 10 pins. How many edges do a clique, a star and B2B use?
+
+<details class="success" markdown>
+<summary>Answer</summary>
+
+Clique: $10\cdot9/2 = 45$ edges. Star: 10 edges, plus one extra variable for the star node. B2B: $2p - 3 = 17$ edges and no extra variables.
+
+</details>
+
+**3.** Why must the B2B graph be rebuilt after the cells move?
+
+<details class="success" markdown>
+<summary>Answer</summary>
+
+Its weights depend on the current edge lengths, and which pins are the extremes $L$ and $R$ can change. After a move, the quadratic cost no longer equals HPWL until the graph is rebuilt.
+
+</details>
+
 ---
 
 [← 4. Solving a million equations](04-solving-linear-systems.md) · [Foundations contents](README.md)

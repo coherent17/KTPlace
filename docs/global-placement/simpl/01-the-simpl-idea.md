@@ -94,6 +94,35 @@ design size, because the *relative order* of cells settles quickly.
 > - Anchors tie each cell to its upper-bound location, which settles both the direction and the strength of spreading.
 > - Initial placement alternates Bound2Bound rebuilds and CG solves for 5 to 7 rounds, ignoring overlap.
 
+### Exercises
+
+**1.** Which of SimPL's two placements is the result of global placement?
+
+<details class="success" markdown>
+<summary>Answer</summary>
+
+The last upper-bound placement, produced by look-ahead legalization. The lower bound overlaps too much to be used.
+
+</details>
+
+**2.** Why is the lower bound's HPWL usually smaller than the upper bound's?
+
+<details class="success" markdown>
+<summary>Answer</summary>
+
+The lower bound minimizes wirelength and ignores overlap. Look-ahead legalization then moves cells away from those wire-optimal spots to remove overlap, which lengthens the wires.
+
+</details>
+
+**3.** Which two classic questions of spreading do the anchors answer, and how?
+
+<details class="success" markdown>
+<summary>Answer</summary>
+
+Direction: each cell is pulled toward where look-ahead legalization found room. Strength (force modulation): the anchor weight, which grows with the iteration number.
+
+</details>
+
 ---
 
 [SimPL contents](README.md) · [2. Look-ahead legalization →](02-look-ahead-legalization.md)

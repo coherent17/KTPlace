@@ -81,6 +81,35 @@ was still the biggest part (36% of global placement) and LAL a close second (>31
 > - On ISPD 2005, SimPL had shorter wires and shorter runtimes than Capo, NTUplace3, FastPlace3 and mPL6.
 > - CG and Bound2Bound construction parallelize well; look-ahead legalization limits the speed-up beyond four threads.
 
+### Exercises
+
+**1.** For $n = 10^6$ cells, roughly how many steps is one pass of look-ahead legalization, $n\log_2^2 n$?
+
+<details class="success" markdown>
+<summary>Answer</summary>
+
+$\log_2 10^6 \approx 20$, so about $10^6 \times 400 = 4\times10^8$ steps: well under a second at $10^9$ steps per second.
+
+</details>
+
+**2.** Why did SSE2 instructions speed up the inner products but barely help the sparse matrix-vector product?
+
+<details class="success" markdown>
+<summary>Answer</summary>
+
+SSE2 loads four neighbouring floats at once. Inner products read memory in order, but the sparse product reads $\vec x$ at scattered column positions, so the values cannot be loaded four at a time.
+
+</details>
+
+**3.** Why does the speed-up stop growing beyond four threads?
+
+<details class="success" markdown>
+<summary>Answer</summary>
+
+Look-ahead legalization scales poorly across threads and becomes the bottleneck, and the sparse product is limited by memory bandwidth, which the threads share.
+
+</details>
+
 ---
 
 [← 3. Anchors and convergence](03-anchors-and-convergence.md) · [SimPL contents](README.md)

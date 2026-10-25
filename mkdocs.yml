@@ -8,6 +8,7 @@ strict: true
 
 exclude_docs: |
   requirements.txt
+  includes/
 
 validation:
   omitted_files: warn
@@ -23,6 +24,9 @@ theme:
     text: Inter
     code: JetBrains Mono
   features:
+    - navigation.tabs
+    - navigation.instant
+    - navigation.instant.progress
     - navigation.footer
     - navigation.indexes
     - navigation.sections
@@ -31,7 +35,11 @@ theme:
     - toc.follow
     - search.highlight
     - search.suggest
+    - search.share
     - content.code.copy
+    - content.action.edit
+    - content.action.view
+    - content.tooltips
   palette:
     - media: "(prefers-color-scheme: light)"
       scheme: default
@@ -48,8 +56,20 @@ theme:
         icon: material/weather-sunny
         name: Switch to light mode
 
+plugins:
+  - search
+  - git-revision-date-localized:
+      type: date
+      fallback_to_build_date: true
+      enable_creation_date: false
+
 markdown_extensions:
   - tables
+  - abbr
+  - pymdownx.snippets:
+      base_path: [docs/includes]
+      auto_append: [abbreviations.md]
+      check_paths: true
   - admonition
   - attr_list
   - md_in_html
