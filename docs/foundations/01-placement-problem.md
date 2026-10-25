@@ -83,6 +83,35 @@ reports it.
 > - Wire is estimated by HPWL: half the perimeter of each net's bounding box, summed over all nets (Eq. 1).
 > - HPWL has sharp corners (max, min), so placers optimize a smooth stand-in for it.
 
+### Exercises
+
+**1.** A net has pins at $(0,0)$, $(3,1)$ and $(1,4)$. What is its HPWL?
+
+<details class="success" markdown>
+<summary>Answer</summary>
+
+Width $3 - 0 = 3$, height $4 - 0 = 4$, so HPWL $= 3 + 4 = 7$.
+
+</details>
+
+**2.** Net A has pins at $(1,1)$ and $(4,1)$; net B has pins at $(2,0)$, $(2,5)$ and $(3,3)$. What is the total HPWL of the two nets?
+
+<details class="success" markdown>
+<summary>Answer</summary>
+
+Net A: width 3, height 0, so 3. Net B: width $3 - 2 = 1$, height $5 - 0 = 5$, so 6. Total $3 + 6 = 9$.
+
+</details>
+
+**3.** Why can't a placer simply minimize HPWL with a fast smooth method?
+
+<details class="success" markdown>
+<summary>Answer</summary>
+
+HPWL is built from $\max$, $\min$ and absolute values. For a two-pin net, $\lvert x_1 - x_2 \rvert$ has a corner at $x_1 = x_2$: its slope jumps from $-1$ to $+1$, so there is no derivative there, and fast methods need smooth functions.
+
+</details>
+
 ---
 
 [Foundations contents](README.md) · [2. The math toolkit, gently →](02-math-toolkit.md)

@@ -118,6 +118,35 @@ output of global placement.
 > - Each region is cut where the cell area splits in half ($C_c$) and where the free space splits in half ($C_B$); the cells move to the matching side.
 > - Nonlinear scaling packs cells in order into stripes and stretches each stripe linearly, so the relative order is kept.
 
+### Exercises
+
+**1.** A bin has 100 units of free area and holds 90 units of cells. Is it over-filled for $\gamma = 0.8$? For $\gamma = 1$?
+
+<details class="success" markdown>
+<summary>Answer</summary>
+
+Its density is $90/100 = 0.9$. That exceeds $0.8$, so it is over-filled for $\gamma = 0.8$, but not for $\gamma = 1$.
+
+</details>
+
+**2.** Sub-region $[0, 20]$ with $C_B = 20$ has two stripes, $[0, 10]$ and $[10, 20]$, each holding 10 units ($\gamma = 1$). Four cells of width 5 sit at centres 14, 15, 16, 17. Where do they end up?
+
+<details class="success" markdown>
+<summary>Answer</summary>
+
+Sort by distance from $C_B = 20$, farthest first: 14, 15, 16, 17. Stripe $[0, 10]$ is farthest and takes 14 and 15; stripe $[10, 20]$ takes 16 and 17. Scaling inside each stripe gives centres 2.5, 7.5, 12.5 and 17.5: no overlap, and the order is unchanged.
+
+</details>
+
+**3.** Why does look-ahead legalization try to keep the cells' relative order?
+
+<details class="success" markdown>
+<summary>Answer</summary>
+
+The linear solve chose that order to keep wires short. Keeping it means the spreading costs little wirelength, and the next solve does not have to undo it.
+
+</details>
+
 ---
 
 [← 1. The SimPL idea and initial placement](01-the-simpl-idea.md) · [SimPL contents](README.md) · [3. Anchors and convergence →](03-anchors-and-convergence.md)

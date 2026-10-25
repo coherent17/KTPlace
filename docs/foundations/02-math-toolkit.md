@@ -293,6 +293,44 @@ elimination for solving equations is in the last row. That is why [Chapter 4](04
 > - Symmetric positive definite means a bowl with exactly one bottom, so the answer is unique.
 > - For a million cells only algorithms near $O(n)$ or $O(n \log n)$ are usable.
 
+### Exercises
+
+**1.** Compute $\begin{bmatrix} 1 & 2\\ 3 & 4 \end{bmatrix}\begin{bmatrix} 5\\ 6 \end{bmatrix}$.
+
+<details class="success" markdown>
+<summary>Answer</summary>
+
+One receipt per row: $1\cdot5 + 2\cdot6 = 17$ and $3\cdot5 + 4\cdot6 = 39$, so the result is $\begin{bmatrix} 17\\ 39 \end{bmatrix}$.
+
+</details>
+
+**2.** Write $3a + b = 5$ and $a - 2b = 4$ as $Q\vec x = \vec b$, then solve it.
+
+<details class="success" markdown>
+<summary>Answer</summary>
+
+$\begin{bmatrix} 3 & 1\\ 1 & -2 \end{bmatrix}\begin{bmatrix} a\\ b \end{bmatrix} = \begin{bmatrix} 5\\ 4 \end{bmatrix}$. From the first equation $b = 5 - 3a$; then $a - 2(5 - 3a) = 4$ gives $7a = 14$, so $a = 2$ and $b = -1$.
+
+</details>
+
+**3.** Find the minimum of $f(x_1, x_2) = (x_1 - 2)^2 + 3(x_1 - x_2)^2$ by setting both partial derivatives to zero.
+
+<details class="success" markdown>
+<summary>Answer</summary>
+
+$\frac{\partial f}{\partial x_1} = 2(x_1 - 2) + 6(x_1 - x_2)$ and $\frac{\partial f}{\partial x_2} = 6(x_2 - x_1)$. The second is zero when $x_2 = x_1$; then the first gives $x_1 = 2$. The minimum is at $(2, 2)$, with $f = 0$.
+
+</details>
+
+**4.** For $Q = \begin{bmatrix} 2 & -1\\ -1 & 2 \end{bmatrix}$ and $\vec x = \begin{bmatrix} 1\\ 1 \end{bmatrix}$, compute $\vec x^TQ\vec x$.
+
+<details class="success" markdown>
+<summary>Answer</summary>
+
+$Q\vec x = [2 - 1,\ -1 + 2] = [1, 1]$, and $\vec x^T(Q\vec x) = 1 + 1 = 2$. With the formula: $2\cdot1 + 2\cdot(-1)\cdot1\cdot1 + 2\cdot1 = 2$.
+
+</details>
+
 ---
 
 [← 1. The placement problem and wirelength](01-placement-problem.md) · [Foundations contents](README.md) · [3. Quadratic placement →](03-quadratic-placement.md)
