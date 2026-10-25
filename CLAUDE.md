@@ -16,6 +16,8 @@ make hooks                 # pre-commit: staged-file format check plus unit test
                            #   (KTPLACE_SKIP_HOOKS=1 bypasses it; KTPLACE_HOOK_TESTS=0 skips the tests)
 python3 scripts/coverage_report.py --clean --build --min 80   # gcov line coverage (local only, not in CI)
 make STATIC=1           # build-static/bin/ktplace with glibc and libstdc++ linked in too
+make docs               # live preview of docs/ at http://127.0.0.1:8000/KTPlace/ (MkDocs in .venv/)
+make docs-build         # mkdocs build --strict into site/, as the Docs workflow runs it
 ```
 
 Each component has its own test binary: `test_datamodel`, `test_adaptor`, `test_flow`, `test_util`, `test_constraint`, `test_option`, `test_viz`, `test_detail`, `test_ntuplace1`, `test_abacus`, `test_tcl` and `test_simpl`. To run one suite or one case, build the tests and then call Boost.Test directly:

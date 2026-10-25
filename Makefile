@@ -1,7 +1,7 @@
 # KTPlace Top-level Makefile
 # This is the entry point for building the entire project
 
-.PHONY: all clean rebuild test check gui-test help format format-check clang-format hooks compile-commands
+.PHONY: all clean rebuild test check gui-test help format format-check clang-format hooks compile-commands docs docs-build
 
 # Default target - build from src directory
 all:
@@ -53,6 +53,20 @@ clang-format:
 	@command -v clang-format || { echo "clang-format not found on PATH"; exit 1; }
 	@clang-format --version
 
+docsVenv := .venv
+docsStamp := $(docsVenv)/.docs-requirements
+
+$(docsStamp): docs/requirements.txt
+	@test -x $(docsVenv)/bin/python || python3 -m venv $(docsVenv)
+	@$(docsVenv)/bin/pip install -q -r docs/requirements.txt
+	@cp docs/requirements.txt $@
+
+docs: $(docsStamp)
+	@$(docsVenv)/bin/mkdocs serve
+
+docs-build: $(docsStamp)
+	@$(docsVenv)/bin/mkdocs build --strict
+
 # Help
 # Install the repository's git hooks by pointing core.hooksPath at them, so the
 # hook is shared through the tree rather than copied into .git/hooks by hand.
@@ -76,6 +90,9 @@ help:
 	@echo "  clang-format      - Show which clang-format would be used"
 	@echo "  hooks             - Install the git hooks (pre-commit checks format + tests)"
 	@echo "  compile-commands  - Write compile_commands.json for clangd"
+	@echo "  docs              - Preview the documentation at http://127.0.0.1:8000/KTPlace/"
+	@echo "                      (reloads on save; installs MkDocs into .venv on first use)"
+	@echo "  docs-build        - Build the documentation into site/, failing on any warning"
 	@echo "  help              - Show this help message"
 	@echo ""
 	@echo "Build variants:"

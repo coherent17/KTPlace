@@ -49,13 +49,14 @@ The formulas are LaTeX math (`$…$`). They render on GitHub, on the documentati
 site, and in the Markdown preview of VS Code or Cursor (`Ctrl+Shift+V`). Editors
 that show Markdown as rich text without math support display raw `$` signs.
 
-To build the site locally:
+To preview the whole site locally, from the repository root:
 
 ```sh
-python3 -m venv .venv && .venv/bin/pip install -r docs/requirements.txt
-.venv/bin/mkdocs serve        # http://127.0.0.1:8000/KTPlace/, reloads on every save
-.venv/bin/mkdocs build --strict
+make docs          # http://127.0.0.1:8000/KTPlace/, reloads on every save; Ctrl+C stops it
+make docs-build    # the strict build CI runs, into site/
 ```
+
+The first run installs the pinned MkDocs from `docs/requirements.txt` into `.venv/`.
 
 ## Adding a guide
 
