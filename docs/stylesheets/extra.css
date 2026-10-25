@@ -1,0 +1,165 @@
+:root {
+  --md-primary-fg-color: #4f46e5;
+  --md-primary-fg-color--light: #818cf8;
+  --md-primary-fg-color--dark: #3730a3;
+  --md-accent-fg-color: #db2777;
+  --md-accent-fg-color--transparent: rgba(219, 39, 119, 0.1);
+
+  --kt-heading: #3730a3;
+  --kt-heading-2: #0f766e;
+  --kt-gradient: linear-gradient(90deg, #4f46e5 0%, #9333ea 50%, #db2777 100%);
+  --kt-math-bg: rgba(79, 70, 229, 0.06);
+  --kt-math-border: #6366f1;
+  --kt-table-head: rgba(79, 70, 229, 0.1);
+  --kt-table-stripe: rgba(79, 70, 229, 0.03);
+  --kt-h3-bg: rgba(15, 118, 110, 0.07);
+  --kt-strong: #312e81;
+  --kt-nav-bg: rgba(79, 70, 229, 0.07);
+  --kt-header-gradient: linear-gradient(90deg, #4338ca 0%, #7e22ce 50%, #be185d 100%);
+
+  --md-typeset-a-color: #4338ca;
+  --md-mermaid-label-fg-color: #1e1b4b;
+  --kt-important: #9333ea;
+  --kt-important-bg: rgba(147, 51, 234, 0.1);
+}
+
+[data-md-color-scheme="slate"] {
+  --md-primary-fg-color: #6366f1;
+  --md-primary-fg-color--light: #a5b4fc;
+  --md-primary-fg-color--dark: #4338ca;
+  --md-accent-fg-color: #f472b6;
+  --md-accent-fg-color--transparent: rgba(244, 114, 182, 0.12);
+  --md-default-bg-color: #14152a;
+
+  --kt-heading: #a5b4fc;
+  --kt-heading-2: #5eead4;
+  --kt-gradient: linear-gradient(90deg, #818cf8 0%, #c084fc 50%, #f472b6 100%);
+  --kt-math-bg: rgba(129, 140, 248, 0.09);
+  --kt-math-border: #818cf8;
+  --kt-table-head: rgba(129, 140, 248, 0.16);
+  --kt-table-stripe: rgba(129, 140, 248, 0.04);
+  --kt-h3-bg: rgba(94, 234, 212, 0.08);
+  --kt-strong: #c7d2fe;
+  --kt-nav-bg: rgba(129, 140, 248, 0.1);
+
+  --md-typeset-a-color: #a5b4fc;
+  --md-mermaid-label-fg-color: #1e1b4b;
+  --md-mermaid-edge-color: #94a3b8;
+  --kt-important: #c084fc;
+  --kt-important-bg: rgba(192, 132, 252, 0.14);
+}
+
+.md-header,
+.md-tabs {
+  background: var(--kt-header-gradient);
+}
+
+.md-typeset h1 {
+  font-weight: 800;
+  background: var(--kt-gradient);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.md-typeset h2 {
+  color: var(--kt-heading);
+  font-weight: 700;
+  padding-bottom: 0.3em;
+  border-bottom: 3px solid transparent;
+  border-image: var(--kt-gradient) 1;
+}
+
+.md-typeset h3 {
+  color: var(--kt-heading-2);
+  font-weight: 700;
+  background: var(--kt-h3-bg);
+  border-left: 4px solid var(--kt-heading-2);
+  border-radius: 0 0.4em 0.4em 0;
+  padding: 0.35em 0.7em;
+}
+
+.md-typeset strong {
+  color: var(--kt-strong);
+}
+
+.md-typeset div.arithmatex {
+  background: var(--kt-math-bg);
+  border-left: 4px solid var(--kt-math-border);
+  border-radius: 0 0.5em 0.5em 0;
+  padding: 0.2em 1em;
+  margin: 1.2em 0;
+  overflow-x: auto;
+}
+
+.md-typeset div.arithmatex > .katex-display {
+  margin: 0.6em 0;
+}
+
+.md-typeset table:not([class]) {
+  border-radius: 0.5em;
+  overflow: hidden;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+}
+
+.md-typeset table:not([class]) th {
+  background: var(--kt-table-head);
+  color: var(--kt-heading);
+}
+
+.md-typeset table:not([class]) tbody tr:nth-child(even) {
+  background: var(--kt-table-stripe);
+}
+
+.md-typeset .admonition,
+.md-typeset details {
+  border-radius: 0.5em;
+  font-size: 0.78rem;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+
+.md-typeset .admonition.important {
+  border-color: var(--kt-important);
+}
+
+.md-typeset .important > .admonition-title {
+  background-color: var(--kt-important-bg);
+}
+
+.md-typeset .important > .admonition-title::before {
+  background-color: var(--kt-important);
+  -webkit-mask-image: var(--md-admonition-icon--abstract);
+  mask-image: var(--md-admonition-icon--abstract);
+}
+
+.md-typeset p:has(+ h1),
+.md-typeset hr + p:last-child {
+  background: var(--kt-nav-bg);
+  border-radius: 999px;
+  padding: 0.35em 1em;
+  font-size: 0.72rem;
+  display: inline-block;
+}
+
+.md-typeset .grid.cards > ul > li,
+.md-typeset .grid.cards > ol > li {
+  border-radius: 0.7em;
+  border-top: 4px solid var(--md-primary-fg-color);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.md-typeset .grid.cards > ul > li:hover,
+.md-typeset .grid.cards > ol > li:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 18px rgba(79, 70, 229, 0.18);
+}
+
+.md-typeset .mermaid {
+  text-align: center;
+  margin: 1.5em 0;
+}
+
+.md-typeset .katex svg {
+  height: inherit;
+  max-width: none;
+}

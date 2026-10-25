@@ -52,9 +52,10 @@ cells into half the room on each side, which **equalizes the density of the two
 halves**. The move is done by **nonlinear scaling** (next). Then $B_0$ and $B_1$ go
 back into the queue with `level + 1`, and the next cut runs in the other direction.
 
-(The paper's footnote *c* explains why this order-preserving packing is reasonable:
-a region filled to capacity leaves the placer little freedom anyway, so sorting and
-packing loses little wirelength there.)
+> [!TIP]
+> The paper's footnote *c* explains why this order-preserving packing is reasonable:
+> a region filled to capacity leaves the placer little freedom anyway, so sorting and
+> packing loses little wirelength there.
 
 ### 2.4 Nonlinear scaling (Figure 4)
 
@@ -109,6 +110,13 @@ After all regions are processed, every cell has a new location: that is the
 cells still overlap a little inside bins and are not snapped to rows. It is
 not refined further; it is only used as anchors ([Chapter 3](03-anchors-and-convergence.md)), and the last one is the
 output of global placement.
+
+> [!IMPORTANT]
+> **Key takeaways**
+>
+> - Over-full bins are grouped into clusters, and each cluster grows into a region with room for its cells.
+> - Each region is cut where the cell area splits in half ($C_c$) and where the free space splits in half ($C_B$); the cells move to the matching side.
+> - Nonlinear scaling packs cells in order into stripes and stretches each stripe linearly, so the relative order is kept.
 
 ---
 

@@ -17,30 +17,49 @@ validation:
 
 theme:
   name: material
+  icon:
+    logo: material/chip
+  font:
+    text: Inter
+    code: JetBrains Mono
   features:
     - navigation.footer
     - navigation.indexes
     - navigation.sections
     - navigation.top
+    - navigation.tracking
+    - toc.follow
     - search.highlight
+    - search.suggest
     - content.code.copy
   palette:
     - media: "(prefers-color-scheme: light)"
       scheme: default
+      primary: custom
+      accent: custom
       toggle:
-        icon: material/brightness-7
+        icon: material/weather-night
         name: Switch to dark mode
     - media: "(prefers-color-scheme: dark)"
       scheme: slate
+      primary: custom
+      accent: custom
       toggle:
-        icon: material/brightness-4
+        icon: material/weather-sunny
         name: Switch to light mode
 
 markdown_extensions:
   - tables
   - admonition
+  - attr_list
+  - md_in_html
+  - markdown_callouts.github_callouts
   - pymdownx.details
-  - pymdownx.superfences
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
   - pymdownx.arithmatex:
       generic: true
   - toc:
@@ -53,22 +72,23 @@ extra_javascript:
 
 extra_css:
   - https://unpkg.com/katex@0.16.11/dist/katex.min.css
+  - stylesheets/extra.css
 
 nav:
   - Home: README.md
   - Foundations:
-      - foundations/README.md
-      - foundations/01-placement-problem.md
-      - foundations/02-math-toolkit.md
-      - foundations/03-quadratic-placement.md
-      - foundations/04-solving-linear-systems.md
-      - foundations/05-net-models.md
+      - Overview: foundations/README.md
+      - 1. The placement problem: foundations/01-placement-problem.md
+      - 2. The math toolkit: foundations/02-math-toolkit.md
+      - 3. Quadratic placement: foundations/03-quadratic-placement.md
+      - 4. Solving linear systems: foundations/04-solving-linear-systems.md
+      - 5. Net models: foundations/05-net-models.md
   - Global placement:
       - SimPL:
-          - global-placement/simpl/README.md
-          - global-placement/simpl/01-the-simpl-idea.md
-          - global-placement/simpl/02-look-ahead-legalization.md
-          - global-placement/simpl/03-anchors-and-convergence.md
-          - global-placement/simpl/04-speed-results-parallelism.md
+          - Overview: global-placement/simpl/README.md
+          - 1. The SimPL idea: global-placement/simpl/01-the-simpl-idea.md
+          - 2. Look-ahead legalization: global-placement/simpl/02-look-ahead-legalization.md
+          - 3. Anchors and convergence: global-placement/simpl/03-anchors-and-convergence.md
+          - 4. Speed, results, parallelism: global-placement/simpl/04-speed-results-parallelism.md
   - Glossary: glossary.md
   - References: references.md

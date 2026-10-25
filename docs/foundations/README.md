@@ -19,10 +19,18 @@ Chapter 2 is the longest; read it slowly, and come back to its notation table
 (§2.1) whenever a formula looks unfamiliar. Readers who know linear algebra can skip
 chapter 2 and skim chapter 4.
 
-```
-1 Placement problem ──▶ 3 Quadratic placement ──▶ 5 Net models
-                          ▲          │
-2 Math toolkit ───────────┘          └──▶ 4 Solving linear systems
+```mermaid
+flowchart LR
+    f1["1 · Placement problem"]:::found --> f3["3 · Quadratic placement"]:::found
+    f2["2 · Math toolkit"]:::found --> f3
+    f3 --> f5["5 · Net models"]:::found
+    f3 --> f4["4 · Solving linear systems"]:::found
+    classDef io fill:#fef3c7,stroke:#d97706,color:#451a03
+    classDef stage fill:#ccfbf1,stroke:#0f766e,color:#042f2e
+    classDef found fill:#e0e7ff,stroke:#4f46e5,color:#1e1b4b
+    classDef simpl fill:#fce7f3,stroke:#db2777,color:#500724
+    classDef mov fill:#dbeafe,stroke:#2563eb,color:#172554
+    classDef fixed fill:#e5e7eb,stroke:#374151,color:#111827
 ```
 
 After the foundations, continue with an algorithm guide, for example

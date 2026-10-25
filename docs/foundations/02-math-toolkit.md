@@ -31,10 +31,11 @@ new math.
 
 ### 2.2 Vectors: a list of numbers
 
-**The idea.** A vector is a list of numbers with a single name. If you have four
-cells, their four x coordinates form one vector called $\vec x$ (the little arrow
-just reminds you "this is a list, not one number"). Think of one column of a
-spreadsheet:
+> [!NOTE]
+> **The idea.** A vector is a list of numbers with a single name. If you have four
+> cells, their four x coordinates form one vector called $\vec x$ (the little arrow
+> just reminds you "this is a list, not one number"). Think of one column of a
+> spreadsheet:
 
 | cell | x |
 | --- | --- |
@@ -65,16 +66,18 @@ entry is zero, and it is large if any entry is large. Its square root is the
 vector's **norm** $\lVert \vec r \rVert$, its "length". For $\vec r = [3, 4]$:
 $\vec r^T\vec r = 9 + 16 = 25$ and $\lVert\vec r\rVert = 5$.
 
-**Where placement uses it.** All the x coordinates of a million cells are one vector
-$\vec x$. When the solver ([Chapter 4](04-solving-linear-systems.md)) wants to know "am I done yet?", it measures the
-size of an error vector with a norm. Inner products are the most common operation
-inside the solver.
+> [!TIP]
+> **Where placement uses it.** All the x coordinates of a million cells are one vector
+> $\vec x$. When the solver ([Chapter 4](04-solving-linear-systems.md)) wants to know "am I done yet?", it measures the
+> size of an error vector with a norm. Inner products are the most common operation
+> inside the solver.
 
 ### 2.3 Matrices: a table that turns a list into another list
 
-**The idea.** A matrix is a table of numbers. $Q_{ij}$ means "the number in row $i$,
-column $j$". On its own a table is boring; what matters is what it **does** to a
-vector.
+> [!NOTE]
+> **The idea.** A matrix is a table of numbers. $Q_{ij}$ means "the number in row $i$,
+> column $j$". On its own a table is boring; what matters is what it **does** to a
+> vector.
 
 **Matrix times vector = one receipt per row.** To compute $Q\vec x$, take each row of
 the table and do the shopping-receipt calculation ([§2.2](#22-vectors-a-list-of-numbers)) with $\vec x$. Each row
@@ -149,9 +152,10 @@ $Q_{14} = 0$).
 
 ### 2.4 The quadratic form $\vec x^T Q \vec x$: a sum of squares in disguise
 
-**The idea.** You will see the expression $\vec x^TQ\vec x$. Read it in two steps:
-first compute the list $Q\vec x$ ([§2.3](#23-matrices-a-table-that-turns-a-list-into-another-list)), then take its inner product with $\vec x$
-([§2.2](#22-vectors-a-list-of-numbers)). The result is a single number.
+> [!NOTE]
+> **The idea.** You will see the expression $\vec x^TQ\vec x$. Read it in two steps:
+> first compute the list $Q\vec x$ ([§2.3](#23-matrices-a-table-that-turns-a-list-into-another-list)), then take its inner product with $\vec x$
+> ([§2.2](#22-vectors-a-list-of-numbers)). The result is a single number.
 
 **A tiny example.** $Q = \begin{bmatrix} 2 & 1\\ 1 & 3 \end{bmatrix}$ and
 $\vec x = \begin{bmatrix} 1\\ 2 \end{bmatrix}$.
@@ -168,12 +172,13 @@ $$
 
 Check: $2\cdot1^2 + 2\cdot1\cdot1\cdot2 + 3\cdot2^2 = 2 + 4 + 12 = 18$ ✓.
 
-**Why it matters.** Every term is a square ($x_1^2$) or a product of two unknowns
-($x_1x_2$). Functions built only from such terms are called **quadratic**. The
-wire cost in [Chapter 3](03-quadratic-placement.md) is a sum of squares like $(x_1 - x_2)^2$, so it can always be
-written as $\vec x^TQ\vec x$ plus simpler terms. When the paper writes
-$\tfrac12\vec x^TQ_x\vec x$, read: "the sum of squared wire lengths, packed into a
-table".
+> [!TIP]
+> **Why it matters.** Every term is a square ($x_1^2$) or a product of two unknowns
+> ($x_1x_2$). Functions built only from such terms are called **quadratic**. The
+> wire cost in [Chapter 3](03-quadratic-placement.md) is a sum of squares like $(x_1 - x_2)^2$, so it can always be
+> written as $\vec x^TQ\vec x$ plus simpler terms. When the paper writes
+> $\tfrac12\vec x^TQ_x\vec x$, read: "the sum of squared wire lengths, packed into a
+> table".
 
 ### 2.5 Derivatives with many variables
 
@@ -236,11 +241,12 @@ four cells.
 
 ### 2.6 Bowls: why there is exactly one best answer
 
-**The idea.** Drop a marble into a salad bowl. Wherever you drop it, it rolls to the
-same single lowest point. A cost shaped like that is called **convex** (no hidden
-side valleys to get stuck in), and **strictly convex** if the bottom is a single
-point rather than a flat region. A strictly convex cost has exactly one best answer,
-and "keep walking downhill" is guaranteed to find it.
+> [!NOTE]
+> **The idea.** Drop a marble into a salad bowl. Wherever you drop it, it rolls to the
+> same single lowest point. A cost shaped like that is called **convex** (no hidden
+> side valleys to get stuck in), and **strictly convex** if the bottom is a single
+> point rather than a flat region. A strictly convex cost has exactly one best answer,
+> and "keep walking downhill" is guaranteed to find it.
 
 **A cost that is not a nice bowl.** Remove the fixed pin from the example above:
 $f(x_1, x_2) = (x_1 - x_2)^2$. Now any placement with $x_1 = x_2$ has zero cost:
@@ -258,10 +264,11 @@ called **symmetric positive definite (SPD)**. The example table in §2.4 gave 18
 
 ### 2.7 Big-O: how running time grows
 
-**The idea.** Big-O describes how the work grows when the problem grows, ignoring
-constant factors. Like a recipe: cooking for twice as many guests takes about twice
-the chopping ($O(n)$), but if every guest must shake hands with every other guest,
-doubling the guests quadruples the handshakes ($O(n^2)$).
+> [!NOTE]
+> **The idea.** Big-O describes how the work grows when the problem grows, ignoring
+> constant factors. Like a recipe: cooking for twice as many guests takes about twice
+> the chopping ($O(n)$), but if every guest must shake hands with every other guest,
+> doubling the guests quadruples the handshakes ($O(n^2)$).
 
 What the common ones mean for a chip with $n = 1{,}000{,}000$ cells, on a computer
 doing about $10^9$ simple steps per second ($\log_2 n \approx 20$):
@@ -276,6 +283,15 @@ doing about $10^9$ simple steps per second ($\log_2 n \approx 20$):
 Real implementations have bigger constants than this, but the gap between the rows
 is the point: SimPL's steps are all in the first three rows, and textbook
 elimination for solving equations is in the last row. That is why [Chapter 4](04-solving-linear-systems.md) exists.
+
+> [!IMPORTANT]
+> **Key takeaways**
+>
+> - A vector is a list of numbers; a matrix times a vector does one "receipt" per row.
+> - $Q\vec x = \vec b$ is a list of linear equations written in one line.
+> - At a minimum every partial derivative is zero: that turns a cost into equations.
+> - Symmetric positive definite means a bowl with exactly one bottom, so the answer is unique.
+> - For a million cells only algorithms near $O(n)$ or $O(n \log n)$ are usable.
 
 ---
 

@@ -111,6 +111,13 @@ snapshots: iteration 0 is the clump (HPWL 4.48e7), iteration 1's upper bound has
 HPWL 1.50e8, and by iteration 20–21 the lower and upper placements look alike
 (6.82e7 versus 8.57e7).
 
+> [!IMPORTANT]
+> **Key takeaways**
+>
+> - An anchor adds only to the diagonal and the right-hand side: the matrix does not grow and CG gets faster.
+> - The anchor weight is $\alpha$/distance with $\alpha = 0.01(1 + \text{iteration})$: weak at first, strong later.
+> - The loop stops when the gap between the bounds is small compared with iteration 10; the last upper bound is the result.
+
 ---
 
 [← 2. Look-ahead legalization](02-look-ahead-legalization.md) · [SimPL contents](README.md) · [4. Speed, results and parallelism →](04-speed-results-parallelism.md)
