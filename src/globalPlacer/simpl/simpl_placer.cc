@@ -52,7 +52,7 @@ struct Convergence {
 
 class simplPlacer::Impl {
 public:
-    explicit Impl(Design &d) : design(d), graph(d.graph) {}
+    explicit Impl(Design &d) : design(d) {}
 
     SimplResult run(const SimplOptions &params);
 
@@ -90,18 +90,17 @@ private:
     void writeBounds(std::span<const BoundsPoint> bounds) const;
 
     Design &design;
-    const Graph &graph;
     const Fences *fences = nullptr;
 
     SimplOptions opts;
     SimplResult result;
 
-    Netlist netlist;
-    std::vector<double> width;
-    std::vector<double> height;
-    std::vector<double> area;
-    std::vector<int> regionOf;
-    std::vector<Box> obstacles;
+    const Netlist &netlist = design.netlist;
+    const std::vector<double> &width = design.width;
+    const std::vector<double> &height = design.height;
+    const std::vector<double> &area = design.area;
+    const std::vector<int> &regionOf = design.regionOf;
+    const std::vector<Box> &obstacles = design.obstacles;
 
     SparseSystem sysX;
     SparseSystem sysY;
@@ -115,69 +114,7 @@ private:
 };
 
 void simplPlacer::Impl::collect() {
-    const std::size_t numCells = graph.getNumCells();
-    netlist.varOfVertex.assign(numCells, noVar);
-    netlist.fixedX.assign(numCells, 0.0);
-    netlist.fixedY.assign(numCells, 0.0);
-    for (std::size_t v = 0; v < numCells; ++v) {
-        const Cell &cell = graph.getCell(v);
-        netlist.fixedX[v] = cell.x;
-        netlist.fixedY[v] = cell.y;
-        if (cell.isFixed || cell.isTerminal) {
-            if (cell.width > 0.0 && cell.height > 0.0) {
-                obstacles.push_back({cell.x, cell.y, cell.x + cell.width, cell.y + cell.height});
-            }
-            ++result.numFixed;
-            continue;
-        }
-        netlist.varOfVertex[v] = static_cast<std::uint32_t>(netlist.numMovable++);
-        netlist.movVertex.push_back(static_cast<std::uint32_t>(v));
-        width.push_back(cell.width);
-        height.push_back(cell.height);
-        area.push_back(cell.width * cell.height);
-        regionOf.push_back(cell.regionId);
-    }
-
-    netlist.nets.resize(graph.getNumNets());
-    for (std::size_t n = 0; n < netlist.nets.size(); ++n) {
-        const std::vector<std::size_t> &pins = graph.getNetPins(n);
-        std::vector<std::size_t> order(pins.begin(), pins.end());
-        std::stable_sort(order.begin(), order.end(), [&](std::size_t a, std::size_t b) {
-            return graph.getPin(a).cellId < graph.getPin(b).cellId;
-        });
-        NetPins &net = netlist.nets[n];
-        net.weight = graph.getNet(n).weight;
-        for (const std::size_t pinId : order) {
-            const Pin &pin = graph.getPin(pinId);
-            if (!net.cells.empty() && net.cells.back() == pin.cellId) {
-                continue;
-            }
-            net.cells.push_back(static_cast<std::uint32_t>(pin.cellId));
-            net.offX.push_back(pin.offsetX);
-            net.offY.push_back(pin.offsetY);
-        }
-    }
-
-    netlist.pinStart.assign(netlist.numMovable + 1, 0);
-    for (const NetPins &net : netlist.nets) {
-        for (const std::uint32_t c : net.cells) {
-            if (netlist.varOfVertex[c] != noVar) {
-                ++netlist.pinStart[netlist.varOfVertex[c] + 1];
-            }
-        }
-    }
-    std::partial_sum(netlist.pinStart.begin(), netlist.pinStart.end(), netlist.pinStart.begin());
-    netlist.pinsOfCell.resize(netlist.pinStart.back());
-    std::vector<std::size_t> cursor(netlist.pinStart.begin(), netlist.pinStart.end() - 1);
-    for (std::uint32_t n = 0; n < netlist.nets.size(); ++n) {
-        for (std::uint32_t q = 0; q < netlist.nets[n].cells.size(); ++q) {
-            const std::uint32_t v = netlist.varOfVertex[netlist.nets[n].cells[q]];
-            if (v != noVar) {
-                netlist.pinsOfCell[cursor[v]++] = {n, q};
-            }
-        }
-    }
-
+    result.numFixed = design.numFixed;
     result.numMovable = netlist.numMovable;
     result.nets = netlist.nets.size();
     if (netlist.numMovable > 0) {
@@ -588,7 +525,8 @@ void simplPlacer::Impl::finish(const Positions &lower, const Positions &upper) {
     }
 
     for (std::size_t i = 0; i < netlist.numMovable; ++i) {
-        design.graph.setPosition(netlist.movVertex[i], upper.x[i], upper.y[i]);
+        design.x[i] = upper.x[i];
+        design.y[i] = upper.y[i];
     }
 
     writeFrame("FINAL_LAL", upper.x, upper.y, "Result - look-ahead legalized placement",

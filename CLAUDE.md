@@ -79,7 +79,7 @@ load → report → global place → legalize → detailed place → final image
 
   Every stage follows this shape: `simpl`, `ntuplace1`, `abacus`, `multirow` and `fastdp`, committed with `setSimplSolution`, `setNtuplace1Solution`, `setAbacusSolution`, `setMultiRowSolution` and `setFastdpSolution`. A stage never reads ktDM after building its DM.
 
-  SimPL's files: `simpl_dm` (data model: design, fences, result, `buildSimplDM`), `simpl_flowMgr` (the four steps), `simpl_placer` (netlist and the iteration loop), `simpl_lss` (linear system solve: B2B and star systems, conjugate gradient), `simpl_lal` (look-ahead legalization), `simpl_grid` (bin grid and free space), `simpl_parallel.h` (TBB helpers with deterministic reductions), `simpl_graph`, `simpl_options`.
+  SimPL's files: `simpl_dm` (data model: the solver's netlist, cell sizes, obstacles, fences, result, `buildSimplDM`), `simpl_flowMgr` (the four steps), `simpl_placer` (the iteration loop), `simpl_lss` (linear system solve: B2B and star systems, conjugate gradient), `simpl_lal` (look-ahead legalization), `simpl_grid` (bin grid and free space), `simpl_parallel.h` (TBB helpers with deterministic reductions), `simpl_options`.
 - **Stages:**
   - `globalPlacer/simpl`: default quadratic placer with B2B net model and look-ahead legalization, fence-aware. `docs/global-placement/simpl/` is a step-by-step guide to the SimPL paper.
   - `globalPlacer/ntuplace1`: alternative global placer, ratio partitioning (Chen, Hsu, Jiang, Chang, ISPD 2005).

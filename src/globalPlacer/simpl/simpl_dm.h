@@ -1,7 +1,8 @@
 #pragma once
 
 #include "datamodel/kt_solutionMgr.h"
-#include "globalPlacer/simpl/simpl_graph.h"
+#include "globalPlacer/simpl/simpl_grid.h"
+#include "globalPlacer/simpl/simpl_lss.h"
 #include "globalPlacer/simpl/simpl_options.h"
 
 #include <array>
@@ -124,7 +125,15 @@ struct BoundsPoint {
 using BoundsHook = std::function<void(std::span<const BoundsPoint> curve)>;
 
 struct Design {
-    Graph graph;
+    Netlist netlist;
+    std::vector<double> width;
+    std::vector<double> height;
+    std::vector<double> area;
+    std::vector<int> regionOf;
+    std::vector<Box> obstacles;
+    std::size_t numFixed = 0;
+    std::vector<double> x;
+    std::vector<double> y;
     std::vector<RowInfo> rows;
     DieBox die{};
     Fences fences;

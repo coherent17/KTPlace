@@ -7,28 +7,82 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <format>
 #include <limits>
+#include <numeric>
 
 namespace ktplace::simpl {
 namespace {
 
-PinRole roleOf(ktplace::PinRole role) {
-    return role == ktplace::PinRole::Driver ? PinRole::Driver : PinRole::Receiver;
+void collectCells(const ktplace::Graph &graph, Design &design) {
+    Netlist &netlist = design.netlist;
+    const std::size_t numCells = graph.getNumCells();
+    netlist.varOfVertex.assign(numCells, noVar);
+    netlist.fixedX.assign(numCells, 0.0);
+    netlist.fixedY.assign(numCells, 0.0);
+    for (std::size_t v = 0; v < numCells; ++v) {
+        const ktplace::Vertex &cell = graph.getCell(v);
+        netlist.fixedX[v] = cell.x;
+        netlist.fixedY[v] = cell.y;
+        if (cell.isFixed || cell.isTerminal) {
+            if (cell.width > 0.0 && cell.height > 0.0) {
+                design.obstacles.push_back(
+                    {cell.x, cell.y, cell.x + cell.width, cell.y + cell.height});
+            }
+            ++design.numFixed;
+            continue;
+        }
+        netlist.varOfVertex[v] = static_cast<std::uint32_t>(netlist.numMovable++);
+        netlist.movVertex.push_back(static_cast<std::uint32_t>(v));
+        design.width.push_back(cell.width);
+        design.height.push_back(cell.height);
+        design.area.push_back(cell.width * cell.height);
+        design.regionOf.push_back(cell.regionId);
+        design.x.push_back(cell.x);
+        design.y.push_back(cell.y);
+    }
 }
 
-void copyNetlist(const ktplace::Graph &source, Graph &target) {
-    for (const ktplace::Net &net : source.getNets()) {
-        target.addNet(net.weight);
+void collectNets(const ktplace::Graph &graph, Netlist &netlist) {
+    netlist.nets.resize(graph.getNumNets());
+    for (std::size_t n = 0; n < netlist.nets.size(); ++n) {
+        const std::vector<std::size_t> &pins = graph.getNetPins(n);
+        std::vector<std::size_t> order(pins.begin(), pins.end());
+        std::stable_sort(order.begin(), order.end(), [&](std::size_t a, std::size_t b) {
+            return graph.getPin(a).cellId < graph.getPin(b).cellId;
+        });
+        NetPins &net = netlist.nets[n];
+        net.weight = graph.getNet(n).weight;
+        for (const std::size_t pinId : order) {
+            const ktplace::Pin &pin = graph.getPin(pinId);
+            if (!net.cells.empty() && net.cells.back() == pin.cellId) {
+                continue;
+            }
+            net.cells.push_back(static_cast<std::uint32_t>(pin.cellId));
+            net.offX.push_back(pin.offsetX);
+            net.offY.push_back(pin.offsetY);
+        }
     }
-    for (const ktplace::Pin &pin : source.getPins()) {
-        target.addPin(Pin{pin.cellId, pin.netId, roleOf(pin.role), pin.offsetX, pin.offsetY},
-                      pin.netId);
+
+    netlist.pinStart.assign(netlist.numMovable + 1, 0);
+    for (const NetPins &net : netlist.nets) {
+        for (const std::uint32_t c : net.cells) {
+            if (netlist.varOfVertex[c] != noVar) {
+                ++netlist.pinStart[netlist.varOfVertex[c] + 1];
+            }
+        }
     }
-    for (std::size_t v = 0; v < source.getNumCells(); ++v) {
-        const ktplace::Vertex &cell = source.getCell(v);
-        target.addCell(Cell{cell.x, cell.y, cell.width, cell.height, cell.isFixed, cell.isTerminal,
-                            cell.regionId});
+    std::partial_sum(netlist.pinStart.begin(), netlist.pinStart.end(), netlist.pinStart.begin());
+    netlist.pinsOfCell.resize(netlist.pinStart.back());
+    std::vector<std::size_t> cursor(netlist.pinStart.begin(), netlist.pinStart.end() - 1);
+    for (std::uint32_t n = 0; n < netlist.nets.size(); ++n) {
+        for (std::uint32_t q = 0; q < netlist.nets[n].cells.size(); ++q) {
+            const std::uint32_t v = netlist.varOfVertex[netlist.nets[n].cells[q]];
+            if (v != noVar) {
+                netlist.pinsOfCell[cursor[v]++] = {n, q};
+            }
+        }
     }
 }
 
@@ -245,24 +299,26 @@ SimplResult simplDM::run() {
 
 simplSolution simplDM::solution() const {
     simplSolution out;
-    out.xs.reserve(d.graph.getNumCells());
-    out.ys.reserve(d.graph.getNumCells());
-    for (std::size_t v = 0; v < d.graph.getNumCells(); ++v) {
-        const Cell &cell = d.graph.getCell(v);
-        out.xs.push_back(cell.x);
-        out.ys.push_back(cell.y);
+    out.xs = d.netlist.fixedX;
+    out.ys = d.netlist.fixedY;
+    for (std::size_t i = 0; i < d.netlist.numMovable; ++i) {
+        out.xs[d.netlist.movVertex[i]] = d.x[i];
+        out.ys[d.netlist.movVertex[i]] = d.y[i];
     }
     return out;
 }
 
 simplDM buildSimplDM(const ktDM &db) {
+    const ktplace::Graph &graph = db.getGraph();
     Design design;
-    copyNetlist(db.getGraph(), design.graph);
+    collectCells(graph, design);
+    collectNets(graph, design.netlist);
     design.rows = copyRows(db.getRows());
     design.fences = copyFences(db.constraints());
     design.die = placementDieBox(db.die(), db.getGraph());
 
-    const StageCounts counts = countGraph(design.graph, design.rows.size());
+    const StageCounts counts{graph.getNumCells(), design.netlist.numMovable, graph.getNumNets(),
+                             graph.getNumPins(), design.rows.size()};
     simplDM dm(std::move(design), loadOptions<SimplOptions>());
     reportStageBuild(counts, db.checksum(), dm.options());
     return dm;

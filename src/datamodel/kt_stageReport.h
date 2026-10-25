@@ -6,7 +6,6 @@
 #include "datamodel/kt_optionDb.h"
 #include "util/kt_log.h"
 
-#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <string>
@@ -20,25 +19,6 @@ struct StageCounts {
     std::size_t pins = 0;
     std::size_t rows = 0;
 };
-
-template <typename StageDesign>
-[[nodiscard]] StageCounts countStage(const StageDesign &design) {
-    const auto movable = std::ranges::count_if(design.cells, [](const auto &cell) {
-        return !cell.isFixed && !cell.isTerminal;
-    });
-    return {design.cells.size(), static_cast<std::size_t>(movable), design.nets.size(),
-            design.pins.size(), design.rows.size()};
-}
-
-template <typename StageGraph>
-[[nodiscard]] StageCounts countGraph(const StageGraph &graph, std::size_t rows) {
-    StageCounts n{graph.getNumCells(), 0, graph.getNumNets(), graph.getNumPins(), rows};
-    for (std::size_t v = 0; v < graph.getNumCells(); ++v) {
-        const auto &cell = graph.getCell(v);
-        n.movable += !cell.isFixed && !cell.isTerminal ? 1 : 0;
-    }
-    return n;
-}
 
 template <typename Options>
 void reportStageBuild(const StageCounts &n, std::uint32_t checksum, const Options &options) {
