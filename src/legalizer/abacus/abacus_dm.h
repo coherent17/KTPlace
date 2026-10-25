@@ -6,6 +6,8 @@
 #include <array>
 #include <cstddef>
 #include <functional>
+#include <limits>
+#include <span>
 #include <string>
 #include <utility>
 #include <vector>
@@ -16,26 +18,53 @@ class ktDM;
 
 namespace ktplace::abacus {
 
-struct Cell {
-    double x = 0.0;
-    double y = 0.0;
-    double width = 0.0;
-    double height = 0.0;
-    bool isFixed = false;
-    bool isTerminal = false;
-    int region = -1;
-};
-
 inline constexpr int noRegion = -1;
+inline constexpr std::size_t noSlot = std::numeric_limits<std::size_t>::max();
 
-struct Pin {
-    std::size_t cellId = 0;
-    double offsetX = 0.0;
-    double offsetY = 0.0;
+struct Cells {
+    std::vector<std::size_t> id;
+    std::vector<double> x;
+    std::vector<double> y;
+    std::vector<double> width;
+    std::vector<double> height;
+    std::vector<int> region;
+
+    [[nodiscard]] std::size_t size() const noexcept {
+        return id.size();
+    }
 };
 
-struct Net {
-    std::vector<std::size_t> pins;
+struct NetPin {
+    std::size_t slot = noSlot;
+    double offX = 0.0;
+    double offY = 0.0;
+    double absX = 0.0;
+    double absY = 0.0;
+};
+
+class Nets {
+public:
+    [[nodiscard]] std::size_t size() const noexcept {
+        return firstPin.size() - 1;
+    }
+    [[nodiscard]] std::span<const NetPin> operator[](std::size_t net) const {
+        return std::span(pins).subspan(firstPin[net], firstPin[net + 1] - firstPin[net]);
+    }
+    void add(std::span<const NetPin> netPins) {
+        pins.insert(pins.end(), netPins.begin(), netPins.end());
+        firstPin.push_back(pins.size());
+    }
+
+private:
+    std::vector<std::size_t> firstPin{0};
+    std::vector<NetPin> pins;
+};
+
+struct FixedBox {
+    double y0 = 0.0;
+    double y1 = 0.0;
+    double x0 = 0.0;
+    double x1 = 0.0;
 };
 
 struct Subrow {
@@ -57,57 +86,6 @@ struct RowInfo {
 
 using DieBox = std::array<double, 4>;
 
-struct Rect {
-    double xlo = 0.0;
-    double ylo = 0.0;
-    double xhi = 0.0;
-    double yhi = 0.0;
-
-    [[nodiscard]] bool contains(double x, double y) const noexcept {
-        return x >= xlo && x <= xhi && y >= ylo && y <= yhi;
-    }
-};
-
-struct Region {
-    std::vector<Rect> rects;
-    double minX = 0.0;
-    double minY = 0.0;
-    double maxX = 0.0;
-    double maxY = 0.0;
-
-    [[nodiscard]] bool contains(double x, double y) const {
-        if (x < minX || x > maxX || y < minY || y > maxY) {
-            return false;
-        }
-        for (const Rect &r : rects) {
-            if (r.contains(x, y)) {
-                return true;
-            }
-        }
-        return false;
-    }
-    void seal();
-};
-
-class Fences {
-public:
-    [[nodiscard]] std::size_t numRegions() const noexcept {
-        return regions.size();
-    }
-    [[nodiscard]] const Region &region(int id) const {
-        return regions.at(static_cast<std::size_t>(id));
-    }
-    void addRegion(Region r) {
-        regions.push_back(std::move(r));
-    }
-
-    [[nodiscard]] std::size_t countViolations(const std::vector<double> &positions,
-                                              const std::vector<int> &regionIds) const;
-
-private:
-    std::vector<Region> regions;
-};
-
 struct FrameInfo {
     std::string note;
     std::string series;
@@ -123,12 +101,13 @@ using FrameHook = std::function<void(const std::vector<float> &xs, const std::ve
                                      const FrameInfo &info)>;
 
 struct Design {
-    std::vector<Cell> cells;
-    std::vector<Pin> pins;
-    std::vector<Net> nets;
+    Cells cells;
+    Nets nets;
+    std::vector<FixedBox> fixedBoxes;
     std::vector<RowInfo> rows;
+    std::vector<double> vertexX;
+    std::vector<double> vertexY;
     DieBox die{};
-    Fences fences;
     FrameHook onFrame;
 };
 

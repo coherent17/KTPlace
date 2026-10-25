@@ -18,10 +18,6 @@ namespace ktplace::abacus {
 
 namespace {
 
-struct FixedBox {
-    double y0, y1, x0, x1;
-};
-
 constexpr double infeasible = std::numeric_limits<double>::infinity();
 
 struct Span {
@@ -119,13 +115,14 @@ private:
 
     Design &design;
     std::vector<RowTrack> tracks;
-    std::vector<std::size_t> mov;
-    std::vector<double> cellW, cellH;
-    std::vector<double> targetX, targetY;
+    const std::vector<std::size_t> &mov = design.cells.id;
+    const std::vector<double> &cellW = design.cells.width;
+    const std::vector<double> &cellH = design.cells.height;
+    const std::vector<int> &cellRegion = design.cells.region;
+    std::vector<double> targetX = design.cells.x;
+    std::vector<double> targetY = design.cells.y;
     std::vector<double> liveX, liveY;
-    std::vector<int> cellRegion;
-    std::unordered_map<std::size_t, std::size_t> slotOf;
-    std::vector<FixedBox> fixedBoxes;
+    const std::vector<FixedBox> &fixedBoxes = design.fixedBoxes;
     DieBox dieBox = {0.0, 0.0, 0.0, 0.0};
     double minSubrowSites = 1.0;
 };
@@ -275,26 +272,23 @@ double AbacusLegalizer::Impl::hpwlOf(const std::vector<double> &x,
                                      const std::vector<double> &y) const {
     return netHpwl(
         design.nets.size(),
-        [&](std::size_t n) -> const std::vector<std::size_t> & {
-            return design.nets[n].pins;
+        [this](std::size_t n) {
+            return design.nets[n];
         },
-        [&](std::size_t pinId) {
-            const Pin &pin = design.pins[pinId];
-            const auto it = slotOf.find(pin.cellId);
-            const double cx = it != slotOf.end() ? x[it->second] : design.cells[pin.cellId].x;
-            const double cy = it != slotOf.end() ? y[it->second] : design.cells[pin.cellId].y;
-            return std::pair{cx + pin.offsetX, cy + pin.offsetY};
+        [&](const NetPin &pin) {
+            return pin.slot == noSlot ? std::pair{pin.absX, pin.absY}
+                                      : std::pair{x[pin.slot] + pin.offX, y[pin.slot] + pin.offY};
         });
 }
 
 void AbacusLegalizer::Impl::writeFrame(const std::vector<double> &xs, const std::vector<double> &ys,
                                        const std::string &note, std::size_t step,
                                        std::size_t total) const {
-    const std::size_t nv = design.cells.size();
+    const std::size_t nv = design.vertexX.size();
     std::vector<float> fx(nv), fy(nv);
     for (std::size_t v = 0; v < nv; ++v) {
-        fx[v] = static_cast<float>(design.cells[v].x);
-        fy[v] = static_cast<float>(design.cells[v].y);
+        fx[v] = static_cast<float>(design.vertexX[v]);
+        fy[v] = static_cast<float>(design.vertexY[v]);
     }
     for (std::size_t i = 0; i < mov.size(); ++i) {
         fx[mov[i]] = static_cast<float>(xs[i]);
@@ -397,23 +391,6 @@ AbacusResult AbacusLegalizer::Impl::run(const AbacusOptions &params) {
     minSubrowSites = static_cast<double>(params.minSubrowSites);
     ScopedTimer timer("abacus");
 
-    for (std::size_t v = 0; v < design.cells.size(); ++v) {
-        const Cell &cell = design.cells[v];
-        if (cell.isFixed || cell.isTerminal) {
-            continue;
-        }
-        const std::size_t slot = mov.size();
-        mov.push_back(v);
-        slotOf[v] = slot;
-        cellW.push_back(cell.width);
-        cellH.push_back(cell.height);
-        cellRegion.push_back(cell.region >= 0 && static_cast<std::size_t>(cell.region) <
-                                                     design.fences.numRegions()
-                                 ? cell.region
-                                 : noRegion);
-        targetX.push_back(cell.x);
-        targetY.push_back(cell.y);
-    }
     liveX = targetX;
     liveY = targetY;
     res.cellsPlaced = mov.size();
@@ -421,13 +398,6 @@ AbacusResult AbacusLegalizer::Impl::run(const AbacusOptions &params) {
         return res;
     }
     res.hpwlBefore = hpwlOf(liveX, liveY);
-
-    for (const auto &vert : design.cells) {
-        if (!vert.isFixed) {
-            continue;
-        }
-        fixedBoxes.push_back(FixedBox{vert.y, vert.y + vert.height, vert.x, vert.x + vert.width});
-    }
 
     tracks = buildRows(false);
     if (tracks.empty()) {
@@ -471,10 +441,8 @@ AbacusResult AbacusLegalizer::Impl::run(const AbacusOptions &params) {
     }
     res.hpwlAfter = hpwlOf(liveX, liveY);
 
-    for (std::size_t i = 0; i < mov.size(); ++i) {
-        design.cells[mov[i]].x = liveX[i];
-        design.cells[mov[i]].y = liveY[i];
-    }
+    design.cells.x = liveX;
+    design.cells.y = liveY;
     res.unplaced = mov.size() - chosen.placed;
     if (design.onFrame) {
         writeFrame(liveX, liveY, "Legal placement", chosen.placed, mov.size());
