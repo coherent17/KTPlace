@@ -6,6 +6,7 @@
 #include "datamodel/kt_optionDb.h"
 
 #include <cstddef>
+#include <tuple>
 
 namespace ktplace {
 
@@ -17,11 +18,13 @@ struct Ntuplace1Options {
     std::size_t maxRatioRetries = 4;
     bool verbose = false;
 
-    static void fields(auto &self, auto &&visit) {
-        visit("leaf_cells", self.targetLeafCells);
-        visit("max_levels", self.maxLevels);
-        visit("retries", self.maxRatioRetries);
-        visit("verbose", self.verbose);
+    static constexpr auto getConfigurableOptions() {
+        return std::tuple{
+            option("leaf_cells", &Ntuplace1Options::targetLeafCells),
+            option("max_levels", &Ntuplace1Options::maxLevels),
+            option("retries", &Ntuplace1Options::maxRatioRetries),
+            option("verbose", &Ntuplace1Options::verbose),
+        };
     }
 };
 

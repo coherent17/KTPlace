@@ -12,6 +12,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <tuple>
 #include <type_traits>
 #include <utility>
 #include <variant>
@@ -148,6 +149,17 @@ private:
     std::array<OptionMap, componentNames.size()> byComponent;
 };
 
+template <typename Options, OptionType T>
+struct OptionKey {
+    std::string_view name;
+    T Options::*member;
+};
+
+template <typename Options, OptionType T>
+[[nodiscard]] constexpr OptionKey<Options, T> option(std::string_view name, T Options::*member) {
+    return {name, member};
+}
+
 template <typename T>
 concept ComponentOptionSet = requires {
     { T::component } -> std::convertible_to<Component>;
@@ -157,9 +169,14 @@ template <ComponentOptionSet Options>
 [[nodiscard]] Options loadOptions() {
     const ComponentOptions configured = OptionDb::instance().getComponentOption(Options::component);
     Options out;
-    Options::fields(out, [&configured](std::string_view key, auto &field) {
-        field = configured.get<std::remove_cvref_t<decltype(field)>>(key).value_or(field);
-    });
+    std::apply(
+        [&](const auto &...key) {
+            ((out.*key.member =
+                  configured.get<std::remove_cvref_t<decltype(out.*key.member)>>(key.name).value_or(
+                      out.*key.member)),
+             ...);
+        },
+        Options::getConfigurableOptions());
     return out;
 }
 
@@ -169,9 +186,11 @@ void reportOptionTable(Component component,
 template <ComponentOptionSet Options>
 void reportOptions(const Options &options) {
     std::vector<std::pair<std::string_view, OptionValue>> rows;
-    Options::fields(options, [&rows](std::string_view key, const auto &field) {
-        rows.emplace_back(key, toOptionValue(field));
-    });
+    std::apply(
+        [&](const auto &...key) {
+            (rows.emplace_back(key.name, toOptionValue(options.*key.member)), ...);
+        },
+        Options::getConfigurableOptions());
     reportOptionTable(Options::component, rows);
 }
 
