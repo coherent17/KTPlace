@@ -1,5 +1,6 @@
 #include "legalizer/abacus/abacus_legalizer.h"
 
+#include "datamodel/kt_hpwl.h"
 #include "util/kt_log.h"
 #include "util/kt_reportTable.h"
 #include "util/kt_scopedTimer.h"
@@ -272,33 +273,18 @@ void AbacusLegalizer::Impl::commit(Segment &sr, std::size_t i, const Trial &t) {
 
 double AbacusLegalizer::Impl::hpwlOf(const std::vector<double> &x,
                                      const std::vector<double> &y) const {
-    double total = 0.0;
-    for (const Net &net : design.nets) {
-        if (net.pins.empty()) {
-            continue;
-        }
-        double ax = std::numeric_limits<double>::max(), bx = -std::numeric_limits<double>::max();
-        double ay = std::numeric_limits<double>::max(), by = -std::numeric_limits<double>::max();
-        for (const std::size_t pinId : net.pins) {
+    return netHpwl(
+        design.nets.size(),
+        [&](std::size_t n) -> const std::vector<std::size_t> & {
+            return design.nets[n].pins;
+        },
+        [&](std::size_t pinId) {
             const Pin &pin = design.pins[pinId];
             const auto it = slotOf.find(pin.cellId);
-            double cx = 0.0, cy = 0.0;
-            if (it != slotOf.end()) {
-                cx = x[it->second] + pin.offsetX;
-                cy = y[it->second] + pin.offsetY;
-            } else {
-                const Cell &c = design.cells[pin.cellId];
-                cx = c.x + pin.offsetX;
-                cy = c.y + pin.offsetY;
-            }
-            ax = std::min(ax, cx);
-            bx = std::max(bx, cx);
-            ay = std::min(ay, cy);
-            by = std::max(by, cy);
-        }
-        total += (bx - ax) + (by - ay);
-    }
-    return total;
+            const double cx = it != slotOf.end() ? x[it->second] : design.cells[pin.cellId].x;
+            const double cy = it != slotOf.end() ? y[it->second] : design.cells[pin.cellId].y;
+            return std::pair{cx + pin.offsetX, cy + pin.offsetY};
+        });
 }
 
 void AbacusLegalizer::Impl::writeFrame(const std::vector<double> &xs, const std::vector<double> &ys,

@@ -2,6 +2,7 @@
 
 #include "datamodel/kt_die.h"
 #include "datamodel/kt_dm.h"
+#include "datamodel/kt_hpwl.h"
 #include "datamodel/kt_optionDb.h"
 #include "datamodel/kt_stageReport.h"
 #include "legalizer/multirow/multirow_legalizer.h"
@@ -139,27 +140,15 @@ std::size_t Fences::countViolations(const std::vector<double> &positions,
 double netlistHPWL(const std::vector<Cell> &, const std::vector<Net> &nets,
                    const std::vector<Pin> &pins, const std::vector<double> &xs,
                    const std::vector<double> &ys) {
-    double total = 0.0;
-    for (const Net &net : nets) {
-        if (net.pins.size() < 2) {
-            continue;
-        }
-        double xlo = std::numeric_limits<double>::max();
-        double xhi = std::numeric_limits<double>::lowest();
-        double ylo = std::numeric_limits<double>::max();
-        double yhi = std::numeric_limits<double>::lowest();
-        for (const std::size_t pinId : net.pins) {
+    return netHpwl(
+        nets.size(),
+        [&](std::size_t n) -> const std::vector<std::size_t> & {
+            return nets[n].pins;
+        },
+        [&](std::size_t pinId) {
             const Pin &pin = pins.at(pinId);
-            const double px = xs.at(pin.cellId) + pin.offsetX;
-            const double py = ys.at(pin.cellId) + pin.offsetY;
-            xlo = std::min(xlo, px);
-            xhi = std::max(xhi, px);
-            ylo = std::min(ylo, py);
-            yhi = std::max(yhi, py);
-        }
-        total += (xhi - xlo) + (yhi - ylo);
-    }
-    return total;
+            return std::pair{xs.at(pin.cellId) + pin.offsetX, ys.at(pin.cellId) + pin.offsetY};
+        });
 }
 
 multirowDM::multirowDM(Design design, MultiRowOptions options)

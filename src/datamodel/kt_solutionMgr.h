@@ -12,14 +12,7 @@
 namespace ktplace {
 
 /// Half-perimeter wirelength of a placement, computed from a netlist and the
-/// positions that go with it.
-///
-/// A free function taking the graph and the coordinates, because that is what a
-/// stage actually has: it is working on its own positions and has not committed
-/// them to the design yet. There were three HPWL implementations before this --
-/// ktDM::hpwl() over the committed placement, SimplePlacer::Impl::hpwl() over its
-/// own arrays, and FastDP::segmentHpwl() over a cell subset -- and this is the
-/// shape the plotter already takes (writeFrameSvg(path, g, x, y, ...)).
+/// positions that go with it, through netHpwl (kt_hpwl.h) like every stage's HPWL.
 ///
 /// @p x and @p y are indexed by vertex id and must cover every vertex. Entries
 /// for net vertices are ignored.

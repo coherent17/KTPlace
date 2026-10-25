@@ -92,7 +92,7 @@ load → report → global place → legalize → detailed place → final image
 
 ## Conventions
 
-- **Placements must not depend on the platform.** Linux (GCC, libstdc++) and macOS (Apple clang, libc++) must write the same `placed.pl`, and CI compares them. So in engine code: sort with `std::stable_sort`/`std::ranges::stable_sort` (an unstable sort orders ties differently per standard library), keep `-ffp-contract=off` (no FMA), avoid math functions that are not correctly rounded (`std::hypot`, `std::exp`, ...) where their result steers a decision, and keep parallel floating-point reductions in a fixed order (`deterministicSum` in SimPL).
+- **Placements must not depend on the platform.** Linux (GCC, libstdc++) and macOS (Apple clang, libc++) must write the same `placed.pl`, and CI compares them. So in engine code: sort with `std::stable_sort`/`std::ranges::stable_sort` (an unstable sort orders ties differently per standard library), keep `-ffp-contract=off` (no FMA), avoid math functions that are not correctly rounded (`std::hypot`, `std::exp`, ...) where their result steers a decision, and keep parallel floating-point reductions in a fixed order (`deterministicSum` in SimPL; `orderedSum` in `util/kt_parallel.h` computes the terms in parallel and adds them in index order, so it matches a serial loop bit for bit). Stages keep their own netlist types; each stage's HPWL calls `netHpwl` (`datamodel/kt_hpwl.h`) with accessors over its own pins.
 
 - Includes are relative to the project root (`#include "datamodel/kt_dm.h"`). `src/` is the only include path.
 - Format with `.clang-format`: Google-based style, 4-space indent, 100-column limit. CI fails on any unformatted tracked file.

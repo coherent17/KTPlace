@@ -38,10 +38,6 @@ struct Net {
     std::vector<std::size_t> pins;
 };
 
-[[nodiscard]] double netlistHPWL(const std::vector<Cell> &cells, const std::vector<Net> &nets,
-                                 const std::vector<Pin> &pins, const std::vector<double> &xs,
-                                 const std::vector<double> &ys);
-
 struct Subrow {
     double xlo = 0.0;
     double xhi = 0.0;

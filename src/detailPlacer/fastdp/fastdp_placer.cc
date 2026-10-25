@@ -1,5 +1,6 @@
 #include "detailPlacer/fastdp/fastdp_placer.h"
 
+#include "datamodel/kt_hpwl.h"
 #include "detailPlacer/fastdp/fastdp_options.h"
 #include "util/kt_log.h"
 #include "util/kt_reportTable.h"
@@ -581,19 +582,15 @@ void FastDetailedPlacer::Impl::moveCell(std::size_t c, double x, double y) {
 }
 
 double FastDetailedPlacer::Impl::hpwl() const {
-    double total = 0.0;
-    for (const std::vector<NetPin> &pins : netPins) {
-        BoundingBox box;
-        for (const NetPin &p : pins) {
-            if (p.slot == noSlot) {
-                box.add(p.absX, p.absY);
-            } else {
-                box.add(cellX[p.slot] + p.offX, cellY[p.slot] + p.offY);
-            }
-        }
-        total += box.halfPerimeter();
-    }
-    return total;
+    return netHpwl(
+        netPins.size(),
+        [this](std::size_t n) -> const std::vector<NetPin> & {
+            return netPins[n];
+        },
+        [this](const NetPin &p) {
+            return p.slot == noSlot ? std::pair{p.absX, p.absY}
+                                    : std::pair{cellX[p.slot] + p.offX, cellY[p.slot] + p.offY};
+        });
 }
 
 FastDetailedPlacer::Impl::DeltaScratch FastDetailedPlacer::Impl::freshScratch() const {
