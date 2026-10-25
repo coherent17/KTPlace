@@ -9,7 +9,7 @@ CXX ?= g++
 CXXFLAGS ?= -std=c++23 -Wall -Wextra -O2 -g -pthread
 # Every source uses project-root-relative includes (see globalPlacer/Master.make).
 override INCLUDES := -I.. $(THIRD_PARTY_INCLUDES)
-OBJ_DIR ?= ../build/obj/adaptor
+OBJ_DIR ?= ../../build/obj/adaptor
 
 # Source files in this directory
 SRCS := bookshelfToKTAdaptor.cc lefdefToKTAdaptor.cc kt_inputReader.cc

@@ -9,7 +9,15 @@ all:
 
 # Clean
 clean:
-	@$(MAKE) -C src -f Master.make clean
+	@$(MAKE) --no-print-directory -C src -f Master.make clean
+	@$(MAKE) --no-print-directory -C src -f Master.make STATIC=1 clean
+	@$(MAKE) --no-print-directory -C src -f Master.make COVERAGE=1 clean
+	@rm -rf site
+
+.PHONY: distclean
+distclean: clean
+	@rm -rf compile_commands.json .cache .venv
+	@find . -path ./third_party -prune -o -name __pycache__ -type d -prune -exec rm -rf {} +
 
 # Rebuild
 rebuild:
@@ -81,7 +89,8 @@ help:
 	@echo "=============================="
 	@echo "Targets:"
 	@echo "  all               - Build build/bin/ktplace (default)"
-	@echo "  clean             - Remove build artifacts"
+	@echo "  clean             - Remove every build tree (build/, build-static/, build-cov/) and site/"
+	@echo "  distclean         - clean, plus compile_commands.json, clangd's .cache/, .venv/ and __pycache__/"
 	@echo "  rebuild           - Clean and rebuild"
 	@echo "  test              - Build and run the unit tests (alias: check)"
 	@echo "  gui-test          - Build and run the GUI tests offscreen (needs Qt 6)"

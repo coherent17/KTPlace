@@ -9,7 +9,7 @@ CXX ?= g++
 CXXFLAGS ?= -std=c++23 -Wall -Wextra -O2 -g -pthread
 # Every source uses project-root-relative includes (see globalPlacer/Master.make).
 override INCLUDES := -I.. $(THIRD_PARTY_INCLUDES)
-OBJ_DIR ?= ../build/obj/datamodel
+OBJ_DIR ?= ../../build/obj/datamodel
 
 # Source files in this directory
 SRCS := kt_die.cc kt_dm.cc kt_graph.cc kt_solutionMgr.cc kt_optionDb.cc kt_constraintMgr.cc \

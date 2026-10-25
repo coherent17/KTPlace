@@ -15,7 +15,7 @@ CXXFLAGS ?= -std=c++23 -Wall -Wextra -O2 -g -pthread
 # is running in.  `override` is required because the parent makefile
 # passes INCLUDES on the command line.
 override INCLUDES := -I.. $(THIRD_PARTY_INCLUDES)
-OBJ_DIR ?= ../build/obj/globalPlacer
+OBJ_DIR ?= ../../build/obj/globalPlacer
 
 # Source files in this directory
 SRCS := simpl/simpl_placer.cc simpl/simpl_dm.cc simpl/simpl_flowMgr.cc \
