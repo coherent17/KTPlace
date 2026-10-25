@@ -15,16 +15,18 @@
 </p>
 
 <p align="center">
+  <a href="#why-know-thyself">Why "know thyself"</a> ·
   <a href="#quick-start">Quick start</a> ·
   <a href="#tcl-flows-and-the-console">Tcl flows</a> ·
   <a href="#desktop-gui">GUI</a> ·
   <a href="#configuration">Configuration</a> ·
-  <a href="#install-a-release">Install a release</a>
+  <a href="#install-a-release">Install a release</a> ·
+  <a href="docs/README.md">Documentation</a>
 </p>
 
 <p align="center">
-  <img src="docs/images/adaptec1.gif" width="49%" alt="SimPL global placement, legalization and detailed placement of adaptec1">
-  <img src="docs/images/adaptec1_routing_demand.gif" width="49%" alt="Routing demand of the same adaptec1 run, frame by frame">
+  <img src="assets/adaptec1.gif" width="49%" alt="SimPL global placement, legalization and detailed placement of adaptec1">
+  <img src="assets/adaptec1_routing_demand.gif" width="49%" alt="Routing demand of the same adaptec1 run, frame by frame">
 </p>
 
 <p align="center"><sub>
@@ -34,13 +36,34 @@ Drawn with <code>anim_zoom 1</code>, <code>anim_blend 1</code>, <code>simpl trac
 </sub></p>
 
 <p align="center">
-  <img src="docs/images/gui_demo.gif" width="100%" alt="Using the KTPlace GUI on adaptec1: Open Design, help, gplace_design with a selected cell, legalize_placement and detail_place zoomed in, the routing-demand map, command history and write_placement">
+  <img src="assets/gui_demo.gif" width="100%" alt="Using the KTPlace GUI on adaptec1: Open Design, help, gplace_design with a selected cell, legalize_placement and detail_place zoomed in, the routing-demand map, command history and write_placement">
 </p>
 
 <p align="center"><sub>
 The desktop GUI on adaptec1: open a design, step through the flow from the Tcl Console, follow a
 high-fanout cell through every stage, and right-click for the routing-demand map.
 </sub></p>
+
+## Why "know thyself"
+
+The KT in KTPlace stands for *know thyself*, and it is the project's goal: a placer
+with no black boxes. Whoever uses or works on KTPlace should be able to know
+everything it does, and why.
+
+- **Every algorithm is built from its paper.** Each stage is implemented here, in
+  readable modern C++, from the publication it follows, and the
+  [references](docs/references.md) list them all.
+- **Every algorithm is explained from first principles.** The
+  [documentation](docs/README.md) walks through each one, from the basic math up to
+  the paper's last section, and assumes only basic calculus. The shared background
+  (the placement problem, the linear algebra, solving large systems, net models) is
+  written once in [Foundations](docs/foundations/README.md); the
+  [SimPL guide](docs/global-placement/simpl/README.md) is the first algorithm guide,
+  and the other stages follow.
+- **Every run can be watched.** Animations, convergence plots, routing-demand maps and
+  the GUI show what each stage does to the placement, step by step.
+- **Every result is reproducible.** The same input gives a byte-identical placement on
+  Linux and macOS.
 
 ## Highlights
 
@@ -53,6 +76,7 @@ high-fanout cell through every stage, and right-click for the routing-demand map
 - **Deterministic.** Linux and macOS write byte-identical placements, and CI checks it on every change.
 - **Pictures built in.** An animated GIF of the run, a routing-demand GIF in step with it, a
   high-resolution final image and the SimPL convergence plot, all rendered in C++ with no external tools.
+- **Explained from first principles.** A step-by-step guide to each algorithm in [`docs/`](docs/README.md).
 - **Self-contained.** oneTBB, zlib and CImg are submodules linked into the binary; a release runs on any x86-64 Linux.
 
 ## Quick start
@@ -228,9 +252,11 @@ keys and defaults are in its `*_options.h`.
 
 ## The algorithms
 
+Each stage follows a published paper; [`docs/`](docs/README.md) explains them from the ground up.
+
 | stage | algorithm |
 | --- | --- |
-| Global placement | SimPL (Kim, Lee, Markov, CACM 2013; IEEE TCAD 2012), or NTUPlace (Chen, Hsu, Jiang, Chang, ISPD 2005); [`docs/simpl.md`](docs/simpl.md) explains how ours differs from the published SimPL |
+| Global placement | SimPL (Kim, Lee, Markov, CACM 2013; IEEE TCAD 2012), or NTUPlace (Chen, Hsu, Jiang, Chang, ISPD 2005); [`docs/global-placement/simpl/`](docs/global-placement/simpl/README.md) is a step-by-step guide to the paper |
 | Legalization | Abacus (Spindler, Schlichtmann, Johannes, ISPD 2008), and a multi-row legalizer for cells taller than a row |
 | Detailed placement | FastDP (Pan, Viswanathan, Chu, ICCAD 2005) |
 | Checking | an independent placement check (overlaps, die, fences) after every stage |

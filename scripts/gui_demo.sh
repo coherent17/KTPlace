@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Records docs/images/gui_demo.gif: scripts/gui_demo.cc drives the real GUI window,
+# Records assets/gui_demo.gif: scripts/gui_demo.cc drives the real GUI window,
 # grabs a frame after each step, and ffmpeg turns the frames into a GIF.
 #
 # Usage: scripts/gui_demo.sh [design-dir] [output.gif]
@@ -8,7 +8,7 @@ set -euo pipefail
 
 root=$(cd "$(dirname "$0")/.." && pwd)
 design=${1:-benchmark/bookshelf/ISPD_2005/adaptec1}
-output=${2:-docs/images/gui_demo.gif}
+output=${2:-assets/gui_demo.gif}
 cd "$root"
 
 command -v ffmpeg >/dev/null || { echo "gui_demo: ffmpeg is required" >&2; exit 1; }

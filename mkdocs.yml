@@ -1,0 +1,74 @@
+site_name: KTPlace documentation
+site_description: The placement algorithms behind KTPlace, explained from the ground up
+site_url: https://coherent17.github.io/KTPlace/
+repo_url: https://github.com/coherent17/KTPlace
+edit_uri: edit/main/docs/
+docs_dir: docs
+strict: true
+
+exclude_docs: |
+  requirements.txt
+
+validation:
+  omitted_files: warn
+  absolute_links: warn
+  unrecognized_links: warn
+  anchors: warn
+
+theme:
+  name: material
+  features:
+    - navigation.footer
+    - navigation.indexes
+    - navigation.sections
+    - navigation.top
+    - search.highlight
+    - content.code.copy
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+
+markdown_extensions:
+  - tables
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.arithmatex:
+      generic: true
+  - toc:
+      permalink: true
+
+extra_javascript:
+  - javascripts/katex.js
+  - https://unpkg.com/katex@0.16.11/dist/katex.min.js
+  - https://unpkg.com/katex@0.16.11/dist/contrib/auto-render.min.js
+
+extra_css:
+  - https://unpkg.com/katex@0.16.11/dist/katex.min.css
+
+nav:
+  - Home: README.md
+  - Foundations:
+      - foundations/README.md
+      - foundations/01-placement-problem.md
+      - foundations/02-math-toolkit.md
+      - foundations/03-quadratic-placement.md
+      - foundations/04-solving-linear-systems.md
+      - foundations/05-net-models.md
+  - Global placement:
+      - SimPL:
+          - global-placement/simpl/README.md
+          - global-placement/simpl/01-the-simpl-idea.md
+          - global-placement/simpl/02-look-ahead-legalization.md
+          - global-placement/simpl/03-anchors-and-convergence.md
+          - global-placement/simpl/04-speed-results-parallelism.md
+  - Glossary: glossary.md
+  - References: references.md
