@@ -142,13 +142,56 @@ double secondsSince(std::chrono::steady_clock::time_point start) {
     return std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
 }
 
+struct Stats {
+    std::size_t globalSwaps = 0;
+    std::size_t verticalSwaps = 0;
+    std::size_t reorderMoves = 0;
+    std::size_t clusterMoves = 0;
+    std::size_t rolledBack = 0;
+    double hpwlBefore = 0.0;
+    double hpwlAfter = 0.0;
+    std::size_t overlappingPairs = 0;
+    std::size_t offRow = 0;
+    std::size_t offSite = 0;
+    std::size_t overFixed = 0;
+    double seconds = 0.0;
+    double globalSeconds = 0.0;
+    double verticalSeconds = 0.0;
+    double reorderSeconds = 0.0;
+    double clusterSeconds = 0.0;
+};
+
+void report(const Stats &r) {
+    ktReportTable t("Detailed placement (FastDP)");
+    t.setHeaders({"metric", "value"});
+    t.addRow({"global swaps", std::format("{} ({:.3f}s)", r.globalSwaps, r.globalSeconds)});
+    t.addRow({"vertical swaps", std::format("{} ({:.3f}s)", r.verticalSwaps, r.verticalSeconds)});
+    t.addRow({"reorder moves", std::format("{} ({:.3f}s)", r.reorderMoves, r.reorderSeconds)});
+    t.addRow({"cluster moves", std::format("{} ({:.3f}s)", r.clusterMoves, r.clusterSeconds)});
+    t.addRow({"passes rolled back", std::format("{}", r.rolledBack)});
+    t.addRow({"HPWL before", std::format("{:.6e}", r.hpwlBefore)});
+    t.addRow({"HPWL after", std::format("{:.6e}", r.hpwlAfter)});
+    t.addRow(
+        {"HPWL change", std::format("{:+.2f}%", 100.0 * (r.hpwlAfter - r.hpwlBefore) /
+                                                    (r.hpwlBefore > 0.0 ? r.hpwlBefore : 1.0))});
+    t.addRow({"seconds", std::format("{:.3f}", r.seconds)});
+    t.addRow({"overlapping pairs", std::format("{}", r.overlappingPairs)});
+    t.addRow({"cells off row", std::format("{}", r.offRow)});
+    t.addRow({"cells off site", std::format("{}", r.offSite)});
+    t.addRow({"cells over macro", std::format("{}", r.overFixed)});
+    t.emit();
+    if (r.overlappingPairs != 0 || r.offRow != 0 || r.overFixed != 0) {
+        ktlog.warning("detailed placement broke legality; see the counts above");
+    }
+}
+
 }  // namespace
 
 class FastDetailedPlacer::Impl {
 public:
     explicit Impl(Design &d) : design(d) {}
 
-    FastdpResult place(const FastdpOptions &params);
+    Stats place(const FastdpOptions &params);
 
     Design &design;
     const std::vector<std::size_t> &mov = design.cells.id;
@@ -242,7 +285,7 @@ private:
     std::size_t commitCluster(const Window &w, const std::vector<Move> &placed);
     [[nodiscard]] std::vector<Move> bestOrder(std::size_t s, std::size_t k, DeltaScratch &sc) const;
 
-    void selfCheck(FastdpResult &res) const;
+    void selfCheck(Stats &res) const;
 
     struct Snapshot {
         std::vector<double> x;
@@ -1437,7 +1480,7 @@ void FastDetailedPlacer::Impl::writeFrame(const std::string &note, std::size_t s
     design.onFrame(fx, fy, info);
 }
 
-void FastDetailedPlacer::Impl::selfCheck(FastdpResult &res) const {
+void FastDetailedPlacer::Impl::selfCheck(Stats &res) const {
     res.overlappingPairs = 0;
     res.offRow = 0;
     res.offSite = 0;
@@ -1498,8 +1541,8 @@ void FastDetailedPlacer::Impl::restore(Snapshot saved) {
     used = std::move(saved.used);
 }
 
-FastdpResult FastDetailedPlacer::Impl::place(const FastdpOptions &params) {
-    FastdpResult res;
+Stats FastDetailedPlacer::Impl::place(const FastdpOptions &params) {
+    Stats res;
     ScopedTimer timer("fastdp");
     opts = params;
     bandY = inf;
@@ -1611,8 +1654,8 @@ FastDetailedPlacer::FastDetailedPlacer(Design &design) : pImpl(std::make_unique<
 
 FastDetailedPlacer::~FastDetailedPlacer() = default;
 
-FastdpResult FastDetailedPlacer::place(const FastdpOptions &options) {
-    return pImpl->place(options);
+void FastDetailedPlacer::place(const FastdpOptions &options) {
+    report(pImpl->place(options));
 }
 
 }  // namespace ktplace::fastdp

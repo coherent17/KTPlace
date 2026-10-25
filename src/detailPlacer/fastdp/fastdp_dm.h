@@ -114,25 +114,6 @@ struct Design {
     FrameHook onFrame;
 };
 
-struct FastdpResult {
-    std::size_t globalSwaps = 0;
-    std::size_t verticalSwaps = 0;
-    std::size_t reorderMoves = 0;
-    std::size_t clusterMoves = 0;
-    std::size_t rolledBack = 0;
-    double hpwlBefore = 0.0;
-    double hpwlAfter = 0.0;
-    std::size_t overlappingPairs = 0;
-    std::size_t offRow = 0;
-    std::size_t offSite = 0;
-    std::size_t overFixed = 0;
-    double seconds = 0.0;
-    double globalSeconds = 0.0;
-    double verticalSeconds = 0.0;
-    double reorderSeconds = 0.0;
-    double clusterSeconds = 0.0;
-};
-
 class fastdpDM {
 public:
     fastdpDM(Design design, FastdpOptions options);
@@ -151,7 +132,7 @@ public:
         d.onFrame = std::move(hook);
     }
 
-    FastdpResult run();
+    void run();
     [[nodiscard]] fastdpSolution solution() const;
 
 private:

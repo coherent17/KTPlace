@@ -15,7 +15,7 @@ public:
     FastDetailedPlacer(const FastDetailedPlacer &) = delete;
     FastDetailedPlacer &operator=(const FastDetailedPlacer &) = delete;
 
-    FastdpResult place(const FastdpOptions &options = {});
+    void place(const FastdpOptions &options = {});
 
 private:
     class Impl;

@@ -4,8 +4,6 @@
 #include "datamodel/kt_dm.h"
 #include "datamodel/kt_stageReport.h"
 #include "detailPlacer/fastdp/fastdp_placer.h"
-#include "util/kt_log.h"
-#include "util/kt_reportTable.h"
 
 #include <algorithm>
 #include <cmath>
@@ -97,40 +95,14 @@ void collectNets(const ktplace::Graph &graph, Design &design) {
     }
 }
 
-void reportRun(const FastdpResult &r) {
-    ktReportTable t("Detailed placement (FastDP)");
-    t.setHeaders({"metric", "value"});
-    t.addRow({"global swaps", std::format("{} ({:.3f}s)", r.globalSwaps, r.globalSeconds)});
-    t.addRow({"vertical swaps", std::format("{} ({:.3f}s)", r.verticalSwaps, r.verticalSeconds)});
-    t.addRow({"reorder moves", std::format("{} ({:.3f}s)", r.reorderMoves, r.reorderSeconds)});
-    t.addRow({"cluster moves", std::format("{} ({:.3f}s)", r.clusterMoves, r.clusterSeconds)});
-    t.addRow({"passes rolled back", std::format("{}", r.rolledBack)});
-    t.addRow({"HPWL before", std::format("{:.6e}", r.hpwlBefore)});
-    t.addRow({"HPWL after", std::format("{:.6e}", r.hpwlAfter)});
-    t.addRow(
-        {"HPWL change", std::format("{:+.2f}%", 100.0 * (r.hpwlAfter - r.hpwlBefore) /
-                                                    (r.hpwlBefore > 0.0 ? r.hpwlBefore : 1.0))});
-    t.addRow({"seconds", std::format("{:.3f}", r.seconds)});
-    t.addRow({"overlapping pairs", std::format("{}", r.overlappingPairs)});
-    t.addRow({"cells off row", std::format("{}", r.offRow)});
-    t.addRow({"cells off site", std::format("{}", r.offSite)});
-    t.addRow({"cells over macro", std::format("{}", r.overFixed)});
-    t.emit();
-    if (r.overlappingPairs != 0 || r.offRow != 0 || r.overFixed != 0) {
-        ktlog.warning("detailed placement broke legality; see the counts above");
-    }
-}
-
 }  // namespace
 
 fastdpDM::fastdpDM(Design design, FastdpOptions options)
     : d(std::move(design)), opts(std::move(options)) {}
 
-FastdpResult fastdpDM::run() {
+void fastdpDM::run() {
     FastDetailedPlacer placer(d);
-    const FastdpResult result = placer.place(opts);
-    reportRun(result);
-    return result;
+    placer.place(opts);
 }
 
 fastdpSolution fastdpDM::solution() const {

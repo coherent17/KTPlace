@@ -13,7 +13,7 @@ public:
         return fastdpDb;
     }
 
-    FastdpResult run();
+    void run();
     [[nodiscard]] fastdpSolution solution() const;
 
 private:
