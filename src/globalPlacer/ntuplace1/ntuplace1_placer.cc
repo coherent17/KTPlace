@@ -15,20 +15,10 @@
 namespace ktplace::ntuplace1 {
 namespace {
 
-struct HyperNet {
-    std::vector<std::uint32_t> cells;
-    double fx0 = 0.0, fx1 = 0.0, fy0 = 0.0, fy1 = 0.0;  // fixed pin points, min/max
-    std::size_t fixedPins = 0;
-};
-
 struct RatioRegion {
     double x0 = 0.0, y0 = 0.0, x1 = 0.0, y1 = 0.0;
     std::vector<std::uint32_t> cells;  // indices into the placer's movable array
     std::size_t depth = 0;
-};
-
-struct AreaRect {
-    double x0 = 0.0, y0 = 0.0, x1 = 0.0, y1 = 0.0;
 };
 
 double overlap(const AreaRect &a, double x0, double y0, double x1, double y1) {
@@ -37,7 +27,6 @@ double overlap(const AreaRect &a, double x0, double y0, double x1, double y1) {
     return (w > 0.0 && h > 0.0) ? w * h : 0.0;
 }
 
-constexpr std::uint32_t noIndex = 0xFFFFFFFFu;
 constexpr int maxPasses = 8;
 constexpr double balanceSlack = 0.02;
 
@@ -64,15 +53,15 @@ private:
     void writeFrame(std::size_t depth, const char *note) const;
 
     Design &design;
-    std::vector<std::uint32_t> mov;  // movable, non-terminal vertex ids
-    std::vector<double> cellArea;    // area of each movable
-    std::vector<int> cellRegion;
-    std::vector<HyperNet> hyperNets;
-    std::vector<std::vector<std::uint32_t>> cellNets;
-    std::vector<AreaRect> rowRects;  // one per subrow, sorted by y
-    double maxRowH = 0.0;
-    std::vector<AreaRect> fixedRects;  // fixed blocks, terminals included
-    std::array<double, 4> rowBox{};
+    const std::vector<std::uint32_t> &mov = design.cells.id;
+    const std::vector<double> &cellArea = design.cells.area;
+    const std::vector<int> &cellRegion = design.cells.region;
+    const std::vector<HyperNet> &hyperNets = design.hyperNets;
+    const std::vector<std::vector<std::uint32_t>> &cellNets = design.cellNets;
+    const std::vector<AreaRect> &rowRects = design.rowRects;
+    const double &maxRowH = design.maxRowH;
+    const std::vector<AreaRect> &fixedRects = design.fixedRects;
+    const std::array<double, 4> &rowBox = design.rowBox;
     std::vector<double> posX, posY;
     Ntuplace1Options opts;
     const constraintMgr *fences = nullptr;
@@ -87,65 +76,8 @@ private:
 };
 
 void RatioPlacer::Impl::build() {
-    const std::size_t nv = design.cells.size();
-    for (std::size_t v = 0; v < nv; ++v) {
-        const Cell &vert = design.cells[v];
-        if (vert.isFixed || vert.isTerminal) {
-            if (vert.width > 0.0 && vert.height > 0.0) {
-                fixedRects.push_back({vert.x, vert.y, vert.x + vert.width, vert.y + vert.height});
-            }
-            continue;
-        }
-        mov.push_back(static_cast<std::uint32_t>(v));
-        cellArea.push_back(vert.width * vert.height);
-        cellRegion.push_back(vert.region);
-    }
     result.numMovable = mov.size();
     result.numFixed = fixedRects.size();
-
-    std::vector<std::uint32_t> indexOf(nv, noIndex);
-    for (std::size_t i = 0; i < mov.size(); ++i) {
-        indexOf[mov[i]] = static_cast<std::uint32_t>(i);
-    }
-
-    hyperNets.clear();
-    cellNets.assign(mov.size(), {});
-    std::vector<std::size_t> lastNet(mov.size(), std::numeric_limits<std::size_t>::max());
-    for (std::size_t v = 0; v < design.nets.size(); ++v) {
-        HyperNet n;
-        for (const std::size_t pinId : design.nets[v].pins) {
-            const Pin &e = design.pins[pinId];
-            const Cell &pin = design.cells[e.cellId];
-            if (indexOf[e.cellId] != noIndex) {
-                const std::uint32_t c = indexOf[e.cellId];
-                if (lastNet[c] != v) {
-                    lastNet[c] = v;
-                    n.cells.push_back(c);
-                }
-                continue;
-            }
-            const double px = pin.x + e.offsetX;
-            const double py = pin.y + e.offsetY;
-            if (n.fixedPins == 0) {
-                n.fx0 = n.fx1 = px;
-                n.fy0 = n.fy1 = py;
-            } else {
-                n.fx0 = std::min(n.fx0, px);
-                n.fx1 = std::max(n.fx1, px);
-                n.fy0 = std::min(n.fy0, py);
-                n.fy1 = std::max(n.fy1, py);
-            }
-            ++n.fixedPins;
-        }
-        if (n.cells.empty() || n.cells.size() + n.fixedPins < 2) {
-            continue;
-        }
-        const auto id = static_cast<std::uint32_t>(hyperNets.size());
-        for (const std::uint32_t c : n.cells) {
-            cellNets[c].push_back(id);
-        }
-        hyperNets.push_back(std::move(n));
-    }
     result.nets = hyperNets.size();
 
     localGen.assign(mov.size(), 0);
@@ -155,31 +87,6 @@ void RatioPlacer::Impl::build() {
     sideCount.assign(hyperNets.size(), {0, 0});
     gen = 0;
 
-    rowBox = {std::numeric_limits<double>::max(), std::numeric_limits<double>::max(),
-              -std::numeric_limits<double>::max(), -std::numeric_limits<double>::max()};
-    for (const RowInfo &r : design.rows) {
-        for (const Subrow &sr : r.subrows) {
-            const AreaRect rr{sr.xlo, r.coordinate, sr.xhi, r.coordinate + r.height};
-            if (rr.x1 <= rr.x0) {
-                continue;
-            }
-            rowRects.push_back(rr);
-            rowBox[0] = std::min(rowBox[0], rr.x0);
-            rowBox[1] = std::min(rowBox[1], rr.y0);
-            rowBox[2] = std::max(rowBox[2], rr.x1);
-            rowBox[3] = std::max(rowBox[3], rr.y1);
-        }
-    }
-    if (rowRects.empty()) {
-        rowBox = design.die;
-    }
-    std::stable_sort(rowRects.begin(), rowRects.end(), [](const AreaRect &a, const AreaRect &b) {
-        return a.y0 < b.y0;
-    });
-    maxRowH = 0.0;
-    for (const AreaRect &r : rowRects) {
-        maxRowH = std::max(maxRowH, r.y1 - r.y0);
-    }
     posX.assign(mov.size(), 0.5 * (rowBox[0] + rowBox[2]));
     posY.assign(mov.size(), 0.5 * (rowBox[1] + rowBox[3]));
 }
@@ -448,16 +355,15 @@ void RatioPlacer::Impl::writeFrame(std::size_t depth, const char *note) const {
     if (!design.onFrame) {
         return;
     }
-    std::vector<float> xs(design.cells.size(), 0.0f);
-    std::vector<float> ys(design.cells.size(), 0.0f);
-    for (std::size_t v = 0; v < design.cells.size(); ++v) {
-        xs[v] = static_cast<float>(design.cells[v].x);
-        ys[v] = static_cast<float>(design.cells[v].y);
+    std::vector<float> xs(design.vertexX.size(), 0.0f);
+    std::vector<float> ys(design.vertexY.size(), 0.0f);
+    for (std::size_t v = 0; v < design.vertexX.size(); ++v) {
+        xs[v] = static_cast<float>(design.vertexX[v]);
+        ys[v] = static_cast<float>(design.vertexY[v]);
     }
     for (std::size_t i = 0; i < mov.size(); ++i) {
-        const Cell &v = design.cells[mov[i]];
-        xs[mov[i]] = static_cast<float>(posX[i] - 0.5 * v.width);
-        ys[mov[i]] = static_cast<float>(posY[i] - 0.5 * v.height);
+        xs[mov[i]] = static_cast<float>(posX[i] - 0.5 * design.cells.width[i]);
+        ys[mov[i]] = static_cast<float>(posY[i] - 0.5 * design.cells.height[i]);
     }
     design.onFrame(xs, ys, FrameInfo{note, depth, opts.maxLevels});
 }
@@ -494,8 +400,8 @@ std::size_t RatioPlacer::Impl::applyFences() {
     }
     std::size_t outside = 0;
     for (std::size_t i = 0; i < mov.size(); ++i) {
-        double &x = design.cells[mov[i]].x;
-        double &y = design.cells[mov[i]].y;
+        double &x = design.cells.x[i];
+        double &y = design.cells.y[i];
         if (cellRegion[i] != constraintMgr::noRegion) {
             fences->clampToRegion(cellRegion[i], x, y);
             outside += fences->contains(cellRegion[i], x, y) ? 0u : 1u;
@@ -619,11 +525,12 @@ Ntuplace1Result RatioPlacer::Impl::place(const Ntuplace1Options &params) {
     divide(std::move(root));
 
     for (std::size_t i = 0; i < mov.size(); ++i) {
-        Cell &v = design.cells[mov[i]];
-        v.x = std::clamp(posX[i] - 0.5 * v.width, rowBox[0],
-                         std::max(rowBox[0], rowBox[2] - v.width));
-        v.y = std::clamp(posY[i] - 0.5 * v.height, rowBox[1],
-                         std::max(rowBox[1], rowBox[3] - v.height));
+        const double w = design.cells.width[i];
+        const double h = design.cells.height[i];
+        design.cells.x[i] =
+            std::clamp(posX[i] - 0.5 * w, rowBox[0], std::max(rowBox[0], rowBox[2] - w));
+        design.cells.y[i] =
+            std::clamp(posY[i] - 0.5 * h, rowBox[1], std::max(rowBox[1], rowBox[3] - h));
     }
     result.fenceRegions = fences != nullptr ? fences->numRegions() : 0;
     result.fenceViolations = applyFences();
