@@ -28,8 +28,6 @@ namespace ktplace::fastdp {
 
 namespace {
 
-constexpr std::size_t noSlot = std::numeric_limits<std::size_t>::max();
-constexpr double eps = 1e-6;
 constexpr double inf = std::numeric_limits<double>::infinity();
 
 struct Span {
@@ -50,25 +48,10 @@ struct Span {
     }
 };
 
-struct NetPin {
-    std::size_t slot = noSlot;
-    double offX = 0.0;
-    double offY = 0.0;
-    double absX = 0.0;
-    double absY = 0.0;
-};
-
 struct CellPin {
     std::size_t net = 0;
     double offX = 0.0;
     double offY = 0.0;
-};
-
-struct FixedBox {
-    double y0 = 0.0;
-    double y1 = 0.0;
-    double x0 = 0.0;
-    double x1 = 0.0;
 };
 
 struct Interval {
@@ -168,9 +151,9 @@ public:
     FastdpResult place(const FastdpOptions &params);
 
     Design &design;
-    std::vector<std::size_t> mov;
-    std::vector<double> cellX;
-    std::vector<double> cellY;
+    const std::vector<std::size_t> &mov = design.cells.id;
+    std::vector<double> &cellX = design.cells.x;
+    std::vector<double> &cellY = design.cells.y;
 
 private:
     struct Window {
@@ -203,7 +186,6 @@ private:
         std::vector<Candidate> found;
     };
 
-    void collectCells(double rowHeight);
     void buildSpans();
     void assignCells();
     void indexFixed();
@@ -275,27 +257,25 @@ private:
     double hpwlInput = 0.0;
 
     FastdpOptions opts;
-    std::vector<double> cellW;
-    std::vector<double> cellH;
-    std::vector<int> cellRegion;
-    std::vector<char> movable;
+    const std::vector<double> &cellW = design.cells.width;
+    const std::vector<double> &cellH = design.cells.height;
+    const std::vector<int> &cellRegion = design.cells.region;
     std::vector<char> stranded;
     std::vector<std::size_t> spanOf;
     std::vector<Span> spans;
     std::vector<double> used;
     std::vector<std::vector<std::size_t>> spansInRow;
     std::vector<double> rowY;
-    std::vector<std::vector<NetPin>> netPins;
+    const Nets &netPins = design.nets;
     std::vector<std::vector<std::size_t>> cellNets;
     std::vector<std::vector<CellPin>> cellPins;
     mutable std::vector<NetBox> netBox;
     mutable std::vector<char> netStale;
     mutable std::vector<std::size_t> staleNets;
-    std::vector<FixedBox> fixedBoxes;
+    const std::vector<FixedBox> &fixedBoxes = design.fixedBoxes;
     std::vector<std::vector<std::size_t>> fixedByBand;
     double bandY = inf;
     double bandY0 = 0.0;
-    std::size_t tallSkipped = 0;
 
     std::vector<std::size_t> orderOf;
     bool batched = false;
@@ -303,32 +283,8 @@ private:
     mutable DeltaScratch deltaScratch;
 };
 
-void FastDetailedPlacer::Impl::collectCells(double rowHeight) {
-    movable.assign(design.cells.size(), 0);
-    for (std::size_t v = 0; v < design.cells.size(); ++v) {
-        const Cell &cell = design.cells[v];
-        const bool tall = cell.height > rowHeight + eps;
-        if (cell.isFixed || tall) {
-            fixedBoxes.push_back(
-                FixedBox{cell.y, cell.y + cell.height, cell.x, cell.x + cell.width});
-        }
-        if (cell.isFixed || cell.isTerminal || tall) {
-            tallSkipped += (tall && !cell.isFixed && !cell.isTerminal) ? 1 : 0;
-            continue;
-        }
-        movable[v] = 1;
-        mov.push_back(v);
-        cellW.push_back(cell.width);
-        cellH.push_back(cell.height);
-        cellX.push_back(cell.x);
-        cellY.push_back(cell.y);
-        cellRegion.push_back(cell.region);
-    }
-}
-
 void FastDetailedPlacer::Impl::buildSpans() {
-    std::vector<RowInfo> rows(design.rows);
-    std::ranges::stable_sort(rows, {}, &RowInfo::coordinate);
+    const std::vector<RowInfo> &rows = design.rows;
     rowY.clear();
     for (const RowInfo &ri : rows) {
         rowY.push_back(ri.coordinate);
@@ -344,11 +300,8 @@ void FastDetailedPlacer::Impl::buildSpans() {
                 blocked[static_cast<std::size_t>(r - rows.begin())].emplace_back(x0, x1);
             }
         };
-        for (std::size_t v = 0; v < design.cells.size(); ++v) {
-            const Cell &cell = design.cells[v];
-            if (!movable[v] && cell.width > 0.0 && cell.height > 0.0) {
-                block(cell.x, cell.x + cell.width, cell.y, cell.y + cell.height);
-            }
+        for (const FixedBox &b : design.blockages) {
+            block(b.x0, b.x1, b.y0, b.y1);
         }
         for (std::size_t i = 0; i < mov.size(); ++i) {
             if (stranded[i]) {
@@ -454,25 +407,11 @@ void FastDetailedPlacer::Impl::indexFixed() {
 }
 
 void FastDetailedPlacer::Impl::buildNetlist() {
-    std::vector<std::size_t> slotOf(design.cells.size(), noSlot);
-    for (std::size_t i = 0; i < mov.size(); ++i) {
-        slotOf[mov[i]] = i;
-    }
-    netPins.assign(design.nets.size(), {});
     cellNets.assign(mov.size(), {});
-    for (std::size_t n = 0; n < design.nets.size(); ++n) {
-        for (const std::size_t pinId : design.nets[n].pins) {
-            const Pin &pin = design.pins[pinId];
-            const std::size_t s = slotOf[pin.cellId];
-            const Cell &c = design.cells[pin.cellId];
-            if (s == noSlot) {
-                netPins[n].push_back(
-                    NetPin{noSlot, pin.offsetX, pin.offsetY, c.x + pin.offsetX, c.y + pin.offsetY});
-                continue;
-            }
-            netPins[n].push_back(NetPin{s, pin.offsetX, pin.offsetY, 0.0, 0.0});
-            if (cellNets[s].empty() || cellNets[s].back() != n) {
-                cellNets[s].push_back(n);
+    for (std::size_t n = 0; n < netPins.size(); ++n) {
+        for (const NetPin &p : netPins[n]) {
+            if (p.slot != noSlot && (cellNets[p.slot].empty() || cellNets[p.slot].back() != n)) {
+                cellNets[p.slot].push_back(n);
             }
         }
     }
@@ -584,7 +523,7 @@ void FastDetailedPlacer::Impl::moveCell(std::size_t c, double x, double y) {
 double FastDetailedPlacer::Impl::hpwl() const {
     return netHpwl(
         netPins.size(),
-        [this](std::size_t n) -> const std::vector<NetPin> & {
+        [this](std::size_t n) {
             return netPins[n];
         },
         [this](const NetPin &p) {
@@ -1478,12 +1417,12 @@ void FastDetailedPlacer::Impl::writeFrame(const std::string &note, std::size_t s
     if (!design.onFrame) {
         return;
     }
-    const std::size_t nv = design.cells.size();
+    const std::size_t nv = design.vertexX.size();
     std::vector<float> fx(nv);
     std::vector<float> fy(nv);
     for (std::size_t v = 0; v < nv; ++v) {
-        fx[v] = static_cast<float>(design.cells[v].x);
-        fy[v] = static_cast<float>(design.cells[v].y);
+        fx[v] = static_cast<float>(design.vertexX[v]);
+        fy[v] = static_cast<float>(design.vertexY[v]);
     }
     for (std::size_t i = 0; i < mov.size(); ++i) {
         fx[mov[i]] = static_cast<float>(cellX[i]);
@@ -1563,26 +1502,7 @@ FastdpResult FastDetailedPlacer::Impl::place(const FastdpOptions &params) {
     FastdpResult res;
     ScopedTimer timer("fastdp");
     opts = params;
-    mov.clear();
-    cellW.clear();
-    cellH.clear();
-    cellX.clear();
-    cellY.clear();
-    cellRegion.clear();
-    fixedBoxes.clear();
-    tallSkipped = 0;
     bandY = inf;
-
-    double rowHeight = inf;
-    for (const RowInfo &ri : design.rows) {
-        if (ri.height > 0.0) {
-            rowHeight = std::min(rowHeight, ri.height);
-        }
-    }
-    if (!std::isfinite(rowHeight)) {
-        rowHeight = 1.0;
-    }
-    collectCells(rowHeight);
     if (mov.empty()) {
         return res;
     }
@@ -1680,13 +1600,9 @@ FastdpResult FastDetailedPlacer::Impl::place(const FastdpOptions &params) {
 
     res.hpwlAfter = hpwl();
     selfCheck(res);
-    for (std::size_t i = 0; i < mov.size(); ++i) {
-        design.cells[mov[i]].x = cellX[i];
-        design.cells[mov[i]].y = cellY[i];
-    }
     res.seconds = timer.elapsedSeconds();
-    if (tallSkipped > 0) {
-        ktlog.echo("left {} multi-row cell(s) where legalization put them", tallSkipped);
+    if (design.tallCells > 0) {
+        ktlog.echo("left {} multi-row cell(s) where legalization put them", design.tallCells);
     }
     return res;
 }

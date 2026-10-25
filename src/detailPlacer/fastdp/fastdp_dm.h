@@ -6,6 +6,8 @@
 #include <array>
 #include <cstddef>
 #include <functional>
+#include <limits>
+#include <span>
 #include <string>
 #include <utility>
 #include <vector>
@@ -17,25 +19,53 @@ class ktDM;
 namespace ktplace::fastdp {
 
 inline constexpr int noRegion = -1;
+inline constexpr std::size_t noSlot = std::numeric_limits<std::size_t>::max();
+inline constexpr double eps = 1e-6;
 
-struct Cell {
-    double x = 0.0;
-    double y = 0.0;
-    double width = 0.0;
-    double height = 0.0;
-    bool isFixed = false;
-    bool isTerminal = false;
-    int region = noRegion;
+struct Cells {
+    std::vector<std::size_t> id;
+    std::vector<double> x;
+    std::vector<double> y;
+    std::vector<double> width;
+    std::vector<double> height;
+    std::vector<int> region;
+
+    [[nodiscard]] std::size_t size() const noexcept {
+        return id.size();
+    }
 };
 
-struct Pin {
-    std::size_t cellId = 0;
-    double offsetX = 0.0;
-    double offsetY = 0.0;
+struct NetPin {
+    std::size_t slot = noSlot;
+    double offX = 0.0;
+    double offY = 0.0;
+    double absX = 0.0;
+    double absY = 0.0;
 };
 
-struct Net {
-    std::vector<std::size_t> pins;
+class Nets {
+public:
+    [[nodiscard]] std::size_t size() const noexcept {
+        return firstPin.size() - 1;
+    }
+    [[nodiscard]] std::span<const NetPin> operator[](std::size_t net) const {
+        return std::span(pins).subspan(firstPin[net], firstPin[net + 1] - firstPin[net]);
+    }
+    void add(std::span<const NetPin> netPins) {
+        pins.insert(pins.end(), netPins.begin(), netPins.end());
+        firstPin.push_back(pins.size());
+    }
+
+private:
+    std::vector<std::size_t> firstPin{0};
+    std::vector<NetPin> pins;
+};
+
+struct FixedBox {
+    double y0 = 0.0;
+    double y1 = 0.0;
+    double x0 = 0.0;
+    double x1 = 0.0;
 };
 
 struct Subrow {
@@ -72,10 +102,14 @@ using FrameHook = std::function<void(const std::vector<float> &xs, const std::ve
                                      const FrameInfo &info)>;
 
 struct Design {
-    std::vector<Cell> cells;
-    std::vector<Pin> pins;
-    std::vector<Net> nets;
+    Cells cells;
+    Nets nets;
+    std::vector<FixedBox> fixedBoxes;
+    std::vector<FixedBox> blockages;
+    std::size_t tallCells = 0;
     std::vector<RowInfo> rows;
+    std::vector<double> vertexX;
+    std::vector<double> vertexY;
     DieBox die{};
     FrameHook onFrame;
 };

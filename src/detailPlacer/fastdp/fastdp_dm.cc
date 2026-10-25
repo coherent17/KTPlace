@@ -7,55 +7,93 @@
 #include "util/kt_log.h"
 #include "util/kt_reportTable.h"
 
+#include <algorithm>
+#include <cmath>
+#include <limits>
+
 namespace ktplace::fastdp {
 
 namespace {
 
-void copyCells(const ktplace::Graph &graph, double macroHeight, std::vector<Cell> &out) {
-    out.resize(graph.getNumCells());
-    for (std::size_t v = 0; v < graph.getNumCells(); ++v) {
-        const ktplace::Vertex &cell = graph.getCell(v);
-        Cell &c = out[v];
-        c.x = cell.x;
-        c.y = cell.y;
-        c.width = cell.width;
-        c.height = cell.height;
-        c.isFixed = cell.isFixed || cell.height > macroHeight;
-        c.isTerminal = cell.isTerminal;
-        c.region = cell.regionId;
-    }
-}
-
-void copyNets(const ktplace::Graph &graph, std::vector<Pin> &pins, std::vector<Net> &nets) {
-    pins.resize(graph.getNumPins());
-    for (std::size_t p = 0; p < graph.getNumPins(); ++p) {
-        const ktplace::Pin &pin = graph.getPin(p);
-        Pin &out = pins[p];
-        out.cellId = pin.cellId;
-        out.offsetX = pin.offsetX;
-        out.offsetY = pin.offsetY;
-    }
-    nets.resize(graph.getNumNets());
-    for (std::size_t n = 0; n < graph.getNumNets(); ++n) {
-        nets[n].pins = graph.getNetPins(n);
-    }
-}
-
-void copyRows(const std::vector<ktplace::RowInfo> &rows,
-              const std::vector<std::vector<ktplace::RowPiece>> &pieces,
-              std::vector<RowInfo> &out) {
+std::vector<RowInfo> copyRows(const std::vector<ktplace::RowInfo> &rows,
+                              const std::vector<std::vector<ktplace::RowPiece>> &pieces) {
+    std::vector<RowInfo> out;
     out.reserve(rows.size());
     for (std::size_t i = 0; i < rows.size(); ++i) {
         const ktplace::RowInfo &r = rows[i];
-        RowInfo info;
-        info.coordinate = r.coordinate;
-        info.height = r.height;
-        info.sitePitch = r.pitch();
+        RowInfo info{r.coordinate, r.height, r.pitch(), {}};
         info.subrows.reserve(pieces[i].size());
         for (const ktplace::RowPiece &p : pieces[i]) {
             info.subrows.push_back(Subrow{p.xlo, p.xhi, p.region});
         }
         out.push_back(std::move(info));
+    }
+    std::ranges::stable_sort(out, {}, &RowInfo::coordinate);
+    return out;
+}
+
+double rowHeightOf(const std::vector<RowInfo> &rows) {
+    double height = std::numeric_limits<double>::infinity();
+    for (const RowInfo &row : rows) {
+        if (row.height > 0.0) {
+            height = std::min(height, row.height);
+        }
+    }
+    return std::isfinite(height) ? height : 1.0;
+}
+
+std::size_t collectCells(const ktplace::Graph &graph, double macroHeight, Design &design) {
+    const double rowHeight = rowHeightOf(design.rows);
+    std::size_t placeable = 0;
+    for (std::size_t v = 0; v < graph.getNumCells(); ++v) {
+        const ktplace::Vertex &cell = graph.getCell(v);
+        const bool fixed = cell.isFixed || cell.height > macroHeight;
+        const bool tall = cell.height > rowHeight + eps;
+        design.vertexX.push_back(cell.x);
+        design.vertexY.push_back(cell.y);
+        placeable += fixed || cell.isTerminal ? 0 : 1;
+        const FixedBox box{cell.y, cell.y + cell.height, cell.x, cell.x + cell.width};
+        if (fixed || tall) {
+            design.fixedBoxes.push_back(box);
+        }
+        if (fixed || cell.isTerminal || tall) {
+            design.tallCells += tall && !fixed && !cell.isTerminal ? 1 : 0;
+            if (cell.width > 0.0 && cell.height > 0.0) {
+                design.blockages.push_back(box);
+            }
+            continue;
+        }
+        Cells &cells = design.cells;
+        cells.id.push_back(v);
+        cells.x.push_back(cell.x);
+        cells.y.push_back(cell.y);
+        cells.width.push_back(cell.width);
+        cells.height.push_back(cell.height);
+        cells.region.push_back(cell.regionId);
+    }
+    return placeable;
+}
+
+void collectNets(const ktplace::Graph &graph, Design &design) {
+    std::vector<std::size_t> slotOf(graph.getNumCells(), noSlot);
+    for (std::size_t i = 0; i < design.cells.size(); ++i) {
+        slotOf[design.cells.id[i]] = i;
+    }
+    std::vector<NetPin> pins;
+    for (std::size_t n = 0; n < graph.getNumNets(); ++n) {
+        pins.clear();
+        for (const std::size_t pinId : graph.getNetPins(n)) {
+            const ktplace::Pin &pin = graph.getPin(pinId);
+            const std::size_t slot = slotOf[pin.cellId];
+            if (slot == noSlot) {
+                const ktplace::Vertex &cell = graph.getCell(pin.cellId);
+                pins.push_back(NetPin{noSlot, pin.offsetX, pin.offsetY, cell.x + pin.offsetX,
+                                      cell.y + pin.offsetY});
+            } else {
+                pins.push_back(NetPin{slot, pin.offsetX, pin.offsetY, 0.0, 0.0});
+            }
+        }
+        design.nets.add(pins);
     }
 }
 
@@ -97,23 +135,25 @@ FastdpResult fastdpDM::run() {
 
 fastdpSolution fastdpDM::solution() const {
     fastdpSolution out;
-    out.xs.reserve(d.cells.size());
-    out.ys.reserve(d.cells.size());
-    for (const Cell &cell : d.cells) {
-        out.xs.push_back(cell.x);
-        out.ys.push_back(cell.y);
+    out.xs = d.vertexX;
+    out.ys = d.vertexY;
+    for (std::size_t i = 0; i < d.cells.size(); ++i) {
+        out.xs[d.cells.id[i]] = d.cells.x[i];
+        out.ys[d.cells.id[i]] = d.cells.y[i];
     }
     return out;
 }
 
 fastdpDM buildFastdpDM(const ktDM &db) {
+    const ktplace::Graph &graph = db.getGraph();
     Design design;
-    copyCells(db.getGraph(), db.macroHeight(), design.cells);
-    copyNets(db.getGraph(), design.pins, design.nets);
-    copyRows(db.getRows(), db.fencedSubrows(), design.rows);
-    design.die = placementDieBox(db.die(), db.getGraph());
+    design.rows = copyRows(db.getRows(), db.fencedSubrows());
+    const std::size_t placeable = collectCells(graph, db.macroHeight(), design);
+    collectNets(graph, design);
+    design.die = placementDieBox(db.die(), graph);
 
-    const StageCounts counts = countStage(design);
+    const StageCounts counts{graph.getNumCells(), placeable, graph.getNumNets(), graph.getNumPins(),
+                             design.rows.size()};
     fastdpDM dm(std::move(design), loadOptions<FastdpOptions>());
     reportStageBuild(counts, db.checksum(), dm.options());
     return dm;
