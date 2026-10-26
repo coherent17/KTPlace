@@ -1,6 +1,7 @@
 #pragma once
 
-#include <array>
+#include "geometry/kt_geometry.h"
+
 #include <cstdint>
 #include <memory>
 #include <optional>
@@ -16,21 +17,10 @@ namespace ktplace::gui {
 
 enum class CellKind : std::uint8_t { Movable, Macro, Pad, MovableMacro };
 
-struct Bounds {
-    double xlo = 0.0;
-    double ylo = 0.0;
-    double xhi = 0.0;
-    double yhi = 0.0;
-
-    void include(double x, double y);
-    void include(const Bounds &other);
-    [[nodiscard]] double getHalfPerimeter() const;
-};
-
 struct LayoutGeometry {
     struct Fence {
         std::string name;
-        std::vector<Bounds> rects;
+        std::vector<BBox> rects;
     };
 
     struct Row {
@@ -54,7 +44,7 @@ struct LayoutGeometry {
     std::vector<float> pinDx;
     std::vector<float> pinDy;
     std::vector<Row> rows;
-    std::array<double, 4> die{};
+    BBox die;
     float typicalWidth = 1.0F;
 
     [[nodiscard]] static std::shared_ptr<const LayoutGeometry> of(const ktDM &db);
@@ -70,10 +60,10 @@ struct LayoutFrame {
     [[nodiscard]] static LayoutFrame getCommitted(std::shared_ptr<const LayoutGeometry> geometry,
                                                   const ktDM &db, std::string stage);
     [[nodiscard]] bool isDrawable() const;
-    [[nodiscard]] Bounds getCellBounds(std::uint32_t cell) const;
-    [[nodiscard]] std::optional<Bounds> getCellsBounds(std::span<const std::uint32_t> cells) const;
-    [[nodiscard]] std::optional<Bounds> getNetBounds(std::uint32_t net) const;
-    [[nodiscard]] std::optional<Bounds> getNetsBounds(std::span<const std::uint32_t> nets) const;
+    [[nodiscard]] BBox getCellBounds(std::uint32_t cell) const;
+    [[nodiscard]] std::optional<BBox> getCellsBounds(std::span<const std::uint32_t> cells) const;
+    [[nodiscard]] std::optional<BBox> getNetBounds(std::uint32_t net) const;
+    [[nodiscard]] std::optional<BBox> getNetsBounds(std::span<const std::uint32_t> nets) const;
 };
 
 }  // namespace ktplace::gui

@@ -171,11 +171,10 @@ void SnapshotWriter::beginStage(const StageVisual &stage) {
 }
 
 void SnapshotWriter::frame(const std::vector<float> &x, const std::vector<float> &y,
-                           const std::array<double, 4> &die, bool withFences,
-                           const VisualFrame &what) {
+                           const BBox &die, bool withFences, const VisualFrame &what) {
     out->put(Tag::Frame);
     out->put<std::uint8_t>(withFences ? 1 : 0);
-    out->putVec<double>(die);
+    out->put(die);
     out->putString(what.series);
     out->putSize(what.step);
     out->putSize(what.numSteps);
@@ -220,10 +219,7 @@ std::size_t replaySnapshots(const std::string &path, Visualizer &viz, const Grap
             }
             case Tag::Frame: {
                 const bool withFences = in.get<std::uint8_t>() != 0;
-                const std::vector<double> die = in.getVec<double>();
-                if (die.size() != 4) {
-                    ktlog.fatal("snapshot file {}: a frame's die is not a box", path);
-                }
+                const auto die = in.get<BBox>();
                 VisualFrame what;
                 what.series = in.getString();
                 what.step = in.getSize();
@@ -235,8 +231,7 @@ std::size_t replaySnapshots(const std::string &path, Visualizer &viz, const Grap
                 what.mandatory = in.get<std::uint8_t>() != 0;
                 const std::vector<float> x = in.getVec<float>();
                 const std::vector<float> y = in.getVec<float>();
-                viz.frame(graph, x, y, {die[0], die[1], die[2], die[3]},
-                          withFences ? fences : nullptr, what);
+                viz.frame(graph, x, y, die, withFences ? fences : nullptr, what);
                 ++frames;
                 break;
             }

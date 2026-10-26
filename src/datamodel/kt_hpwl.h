@@ -1,10 +1,9 @@
 #pragma once
 
+#include "geometry/kt_geometry.h"
 #include "util/kt_parallel.h"
 
-#include <algorithm>
 #include <cstddef>
-#include <limits>
 #include <ranges>
 
 namespace ktplace {
@@ -16,18 +15,12 @@ template <typename NetPins, typename PinPosition>
         if (std::ranges::size(pins) < 2) {
             return 0.0;
         }
-        double xlo = std::numeric_limits<double>::max();
-        double xhi = std::numeric_limits<double>::lowest();
-        double ylo = std::numeric_limits<double>::max();
-        double yhi = std::numeric_limits<double>::lowest();
+        BBox box = BBox::getEmpty();
         for (const auto &pin : pins) {
             const auto [px, py] = pinPosition(pin);
-            xlo = std::min(xlo, px);
-            xhi = std::max(xhi, px);
-            ylo = std::min(ylo, py);
-            yhi = std::max(yhi, py);
+            box.extend(px, py);
         }
-        return (xhi - xlo) + (yhi - ylo);
+        return box.getHalfPerimeter();
     });
 }
 

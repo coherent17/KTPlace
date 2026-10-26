@@ -5,6 +5,7 @@
 
 #include "datamodel/kt_constraintMgr.h"
 #include "datamodel/kt_graph.h"
+#include "datamodel/kt_hpwl.h"
 #include "datamodel/kt_solutionMgr.h"
 #include "util/kt_log.h"
 #include "util/kt_reportTable.h"
@@ -86,34 +87,30 @@ std::size_t ktDM::getNumNets() const {
     return graph.getNumNets();
 }
 
-std::size_t ktDM::addPin(const std::string &cellName, const std::string &netName, double offsetX,
-                         double offsetY, bool isInput) {
+std::size_t ktDM::addPin(const std::string &cellName, const std::string &netName,
+                         const Point &offset, bool isInput) {
     const std::size_t cellId = getCellId(cellName);
     const std::size_t netId = getNetId(netName);
-    return graph.addPin(cellId, netId, isInput ? PinRole::Receiver : PinRole::Driver, offsetX,
-                        offsetY);
+    return graph.addPin(cellId, netId, isInput ? PinRole::Receiver : PinRole::Driver, offset);
 }
 
 std::size_t ktDM::getNumPins() const {
     return graph.getNumPins();
 }
 
-void ktDM::setCellPosition(std::size_t cellId, double x, double y) {
-    Vertex &v = graph.getCell(cellId);
-    v.x = x;
-    v.y = y;
+void ktDM::setCellPosition(std::size_t cellId, const Point &position) {
+    graph.getCell(cellId).position = position;
 }
 
-void ktDM::setCellPosition(const std::string &cellName, double x, double y) {
-    setCellPosition(getCellId(cellName), x, y);
+void ktDM::setCellPosition(const std::string &cellName, const Point &position) {
+    setCellPosition(getCellId(cellName), position);
 }
 
-std::pair<double, double> ktDM::getCellPosition(std::size_t cellId) const {
-    const Vertex &v = graph.getCell(cellId);
-    return {v.x, v.y};
+Point ktDM::getCellPosition(std::size_t cellId) const {
+    return graph.getCell(cellId).position;
 }
 
-std::pair<double, double> ktDM::getCellPosition(const std::string &cellName) const {
+Point ktDM::getCellPosition(const std::string &cellName) const {
     return getCellPosition(getCellId(cellName));
 }
 
@@ -158,11 +155,11 @@ const std::vector<RowInfo> &ktDM::getRows() const {
     return dieInfo.getRows();
 }
 
-void ktDM::setDieArea(double xMin, double yMin, double xMax, double yMax) {
-    dieInfo.setDieArea(xMin, yMin, xMax, yMax);
+void ktDM::setDieArea(const BBox &box) {
+    dieInfo.setDieArea(box);
 }
 
-std::pair<std::pair<double, double>, std::pair<double, double>> ktDM::getDieArea() const {
+const BBox &ktDM::getDieArea() const {
     return dieInfo.getDieArea();
 }
 
@@ -178,7 +175,7 @@ const constraintMgr &ktDM::getConstraints() const {
     return fences;
 }
 
-std::array<double, 4> ktDM::getPlacementDieBox() const {
+BBox ktDM::getPlacementDieBox() const {
     return ktplace::getPlacementDieBox(dieInfo, graph);
 }
 
@@ -273,22 +270,17 @@ void ktDM::report() const {
     // degenerate every placer silently falls back to its own seed, which looks
     // like a placer bug and is not one.
     std::size_t moved = 0;
-    double lo = 1e300;
-    double hi = -1e300;
-    double loY = 1e300;
-    double hiY = -1e300;
+    BBox box = BBox::getEmpty();
     const Graph &g = getGraph();
     for (std::size_t v = 0; v < g.getNumCells(); ++v) {
         const Vertex &vert = g.getCell(v);
-        lo = std::min(lo, vert.x);
-        hi = std::max(hi, vert.x);
-        loY = std::min(loY, vert.y);
-        hiY = std::max(hiY, vert.y);
-        moved += (vert.x != 0.0 || vert.y != 0.0) ? 1 : 0;
+        box.extend(vert.position);
+        moved += (vert.position.x != 0.0 || vert.position.y != 0.0) ? 1 : 0;
     }
     ktlog.echo(
         "Loaded placement: {}/{} cells carry a position, bbox x[{:.1f},{:.1f}] y[{:.1f},{:.1f}]",
-        moved, g.getNumCells(), lo, hi, loY, hiY);
+        moved, g.getNumCells(), box.lowerLeft.x, box.upperRight.x, box.lowerLeft.y,
+        box.upperRight.y);
     ktlog.echo("Loaded: {} cells ({} terminals), {} nets, {} pins, {} rows", numCells,
                getNumTerminals(), numNets, getNumPins(), getNumRows());
 }
@@ -301,7 +293,7 @@ std::vector<ktDM::Defect> ktDM::getDefects() const {
     // a legal placement: the placer spreads over the union of the fixed geometry
     // and the rows, so a checker built from the
     // fixed geometry alone fails every cell in a row that reaches past the pads.
-    const std::array<double, 4> box = getPlacementDieBox();
+    const BBox box = getPlacementDieBox();
     std::size_t outOfDie = 0;
     std::size_t offFence = 0;
     std::size_t inForeignFence = 0;
@@ -316,14 +308,15 @@ std::vector<ktDM::Defect> ktDM::getDefects() const {
     for (std::size_t v = 0; v < nv; ++v) {
         const Vertex &vert = g.getCell(v);
         const double eps = 1e-6;
-        if (vert.x < box[0] - eps || vert.y < box[1] - eps || vert.x + vert.width > box[2] + eps ||
-            vert.y + vert.height > box[3] + eps) {
+        if (vert.position.x < box.lowerLeft.x - eps || vert.position.y < box.lowerLeft.y - eps ||
+            vert.position.x + vert.width > box.upperRight.x + eps ||
+            vert.position.y + vert.height > box.upperRight.y + eps) {
             ++outOfDie;
         }
         if (!hasFences()) {
             continue;
         }
-        const Rect footprint{{vert.x, vert.y}, {vert.x + vert.width, vert.y + vert.height}};
+        const BBox footprint = BBox::of(vert.position.x, vert.position.y, vert.width, vert.height);
         if (vert.regionId != constraintMgr::noRegion) {
             offFence += getConstraints().containsBox(vert.regionId, footprint) ? 0 : 1;
         } else if (!vert.isFixed && !vert.isTerminal) {
@@ -354,8 +347,8 @@ std::vector<ktDM::Defect> ktDM::getDefects() const {
         }
         const double meanArea = nv > 0 ? bin / std::max<std::size_t>(1, nv - nTall) : 0.0;
         double cell = meanArea > 0.0 ? std::sqrt(meanArea) : 1.0;
-        const double dieW = std::max(box[2] - box[0], 1.0);
-        const double dieH = std::max(box[3] - box[1], 1.0);
+        const double dieW = std::max(box.getWidth(), 1.0);
+        const double dieH = std::max(box.getHeight(), 1.0);
         // A few cells per bucket: enough that the map does not dominate, coarse
         // enough that a standard cell does not span many bins (which is what made
         // the original miss pairs).
@@ -373,8 +366,8 @@ std::vector<ktDM::Defect> ktDM::getDefects() const {
                 tallCells.push_back(v);
                 continue;
             }
-            const auto bx = static_cast<long long>(std::floor(vert.x / cell));
-            const auto by = static_cast<long long>(std::floor(vert.y / cell));
+            const auto bx = static_cast<long long>(std::floor(vert.position.x / cell));
+            const auto by = static_cast<long long>(std::floor(vert.position.y / cell));
             buckets[{bx, by}].push_back(v);
         }
         const double eps = 1e-9;
@@ -386,8 +379,10 @@ std::vector<ktDM::Defect> ktDM::getDefects() const {
             if ((p.isFixed && q.isFixed) || p.isIoPin || q.isIoPin) {
                 return false;
             }
-            return p.x < q.x + q.width - eps && q.x < p.x + p.width - eps &&
-                   p.y < q.y + q.height - eps && q.y < p.y + p.height - eps;
+            return p.position.x < q.position.x + q.width - eps &&
+                   q.position.x < p.position.x + p.width - eps &&
+                   p.position.y < q.position.y + q.height - eps &&
+                   q.position.y < p.position.y + p.height - eps;
         };
         // Only forward neighbours: all eight examines each cross-bucket pair twice.
         static const int fwd[4][2] = {{1, 0}, {-1, 1}, {0, 1}, {1, 1}};
@@ -421,10 +416,10 @@ std::vector<ktDM::Defect> ktDM::getDefects() const {
         for (std::size_t i = 0; i < tallCells.size(); ++i) {
             const std::size_t a = tallCells[i];
             const Vertex &t = g.getCell(a);
-            const auto x0 = static_cast<long long>(std::floor((t.x - widest) / cell));
-            const auto x1 = static_cast<long long>(std::floor((t.x + t.width) / cell));
-            const auto y0 = static_cast<long long>(std::floor((t.y - highest) / cell));
-            const auto y1 = static_cast<long long>(std::floor((t.y + t.height) / cell));
+            const auto x0 = static_cast<long long>(std::floor((t.position.x - widest) / cell));
+            const auto x1 = static_cast<long long>(std::floor((t.position.x + t.width) / cell));
+            const auto y0 = static_cast<long long>(std::floor((t.position.y - highest) / cell));
+            const auto y1 = static_cast<long long>(std::floor((t.position.y + t.height) / cell));
             for (long long bx = x0; bx <= x1; ++bx) {
                 for (auto it = buckets.lower_bound({bx, y0});
                      it != buckets.end() && it->first.first == bx && it->first.second <= y1; ++it) {
@@ -440,38 +435,20 @@ std::vector<ktDM::Defect> ktDM::getDefects() const {
     }
 
     if (outOfDie > 0) {
-        defects.push_back({"cells outside the die", outOfDie});
+        defects.push_back({.what = "cells outside the die", .count = outOfDie});
     }
     if (overlaps > 0) {
-        defects.push_back({"overlapping cell pairs", overlaps});
+        defects.push_back({.what = "overlapping cell pairs", .count = overlaps});
     }
     if (offFence > 0) {
-        defects.push_back({"cells outside their fence", offFence});
+        defects.push_back({.what = "cells outside their fence", .count = offFence});
     }
     if (inForeignFence > 0) {
-        defects.push_back({"non-member cells inside a fence", inForeignFence});
+        defects.push_back({.what = "non-member cells inside a fence", .count = inForeignFence});
     }
     return defects;
 }
 
-void ktDM::setPlacementSolution(const solutionMgr &solution) {
-    solution.commitTo(graph);
-}
-
-
-void ktDM::setSimplSolution(const simplSolution &solution) {
-    const std::size_t n = std::min({solution.xs.size(), solution.ys.size(), graph.getNumCells()});
-    for (std::size_t v = 0; v < n; ++v) {
-        setCellPosition(v, solution.xs[v], solution.ys[v]);
-    }
-}
-
-void ktDM::setNtuplace1Solution(const ntuplace1Solution &solution) {
-    const std::size_t n = std::min({solution.xs.size(), solution.ys.size(), graph.getNumCells()});
-    for (std::size_t v = 0; v < n; ++v) {
-        setCellPosition(v, solution.xs[v], solution.ys[v]);
-    }
-}
 
 namespace {
 /// Every stage's solution is the same shape: positions indexed by cell id. One
@@ -479,14 +456,20 @@ namespace {
 /// differently.
 template <typename Solution>
 void commitCells(Graph &graph, const Solution &solution) {
-    const std::size_t n = std::min({solution.xs.size(), solution.ys.size(), graph.getNumCells()});
+    const std::size_t n = std::min(solution.positions.size(), graph.getNumCells());
     for (std::size_t v = 0; v < n; ++v) {
-        Vertex &cell = graph.getCell(v);
-        cell.x = solution.xs[v];
-        cell.y = solution.ys[v];
+        graph.getCell(v).position = solution.positions[v];
     }
 }
 }  // namespace
+
+void ktDM::setSimplSolution(const simplSolution &solution) {
+    commitCells(graph, solution);
+}
+
+void ktDM::setNtuplace1Solution(const ntuplace1Solution &solution) {
+    commitCells(graph, solution);
+}
 
 void ktDM::setAbacusSolution(const abacusSolution &solution) {
     commitCells(graph, solution);
@@ -503,16 +486,20 @@ void ktDM::setFastdpSolution(const fastdpSolution &solution) {
     checkPlacement();
 }
 
-solutionMgr ktDM::getPlacementSolution() const {
-    return solutionMgr::fromGraph(graph);
-}
-
 double ktDM::getHpwl() const {
     // The one HPWL, in kt_solution.cc. This used to be a second implementation of
     // the same arithmetic, alongside the ones in SimplePlacer and FastDP; it is
     // now the same call they all make, over the positions as committed.
-    const solutionMgr sol = getPlacementSolution();
-    return getNetlistHPWL(graph, sol.getXs(), sol.getYs());
+    return getNetHpwl(
+        graph.getNumNets(),
+        [this](std::size_t n) -> const std::vector<std::size_t> & {
+            return graph.getNetPins(n);
+        },
+        [this](std::size_t pinId) {
+            const Pin &pin = graph.getPin(pinId);
+            const Vertex &cell = graph.getCell(pin.cellId);
+            return Point(cell.position.x + pin.offset.x, cell.position.y + pin.offset.y);
+        });
 }
 
 double ktDM::getMacroHeight() const {
@@ -529,8 +516,8 @@ std::vector<std::vector<RowPiece>> ktDM::getFencedSubrows() const {
     std::vector<FenceRect> rects;
     const constraintMgr &mgr = getConstraints();
     for (int id = 0; id < static_cast<int>(mgr.getNumRegions()); ++id) {
-        for (const Rect &rc : mgr.getRegion(id)->rects) {
-            rects.push_back(FenceRect{rc.lo.x, rc.lo.y, rc.hi.x, rc.hi.y, id});
+        for (const BBox &rc : mgr.getRegion(id)->rects) {
+            rects.push_back(FenceRect{.box = rc, .region = id});
         }
     }
     std::vector<std::vector<RowPiece>> out;
@@ -539,14 +526,12 @@ std::vector<std::vector<RowPiece>> ktDM::getFencedSubrows() const {
         const double grid = row.getPitch() > 0.0 ? row.getPitch() : 1.0;
         std::vector<RowPiece> &pieces = out.emplace_back();
         for (const SubrowInfo &s : row.subrows) {
-            const double xlo = s.getXlo();
-            const double xhi = s.getXhi(row.getPitch());
-            if (!(xhi > xlo)) {
+            const Interval x(s.getXlo(), s.getXhi(row.getPitch()));
+            if (!(x.end > x.start)) {
                 continue;
             }
-            std::ranges::copy(splitRowByFences(xlo, xhi, row.coordinate,
-                                               row.coordinate + row.height, grid, rects),
-                              std::back_inserter(pieces));
+            const Interval band(row.coordinate, row.coordinate + row.height);
+            std::ranges::copy(splitRowByFences(x, band, grid, rects), std::back_inserter(pieces));
         }
     }
     return out;
@@ -607,8 +592,8 @@ std::uint32_t ktDM::getChecksum() const {
     mix(g.getNumCells());
     for (std::size_t v = 0; v < g.getNumCells(); ++v) {
         const Vertex &cell = g.getCell(v);
-        mix(cell.x);
-        mix(cell.y);
+        mix(cell.position.x);
+        mix(cell.position.y);
         mix(cell.width);
         mix(cell.height);
         mix(static_cast<std::uint8_t>(cell.isFixed));
@@ -617,8 +602,8 @@ std::uint32_t ktDM::getChecksum() const {
     for (const Pin &pin : g.getPins()) {
         mix(pin.cellId);
         mix(pin.netId);
-        mix(pin.offsetX);
-        mix(pin.offsetY);
+        mix(pin.offset.x);
+        mix(pin.offset.y);
     }
     return h;
 }
@@ -663,13 +648,13 @@ void ktDM::reportStatistics() const {
             sites += static_cast<std::size_t>(sub.numSites);
         }
     }
-    const std::array<double, 4> box = getPlacementDieBox();
+    const BBox box = getPlacementDieBox();
     const double nets = static_cast<double>(std::max<std::size_t>(g.getNumNets(), 1));
 
     ktReportTable t("Design statistics");
     t.setHeaders({"measure", "value"});
-    t.addRow({"placement area",
-              std::format("({:.0f}, {:.0f}) - ({:.0f}, {:.0f})", box[0], box[1], box[2], box[3])});
+    t.addRow({"placement area", std::format("({:.0f}, {:.0f}) - ({:.0f}, {:.0f})", box.lowerLeft.x,
+                                            box.lowerLeft.y, box.upperRight.x, box.upperRight.y)});
     t.addRow({"rows / sites", std::format("{} / {}", getNumRows(), sites)});
     t.addRow({"site width", std::format("{:.3}", siteWidth)});
     t.addRow(

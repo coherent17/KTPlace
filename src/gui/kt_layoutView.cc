@@ -121,8 +121,8 @@ public:
         return {view.getWorldToScreen({x, y + h}), QSizeF(w * scale, h * scale)};
     }
 
-    [[nodiscard]] QRectF getRectOf(const Bounds &box) const {
-        return getRectOf(box.xlo, box.ylo, box.xhi - box.xlo, box.yhi - box.ylo);
+    [[nodiscard]] QRectF getRectOf(const BBox &box) const {
+        return getRectOf(box.lowerLeft.x, box.lowerLeft.y, box.getWidth(), box.getHeight());
     }
 
     [[nodiscard]] QPointF getPinOnScreen(std::uint32_t pin) const {
@@ -214,7 +214,7 @@ void LayoutView::Impl::paintFences(QPainter &painter) const {
     painter.setPen(QPen(color, 1.0));
     painter.setBrush(withAlpha(color, fenceFillAlpha));
     for (const LayoutGeometry::Fence &fence : fences) {
-        for (const Bounds &rect : fence.rects) {
+        for (const BBox &rect : fence.rects) {
             painter.drawRect(getRectOf(rect));
         }
         if (fence.rects.empty()) {
@@ -235,10 +235,10 @@ void LayoutView::Impl::paintCongestion(QPainter &painter) const {
         return;
     }
     const DemandMap &map = *demand;
-    const QPointF topLeft =
-        view.getWorldToScreen({map.x0, map.y0 + static_cast<double>(map.ny) * map.binH});
-    const QPointF bottomRight =
-        view.getWorldToScreen({map.x0 + static_cast<double>(map.nx) * map.binW, map.y0});
+    const QPointF topLeft = view.getWorldToScreen(
+        {map.origin.x, map.origin.y + static_cast<double>(map.ny) * map.binH});
+    const QPointF bottomRight = view.getWorldToScreen(
+        {map.origin.x + static_cast<double>(map.nx) * map.binW, map.origin.y});
     painter.drawImage(QRectF(topLeft, bottomRight), heat);
 
     const std::size_t peakX = map.peakBin % map.nx;
@@ -252,8 +252,8 @@ void LayoutView::Impl::paintCongestion(QPainter &painter) const {
             .arg(map.nets),
         QStringLiteral("peak %1 nets/bin at (%2, %3)")
             .arg(map.peak, 0, 'f', 2)
-            .arg(map.x0 + (static_cast<double>(peakX) + 0.5) * map.binW, 0, 'f', 0)
-            .arg(map.y0 + (static_cast<double>(peakY) + 0.5) * map.binH, 0, 'f', 0),
+            .arg(map.origin.x + (static_cast<double>(peakX) + 0.5) * map.binW, 0, 'f', 0)
+            .arg(map.origin.y + (static_cast<double>(peakY) + 0.5) * map.binH, 0, 'f', 0),
         QStringLiteral("mean %1, 99th pct %2, %3% of bins over 2x mean")
             .arg(map.mean, 0, 'f', 2)
             .arg(map.p99, 0, 'f', 2)
@@ -296,7 +296,7 @@ void LayoutView::Impl::paintMarkedNets(QPainter &painter) const {
     const bool boxed = nets.size() <= maxBoxedNets;
     painter.setRenderHint(QPainter::Antialiasing, detailed);
     for (const std::uint32_t net : nets) {
-        const std::optional<Bounds> box = frame.getNetBounds(net);
+        const std::optional<BBox> box = frame.getNetBounds(net);
         if (!box) {
             continue;
         }
@@ -335,8 +335,9 @@ void LayoutView::Impl::paintSelection(QPainter &painter) const {
     std::vector<QRectF> outlines;
     outlines.reserve(std::min(cells.size(), outlinedMacroLimit));
     for (const std::uint32_t cell : cells) {
-        const Bounds box = frame.getCellBounds(cell);
-        if (box.xlo > hi.x() || box.xhi < lo.x() || box.ylo > hi.y() || box.yhi < lo.y()) {
+        const BBox box = frame.getCellBounds(cell);
+        if (box.lowerLeft.x > hi.x() || box.upperRight.x < lo.x() || box.lowerLeft.y > hi.y() ||
+            box.upperRight.y < lo.y()) {
             continue;
         }
         QRectF outline = getRectOf(box);
@@ -548,7 +549,8 @@ void LayoutView::Impl::render() {
     if (style.isShown(DisplayLayer::Die)) {
         painter.setPen(QPen(style[DisplayLayer::Die].color, 0));
         painter.setBrush(Qt::NoBrush);
-        painter.drawRect(getRectOf(die[0], die[1], die[2] - die[0], die[3] - die[1]));
+        painter.drawRect(
+            getRectOf(die.lowerLeft.x, die.lowerLeft.y, die.getWidth(), die.getHeight()));
     }
 }
 
@@ -724,19 +726,20 @@ void LayoutView::zoomFit() {
         return;
     }
     const auto &die = pImpl->frame.geometry->die;
-    zoomTo({die[0], die[1], die[2], die[3]});
+    zoomTo(die);
 }
 
-void LayoutView::zoomTo(const Bounds &area) {
+void LayoutView::zoomTo(const BBox &area) {
     const double floor =
         pImpl->frame.isDrawable() ? minZoomCells * pImpl->frame.geometry->typicalWidth : 1e-9;
-    const double w = std::max(area.xhi - area.xlo, floor);
-    const double h = std::max(area.yhi - area.ylo, floor);
+    const double w = std::max(area.getWidth(), floor);
+    const double h = std::max(area.getHeight(), floor);
     pImpl->scale = std::min(width() / w, height() / h) * fitMargin;
     if (!(pImpl->scale > 0.0) || !std::isfinite(pImpl->scale)) {
         pImpl->scale = 1.0;
     }
-    pImpl->center = {(area.xlo + area.xhi) / 2.0, (area.ylo + area.yhi) / 2.0};
+    pImpl->center = {(area.lowerLeft.x + area.upperRight.x) / 2.0,
+                     (area.lowerLeft.y + area.upperRight.y) / 2.0};
     pImpl->invalidate();
 }
 
@@ -744,10 +747,10 @@ bool LayoutView::zoomToSelection() {
     if (!pImpl->frame.isDrawable()) {
         return false;
     }
-    std::optional<Bounds> area = pImpl->frame.getCellsBounds(pImpl->selection.getCells());
-    if (const std::optional<Bounds> nets = pImpl->frame.getNetsBounds(pImpl->selection.getNets())) {
+    std::optional<BBox> area = pImpl->frame.getCellsBounds(pImpl->selection.getCells());
+    if (const std::optional<BBox> nets = pImpl->frame.getNetsBounds(pImpl->selection.getNets())) {
         if (area) {
-            area->include(*nets);
+            area->extend(*nets);
         } else {
             area = nets;
         }
@@ -866,7 +869,7 @@ void LayoutView::mouseReleaseEvent(QMouseEvent *event) {
         if (band.width() > dragThreshold && band.height() > dragThreshold) {
             const QPointF lo = getScreenToWorld(band.bottomLeft());
             const QPointF hi = getScreenToWorld(band.topRight());
-            zoomTo({lo.x(), lo.y(), hi.x(), hi.y()});
+            zoomTo(BBox(Point(lo.x(), lo.y()), Point(hi.x(), hi.y())));
         }
         return;
     }

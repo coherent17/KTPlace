@@ -18,10 +18,13 @@ std::vector<RowInfo> copyRows(const std::vector<ktplace::RowInfo> &rows,
     out.reserve(rows.size());
     for (std::size_t i = 0; i < rows.size(); ++i) {
         const ktplace::RowInfo &r = rows[i];
-        RowInfo info{r.coordinate, r.height, r.getPitch(), {}};
+        RowInfo info{.coordinate = r.coordinate,
+                     .height = r.height,
+                     .sitePitch = r.getPitch(),
+                     .subrows = {}};
         info.subrows.reserve(pieces[i].size());
         for (const ktplace::RowPiece &p : pieces[i]) {
-            info.subrows.push_back(Subrow{p.xlo, p.xhi, p.region});
+            info.subrows.push_back(Subrow{.x = p.x, .region = p.region});
         }
         out.push_back(std::move(info));
     }
@@ -41,12 +44,16 @@ std::size_t collectCells(const ktplace::Graph &graph, std::size_t numRegions, De
             cell.regionId >= 0 && static_cast<std::size_t>(cell.regionId) < numRegions
                 ? cell.regionId
                 : noRegion;
-        design.cells.push_back(Cell{cell.x, cell.y, cell.width, cell.height, region, isMovable});
+        design.cells.push_back(Cell{.position = cell.position,
+                                    .width = cell.width,
+                                    .height = cell.height,
+                                    .region = region,
+                                    .isMovable = isMovable});
         if (isMovable) {
             ++movable;
         } else if (cell.width > 0.0 && cell.height > 0.0) {
             design.blockages.push_back(
-                Box{cell.x, cell.y, cell.x + cell.width, cell.y + cell.height});
+                BBox::of(cell.position.x, cell.position.y, cell.width, cell.height));
         }
     }
     return movable;
@@ -58,7 +65,7 @@ void collectNets(const ktplace::Graph &graph, Design &design) {
         pins.clear();
         for (const std::size_t pinId : graph.getNetPins(n)) {
             const ktplace::Pin &pin = graph.getPin(pinId);
-            pins.push_back(NetPin{pin.cellId, pin.offsetX, pin.offsetY});
+            pins.push_back(NetPin{.cellId = pin.cellId, .offset = pin.offset});
         }
         design.nets.add(pins);
     }
@@ -77,11 +84,9 @@ void multirowDM::run() {
 
 multiRowSolution multirowDM::getSolution() const {
     multiRowSolution out;
-    out.xs.reserve(d.cells.size());
-    out.ys.reserve(d.cells.size());
+    out.positions.reserve(d.cells.size());
     for (const Cell &cell : d.cells) {
-        out.xs.push_back(cell.x);
-        out.ys.push_back(cell.y);
+        out.positions.push_back(cell.position);
     }
     return out;
 }
@@ -94,8 +99,11 @@ multirowDM buildMultiRowDM(const ktDM &db) {
     design.rows = copyRows(db.getRows(), db.getFencedSubrows());
     design.die = getPlacementDieBox(db.getDie(), graph);
 
-    const StageCounts counts{graph.getNumCells(), movable, graph.getNumNets(), graph.getNumPins(),
-                             design.rows.size()};
+    const StageCounts counts{.cells = graph.getNumCells(),
+                             .movable = movable,
+                             .nets = graph.getNumNets(),
+                             .pins = graph.getNumPins(),
+                             .rows = design.rows.size()};
     multirowDM dm(std::move(design), loadOptions<MultiRowOptions>());
     reportStageBuild(counts, db.getChecksum(), dm.getOptions());
     return dm;

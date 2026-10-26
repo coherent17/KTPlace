@@ -1,11 +1,12 @@
 #pragma once
 
 #include "datamodel/kt_solutionMgr.h"
+#include "geometry/kt_geometry.h"
 #include "globalPlacer/simpl/simpl_grid.h"
 #include "globalPlacer/simpl/simpl_lss.h"
 #include "globalPlacer/simpl/simpl_options.h"
 
-#include <array>
+#include <algorithm>
 #include <cstddef>
 #include <functional>
 #include <span>
@@ -19,43 +20,16 @@ class ktDM;
 
 namespace ktplace::simpl {
 
-struct Rect {
-    double xlo = 0.0;
-    double ylo = 0.0;
-    double xhi = 0.0;
-    double yhi = 0.0;
-
-    [[nodiscard]] bool contains(double x, double y) const noexcept {
-        return x >= xlo && x <= xhi && y >= ylo && y <= yhi;
-    }
-    [[nodiscard]] double getWidth() const noexcept {
-        return xhi - xlo;
-    }
-    [[nodiscard]] double getHeight() const noexcept {
-        return yhi - ylo;
-    }
-};
-
 struct Region {
     std::string name;
-    std::vector<Rect> rects;
-    double minX = 0.0;
-    double minY = 0.0;
-    double maxX = 0.0;
-    double maxY = 0.0;
+    std::vector<BBox> rects;
+    BBox bounds;
 
-    [[nodiscard]] bool contains(double x, double y) const {
-        if (x < minX || x > maxX || y < minY || y > maxY) {
-            return false;
-        }
-        for (const Rect &r : rects) {
-            if (r.contains(x, y)) {
-                return true;
-            }
-        }
-        return false;
+    [[nodiscard]] bool contains(const Point &p) const {
+        return bounds.contains(p) && std::ranges::any_of(rects, [&](const BBox &r) {
+                   return r.contains(p);
+               });
     }
-    void seal();
 };
 
 class Fences {
@@ -69,12 +43,11 @@ public:
         return regions.at(static_cast<std::size_t>(id));
     }
 
-    bool clampToRegion(int id, double &x, double &y) const;
+    bool clampToRegion(int id, Point &p) const;
 
-    bool pushOutOfRegions(double &x, double &y, double dieMinX, double dieMinY, double maxX,
-                          double maxY) const;
+    bool pushOutOfRegions(Point &p, const BBox &die) const;
 
-    [[nodiscard]] std::size_t countViolations(const std::vector<double> &positions,
+    [[nodiscard]] std::size_t countViolations(const std::vector<Point> &positions,
                                               const std::vector<int> &regionIds) const;
 
     void addRegion(Region r) {
@@ -86,8 +59,7 @@ private:
 };
 
 struct Subrow {
-    double xlo = 0.0;
-    double xhi = 0.0;
+    Interval x;
 };
 
 struct RowInfo {
@@ -100,8 +72,6 @@ struct RowInfo {
     }
     std::vector<Subrow> subrows;
 };
-
-using DieBox = std::array<double, 4>;
 
 struct FrameInfo {
     std::string note;
@@ -130,12 +100,12 @@ struct Design {
     std::vector<double> height;
     std::vector<double> area;
     std::vector<int> region;
-    std::vector<Box> obstacles;
+    std::vector<BBox> obstacles;
     std::size_t numFixed = 0;
     std::vector<double> x;
     std::vector<double> y;
     std::vector<RowInfo> rows;
-    DieBox die{};
+    BBox die;
     Fences fences;
     FrameHook onFrame;
     BoundsHook onBounds;

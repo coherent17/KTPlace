@@ -24,7 +24,7 @@ struct Run {
 };
 
 static Run runAndCommit(ktplace::ktDM &db, const ktplace::FastdpOptions &params = {}) {
-    std::vector<std::pair<double, double>> before;
+    std::vector<ktplace::Point> before;
     for (std::size_t i = 0; i < db.getNumCells(); ++i) {
         before.push_back(db.getCellPosition(i));
     }
@@ -90,12 +90,12 @@ void addRow(ktDM &db, int rowIndex, double numSites, double originX = 0.0) {
 // cells back onto it. Every other test goes through addCell, which rounds.
 void addCellRaw(ktDM &db, const std::string &name, double x, int rowIndex, double width = 1.0) {
     const std::size_t id = db.addCell(name, width, rowHeight);
-    db.setCellPosition(id, x, rowIndex * rowPitch);
+    db.setCellPosition(id, Point(x, rowIndex * rowPitch));
 }
 
 void addCell(ktDM &db, const std::string &name, double x, int rowIndex, double width = 1.0) {
     const std::size_t id = db.addCell(name, width, rowHeight);
-    db.setCellPosition(id, std::round(x / site) * site, rowIndex * rowPitch);
+    db.setCellPosition(id, Point(std::round(x / site) * site, rowIndex * rowPitch));
     gWidths.resize(db.getNumCells(), 1.0);
     gWidths[id] = width;
 }
@@ -103,7 +103,7 @@ void addCell(ktDM &db, const std::string &name, double x, int rowIndex, double w
 /// A fixed cell, which the optimiser must not move and must not overlap.
 void addFixed(ktDM &db, const std::string &name, double x, int rowIndex, double width = 1.0) {
     const std::size_t id = db.addCell(name, width, rowHeight, /*isTerminal=*/true);
-    db.setCellPosition(id, x, rowIndex * rowPitch);
+    db.setCellPosition(id, Point(x, rowIndex * rowPitch));
     db.setCellFixed(id, true);
     gWidths.resize(db.getNumCells(), 1.0);
     gWidths[id] = width;
@@ -121,8 +121,8 @@ void addNet(ktDM &db, const std::string &net, const std::string &a, const std::s
     // addPin throws if either endpoint is unknown, which is the property the
     // comment above claims; checking the count is what makes it a claim.
     const std::size_t before = db.getNumPins();
-    const std::size_t pinA = db.addPin(a, net, 0.0, 0.0, true);
-    const std::size_t pinB = db.addPin(b, net, 0.0, 0.0, false);
+    const std::size_t pinA = db.addPin(a, net, Point(0.0, 0.0), true);
+    const std::size_t pinB = db.addPin(b, net, Point(0.0, 0.0), false);
     const std::size_t after = db.getNumPins();
     BOOST_TEST(pinA < after);
     BOOST_TEST(pinB < after);
@@ -180,16 +180,13 @@ void addNet(ktDM &db, const std::string &net, const std::string &a, const std::s
         // the caller's mistake, so say so rather than reading rows.front().
         return db.getNumCells() == 0;
     }
-    struct Box {
-        double x0, x1, y0, y1;
-    };
-    std::vector<Box> boxes;
+    std::vector<BBox> boxes;
     for (std::size_t i = 0; i < db.getNumCells(); ++i) {
         const auto [x, y] = db.getCellPosition(i);
         const double w = getWidthOf(i);
         const double h = rowHeight;
         if (db.isCellFixed(i)) {
-            boxes.push_back({x, x + w, y, y + h});
+            boxes.push_back(BBox::of(x, y, w, h));
             continue;
         }
         // On a site, to within floating point.
@@ -214,13 +211,11 @@ void addNet(ktDM &db, const std::string &net, const std::string &a, const std::s
         if (!withinRow) {
             return false;
         }
-        boxes.push_back({x, x + w, y, y + h});
+        boxes.push_back(BBox::of(x, y, w, h));
     }
     for (std::size_t i = 0; i < boxes.size(); ++i) {
         for (std::size_t j = i + 1; j < boxes.size(); ++j) {
-            const bool disjoint = boxes[i].x1 <= boxes[j].x0 || boxes[j].x1 <= boxes[i].x0 ||
-                                  boxes[i].y1 <= boxes[j].y0 || boxes[j].y1 <= boxes[i].y0;
-            if (!disjoint) {
+            if (boxes[i].isOverlapping(boxes[j])) {
                 return false;
             }
         }
@@ -256,7 +251,7 @@ void buildCrowdedDesign(ktDM &db) {
         const int base = next() % cells;
         for (int p = 0; p < degree; ++p) {
             const int c = (base + next() % 120) % cells;
-            (void)db.addPin("c" + std::to_string(c), net, 0.0, 0.0, p == 0);
+            (void)db.addPin("c" + std::to_string(c), net, Point(0.0, 0.0), p == 0);
         }
     }
 }
@@ -690,7 +685,7 @@ BOOST_AUTO_TEST_CASE(fences_are_accepted_without_being_enforced) {
     addCell(db, "a", 1.0, 0);
     addCell(db, "b", 2.0, 0);
     constraintMgr cstr;
-    cstr.addRegion("er0", {Point{0.0, 0.0}, Point{1.0, 10.0}});
+    cstr.addRegion("er0", {Point(0.0, 0.0), Point(1.0, 10.0)});
     db.setConstraints(std::move(cstr));
 
     FastdpOptions p = none();
@@ -739,7 +734,7 @@ BOOST_AUTO_TEST_CASE(failed_vertical_swap_restores_the_row_the_cell_is_in) {
     // Zero-size pads on row boundaries: they pull on nets without blocking.
     const auto pad = [&](const std::string &name, double x, double y) {
         const std::size_t id = db.addCell(name, 0.0, 0.0, /*isTerminal=*/true);
-        db.setCellPosition(id, x, y);
+        db.setCellPosition(id, Point(x, y));
         db.setCellFixed(id, true);
     };
     addCell(db, "c", 50.0, 1, 3.0);  // processed first: the cell under test
@@ -749,7 +744,7 @@ BOOST_AUTO_TEST_CASE(failed_vertical_swap_restores_the_row_the_cell_is_in) {
     // Two rows tall, at the right end of rows 2-3 (x 97..100). c (3 wide) at
     // x 95 in row 2 hits it; d2 (1 wide) at x 96 in row 1 does not.
     const std::size_t tall = db.addCell("tall", 3.0, 2.0 * rowHeight);
-    db.setCellPosition(tall, 97.0, 2.0 * rowPitch);
+    db.setCellPosition(tall, Point(97.0, 2.0 * rowPitch));
     pad("p1", 97.0, 0.0);   // c wants row 0 near x 97
     pad("p2", 51.0, 10.0);  // d1 wants row 1 near x 51
     pad("p3", 96.0, 10.0);  // d2 wants row 1 near x 96, strongly
@@ -802,7 +797,7 @@ BOOST_AUTO_TEST_CASE(cells_stay_on_their_side_of_a_fence) {
     addNet(db, "n2", "o0", "padL");
     {
         constraintMgr mgr;
-        const int id = mgr.addRegion("f0", {Point{0.0, 0.0}, Point{20.0, 20.0}});
+        const int id = mgr.addRegion("f0", {Point(0.0, 0.0), Point(20.0, 20.0)});
         (void)mgr.assignByPrefix(id, "m", db.getGraph());
         db.setConstraints(std::move(mgr));
     }
@@ -837,7 +832,7 @@ BOOST_AUTO_TEST_CASE(a_vertical_swap_does_not_carry_cells_across_a_fence) {
     addNet(db, "n1", "o0", "dn");
     {
         constraintMgr mgr;
-        const int id = mgr.addRegion("f0", {Point{0.0, 10.0}, Point{30.0, 20.0}});
+        const int id = mgr.addRegion("f0", {Point(0.0, 10.0), Point(30.0, 20.0)});
         (void)mgr.assignByPrefix(id, "m", db.getGraph());
         db.setConstraints(std::move(mgr));
     }
@@ -887,14 +882,14 @@ BOOST_AUTO_TEST_CASE(the_placement_does_not_depend_on_the_thread_count) {
         ktDM db;
         buildCrowdedDesign(db);
         (void)runAndCommit(db, params);
-        std::vector<std::pair<double, double>> at;
+        std::vector<ktplace::Point> at;
         for (std::size_t c = 0; c < db.getNumCells(); ++c) {
             at.push_back(db.getCellPosition(c));
         }
         return at;
     };
-    const std::vector<std::pair<double, double>> one = place(1);
-    const std::vector<std::pair<double, double>> many = place(8);
+    const std::vector<ktplace::Point> one = place(1);
+    const std::vector<ktplace::Point> many = place(8);
     BOOST_TEST((one == many));
 }
 

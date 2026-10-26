@@ -8,8 +8,8 @@
 #include "datamodel/kt_graph.h"
 #include "datamodel/kt_rowFence.h"
 #include "datamodel/kt_solutionMgr.h"
+#include "geometry/kt_geometry.h"
 
-#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <string>
@@ -18,7 +18,6 @@
 
 namespace ktplace {
 
-class solutionMgr;
 
 class ktDM {
 public:
@@ -48,9 +47,6 @@ public:
 
     void setConstraints(constraintMgr fences);
 
-    void setPlacementSolution(const solutionMgr &solution);
-    [[nodiscard]] solutionMgr getPlacementSolution() const;
-
     void setSimplSolution(const simplSolution &solution);
     void setNtuplace1Solution(const ntuplace1Solution &solution);
 
@@ -78,14 +74,14 @@ public:
 
     // Pin management
     [[nodiscard]] std::size_t addPin(const std::string &cellName, const std::string &netName,
-                                     double offsetX, double offsetY, bool isInput);
+                                     const Point &offset, bool isInput);
     [[nodiscard]] std::size_t getNumPins() const;
 
     // Placement coordinates
-    void setCellPosition(std::size_t cellId, double x, double y);
-    void setCellPosition(const std::string &cellName, double x, double y);
-    [[nodiscard]] std::pair<double, double> getCellPosition(std::size_t cellId) const;
-    [[nodiscard]] std::pair<double, double> getCellPosition(const std::string &cellName) const;
+    void setCellPosition(std::size_t cellId, const Point &position);
+    void setCellPosition(const std::string &cellName, const Point &position);
+    [[nodiscard]] Point getCellPosition(std::size_t cellId) const;
+    [[nodiscard]] Point getCellPosition(const std::string &cellName) const;
 
     // Cell fixed/movable status
     void setCellFixed(std::size_t cellId, bool fixed);
@@ -103,11 +99,10 @@ public:
         return dieInfo;
     }
 
-    void setDieArea(double xMin, double yMin, double xMax, double yMax);
-    [[nodiscard]] std::pair<std::pair<double, double>, std::pair<double, double>> getDieArea()
-        const;
+    void setDieArea(const BBox &box);
+    [[nodiscard]] const BBox &getDieArea() const;
 
-    [[nodiscard]] std::array<double, 4> getPlacementDieBox() const;
+    [[nodiscard]] BBox getPlacementDieBox() const;
 
     // Movable cells too tall for any single row, against the shortest row that has
     // a subrow. These are what a single-row legalizer cannot place, so the count is

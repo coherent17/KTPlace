@@ -21,12 +21,12 @@ void collectCells(const ktplace::Graph &graph, Design &design) {
     netlist.fixedY.assign(numCells, 0.0);
     for (std::size_t v = 0; v < numCells; ++v) {
         const ktplace::Vertex &cell = graph.getCell(v);
-        netlist.fixedX[v] = cell.x;
-        netlist.fixedY[v] = cell.y;
+        netlist.fixedX[v] = cell.position.x;
+        netlist.fixedY[v] = cell.position.y;
         if (cell.isFixed || cell.isTerminal) {
             if (cell.width > 0.0 && cell.height > 0.0) {
                 design.obstacles.push_back(
-                    {cell.x, cell.y, cell.x + cell.width, cell.y + cell.height});
+                    BBox::of(cell.position.x, cell.position.y, cell.width, cell.height));
             }
             ++design.numFixed;
             continue;
@@ -37,8 +37,8 @@ void collectCells(const ktplace::Graph &graph, Design &design) {
         design.height.push_back(cell.height);
         design.area.push_back(cell.width * cell.height);
         design.region.push_back(cell.regionId);
-        design.x.push_back(cell.x);
-        design.y.push_back(cell.y);
+        design.x.push_back(cell.position.x);
+        design.y.push_back(cell.position.y);
     }
 }
 
@@ -58,8 +58,8 @@ void collectNets(const ktplace::Graph &graph, Netlist &netlist) {
                 continue;
             }
             net.cells.push_back(static_cast<std::uint32_t>(pin.cellId));
-            net.offX.push_back(pin.offsetX);
-            net.offY.push_back(pin.offsetY);
+            net.offX.push_back(pin.offset.x);
+            net.offY.push_back(pin.offset.y);
         }
     }
 
@@ -78,7 +78,7 @@ void collectNets(const ktplace::Graph &graph, Netlist &netlist) {
         for (std::uint32_t q = 0; q < netlist.nets[n].cells.size(); ++q) {
             const std::uint32_t v = netlist.varOfVertex[netlist.nets[n].cells[q]];
             if (v != noVar) {
-                netlist.pinsOfCell[cursor[v]++] = {n, q};
+                netlist.pinsOfCell[cursor[v]++] = {.net = n, .pin = q};
             }
         }
     }
@@ -88,10 +88,14 @@ std::vector<RowInfo> copyRows(const std::vector<ktplace::RowInfo> &rows) {
     std::vector<RowInfo> out;
     out.reserve(rows.size());
     for (const ktplace::RowInfo &row : rows) {
-        RowInfo info{row.coordinate, row.height, row.getPitch(), {}};
+        RowInfo info{.coordinate = row.coordinate,
+                     .height = row.height,
+                     .sitePitch = row.getPitch(),
+                     .subrows = {}};
         info.subrows.reserve(row.subrows.size());
         for (const ktplace::SubrowInfo &subrow : row.subrows) {
-            info.subrows.push_back(Subrow{subrow.getXlo(), subrow.getXhi(row.getPitch())});
+            info.subrows.push_back(
+                Subrow{.x = Interval(subrow.getXlo(), subrow.getXhi(row.getPitch()))});
         }
         out.push_back(std::move(info));
     }
@@ -105,52 +109,29 @@ Fences copyFences(const ktplace::constraintMgr &constraints) {
         if (source == nullptr) {
             continue;
         }
-        Region region;
-        region.name = source->name;
-        region.rects.reserve(source->rects.size());
-        for (const ktplace::Rect &rect : source->rects) {
-            region.rects.push_back(Rect{rect.lo.x, rect.lo.y, rect.hi.x, rect.hi.y});
-        }
-        region.seal();
-        out.addRegion(std::move(region));
+        out.addRegion(
+            Region{.name = source->name, .rects = source->rects, .bounds = source->bounds});
     }
     return out;
 }
 
 }  // namespace
 
-void Region::seal() {
-    if (rects.empty()) {
-        minX = minY = maxX = maxY = 0.0;
-        return;
-    }
-    minX = minY = std::numeric_limits<double>::max();
-    maxX = maxY = std::numeric_limits<double>::lowest();
-    for (const Rect &r : rects) {
-        minX = std::min(minX, r.xlo);
-        minY = std::min(minY, r.ylo);
-        maxX = std::max(maxX, r.xhi);
-        maxY = std::max(maxY, r.yhi);
-    }
-}
-
-bool Fences::clampToRegion(int id, double &x, double &y) const {
+bool Fences::clampToRegion(int id, Point &p) const {
     if (id < 0 || static_cast<std::size_t>(id) >= regions.size()) {
         return false;
     }
     const Region &r = regions[static_cast<std::size_t>(id)];
-    if (r.contains(x, y)) {
+    if (r.contains(p)) {
         return false;
     }
     // Snap into the rectangle that is nearest, measured as the distance still
     // to travel along each axis.
-    const Rect *best = nullptr;
+    const BBox *best = nullptr;
     double bestDist = std::numeric_limits<double>::max();
-    for (const Rect &cand : r.rects) {
-        const double cx = std::clamp(x, cand.xlo, cand.xhi);
-        const double cy = std::clamp(y, cand.ylo, cand.yhi);
-        const double dx = cx - x;
-        const double dy = cy - y;
+    for (const BBox &cand : r.rects) {
+        const double dx = cand.getX().getClamped(p.x) - p.x;
+        const double dy = cand.getY().getClamped(p.y) - p.y;
         const double dist = dx * dx + dy * dy;
         if (dist < bestDist) {
             bestDist = dist;
@@ -160,16 +141,15 @@ bool Fences::clampToRegion(int id, double &x, double &y) const {
     if (best == nullptr) {
         return false;
     }
-    x = std::clamp(x, best->xlo, best->xhi);
-    y = std::clamp(y, best->ylo, best->yhi);
+    p = Point(best->getX().getClamped(p.x), best->getY().getClamped(p.y));
     return true;
 }
 
 namespace {
 
-bool isInsideAnyRegion(const std::vector<Region> &regions, double x, double y) {
+bool isInsideAnyRegion(const std::vector<Region> &regions, const Point &p) {
     for (const Region &r : regions) {
-        if (r.contains(x, y)) {
+        if (r.contains(p)) {
             return true;
         }
     }
@@ -179,15 +159,14 @@ bool isInsideAnyRegion(const std::vector<Region> &regions, double x, double y) {
 double getEscapeEpsilon(const std::vector<Region> &regions) {
     double scale = 0.0;
     for (const Region &r : regions) {
-        scale = std::max(scale, std::max(r.maxX - r.minX, r.maxY - r.minY));
+        scale = std::max(scale, std::max(r.bounds.getWidth(), r.bounds.getHeight()));
     }
     return std::max(scale, 1.0) * 1e-6;
 }
 
 }  // namespace
 
-bool Fences::pushOutOfRegions(double &x, double &y, double dieMinX, double dieMinY, double dieMaxX,
-                              double dieMaxY) const {
+bool Fences::pushOutOfRegions(Point &p, const BBox &die) const {
     // Escaping is planned against the *union* of the fences, not one rectangle
     // at a time. Fences are often rings or combs of abutting rectangles, so
     // stepping to the nearest edge of the rectangle that caught the point can
@@ -196,12 +175,12 @@ bool Fences::pushOutOfRegions(double &x, double &y, double dieMinX, double dieMi
     // which makes progress monotone.
     const std::size_t maxPasses = 4 * (regions.size() + 1) + 8;
     for (std::size_t pass = 0; pass < maxPasses; ++pass) {
-        const Rect *host = nullptr;
+        const BBox *host = nullptr;
         double hostArea = std::numeric_limits<double>::max();
         for (const Region &r : regions) {
-            for (const Rect &cand : r.rects) {
-                const double area = cand.getWidth() * cand.getHeight();
-                if (cand.contains(x, y) && area < hostArea) {
+            for (const BBox &cand : r.rects) {
+                const double area = cand.getArea();
+                if (cand.contains(p) && area < hostArea) {
                     hostArea = area;
                     host = &cand;
                 }
@@ -216,17 +195,17 @@ bool Fences::pushOutOfRegions(double &x, double &y, double dieMinX, double dieMi
         // that caught the point: a per-rectangle epsilon can fall below the
         // output resolution, and the cell then lands back on the boundary.
         const double eps = getEscapeEpsilon(regions);
-        const double exits[4][2] = {
-            {host->xlo - eps, y}, {host->xhi + eps, y}, {x, host->ylo - eps}, {x, host->yhi + eps}};
-        const double dists[4] = {x - host->xlo, host->xhi - x, y - host->ylo, host->yhi - y};
+        const Point exits[4] = {
+            Point(host->lowerLeft.x - eps, p.y), Point(host->upperRight.x + eps, p.y),
+            Point(p.x, host->lowerLeft.y - eps), Point(p.x, host->upperRight.y + eps)};
+        const double dists[4] = {p.x - host->lowerLeft.x, host->upperRight.x - p.x,
+                                 p.y - host->lowerLeft.y, host->upperRight.y - p.y};
 
         int best = -1;
         double bestDist = std::numeric_limits<double>::max();
         bool bestLegal = false;
         for (int k = 0; k < 4; ++k) {
-            const bool onDie = exits[k][0] >= dieMinX && exits[k][0] <= dieMaxX &&
-                               exits[k][1] >= dieMinY && exits[k][1] <= dieMaxY;
-            const bool legal = onDie && !isInsideAnyRegion(regions, exits[k][0], exits[k][1]);
+            const bool legal = die.contains(exits[k]) && !isInsideAnyRegion(regions, exits[k]);
             if (legal && (!bestLegal || dists[k] < bestDist)) {
                 best = k;
                 bestDist = dists[k];
@@ -239,23 +218,21 @@ bool Fences::pushOutOfRegions(double &x, double &y, double dieMinX, double dieMi
             // let the next pass continue from there.
             best = static_cast<int>(std::min_element(dists, dists + 4) - dists);
         }
-        x = exits[best][0];
-        y = exits[best][1];
+        p = exits[best];
     }
     return true;
 }
 
-std::size_t Fences::countViolations(const std::vector<double> &positions,
+std::size_t Fences::countViolations(const std::vector<Point> &positions,
                                     const std::vector<int> &regionIds) const {
     std::size_t bad = 0;
-    const std::size_t n = std::min(regionIds.size(), positions.size() / 2);
+    const std::size_t n = std::min(regionIds.size(), positions.size());
     for (std::size_t i = 0; i < n; ++i) {
         const int id = regionIds[i];
         if (id < 0 || static_cast<std::size_t>(id) >= regions.size()) {
             continue;
         }
-        if (!regions[static_cast<std::size_t>(id)].contains(positions[2 * i],
-                                                            positions[2 * i + 1])) {
+        if (!regions[static_cast<std::size_t>(id)].contains(positions[i])) {
             ++bad;
         }
     }
@@ -272,11 +249,12 @@ void simplDM::run() {
 
 simplSolution simplDM::getSolution() const {
     simplSolution out;
-    out.xs = d.netlist.fixedX;
-    out.ys = d.netlist.fixedY;
+    out.positions.reserve(d.netlist.fixedX.size());
+    for (std::size_t v = 0; v < d.netlist.fixedX.size(); ++v) {
+        out.positions.push_back(Point(d.netlist.fixedX[v], d.netlist.fixedY[v]));
+    }
     for (std::size_t i = 0; i < d.netlist.numMovable; ++i) {
-        out.xs[d.netlist.movVertex[i]] = d.x[i];
-        out.ys[d.netlist.movVertex[i]] = d.y[i];
+        out.positions[d.netlist.movVertex[i]] = Point(d.x[i], d.y[i]);
     }
     return out;
 }
@@ -290,8 +268,11 @@ simplDM buildSimplDM(const ktDM &db) {
     design.fences = copyFences(db.getConstraints());
     design.die = getPlacementDieBox(db.getDie(), db.getGraph());
 
-    const StageCounts counts{graph.getNumCells(), design.netlist.numMovable, graph.getNumNets(),
-                             graph.getNumPins(), design.rows.size()};
+    const StageCounts counts{.cells = graph.getNumCells(),
+                             .movable = design.netlist.numMovable,
+                             .nets = graph.getNumNets(),
+                             .pins = graph.getNumPins(),
+                             .rows = design.rows.size()};
     simplDM dm(std::move(design), loadOptions<SimplOptions>());
     reportStageBuild(counts, db.getChecksum(), dm.getOptions());
     return dm;

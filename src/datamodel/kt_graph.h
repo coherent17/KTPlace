@@ -3,6 +3,8 @@
 
 #pragma once
 
+#include "geometry/kt_geometry.h"
+
 #include <cstddef>
 #include <string>
 #include <unordered_map>
@@ -25,8 +27,7 @@ public:
 
     double width = 0.0;
     double height = 0.0;
-    double x = 0.0;
-    double y = 0.0;
+    Point position;
 
     bool isTerminal = false;  ///< an I/O pad: fixed, and on the die boundary
     bool isFixed = false;     ///< a macro, or a pad
@@ -53,8 +54,7 @@ public:
     PinRole role = PinRole::Receiver;
 
     /// Where on the cell the pin sits, relative to the cell's lower-left corner.
-    double offsetX = 0.0;
-    double offsetY = 0.0;
+    Point offset;
 };
 
 /// The netlist: cells, nets, and the pins joining them.
@@ -93,7 +93,7 @@ public:
 
     // Pins
     [[nodiscard]] std::size_t addPin(std::size_t cellId, std::size_t netId, PinRole role,
-                                     double offsetX, double offsetY);
+                                     const Point &offset);
     [[nodiscard]] const std::vector<Pin> &getPins() const;
     [[nodiscard]] const Pin &getPin(std::size_t id) const;
     [[nodiscard]] std::size_t getNumPins() const;

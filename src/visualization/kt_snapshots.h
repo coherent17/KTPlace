@@ -17,9 +17,9 @@
 
 #pragma once
 
+#include "geometry/kt_geometry.h"
 #include "visualization/kt_visualizer.h"
 
-#include <array>
 #include <cstddef>
 #include <memory>
 #include <span>
@@ -40,8 +40,8 @@ public:
     SnapshotWriter &operator=(const SnapshotWriter &) = delete;
 
     void beginStage(const StageVisual &stage);
-    void frame(const std::vector<float> &x, const std::vector<float> &y,
-               const std::array<double, 4> &die, bool withFences, const VisualFrame &what);
+    void frame(const std::vector<float> &x, const std::vector<float> &y, const BBox &die,
+               bool withFences, const VisualFrame &what);
     void boundsCurve(std::string_view name, std::string_view title,
                      std::span<const BoundsSample> curve);
     void holdBack(std::size_t frames);

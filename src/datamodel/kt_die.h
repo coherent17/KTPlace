@@ -4,9 +4,9 @@
 #pragma once
 
 #include "datamodel/kt_graph.h"
+#include "geometry/kt_geometry.h"
 
 #include <algorithm>
-#include <array>
 #include <cstddef>
 #include <utility>
 #include <vector>
@@ -54,9 +54,10 @@ struct RowInfo {
 /// The die box and its rows, as the reader parsed them.
 class DieInfo {
 public:
-    void setDieArea(double xMin, double yMin, double xMax, double yMax);
-    [[nodiscard]] std::pair<std::pair<double, double>, std::pair<double, double>> getDieArea()
-        const;
+    void setDieArea(const BBox &box);
+    [[nodiscard]] const BBox &getDieArea() const {
+        return area;
+    }
 
     [[nodiscard]] std::size_t addRow(double coordinate, double height, double sitewidth,
                                      double sitespacing);
@@ -68,14 +69,11 @@ public:
     void clear();
 
 private:
-    double xMin = 0.0;
-    double yMin = 0.0;
-    double xMax = 0.0;
-    double yMax = 0.0;
+    BBox area;
     std::vector<RowInfo> rows;
 };
 
-/// {xMin, yMin, xMax, yMax}: the union of the declared die area, the bounding box
+/// The union of the declared die area, the bounding box
 /// of the fixed cells, and the rows.
 ///
 /// One definition, shared by the placer and by the legality check, because the
@@ -85,6 +83,6 @@ private:
 /// start at y=82 -- so a box built from the fixed cells alone excludes the bottom
 /// row, and every cell the legalizer correctly put in that row is then reported
 /// as outside the die.
-[[nodiscard]] std::array<double, 4> getPlacementDieBox(const DieInfo &die, const Graph &graph);
+[[nodiscard]] BBox getPlacementDieBox(const DieInfo &die, const Graph &graph);
 
 }  // namespace ktplace

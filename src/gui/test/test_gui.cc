@@ -372,7 +372,7 @@ BOOST_AUTO_TEST_CASE(clicking_a_cell_selects_it_and_its_nets_are_known) {
 
 BOOST_AUTO_TEST_CASE(a_net_spreads_one_unit_of_demand_evenly_over_its_bounding_box) {
     LayoutGeometry geometry;
-    geometry.die = {0.0, 0.0, 4.0, 2.0};
+    geometry.die = BBox(Point(0.0, 0.0), Point(4.0, 2.0));
     geometry.width = {0.0F, 0.0F};
     geometry.height = {0.0F, 0.0F};
     geometry.kind = {CellKind::Movable, CellKind::Movable};
@@ -590,12 +590,12 @@ BOOST_AUTO_TEST_CASE(geometry_knows_net_names_fences_and_net_extents) {
     BOOST_TEST(frame.getNetBounds(0)->getHalfPerimeter() == 4.0);
     BOOST_TEST(frame.getNetBounds(1)->getHalfPerimeter() == 19.0);
     const std::vector<std::uint32_t> both{0, 1};
-    BOOST_TEST(frame.getNetsBounds(both)->xhi == 19.5);
+    BOOST_TEST(frame.getNetsBounds(both)->upperRight.x == 19.5);
     const std::vector<std::uint32_t> cells{0, 6};
-    const std::optional<Bounds> box = frame.getCellsBounds(cells);
-    BOOST_TEST(box->xlo == 0.0);
-    BOOST_TEST(box->xhi == 20.0);
-    BOOST_TEST(box->yhi == 8.0);
+    const std::optional<BBox> box = frame.getCellsBounds(cells);
+    BOOST_TEST(box->lowerLeft.x == 0.0);
+    BOOST_TEST(box->upperRight.x == 20.0);
+    BOOST_TEST(box->upperRight.y == 8.0);
 }
 
 BOOST_AUTO_TEST_CASE(a_hidden_layer_is_not_drawn) {
@@ -901,7 +901,8 @@ BOOST_AUTO_TEST_CASE(menu_actions_select_none_and_zoom) {
     getActionNamed(shown.window, QStringLiteral("Zoom Fit"))->trigger();
     centre = view.getScreenToWorld({view.width() / 2.0, view.height() / 2.0});
     const auto &die = view.getFrame().geometry->die;
-    BOOST_TEST(centre.x() == (die[0] + die[2]) / 2.0, boost::test_tools::tolerance(1e-6));
+    BOOST_TEST(centre.x() == (die.lowerLeft.x + die.upperRight.x) / 2.0,
+               boost::test_tools::tolerance(1e-6));
 }
 
 BOOST_AUTO_TEST_CASE(ctrl_click_adds_and_removes_cells) {

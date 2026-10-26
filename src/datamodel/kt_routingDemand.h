@@ -1,5 +1,7 @@
 #pragma once
 
+#include "geometry/kt_geometry.h"
+
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -22,8 +24,7 @@ struct NetlistPins {
 struct RoutingDemand {
     std::size_t nx = 0;
     std::size_t ny = 0;
-    double x0 = 0.0;
-    double y0 = 0.0;
+    Point origin;
     double binW = 1.0;
     double binH = 1.0;
     std::vector<float> demand;
@@ -39,10 +40,12 @@ struct RoutingDemand {
     }
 };
 
-[[nodiscard]] RoutingDemand getRoutingDemand(
-    std::span<const std::uint32_t> netPinStart, std::span<const std::uint32_t> pinCell,
-    std::span<const float> pinDx, std::span<const float> pinDy, std::span<const float> x,
-    std::span<const float> y, const std::array<double, 4> &die, std::size_t binsAcross);
+[[nodiscard]] RoutingDemand getRoutingDemand(std::span<const std::uint32_t> netPinStart,
+                                             std::span<const std::uint32_t> pinCell,
+                                             std::span<const float> pinDx,
+                                             std::span<const float> pinDy, std::span<const float> x,
+                                             std::span<const float> y, const BBox &die,
+                                             std::size_t binsAcross);
 
 [[nodiscard]] std::array<std::uint8_t, 4> getDemandColour(float scaled);
 
