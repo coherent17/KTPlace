@@ -5,6 +5,7 @@
 
 #include "datamodel/kt_constraintMgr.h"
 #include "datamodel/kt_graph.h"
+#include "datamodel/kt_hpwl.h"
 #include "datamodel/kt_solutionMgr.h"
 #include "util/kt_log.h"
 #include "util/kt_reportTable.h"
@@ -451,24 +452,6 @@ std::vector<ktDM::Defect> ktDM::getDefects() const {
     return defects;
 }
 
-void ktDM::setPlacementSolution(const solutionMgr &solution) {
-    solution.commitTo(graph);
-}
-
-
-void ktDM::setSimplSolution(const simplSolution &solution) {
-    const std::size_t n = std::min({solution.xs.size(), solution.ys.size(), graph.getNumCells()});
-    for (std::size_t v = 0; v < n; ++v) {
-        setCellPosition(v, solution.xs[v], solution.ys[v]);
-    }
-}
-
-void ktDM::setNtuplace1Solution(const ntuplace1Solution &solution) {
-    const std::size_t n = std::min({solution.xs.size(), solution.ys.size(), graph.getNumCells()});
-    for (std::size_t v = 0; v < n; ++v) {
-        setCellPosition(v, solution.xs[v], solution.ys[v]);
-    }
-}
 
 namespace {
 /// Every stage's solution is the same shape: positions indexed by cell id. One
@@ -476,14 +459,22 @@ namespace {
 /// differently.
 template <typename Solution>
 void commitCells(Graph &graph, const Solution &solution) {
-    const std::size_t n = std::min({solution.xs.size(), solution.ys.size(), graph.getNumCells()});
+    const std::size_t n = std::min(solution.positions.size(), graph.getNumCells());
     for (std::size_t v = 0; v < n; ++v) {
         Vertex &cell = graph.getCell(v);
-        cell.x = solution.xs[v];
-        cell.y = solution.ys[v];
+        cell.x = solution.positions[v].x;
+        cell.y = solution.positions[v].y;
     }
 }
 }  // namespace
+
+void ktDM::setSimplSolution(const simplSolution &solution) {
+    commitCells(graph, solution);
+}
+
+void ktDM::setNtuplace1Solution(const ntuplace1Solution &solution) {
+    commitCells(graph, solution);
+}
 
 void ktDM::setAbacusSolution(const abacusSolution &solution) {
     commitCells(graph, solution);
@@ -500,16 +491,20 @@ void ktDM::setFastdpSolution(const fastdpSolution &solution) {
     checkPlacement();
 }
 
-solutionMgr ktDM::getPlacementSolution() const {
-    return solutionMgr::fromGraph(graph);
-}
-
 double ktDM::getHpwl() const {
     // The one HPWL, in kt_solution.cc. This used to be a second implementation of
     // the same arithmetic, alongside the ones in SimplePlacer and FastDP; it is
     // now the same call they all make, over the positions as committed.
-    const solutionMgr sol = getPlacementSolution();
-    return getNetlistHPWL(graph, sol.getXs(), sol.getYs());
+    return getNetHpwl(
+        graph.getNumNets(),
+        [this](std::size_t n) -> const std::vector<std::size_t> & {
+            return graph.getNetPins(n);
+        },
+        [this](std::size_t pinId) {
+            const Pin &pin = graph.getPin(pinId);
+            const Vertex &cell = graph.getCell(pin.cellId);
+            return std::pair{cell.x + pin.offsetX, cell.y + pin.offsetY};
+        });
 }
 
 double ktDM::getMacroHeight() const {

@@ -66,7 +66,7 @@ struct Placed {
     ntuplace1Solution solution;
 
     [[nodiscard]] std::pair<double, double> at(std::size_t id) const {
-        return {solution.xs[id], solution.ys[id]};
+        return {solution.positions[id].x, solution.positions[id].y};
     }
 };
 
@@ -271,8 +271,7 @@ BOOST_AUTO_TEST_CASE(frame_hook_sees_every_cut_and_does_not_change_the_placement
     BOOST_TEST(frames > 0u);
     BOOST_TEST(wholeDesign);
     BOOST_TEST(depthInRange);
-    BOOST_TEST(flow.getSolution().xs == plain.solution.xs);
-    BOOST_TEST(flow.getSolution().ys == plain.solution.ys);
+    BOOST_TEST((flow.getSolution().positions == plain.solution.positions));
 }
 
 BOOST_AUTO_TEST_SUITE_END()

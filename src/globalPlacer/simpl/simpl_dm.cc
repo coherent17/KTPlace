@@ -257,11 +257,12 @@ void simplDM::run() {
 
 simplSolution simplDM::getSolution() const {
     simplSolution out;
-    out.xs = d.netlist.fixedX;
-    out.ys = d.netlist.fixedY;
+    out.positions.reserve(d.netlist.fixedX.size());
+    for (std::size_t v = 0; v < d.netlist.fixedX.size(); ++v) {
+        out.positions.push_back({.x = d.netlist.fixedX[v], .y = d.netlist.fixedY[v]});
+    }
     for (std::size_t i = 0; i < d.netlist.numMovable; ++i) {
-        out.xs[d.netlist.movVertex[i]] = d.x[i];
-        out.ys[d.netlist.movVertex[i]] = d.y[i];
+        out.positions[d.netlist.movVertex[i]] = {.x = d.x[i], .y = d.y[i]};
     }
     return out;
 }

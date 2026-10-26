@@ -86,11 +86,9 @@ void multirowDM::run() {
 
 multiRowSolution multirowDM::getSolution() const {
     multiRowSolution out;
-    out.xs.reserve(d.cells.size());
-    out.ys.reserve(d.cells.size());
+    out.positions.reserve(d.cells.size());
     for (const Cell &cell : d.cells) {
-        out.xs.push_back(cell.x);
-        out.ys.push_back(cell.y);
+        out.positions.push_back({.x = cell.x, .y = cell.y});
     }
     return out;
 }

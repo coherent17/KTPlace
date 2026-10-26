@@ -117,11 +117,12 @@ void fastdpDM::run() {
 
 fastdpSolution fastdpDM::getSolution() const {
     fastdpSolution out;
-    out.xs = d.vertexX;
-    out.ys = d.vertexY;
+    out.positions.reserve(d.vertexX.size());
+    for (std::size_t v = 0; v < d.vertexX.size(); ++v) {
+        out.positions.push_back({.x = d.vertexX[v], .y = d.vertexY[v]});
+    }
     for (std::size_t i = 0; i < d.cells.size(); ++i) {
-        out.xs[d.cells.id[i]] = d.cells.x[i];
-        out.ys[d.cells.id[i]] = d.cells.y[i];
+        out.positions[d.cells.id[i]] = {.x = d.cells.x[i], .y = d.cells.y[i]};
     }
     return out;
 }

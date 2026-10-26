@@ -18,7 +18,6 @@
 
 namespace ktplace {
 
-class solutionMgr;
 
 class ktDM {
 public:
@@ -47,9 +46,6 @@ public:
     [[nodiscard]] double getHpwl() const;
 
     void setConstraints(constraintMgr fences);
-
-    void setPlacementSolution(const solutionMgr &solution);
-    [[nodiscard]] solutionMgr getPlacementSolution() const;
 
     void setSimplSolution(const simplSolution &solution);
     void setNtuplace1Solution(const ntuplace1Solution &solution);

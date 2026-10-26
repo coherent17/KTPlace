@@ -12,7 +12,7 @@ override INCLUDES := -I.. $(THIRD_PARTY_INCLUDES)
 OBJ_DIR ?= ../../build/obj/datamodel
 
 # Source files in this directory
-SRCS := kt_die.cc kt_dm.cc kt_graph.cc kt_solutionMgr.cc kt_optionDb.cc kt_constraintMgr.cc \
+SRCS := kt_die.cc kt_dm.cc kt_graph.cc kt_optionDb.cc kt_constraintMgr.cc \
         kt_routingDemand.cc
 
 # Only include files that exist
