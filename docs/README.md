@@ -38,15 +38,16 @@ readers who know basic calculus but no linear algebra and nothing about chip des
 
 - **Legalization**
 
-    One guide per legalizer: Abacus and multi-row legalization (planned).
+    One guide per legalizer, starting with
+    [Abacus](legalization/abacus/README.md).
 
 - **Detailed placement**
 
-    One guide per detailed placer: FastDP (planned).
+    One guide per detailed placer: [FastDP](detailed-placement/fastdp/README.md).
 
 - **[Glossary](glossary.md)**
 
-    Every symbol and term on one page, and SimPL in ten lines.
+    Every symbol and term on one page, and each algorithm in a few lines.
 
 - **[References](references.md)**
 
@@ -60,9 +61,9 @@ readers who know basic calculus but no linear algebra and nothing about chip des
 | --- | --- | --- |
 | Global placement | SimPL (Kim, Lee, Markov) | [SimPL](global-placement/simpl/README.md) |
 | Global placement | NTUplace (Chen, Hsu, Jiang, Chang) | planned |
-| Legalization | Abacus (Spindler, Schlichtmann, Johannes) | planned |
+| Legalization | Abacus (Spindler, Schlichtmann, Johannes) | [Abacus](legalization/abacus/README.md) |
 | Legalization | Multi-row legalization | planned |
-| Detailed placement | FastDP (Pan, Viswanathan, Chu) | planned |
+| Detailed placement | FastDP (Pan, Viswanathan, Chu) | [FastDP](detailed-placement/fastdp/README.md) |
 
 ## Reading paths
 
