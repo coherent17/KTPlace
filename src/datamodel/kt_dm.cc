@@ -87,34 +87,30 @@ std::size_t ktDM::getNumNets() const {
     return graph.getNumNets();
 }
 
-std::size_t ktDM::addPin(const std::string &cellName, const std::string &netName, double offsetX,
-                         double offsetY, bool isInput) {
+std::size_t ktDM::addPin(const std::string &cellName, const std::string &netName,
+                         const Point &offset, bool isInput) {
     const std::size_t cellId = getCellId(cellName);
     const std::size_t netId = getNetId(netName);
-    return graph.addPin(cellId, netId, isInput ? PinRole::Receiver : PinRole::Driver, offsetX,
-                        offsetY);
+    return graph.addPin(cellId, netId, isInput ? PinRole::Receiver : PinRole::Driver, offset);
 }
 
 std::size_t ktDM::getNumPins() const {
     return graph.getNumPins();
 }
 
-void ktDM::setCellPosition(std::size_t cellId, double x, double y) {
-    Vertex &v = graph.getCell(cellId);
-    v.x = x;
-    v.y = y;
+void ktDM::setCellPosition(std::size_t cellId, const Point &position) {
+    graph.getCell(cellId).position = position;
 }
 
-void ktDM::setCellPosition(const std::string &cellName, double x, double y) {
-    setCellPosition(getCellId(cellName), x, y);
+void ktDM::setCellPosition(const std::string &cellName, const Point &position) {
+    setCellPosition(getCellId(cellName), position);
 }
 
-std::pair<double, double> ktDM::getCellPosition(std::size_t cellId) const {
-    const Vertex &v = graph.getCell(cellId);
-    return {v.x, v.y};
+Point ktDM::getCellPosition(std::size_t cellId) const {
+    return graph.getCell(cellId).position;
 }
 
-std::pair<double, double> ktDM::getCellPosition(const std::string &cellName) const {
+Point ktDM::getCellPosition(const std::string &cellName) const {
     return getCellPosition(getCellId(cellName));
 }
 
@@ -278,8 +274,8 @@ void ktDM::report() const {
     const Graph &g = getGraph();
     for (std::size_t v = 0; v < g.getNumCells(); ++v) {
         const Vertex &vert = g.getCell(v);
-        box.extend(vert.x, vert.y);
-        moved += (vert.x != 0.0 || vert.y != 0.0) ? 1 : 0;
+        box.extend(vert.position);
+        moved += (vert.position.x != 0.0 || vert.position.y != 0.0) ? 1 : 0;
     }
     ktlog.echo(
         "Loaded placement: {}/{} cells carry a position, bbox x[{:.1f},{:.1f}] y[{:.1f},{:.1f}]",
@@ -312,16 +308,15 @@ std::vector<ktDM::Defect> ktDM::getDefects() const {
     for (std::size_t v = 0; v < nv; ++v) {
         const Vertex &vert = g.getCell(v);
         const double eps = 1e-6;
-        if (vert.x < box.lowerLeft.x - eps || vert.y < box.lowerLeft.y - eps ||
-            vert.x + vert.width > box.upperRight.x + eps ||
-            vert.y + vert.height > box.upperRight.y + eps) {
+        if (vert.position.x < box.lowerLeft.x - eps || vert.position.y < box.lowerLeft.y - eps ||
+            vert.position.x + vert.width > box.upperRight.x + eps ||
+            vert.position.y + vert.height > box.upperRight.y + eps) {
             ++outOfDie;
         }
         if (!hasFences()) {
             continue;
         }
-        const BBox footprint{.lowerLeft = {.x = vert.x, .y = vert.y},
-                             .upperRight = {.x = vert.x + vert.width, .y = vert.y + vert.height}};
+        const BBox footprint = BBox::of(vert.position.x, vert.position.y, vert.width, vert.height);
         if (vert.regionId != constraintMgr::noRegion) {
             offFence += getConstraints().containsBox(vert.regionId, footprint) ? 0 : 1;
         } else if (!vert.isFixed && !vert.isTerminal) {
@@ -371,8 +366,8 @@ std::vector<ktDM::Defect> ktDM::getDefects() const {
                 tallCells.push_back(v);
                 continue;
             }
-            const auto bx = static_cast<long long>(std::floor(vert.x / cell));
-            const auto by = static_cast<long long>(std::floor(vert.y / cell));
+            const auto bx = static_cast<long long>(std::floor(vert.position.x / cell));
+            const auto by = static_cast<long long>(std::floor(vert.position.y / cell));
             buckets[{bx, by}].push_back(v);
         }
         const double eps = 1e-9;
@@ -384,8 +379,10 @@ std::vector<ktDM::Defect> ktDM::getDefects() const {
             if ((p.isFixed && q.isFixed) || p.isIoPin || q.isIoPin) {
                 return false;
             }
-            return p.x < q.x + q.width - eps && q.x < p.x + p.width - eps &&
-                   p.y < q.y + q.height - eps && q.y < p.y + p.height - eps;
+            return p.position.x < q.position.x + q.width - eps &&
+                   q.position.x < p.position.x + p.width - eps &&
+                   p.position.y < q.position.y + q.height - eps &&
+                   q.position.y < p.position.y + p.height - eps;
         };
         // Only forward neighbours: all eight examines each cross-bucket pair twice.
         static const int fwd[4][2] = {{1, 0}, {-1, 1}, {0, 1}, {1, 1}};
@@ -419,10 +416,10 @@ std::vector<ktDM::Defect> ktDM::getDefects() const {
         for (std::size_t i = 0; i < tallCells.size(); ++i) {
             const std::size_t a = tallCells[i];
             const Vertex &t = g.getCell(a);
-            const auto x0 = static_cast<long long>(std::floor((t.x - widest) / cell));
-            const auto x1 = static_cast<long long>(std::floor((t.x + t.width) / cell));
-            const auto y0 = static_cast<long long>(std::floor((t.y - highest) / cell));
-            const auto y1 = static_cast<long long>(std::floor((t.y + t.height) / cell));
+            const auto x0 = static_cast<long long>(std::floor((t.position.x - widest) / cell));
+            const auto x1 = static_cast<long long>(std::floor((t.position.x + t.width) / cell));
+            const auto y0 = static_cast<long long>(std::floor((t.position.y - highest) / cell));
+            const auto y1 = static_cast<long long>(std::floor((t.position.y + t.height) / cell));
             for (long long bx = x0; bx <= x1; ++bx) {
                 for (auto it = buckets.lower_bound({bx, y0});
                      it != buckets.end() && it->first.first == bx && it->first.second <= y1; ++it) {
@@ -461,9 +458,7 @@ template <typename Solution>
 void commitCells(Graph &graph, const Solution &solution) {
     const std::size_t n = std::min(solution.positions.size(), graph.getNumCells());
     for (std::size_t v = 0; v < n; ++v) {
-        Vertex &cell = graph.getCell(v);
-        cell.x = solution.positions[v].x;
-        cell.y = solution.positions[v].y;
+        graph.getCell(v).position = solution.positions[v];
     }
 }
 }  // namespace
@@ -503,7 +498,7 @@ double ktDM::getHpwl() const {
         [this](std::size_t pinId) {
             const Pin &pin = graph.getPin(pinId);
             const Vertex &cell = graph.getCell(pin.cellId);
-            return std::pair{cell.x + pin.offsetX, cell.y + pin.offsetY};
+            return Point{.x = cell.position.x + pin.offset.x, .y = cell.position.y + pin.offset.y};
         });
 }
 
@@ -599,8 +594,8 @@ std::uint32_t ktDM::getChecksum() const {
     mix(g.getNumCells());
     for (std::size_t v = 0; v < g.getNumCells(); ++v) {
         const Vertex &cell = g.getCell(v);
-        mix(cell.x);
-        mix(cell.y);
+        mix(cell.position.x);
+        mix(cell.position.y);
         mix(cell.width);
         mix(cell.height);
         mix(static_cast<std::uint8_t>(cell.isFixed));
@@ -609,8 +604,8 @@ std::uint32_t ktDM::getChecksum() const {
     for (const Pin &pin : g.getPins()) {
         mix(pin.cellId);
         mix(pin.netId);
-        mix(pin.offsetX);
-        mix(pin.offsetY);
+        mix(pin.offset.x);
+        mix(pin.offset.y);
     }
     return h;
 }

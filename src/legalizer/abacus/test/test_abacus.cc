@@ -42,7 +42,7 @@ std::vector<std::size_t> addCells(ktDM &db, const std::string &prefix, int n, do
     std::vector<std::size_t> ids;
     for (int i = 0; i < n; ++i) {
         const std::size_t id = db.addCell(prefix + std::to_string(i), 1.0, rowHeight);
-        db.setCellPosition(id, x, y);
+        db.setCellPosition(id, {.x = x, .y = y});
         ids.push_back(id);
     }
     return ids;

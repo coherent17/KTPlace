@@ -74,14 +74,14 @@ public:
 
     // Pin management
     [[nodiscard]] std::size_t addPin(const std::string &cellName, const std::string &netName,
-                                     double offsetX, double offsetY, bool isInput);
+                                     const Point &offset, bool isInput);
     [[nodiscard]] std::size_t getNumPins() const;
 
     // Placement coordinates
-    void setCellPosition(std::size_t cellId, double x, double y);
-    void setCellPosition(const std::string &cellName, double x, double y);
-    [[nodiscard]] std::pair<double, double> getCellPosition(std::size_t cellId) const;
-    [[nodiscard]] std::pair<double, double> getCellPosition(const std::string &cellName) const;
+    void setCellPosition(std::size_t cellId, const Point &position);
+    void setCellPosition(const std::string &cellName, const Point &position);
+    [[nodiscard]] Point getCellPosition(std::size_t cellId) const;
+    [[nodiscard]] Point getCellPosition(const std::string &cellName) const;
 
     // Cell fixed/movable status
     void setCellFixed(std::size_t cellId, bool fixed);

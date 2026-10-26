@@ -21,13 +21,12 @@ void collectCells(const ktplace::Graph &graph, Design &design) {
     netlist.fixedY.assign(numCells, 0.0);
     for (std::size_t v = 0; v < numCells; ++v) {
         const ktplace::Vertex &cell = graph.getCell(v);
-        netlist.fixedX[v] = cell.x;
-        netlist.fixedY[v] = cell.y;
+        netlist.fixedX[v] = cell.position.x;
+        netlist.fixedY[v] = cell.position.y;
         if (cell.isFixed || cell.isTerminal) {
             if (cell.width > 0.0 && cell.height > 0.0) {
                 design.obstacles.push_back(
-                    {.lowerLeft = {.x = cell.x, .y = cell.y},
-                     .upperRight = {.x = cell.x + cell.width, .y = cell.y + cell.height}});
+                    BBox::of(cell.position.x, cell.position.y, cell.width, cell.height));
             }
             ++design.numFixed;
             continue;
@@ -38,8 +37,8 @@ void collectCells(const ktplace::Graph &graph, Design &design) {
         design.height.push_back(cell.height);
         design.area.push_back(cell.width * cell.height);
         design.region.push_back(cell.regionId);
-        design.x.push_back(cell.x);
-        design.y.push_back(cell.y);
+        design.x.push_back(cell.position.x);
+        design.y.push_back(cell.position.y);
     }
 }
 
@@ -59,8 +58,8 @@ void collectNets(const ktplace::Graph &graph, Netlist &netlist) {
                 continue;
             }
             net.cells.push_back(static_cast<std::uint32_t>(pin.cellId));
-            net.offX.push_back(pin.offsetX);
-            net.offY.push_back(pin.offsetY);
+            net.offX.push_back(pin.offset.x);
+            net.offY.push_back(pin.offset.y);
         }
     }
 

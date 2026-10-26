@@ -67,6 +67,10 @@ void BBox::extend(double x, double y) noexcept {
     upperRight.y = std::max(upperRight.y, y);
 }
 
+void BBox::extend(const Point &p) noexcept {
+    extend(p.x, p.y);
+}
+
 void BBox::extend(const BBox &o) noexcept {
     lowerLeft.x = std::min(lowerLeft.x, o.lowerLeft.x);
     lowerLeft.y = std::min(lowerLeft.y, o.lowerLeft.y);

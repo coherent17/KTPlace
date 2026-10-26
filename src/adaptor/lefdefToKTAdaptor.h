@@ -83,8 +83,7 @@ private:
         double widthMicrons = 1.0;
         double heightMicrons = 1.0;
         std::unordered_map<std::string, bool> pinIsInput;  // pin name -> isInput
-        std::unordered_map<std::string, std::pair<double, double>>
-            pinOffset;  // pin -> (x,y) microns
+        std::unordered_map<std::string, Point> pinOffset;  // pin -> (x,y) microns
         std::unordered_map<std::string, bool> pinExists;
     };
 

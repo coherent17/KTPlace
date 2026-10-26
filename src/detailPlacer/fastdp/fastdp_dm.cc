@@ -50,10 +50,10 @@ std::size_t collectCells(const ktplace::Graph &graph, double macroHeight, Design
         const ktplace::Vertex &cell = graph.getCell(v);
         const bool fixed = cell.isFixed || cell.height > macroHeight;
         const bool tall = cell.height > rowHeight + eps;
-        design.vertexX.push_back(cell.x);
-        design.vertexY.push_back(cell.y);
+        design.vertexX.push_back(cell.position.x);
+        design.vertexY.push_back(cell.position.y);
         placeable += fixed || cell.isTerminal ? 0 : 1;
-        const BBox box = BBox::of(cell.x, cell.y, cell.width, cell.height);
+        const BBox box = BBox::of(cell.position.x, cell.position.y, cell.width, cell.height);
         if (fixed || tall) {
             design.fixedBoxes.push_back(box);
         }
@@ -66,8 +66,8 @@ std::size_t collectCells(const ktplace::Graph &graph, double macroHeight, Design
         }
         Cells &cells = design.cells;
         cells.id.push_back(v);
-        cells.x.push_back(cell.x);
-        cells.y.push_back(cell.y);
+        cells.x.push_back(cell.position.x);
+        cells.y.push_back(cell.position.y);
         cells.width.push_back(cell.width);
         cells.height.push_back(cell.height);
         cells.region.push_back(cell.regionId);
@@ -89,16 +89,11 @@ void collectNets(const ktplace::Graph &graph, Design &design) {
             if (slot == noSlot) {
                 const ktplace::Vertex &cell = graph.getCell(pin.cellId);
                 pins.push_back(NetPin{.slot = noSlot,
-                                      .offX = pin.offsetX,
-                                      .offY = pin.offsetY,
-                                      .absX = cell.x + pin.offsetX,
-                                      .absY = cell.y + pin.offsetY});
+                                      .offset = pin.offset,
+                                      .fixedPosition = {.x = cell.position.x + pin.offset.x,
+                                                        .y = cell.position.y + pin.offset.y}});
             } else {
-                pins.push_back(NetPin{.slot = slot,
-                                      .offX = pin.offsetX,
-                                      .offY = pin.offsetY,
-                                      .absX = 0.0,
-                                      .absY = 0.0});
+                pins.push_back(NetPin{.slot = slot, .offset = pin.offset});
             }
         }
         design.nets.add(pins);

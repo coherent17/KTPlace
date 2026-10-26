@@ -99,8 +99,8 @@ std::size_t Graph::getNumNets() const {
     return nets.size();
 }
 
-std::size_t Graph::addPin(std::size_t cellId, std::size_t netId, PinRole role, double offsetX,
-                          double offsetY) {
+std::size_t Graph::addPin(std::size_t cellId, std::size_t netId, PinRole role,
+                          const Point &offset) {
     if (cellId >= cells.size()) {
         throw std::runtime_error("Vertex " + std::to_string(cellId) + " not found");
     }
@@ -112,8 +112,7 @@ std::size_t Graph::addPin(std::size_t cellId, std::size_t netId, PinRole role, d
     pin.cellId = cellId;
     pin.netId = netId;
     pin.role = role;
-    pin.offsetX = offsetX;
-    pin.offsetY = offsetY;
+    pin.offset = offset;
     pins.push_back(pin);
     netPinIds[netId].push_back(pins.size() - 1);
     cellPinIds[cellId].push_back(pins.size() - 1);

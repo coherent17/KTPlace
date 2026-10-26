@@ -52,7 +52,8 @@ BBox getPlacementDieBox(const DieInfo &die, const Graph &graph) {
         if (!vert.isFixed && !vert.isTerminal) {
             continue;
         }
-        box.extend(BBox::of(vert.x, vert.y, std::max(vert.width, 1.0), std::max(vert.height, 1.0)));
+        box.extend(BBox::of(vert.position.x, vert.position.y, std::max(vert.width, 1.0),
+                            std::max(vert.height, 1.0)));
     }
     const bool haveFixed =
         (box.upperRight.x > box.lowerLeft.x) && (box.upperRight.y > box.lowerLeft.y);
@@ -68,9 +69,9 @@ BBox getPlacementDieBox(const DieInfo &die, const Graph &graph) {
             if (!vert.isFixed) {
                 continue;
             }
-            if (vert.x < da.lowerLeft.x - 1.0 || vert.y < da.lowerLeft.y - 1.0 ||
-                vert.x + vert.width > da.upperRight.x + 1.0 ||
-                vert.y + vert.height > da.upperRight.y + 1.0) {
+            if (vert.position.x < da.lowerLeft.x - 1.0 || vert.position.y < da.lowerLeft.y - 1.0 ||
+                vert.position.x + vert.width > da.upperRight.x + 1.0 ||
+                vert.position.y + vert.height > da.upperRight.y + 1.0) {
                 contains = false;
                 break;
             }

@@ -75,8 +75,8 @@ Graph getSampleGraph() {
     const auto add = [&g](const char *name, double x, double y, double w, double h, bool fixed) {
         const std::size_t id = g.addCell(name);
         Vertex &v = g.getCell(id);
-        v.x = x;
-        v.y = y;
+        v.position.x = x;
+        v.position.y = y;
         v.width = w;
         v.height = h;
         v.isFixed = fixed;
@@ -96,7 +96,7 @@ Graph getSampleGraph() {
 std::vector<float> getSampleX(const Graph &g) {
     std::vector<float> v(g.getNumCells(), 0.0F);
     for (std::size_t i = 0; i < g.getNumCells(); ++i) {
-        v[i] = static_cast<float>(g.getCell(i).x);
+        v[i] = static_cast<float>(g.getCell(i).position.x);
     }
     return v;
 }
@@ -104,7 +104,7 @@ std::vector<float> getSampleX(const Graph &g) {
 std::vector<float> getSampleY(const Graph &g) {
     std::vector<float> v(g.getNumCells(), 0.0F);
     for (std::size_t i = 0; i < g.getNumCells(); ++i) {
-        v[i] = static_cast<float>(g.getCell(i).y);
+        v[i] = static_cast<float>(g.getCell(i).position.y);
     }
     return v;
 }
@@ -414,8 +414,8 @@ BOOST_AUTO_TEST_CASE(a_design_with_no_fixed_cells_still_gets_a_usable_box) {
     // whole plot to a point, which is what happens if it is not guarded.
     Graph g;
     const std::size_t id = g.addCell("m1");
-    g.getCell(id).x = 10.0;
-    g.getCell(id).y = 20.0;
+    g.getCell(id).position.x = 10.0;
+    g.getCell(id).position.y = 20.0;
     g.getCell(id).width = 4.0;
     g.getCell(id).height = 4.0;
 
@@ -741,8 +741,8 @@ BOOST_AUTO_TEST_CASE(a_legal_row_is_drawn_at_its_true_size_and_not_wider) {
     Graph g;
     const std::size_t id = g.addCell("anchor");
     Vertex &a = g.getCell(id);
-    a.x = 0.0;
-    a.y = 0.0;
+    a.position.x = 0.0;
+    a.position.y = 0.0;
     a.width = 400.0;
     a.height = 400.0;
     a.isFixed = true;
@@ -753,8 +753,8 @@ BOOST_AUTO_TEST_CASE(a_legal_row_is_drawn_at_its_true_size_and_not_wider) {
     for (int i = 0; i < cells; ++i) {
         const std::size_t c = g.addCell("c" + std::to_string(i));
         Vertex &v = g.getCell(c);
-        v.x = 20.0 + i * cellW;  // exactly edge to edge, no gap and no overlap
-        v.y = 20.0;
+        v.position.x = 20.0 + i * cellW;  // exactly edge to edge, no gap and no overlap
+        v.position.y = 20.0;
         v.width = cellW;
         v.height = cellH;
     }
@@ -838,8 +838,8 @@ BOOST_AUTO_TEST_CASE(the_rows_are_drawn_when_there_are_rows) {
     Graph g;
     const std::size_t id = g.addCell("anchor");
     Vertex &a = g.getCell(id);
-    a.x = 0.0;
-    a.y = 0.0;
+    a.position.x = 0.0;
+    a.position.y = 0.0;
     a.width = 200.0;
     a.height = 400.0;
     a.isFixed = true;
@@ -848,8 +848,8 @@ BOOST_AUTO_TEST_CASE(the_rows_are_drawn_when_there_are_rows) {
         for (int c = 0; c < 4; ++c) {
             const std::size_t v = g.addCell("c" + std::to_string(r * 4 + c));
             Vertex &vert = g.getCell(v);
-            vert.x = 20.0 + c * 8.0;
-            vert.y = 20.0 + r * 40.0;  // exactly row pitch apart
+            vert.position.x = 20.0 + c * 8.0;
+            vert.position.y = 20.0 + r * 40.0;  // exactly row pitch apart
             vert.width = 8.0;
             vert.height = 12.0;
         }
@@ -875,8 +875,8 @@ BOOST_AUTO_TEST_CASE(every_cell_reaches_every_frame) {
     for (int i = 0; i < 4000; ++i) {
         const std::size_t id = g.addCell("extra" + std::to_string(i));
         Vertex &v = g.getCell(id);
-        v.x = static_cast<double>(i % 50);
-        v.y = static_cast<double>(i / 50);
+        v.position.x = static_cast<double>(i % 50);
+        v.position.y = static_cast<double>(i / 50);
         v.width = 1.0;
         v.height = 1.0;
     }

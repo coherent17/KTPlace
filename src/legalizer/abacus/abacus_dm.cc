@@ -33,10 +33,11 @@ std::size_t collectCells(const ktplace::Graph &graph, std::size_t numRegions, De
     std::size_t movable = 0;
     for (std::size_t v = 0; v < graph.getNumCells(); ++v) {
         const ktplace::Vertex &cell = graph.getCell(v);
-        design.vertexX.push_back(cell.x);
-        design.vertexY.push_back(cell.y);
+        design.vertexX.push_back(cell.position.x);
+        design.vertexY.push_back(cell.position.y);
         if (cell.isFixed) {
-            design.fixedBoxes.push_back(BBox::of(cell.x, cell.y, cell.width, cell.height));
+            design.fixedBoxes.push_back(
+                BBox::of(cell.position.x, cell.position.y, cell.width, cell.height));
         }
         if (cell.isFixed || cell.isTerminal) {
             continue;
@@ -44,8 +45,8 @@ std::size_t collectCells(const ktplace::Graph &graph, std::size_t numRegions, De
         ++movable;
         Cells &cells = design.cells;
         cells.id.push_back(v);
-        cells.x.push_back(cell.x);
-        cells.y.push_back(cell.y);
+        cells.x.push_back(cell.position.x);
+        cells.y.push_back(cell.position.y);
         cells.width.push_back(cell.width);
         cells.height.push_back(cell.height);
         cells.region.push_back(cell.regionId >= 0 &&
@@ -68,10 +69,9 @@ void collectNets(const ktplace::Graph &graph, Design &design) {
             const ktplace::Pin &pin = graph.getPin(pinId);
             const ktplace::Vertex &cell = graph.getCell(pin.cellId);
             pins.push_back(NetPin{.slot = slotOf[pin.cellId],
-                                  .offX = pin.offsetX,
-                                  .offY = pin.offsetY,
-                                  .absX = cell.x + pin.offsetX,
-                                  .absY = cell.y + pin.offsetY});
+                                  .offset = pin.offset,
+                                  .fixedPosition = {.x = cell.position.x + pin.offset.x,
+                                                    .y = cell.position.y + pin.offset.y}});
         }
         design.nets.add(pins);
     }

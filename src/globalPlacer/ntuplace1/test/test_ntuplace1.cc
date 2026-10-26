@@ -42,7 +42,7 @@ void addRows(ktDM &db) {
 /// exactly the case the placer once ignored, so these are terminals too.
 std::size_t addFixed(ktDM &db, const std::string &name, double x, double y, double w, double h) {
     const std::size_t id = db.addCell(name, w, h, /*isTerminal=*/true);
-    db.setCellPosition(id, x, y);
+    db.setCellPosition(id, {.x = x, .y = y});
     db.setCellFixed(id, true);
     return id;
 }
@@ -58,15 +58,15 @@ std::vector<std::size_t> addCells(ktDM &db, const std::string &prefix, int n) {
 void addNet(ktDM &db, const std::string &net, const std::vector<std::string> &cells) {
     (void)db.addNet(net);
     for (const std::string &c : cells) {
-        (void)db.addPin(c, net, 0.0, 0.0, true);
+        (void)db.addPin(c, net, {.x = 0.0, .y = 0.0}, true);
     }
 }
 
 struct Placed {
     ntuplace1Solution solution;
 
-    [[nodiscard]] std::pair<double, double> at(std::size_t id) const {
-        return {solution.positions[id].x, solution.positions[id].y};
+    [[nodiscard]] Point at(std::size_t id) const {
+        return solution.positions[id];
     }
 };
 
@@ -150,10 +150,10 @@ BOOST_AUTO_TEST_CASE(cells_follow_their_pads) {
 
     double meanA = 0.0, meanB = 0.0;
     for (const std::size_t id : a) {
-        meanA += placed.at(id).first / 16.0;
+        meanA += placed.at(id).x / 16.0;
     }
     for (const std::size_t id : b) {
-        meanB += placed.at(id).first / 16.0;
+        meanB += placed.at(id).x / 16.0;
     }
     BOOST_TEST(meanA < 35.0);
     BOOST_TEST(meanB > 65.0);

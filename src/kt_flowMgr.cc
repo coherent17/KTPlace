@@ -59,10 +59,10 @@ GlobalPlacer getChosenGlobalPlacer() {
     ktlog.fatal("unknown placer '{}'; expected simpl or ntuplace1", algorithm);
 }
 
-std::vector<float> getCellCoordinates(const Graph &graph, double Vertex::*axis) {
+std::vector<float> getCellCoordinates(const Graph &graph, double Point::*axis) {
     std::vector<float> out(graph.getNumCells());
     for (std::size_t v = 0; v < out.size(); ++v) {
-        out[v] = static_cast<float>(graph.getCell(v).*axis);
+        out[v] = static_cast<float>(graph.getCell(v).position.*axis);
     }
     return out;
 }
@@ -471,7 +471,7 @@ void FlowMgr::Impl::writeBookshelf(const std::string &outputPath) const {
     const Graph &graph = db->getGraph();
     for (std::size_t v = 0; v < graph.getNumCells(); ++v) {
         const Vertex &cell = graph.getCell(v);
-        out << cell.name << '\t' << cell.x << '\t' << cell.y
+        out << cell.name << '\t' << cell.position.x << '\t' << cell.position.y
             << "\t: " << (cell.isFixed ? "N /FIXED" : "N") << '\n';
     }
 }
@@ -501,8 +501,8 @@ void FlowMgr::Impl::drawPictures() {
 void FlowMgr::Impl::finishAnimation() {
     const Graph &graph = db->getGraph();
     Visualizer &viz = Visualizer::getInstance();
-    const bool written = viz.finish(graph, getCellCoordinates(graph, &Vertex::x),
-                                    getCellCoordinates(graph, &Vertex::y), db->getPlacementDieBox(),
+    const bool written = viz.finish(graph, getCellCoordinates(graph, &Point::x),
+                                    getCellCoordinates(graph, &Point::y), db->getPlacementDieBox(),
                                     &db->getConstraints(), db->getHpwl());
     if (written) {
         ktlog.echo(

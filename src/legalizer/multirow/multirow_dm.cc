@@ -44,8 +44,7 @@ std::size_t collectCells(const ktplace::Graph &graph, std::size_t numRegions, De
             cell.regionId >= 0 && static_cast<std::size_t>(cell.regionId) < numRegions
                 ? cell.regionId
                 : noRegion;
-        design.cells.push_back(Cell{.x = cell.x,
-                                    .y = cell.y,
+        design.cells.push_back(Cell{.position = cell.position,
                                     .width = cell.width,
                                     .height = cell.height,
                                     .region = region,
@@ -54,8 +53,7 @@ std::size_t collectCells(const ktplace::Graph &graph, std::size_t numRegions, De
             ++movable;
         } else if (cell.width > 0.0 && cell.height > 0.0) {
             design.blockages.push_back(
-                BBox{.lowerLeft = {.x = cell.x, .y = cell.y},
-                     .upperRight = {.x = cell.x + cell.width, .y = cell.y + cell.height}});
+                BBox::of(cell.position.x, cell.position.y, cell.width, cell.height));
         }
     }
     return movable;
@@ -67,7 +65,7 @@ void collectNets(const ktplace::Graph &graph, Design &design) {
         pins.clear();
         for (const std::size_t pinId : graph.getNetPins(n)) {
             const ktplace::Pin &pin = graph.getPin(pinId);
-            pins.push_back(NetPin{.cellId = pin.cellId, .offX = pin.offsetX, .offY = pin.offsetY});
+            pins.push_back(NetPin{.cellId = pin.cellId, .offset = pin.offset});
         }
         design.nets.add(pins);
     }
@@ -88,7 +86,7 @@ multiRowSolution multirowDM::getSolution() const {
     multiRowSolution out;
     out.positions.reserve(d.cells.size());
     for (const Cell &cell : d.cells) {
-        out.positions.push_back({.x = cell.x, .y = cell.y});
+        out.positions.push_back(cell.position);
     }
     return out;
 }

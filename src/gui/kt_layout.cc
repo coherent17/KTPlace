@@ -74,8 +74,7 @@ std::shared_ptr<const LayoutGeometry> LayoutGeometry::of(const ktDM &db) {
         LayoutGeometry::Fence &fence = geometry->fences.emplace_back();
         fence.name = region.name;
         for (const BBox &rect : region.rects) {
-            fence.rects.push_back({.lowerLeft = {.x = rect.lowerLeft.x, .y = rect.lowerLeft.y},
-                                   .upperRight = {.x = rect.upperRight.x, .y = rect.upperRight.y}});
+            fence.rects.push_back(rect);
         }
     }
 
@@ -86,8 +85,8 @@ std::shared_ptr<const LayoutGeometry> LayoutGeometry::of(const ktDM &db) {
         for (const std::size_t pinId : graph.getNetPins(net)) {
             const Pin &pin = graph.getPin(pinId);
             geometry->pinCell.push_back(static_cast<std::uint32_t>(pin.cellId));
-            geometry->pinDx.push_back(static_cast<float>(pin.offsetX));
-            geometry->pinDy.push_back(static_cast<float>(pin.offsetY));
+            geometry->pinDx.push_back(static_cast<float>(pin.offset.x));
+            geometry->pinDy.push_back(static_cast<float>(pin.offset.y));
         }
         geometry->netPinStart.push_back(static_cast<std::uint32_t>(geometry->pinCell.size()));
     }
@@ -114,8 +113,8 @@ LayoutFrame LayoutFrame::getCommitted(std::shared_ptr<const LayoutGeometry> geom
     frame.x.reserve(n);
     frame.y.reserve(n);
     for (std::size_t v = 0; v < n; ++v) {
-        frame.x.push_back(static_cast<float>(graph.getCell(v).x));
-        frame.y.push_back(static_cast<float>(graph.getCell(v).y));
+        frame.x.push_back(static_cast<float>(graph.getCell(v).position.x));
+        frame.y.push_back(static_cast<float>(graph.getCell(v).position.y));
     }
     frame.geometry = std::move(geometry);
     frame.hpwl = db.getHpwl();

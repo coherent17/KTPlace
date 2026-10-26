@@ -728,7 +728,7 @@ void LayoutView::zoomFit() {
         return;
     }
     const auto &die = pImpl->frame.geometry->die;
-    zoomTo({{die.lowerLeft.x, die.lowerLeft.y}, {die.upperRight.x, die.upperRight.y}});
+    zoomTo(die);
 }
 
 void LayoutView::zoomTo(const BBox &area) {

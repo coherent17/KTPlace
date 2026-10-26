@@ -327,8 +327,9 @@ double AbacusLegalizer::Impl::getHpwlOf(const std::vector<double> &x,
             return design.nets[n];
         },
         [&](const NetPin &pin) {
-            return pin.slot == noSlot ? std::pair{pin.absX, pin.absY}
-                                      : std::pair{x[pin.slot] + pin.offX, y[pin.slot] + pin.offY};
+            return pin.slot == noSlot
+                       ? pin.fixedPosition
+                       : Point{.x = x[pin.slot] + pin.offset.x, .y = y[pin.slot] + pin.offset.y};
         });
 }
 

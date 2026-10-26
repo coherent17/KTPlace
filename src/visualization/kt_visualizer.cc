@@ -214,8 +214,7 @@ void Visualizer::frame(const Graph &graph, const std::vector<float> &x, const st
     if (!drawingNow) {
         return;
     }
-    const BBox dieBox{.lowerLeft = {.x = die.lowerLeft.x, .y = die.lowerLeft.y},
-                      .upperRight = {.x = die.upperRight.x, .y = die.upperRight.y}};
+    const BBox &dieBox = die;
 
     // Every framesKept of a sequence is drawn at the same die-relative scale, so step
     // 7 and step 8 are comparable instead of being auto-zoomed apart.
@@ -273,8 +272,7 @@ bool Visualizer::finish(const Graph &graph, const std::vector<float> &x,
     // same time as any other single frame, and the animation scrolls past the
     // thing it spent minutes producing. Recorded rather than re-encoded, so it
     // costs one placement pass.
-    const BBox dieBox{.lowerLeft = {.x = die.lowerLeft.x, .y = die.lowerLeft.y},
-                      .upperRight = {.x = die.upperRight.x, .y = die.upperRight.y}};
+    const BBox &dieBox = die;
     for (std::size_t i = 0; i < opts.finalHold; ++i) {
         recordFrame(graph, x, y, dieBox, framesKept, 0, hpwl, 0.0, 0.0, finalNote, fences,
                     /*mandatory=*/true);
@@ -1605,8 +1603,8 @@ BBox getFixedCellBBox(const Graph &g) {
     BBox all = BBox::getEmpty();
     for (std::size_t v = 0; v < nv; ++v) {
         const Vertex &vert = g.getCell(v);
-        const BBox cell =
-            BBox::of(vert.x, vert.y, std::max(vert.width, 1.0), std::max(vert.height, 1.0));
+        const BBox cell = BBox::of(vert.position.x, vert.position.y, std::max(vert.width, 1.0),
+                                   std::max(vert.height, 1.0));
         all.extend(cell);
         if (vert.isFixed || vert.isTerminal) {
             fixed.extend(cell);
@@ -1924,8 +1922,8 @@ void writeFinalFrameRaster(const std::string &path, const Graph &g,
     const std::size_t nv = g.getNumCells();
     std::vector<float> x(nv), y(nv);
     for (std::size_t v = 0; v < nv; ++v) {
-        x[v] = static_cast<float>(g.getCell(v).x);
-        y[v] = static_cast<float>(g.getCell(v).y);
+        x[v] = static_cast<float>(g.getCell(v).position.x);
+        y[v] = static_cast<float>(g.getCell(v).position.y);
     }
     const BBox die = getFixedCellBBox(g);
     // fixedView pins the viewport to the die, which for one final still is the

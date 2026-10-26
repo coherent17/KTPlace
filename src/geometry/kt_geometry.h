@@ -46,6 +46,7 @@ struct BBox {
     [[nodiscard]] BBox getIntersection(const BBox &o) const noexcept;
 
     void extend(double x, double y) noexcept;
+    void extend(const Point &p) noexcept;
     void extend(const BBox &o) noexcept;
 
     friend bool operator==(const BBox &, const BBox &) = default;

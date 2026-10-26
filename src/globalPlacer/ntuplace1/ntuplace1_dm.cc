@@ -18,13 +18,12 @@ constexpr std::uint32_t noIndex = 0xFFFFFFFFu;
 std::size_t collectCells(const ktplace::Graph &graph, Design &design) {
     for (std::size_t v = 0; v < graph.getNumCells(); ++v) {
         const ktplace::Vertex &vert = graph.getCell(v);
-        design.vertexX.push_back(vert.x);
-        design.vertexY.push_back(vert.y);
+        design.vertexX.push_back(vert.position.x);
+        design.vertexY.push_back(vert.position.y);
         if (vert.isFixed || vert.isTerminal) {
             if (vert.width > 0.0 && vert.height > 0.0) {
                 design.fixedRects.push_back(
-                    {.lowerLeft = {.x = vert.x, .y = vert.y},
-                     .upperRight = {.x = vert.x + vert.width, .y = vert.y + vert.height}});
+                    BBox::of(vert.position.x, vert.position.y, vert.width, vert.height));
             }
             continue;
         }
@@ -34,8 +33,8 @@ std::size_t collectCells(const ktplace::Graph &graph, Design &design) {
         cells.height.push_back(vert.height);
         cells.area.push_back(vert.width * vert.height);
         cells.region.push_back(vert.regionId);
-        cells.x.push_back(vert.x);
-        cells.y.push_back(vert.y);
+        cells.x.push_back(vert.position.x);
+        cells.y.push_back(vert.position.y);
     }
     return design.cells.size();
 }
@@ -61,8 +60,8 @@ void collectHyperNets(const ktplace::Graph &graph, Design &design) {
                 continue;
             }
             const ktplace::Vertex &pin = graph.getCell(e.cellId);
-            const double px = pin.x + e.offsetX;
-            const double py = pin.y + e.offsetY;
+            const double px = pin.position.x + e.offset.x;
+            const double py = pin.position.y + e.offset.y;
             n.fixedPinBox.extend(px, py);
             ++n.fixedPins;
         }

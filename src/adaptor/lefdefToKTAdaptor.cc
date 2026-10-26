@@ -50,36 +50,37 @@ bool tryDouble(const std::string &s, double &out) {
     }
 }
 
-std::pair<double, double> getOriented(double x, double y, const std::string &orient) {
+Point getOriented(const Point &p, const std::string &orient) {
+    const auto [x, y] = p;
     if (orient == "S") {
-        return {-x, -y};
+        return {.x = -x, .y = -y};
     }
     if (orient == "W") {
-        return {-y, x};
+        return {.x = -y, .y = x};
     }
     if (orient == "E") {
-        return {y, -x};
+        return {.x = y, .y = -x};
     }
     if (orient == "FN") {
-        return {-x, y};
+        return {.x = -x, .y = y};
     }
     if (orient == "FS") {
-        return {x, -y};
+        return {.x = x, .y = -y};
     }
     if (orient == "FW") {
-        return {-y, -x};
+        return {.x = -y, .y = -x};
     }
     if (orient == "FE") {
-        return {y, x};
+        return {.x = y, .y = x};
     }
-    return {x, y};
+    return {.x = x, .y = y};
 }
 
 BBox getOrientedBox(const BBox &shape, const std::string &orient) {
-    const auto [ax, ay] = getOriented(shape.lowerLeft.x, shape.lowerLeft.y, orient);
-    const auto [bx, by] = getOriented(shape.upperRight.x, shape.upperRight.y, orient);
-    return {.lowerLeft = {.x = std::min(ax, bx), .y = std::min(ay, by)},
-            .upperRight = {.x = std::max(ax, bx), .y = std::max(ay, by)}};
+    BBox box = BBox::getEmpty();
+    box.extend(getOriented(shape.lowerLeft, orient));
+    box.extend(getOriented(shape.upperRight, orient));
+    return box;
 }
 
 bool readPoint(const std::vector<std::string> &tokens, std::size_t &i, double &x, double &y) {
@@ -371,7 +372,7 @@ bool LefDefInputAdapter::parseLefFile(const std::string &filePath) {
             double x1 = 0.0, y1 = 0.0;
             tryDouble(tokens[1], x1);
             tryDouble(tokens[2], y1);
-            rec.pinOffset[pin] = {x1, y1};
+            rec.pinOffset[pin] = {.x = x1, .y = y1};
         } else if (tokens[0] == "END") {
             if (tokens.size() >= 2) {
                 if (inPin && sanitizeName(tokens[1]) == pin) {
@@ -424,7 +425,7 @@ bool LefDefInputAdapter::parseDefFile(const std::string &filePath) {
     std::string pinOrient = "N";
     bool pinShaped = false;
     BBox pinShape;
-    std::unordered_map<std::string, std::pair<double, double>> ioPinOffset;
+    std::unordered_map<std::string, Point> ioPinOffset;
 
     // Nets: assembled token stream for the section.
     std::vector<std::string> netTokens;
@@ -443,7 +444,7 @@ bool LefDefInputAdapter::parseDefFile(const std::string &filePath) {
         }
         (void)db->addCell(cname, w, h, false);
         if (compPlaced) {
-            db->setCellPosition(cname, compX, compY);
+            db->setCellPosition(cname, {.x = compX, .y = compY});
         }
         if (compFixed) {
             db->setCellFixed(cname, true);
@@ -474,9 +475,9 @@ bool LefDefInputAdapter::parseDefFile(const std::string &filePath) {
         (void)db->addCell(pname, w, h, true);
         db->markIoPin(pname);
         if (pinPlaced) {
-            db->setCellPosition(pname, pinX + lowX, pinY + lowY);
+            db->setCellPosition(pname, {.x = pinX + lowX, .y = pinY + lowY});
         }
-        ioPinOffset[pname] = {-lowX, -lowY};
+        ioPinOffset[pname] = {.x = -lowX, .y = -lowY};
     };
 
     while (std::getline(file.getStream(), line)) {
@@ -815,7 +816,7 @@ bool LefDefInputAdapter::parseDefFile(const std::string &filePath) {
         }
         for (const NetPinRef &ref : pins) {
             std::string cell;
-            double offsetX = 0.0, offsetY = 0.0;
+            Point offset;
             bool isInput = false;
             if (!ref.inst.empty()) {
                 cell = ref.inst;
@@ -826,8 +827,8 @@ bool LefDefInputAdapter::parseDefFile(const std::string &filePath) {
                         const MacroRec &mr = mIt->second;
                         auto pOff = mr.pinOffset.find(ref.pin);
                         if (pOff != mr.pinOffset.end()) {
-                            offsetX = pOff->second.first * unitsPerMicron;
-                            offsetY = pOff->second.second * unitsPerMicron;
+                            offset = {.x = pOff->second.x * unitsPerMicron,
+                                      .y = pOff->second.y * unitsPerMicron};
                         }
                         auto pIn = mr.pinIsInput.find(ref.pin);
                         if (pIn != mr.pinIsInput.end()) {
@@ -838,15 +839,14 @@ bool LefDefInputAdapter::parseDefFile(const std::string &filePath) {
             } else {
                 cell = ref.ioPin;
                 if (const auto off = ioPinOffset.find(cell); off != ioPinOffset.end()) {
-                    offsetX = off->second.first;
-                    offsetY = off->second.second;
+                    offset = off->second;
                 }
             }
             if (cell.empty() || !db->hasCell(cell)) {
                 continue;
             }
             try {
-                (void)db->addPin(cell, name, offsetX, offsetY, isInput);
+                (void)db->addPin(cell, name, offset, isInput);
             } catch (const std::exception &e) {
                 ktlog.warning("DEF net '{}' pin '{}' skipped: {}", name, cell, e.what());
             }

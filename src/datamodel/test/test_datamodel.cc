@@ -50,7 +50,7 @@ std::size_t addNet(ktDM &db, const std::string &name, double weight = 1.0) {
 std::size_t addPin(ktDM &db, const std::string &cell, const std::string &net, double x, double y,
                    bool isInput) {
     const std::size_t before = db.getNumPins();
-    const std::size_t id = db.addPin(cell, net, x, y, isInput);
+    const std::size_t id = db.addPin(cell, net, {.x = x, .y = y}, isInput);
     const std::size_t after = db.getNumPins();
     BOOST_TEST(id < after);
     BOOST_TEST(after == before + 1);
@@ -105,7 +105,7 @@ BOOST_AUTO_TEST_CASE(rejects_unknown_cell) {
 BOOST_AUTO_TEST_CASE(tracks_positions_and_fixed_flag) {
     ktDM db;
     addCell(db, "c0", 1.0, 1.0);
-    db.setCellPosition("c0", 12.0, 34.0);
+    db.setCellPosition("c0", {.x = 12.0, .y = 34.0});
     const auto [x, y] = db.getCellPosition("c0");
     BOOST_TEST(x == 12.0);
     BOOST_TEST(y == 34.0);
@@ -197,14 +197,14 @@ BOOST_AUTO_TEST_CASE(a_pin_joins_a_cell_to_a_net) {
     Graph g;
     const std::size_t cell = g.addCell("c0");
     const std::size_t net = g.addNet("n0");
-    const std::size_t pin = g.addPin(cell, net, PinRole::Driver, 1.5, 2.5);
+    const std::size_t pin = g.addPin(cell, net, PinRole::Driver, {.x = 1.5, .y = 2.5});
 
     BOOST_TEST(g.getCellId("c0") == cell);
     BOOST_TEST(g.getNetId("n0") == net);
     BOOST_TEST(g.getPin(pin).cellId == cell);
     BOOST_TEST(g.getPin(pin).netId == net);
     BOOST_TEST(g.getPin(pin).role == PinRole::Driver);
-    BOOST_TEST(g.getPin(pin).offsetX == 1.5);
+    BOOST_TEST(g.getPin(pin).offset.x == 1.5);
     BOOST_TEST(g.getCellPins(cell).size() == 1);
     BOOST_TEST(g.getNetPins(net).size() == 1);
 }
@@ -253,16 +253,16 @@ BOOST_AUTO_TEST_CASE(the_checksum_follows_the_placement) {
         addNet(db, "n0");
         addPin(db, "c0", "n0", 0.5, 0.5, true);
         addPin(db, "c1", "n0", 0.0, 0.0, false);
-        db.setCellPosition("c0", 4.0, 0.0);
+        db.setCellPosition("c0", {.x = 4.0, .y = 0.0});
     };
     ktDM a;
     ktDM b;
     build(a);
     build(b);
     BOOST_TEST(a.getChecksum() == b.getChecksum());
-    b.setCellPosition("c1", 1.0, 0.0);
+    b.setCellPosition("c1", {.x = 1.0, .y = 0.0});
     BOOST_TEST(a.getChecksum() != b.getChecksum());
-    a.setCellPosition("c1", 1.0, 0.0);
+    a.setCellPosition("c1", {.x = 1.0, .y = 0.0});
     BOOST_TEST(a.getChecksum() == b.getChecksum());
 }
 

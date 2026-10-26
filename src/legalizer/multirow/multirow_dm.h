@@ -20,8 +20,7 @@ namespace ktplace::multirow {
 inline constexpr int noRegion = -1;
 
 struct Cell {
-    double x = 0.0;
-    double y = 0.0;
+    Point position;
     double width = 0.0;
     double height = 0.0;
     int region = noRegion;
@@ -30,8 +29,7 @@ struct Cell {
 
 struct NetPin {
     std::size_t cellId = 0;
-    double offX = 0.0;
-    double offY = 0.0;
+    Point offset;
 };
 
 using Nets = PackedLists<NetPin>;

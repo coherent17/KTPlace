@@ -36,10 +36,8 @@ struct Cells {
 
 struct NetPin {
     std::size_t slot = noSlot;
-    double offX = 0.0;
-    double offY = 0.0;
-    double absX = 0.0;
-    double absY = 0.0;
+    Point offset;
+    Point fixedPosition;
 };
 
 using Nets = PackedLists<NetPin>;

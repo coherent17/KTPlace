@@ -23,8 +23,8 @@ NetlistPins NetlistPins::of(const Graph &graph) {
         for (const std::size_t pinId : graph.getNetPins(net)) {
             const Pin &pin = graph.getPin(pinId);
             pins.pinCell.push_back(static_cast<std::uint32_t>(pin.cellId));
-            pins.pinDx.push_back(static_cast<float>(pin.offsetX));
-            pins.pinDy.push_back(static_cast<float>(pin.offsetY));
+            pins.pinDx.push_back(static_cast<float>(pin.offset.x));
+            pins.pinDy.push_back(static_cast<float>(pin.offset.y));
         }
         pins.netPinStart.push_back(static_cast<std::uint32_t>(pins.pinCell.size()));
     }
