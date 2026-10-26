@@ -343,8 +343,8 @@ void MultiRowLegalizer::Impl::legalizeMacros(const std::vector<std::uint32_t> &m
             const double y0 = rows[r].coordinate;
             const double y1 = y0 + cell.height;
             for (const BBox &b : blocked) {
-                if (b.yhi > y0 + eps && b.ylo < y1 - eps) {
-                    free = subtract(free, b.xlo, b.xhi);
+                if (b.upperRight.y > y0 + eps && b.lowerLeft.y < y1 - eps) {
+                    free = subtract(free, b.lowerLeft.x, b.upperRight.x);
                 }
             }
             const double pitch = rows[r].getPitch();
@@ -365,15 +365,15 @@ void MultiRowLegalizer::Impl::legalizeMacros(const std::vector<std::uint32_t> &m
                 const double cost = (x - cell.x) * (x - cell.x) + dy * dy;
                 if (cost < bestCost) {
                     bestCost = cost;
-                    best = {x, y0, x + cell.width, y1};
+                    best = {{x, y0}, {x + cell.width, y1}};
                 }
             }
         }
         if (bestCost == std::numeric_limits<double>::max()) {
             continue;
         }
-        xs[v] = best.xlo;
-        ys[v] = best.ylo;
+        xs[v] = best.lowerLeft.x;
+        ys[v] = best.lowerLeft.y;
         blocked.push_back(best);
         ++res.macrosPlaced;
     }
@@ -392,8 +392,8 @@ void MultiRowLegalizer::Impl::buildLanes() {
             }
             Intervals free{{s.xlo, s.xhi}};
             for (const BBox &b : blocked) {
-                if (b.yhi > y0 + eps && b.ylo < y1 - eps) {
-                    free = subtract(free, b.xlo, b.xhi);
+                if (b.upperRight.y > y0 + eps && b.lowerLeft.y < y1 - eps) {
+                    free = subtract(free, b.lowerLeft.x, b.upperRight.x);
                 }
             }
             for (const auto &[lo, hi] : free) {

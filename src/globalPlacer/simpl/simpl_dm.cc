@@ -26,7 +26,7 @@ void collectCells(const ktplace::Graph &graph, Design &design) {
         if (cell.isFixed || cell.isTerminal) {
             if (cell.width > 0.0 && cell.height > 0.0) {
                 design.obstacles.push_back(
-                    {cell.x, cell.y, cell.x + cell.width, cell.y + cell.height});
+                    {{cell.x, cell.y}, {cell.x + cell.width, cell.y + cell.height}});
             }
             ++design.numFixed;
             continue;
@@ -125,8 +125,8 @@ bool Fences::clampToRegion(int id, double &x, double &y) const {
     const BBox *best = nullptr;
     double bestDist = std::numeric_limits<double>::max();
     for (const BBox &cand : r.rects) {
-        const double cx = std::clamp(x, cand.xlo, cand.xhi);
-        const double cy = std::clamp(y, cand.ylo, cand.yhi);
+        const double cx = std::clamp(x, cand.lowerLeft.x, cand.upperRight.x);
+        const double cy = std::clamp(y, cand.lowerLeft.y, cand.upperRight.y);
         const double dx = cx - x;
         const double dy = cy - y;
         const double dist = dx * dx + dy * dy;
@@ -138,8 +138,8 @@ bool Fences::clampToRegion(int id, double &x, double &y) const {
     if (best == nullptr) {
         return false;
     }
-    x = std::clamp(x, best->xlo, best->xhi);
-    y = std::clamp(y, best->ylo, best->yhi);
+    x = std::clamp(x, best->lowerLeft.x, best->upperRight.x);
+    y = std::clamp(y, best->lowerLeft.y, best->upperRight.y);
     return true;
 }
 
@@ -193,9 +193,12 @@ bool Fences::pushOutOfRegions(double &x, double &y, const BBox &die) const {
         // that caught the point: a per-rectangle epsilon can fall below the
         // output resolution, and the cell then lands back on the boundary.
         const double eps = getEscapeEpsilon(regions);
-        const double exits[4][2] = {
-            {host->xlo - eps, y}, {host->xhi + eps, y}, {x, host->ylo - eps}, {x, host->yhi + eps}};
-        const double dists[4] = {x - host->xlo, host->xhi - x, y - host->ylo, host->yhi - y};
+        const double exits[4][2] = {{host->lowerLeft.x - eps, y},
+                                    {host->upperRight.x + eps, y},
+                                    {x, host->lowerLeft.y - eps},
+                                    {x, host->upperRight.y + eps}};
+        const double dists[4] = {x - host->lowerLeft.x, host->upperRight.x - x,
+                                 y - host->lowerLeft.y, host->upperRight.y - y};
 
         int best = -1;
         double bestDist = std::numeric_limits<double>::max();

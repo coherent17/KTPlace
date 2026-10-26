@@ -43,7 +43,8 @@ QString getNumber(double value) {
 
 QString getBoundsText(const BBox &box) {
     return QStringLiteral("(%1, %2) to (%3, %4)")
-        .arg(getNumber(box.xlo), getNumber(box.ylo), getNumber(box.xhi), getNumber(box.yhi));
+        .arg(getNumber(box.lowerLeft.x), getNumber(box.lowerLeft.y), getNumber(box.upperRight.x),
+             getNumber(box.upperRight.y));
 }
 
 class NumericItem : public QTableWidgetItem {

@@ -282,7 +282,8 @@ void ktDM::report() const {
     }
     ktlog.echo(
         "Loaded placement: {}/{} cells carry a position, bbox x[{:.1f},{:.1f}] y[{:.1f},{:.1f}]",
-        moved, g.getNumCells(), box.xlo, box.xhi, box.ylo, box.yhi);
+        moved, g.getNumCells(), box.lowerLeft.x, box.upperRight.x, box.lowerLeft.y,
+        box.upperRight.y);
     ktlog.echo("Loaded: {} cells ({} terminals), {} nets, {} pins, {} rows", numCells,
                getNumTerminals(), numNets, getNumPins(), getNumRows());
 }
@@ -310,14 +311,15 @@ std::vector<ktDM::Defect> ktDM::getDefects() const {
     for (std::size_t v = 0; v < nv; ++v) {
         const Vertex &vert = g.getCell(v);
         const double eps = 1e-6;
-        if (vert.x < box.xlo - eps || vert.y < box.ylo - eps ||
-            vert.x + vert.width > box.xhi + eps || vert.y + vert.height > box.yhi + eps) {
+        if (vert.x < box.lowerLeft.x - eps || vert.y < box.lowerLeft.y - eps ||
+            vert.x + vert.width > box.upperRight.x + eps ||
+            vert.y + vert.height > box.upperRight.y + eps) {
             ++outOfDie;
         }
         if (!hasFences()) {
             continue;
         }
-        const BBox footprint{vert.x, vert.y, vert.x + vert.width, vert.y + vert.height};
+        const BBox footprint{{vert.x, vert.y}, {vert.x + vert.width, vert.y + vert.height}};
         if (vert.regionId != constraintMgr::noRegion) {
             offFence += getConstraints().containsBox(vert.regionId, footprint) ? 0 : 1;
         } else if (!vert.isFixed && !vert.isTerminal) {
@@ -348,8 +350,8 @@ std::vector<ktDM::Defect> ktDM::getDefects() const {
         }
         const double meanArea = nv > 0 ? bin / std::max<std::size_t>(1, nv - nTall) : 0.0;
         double cell = meanArea > 0.0 ? std::sqrt(meanArea) : 1.0;
-        const double dieW = std::max(box.xhi - box.xlo, 1.0);
-        const double dieH = std::max(box.yhi - box.ylo, 1.0);
+        const double dieW = std::max(box.upperRight.x - box.lowerLeft.x, 1.0);
+        const double dieH = std::max(box.upperRight.y - box.lowerLeft.y, 1.0);
         // A few cells per bucket: enough that the map does not dominate, coarse
         // enough that a standard cell does not span many bins (which is what made
         // the original miss pairs).
@@ -662,8 +664,8 @@ void ktDM::reportStatistics() const {
 
     ktReportTable t("Design statistics");
     t.setHeaders({"measure", "value"});
-    t.addRow({"placement area", std::format("({:.0f}, {:.0f}) - ({:.0f}, {:.0f})", box.xlo, box.ylo,
-                                            box.xhi, box.yhi)});
+    t.addRow({"placement area", std::format("({:.0f}, {:.0f}) - ({:.0f}, {:.0f})", box.lowerLeft.x,
+                                            box.lowerLeft.y, box.upperRight.x, box.upperRight.y)});
     t.addRow({"rows / sites", std::format("{} / {}", getNumRows(), sites)});
     t.addRow({"site width", std::format("{:.3}", siteWidth)});
     t.addRow(

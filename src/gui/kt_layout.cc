@@ -73,7 +73,8 @@ std::shared_ptr<const LayoutGeometry> LayoutGeometry::of(const ktDM &db) {
         LayoutGeometry::Fence &fence = geometry->fences.emplace_back();
         fence.name = region.name;
         for (const BBox &rect : region.rects) {
-            fence.rects.push_back({rect.xlo, rect.ylo, rect.xhi, rect.yhi});
+            fence.rects.push_back(
+                {{rect.lowerLeft.x, rect.lowerLeft.y}, {rect.upperRight.x, rect.upperRight.y}});
         }
     }
 
@@ -126,7 +127,8 @@ bool LayoutFrame::isDrawable() const {
 }
 
 BBox LayoutFrame::getCellBounds(std::uint32_t cell) const {
-    return {x[cell], y[cell], x[cell] + geometry->width[cell], y[cell] + geometry->height[cell]};
+    return {{x[cell], y[cell]},
+            {x[cell] + geometry->width[cell], y[cell] + geometry->height[cell]}};
 }
 
 std::optional<BBox> LayoutFrame::getCellsBounds(std::span<const std::uint32_t> cells) const {
@@ -152,7 +154,7 @@ std::optional<BBox> LayoutFrame::getNetBounds(std::uint32_t net) const {
         if (box) {
             box->extend(px, py);
         } else {
-            box = BBox{px, py, px, py};
+            box = BBox{{px, py}, {px, py}};
         }
     }
     return box;

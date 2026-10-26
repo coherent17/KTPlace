@@ -122,7 +122,8 @@ public:
     }
 
     [[nodiscard]] QRectF getRectOf(const BBox &box) const {
-        return getRectOf(box.xlo, box.ylo, box.xhi - box.xlo, box.yhi - box.ylo);
+        return getRectOf(box.lowerLeft.x, box.lowerLeft.y, box.upperRight.x - box.lowerLeft.x,
+                         box.upperRight.y - box.lowerLeft.y);
     }
 
     [[nodiscard]] QPointF getPinOnScreen(std::uint32_t pin) const {
@@ -336,7 +337,8 @@ void LayoutView::Impl::paintSelection(QPainter &painter) const {
     outlines.reserve(std::min(cells.size(), outlinedMacroLimit));
     for (const std::uint32_t cell : cells) {
         const BBox box = frame.getCellBounds(cell);
-        if (box.xlo > hi.x() || box.xhi < lo.x() || box.ylo > hi.y() || box.yhi < lo.y()) {
+        if (box.lowerLeft.x > hi.x() || box.upperRight.x < lo.x() || box.lowerLeft.y > hi.y() ||
+            box.upperRight.y < lo.y()) {
             continue;
         }
         QRectF outline = getRectOf(box);
@@ -548,7 +550,9 @@ void LayoutView::Impl::render() {
     if (style.isShown(DisplayLayer::Die)) {
         painter.setPen(QPen(style[DisplayLayer::Die].color, 0));
         painter.setBrush(Qt::NoBrush);
-        painter.drawRect(getRectOf(die.xlo, die.ylo, die.xhi - die.xlo, die.yhi - die.ylo));
+        painter.drawRect(getRectOf(die.lowerLeft.x, die.lowerLeft.y,
+                                   die.upperRight.x - die.lowerLeft.x,
+                                   die.upperRight.y - die.lowerLeft.y));
     }
 }
 
@@ -724,19 +728,20 @@ void LayoutView::zoomFit() {
         return;
     }
     const auto &die = pImpl->frame.geometry->die;
-    zoomTo({die.xlo, die.ylo, die.xhi, die.yhi});
+    zoomTo({{die.lowerLeft.x, die.lowerLeft.y}, {die.upperRight.x, die.upperRight.y}});
 }
 
 void LayoutView::zoomTo(const BBox &area) {
     const double floor =
         pImpl->frame.isDrawable() ? minZoomCells * pImpl->frame.geometry->typicalWidth : 1e-9;
-    const double w = std::max(area.xhi - area.xlo, floor);
-    const double h = std::max(area.yhi - area.ylo, floor);
+    const double w = std::max(area.upperRight.x - area.lowerLeft.x, floor);
+    const double h = std::max(area.upperRight.y - area.lowerLeft.y, floor);
     pImpl->scale = std::min(width() / w, height() / h) * fitMargin;
     if (!(pImpl->scale > 0.0) || !std::isfinite(pImpl->scale)) {
         pImpl->scale = 1.0;
     }
-    pImpl->center = {(area.xlo + area.xhi) / 2.0, (area.ylo + area.yhi) / 2.0};
+    pImpl->center = {(area.lowerLeft.x + area.upperRight.x) / 2.0,
+                     (area.lowerLeft.y + area.upperRight.y) / 2.0};
     pImpl->invalidate();
 }
 
@@ -866,7 +871,7 @@ void LayoutView::mouseReleaseEvent(QMouseEvent *event) {
         if (band.width() > dragThreshold && band.height() > dragThreshold) {
             const QPointF lo = getScreenToWorld(band.bottomLeft());
             const QPointF hi = getScreenToWorld(band.topRight());
-            zoomTo({lo.x(), lo.y(), hi.x(), hi.y()});
+            zoomTo({{lo.x(), lo.y()}, {hi.x(), hi.y()}});
         }
         return;
     }

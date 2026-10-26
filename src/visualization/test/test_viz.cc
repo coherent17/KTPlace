@@ -401,10 +401,10 @@ BOOST_AUTO_TEST_CASE(the_die_box_comes_from_the_fixed_cells) {
     const BBox box = getFixedCellBBox(g);
     // The boxes include the cell extent, so a pad at the right rim is not
     // clipped out of the drawn die.
-    BOOST_TEST(box.xlo == 0.0);
-    BOOST_TEST(box.ylo == 0.0);
-    BOOST_TEST(box.xhi == 100.0);
-    BOOST_TEST(box.yhi == 100.0);
+    BOOST_TEST(box.lowerLeft.x == 0.0);
+    BOOST_TEST(box.lowerLeft.y == 0.0);
+    BOOST_TEST(box.upperRight.x == 100.0);
+    BOOST_TEST(box.upperRight.y == 100.0);
 }
 
 BOOST_AUTO_TEST_CASE(a_design_with_no_fixed_cells_still_gets_a_usable_box) {
@@ -418,10 +418,10 @@ BOOST_AUTO_TEST_CASE(a_design_with_no_fixed_cells_still_gets_a_usable_box) {
     g.getCell(id).height = 4.0;
 
     const BBox box = getFixedCellBBox(g);
-    BOOST_TEST(box.xlo <= box.xhi);
-    BOOST_TEST(box.ylo <= box.yhi);
-    BOOST_TEST(box.xhi > box.xlo);
-    BOOST_TEST(box.yhi > box.ylo);
+    BOOST_TEST(box.lowerLeft.x <= box.upperRight.x);
+    BOOST_TEST(box.lowerLeft.y <= box.upperRight.y);
+    BOOST_TEST(box.upperRight.x > box.lowerLeft.x);
+    BOOST_TEST(box.upperRight.y > box.lowerLeft.y);
 }
 
 BOOST_AUTO_TEST_CASE(net_vertices_are_not_part_of_the_die) {
@@ -430,8 +430,8 @@ BOOST_AUTO_TEST_CASE(net_vertices_are_not_part_of_the_die) {
     Graph g = getSampleGraph();
     (void)g.addNet("n1");
     const BBox box = getFixedCellBBox(g);
-    BOOST_TEST(box.xlo == 0.0);
-    BOOST_TEST(box.xhi == 100.0);
+    BOOST_TEST(box.lowerLeft.x == 0.0);
+    BOOST_TEST(box.upperRight.x == 100.0);
 }
 
 // ---------------------------------------------------------------------------
@@ -543,7 +543,7 @@ BOOST_AUTO_TEST_CASE(movable_cells_are_written_once_each_in_vertex_order) {
         x[first + i] = static_cast<float>(i);
         y[first + i] = 50.0F;
     }
-    const BBox die{0.0, 0.0, 20000.0, 100.0};
+    const BBox die{{0.0, 0.0}, {20000.0, 100.0}};
     const std::string path = dir.getFile("o.svg").string();
     writeFrameSvg(path, g, x, y, die, 0, 1, 0.0, 0.0, 0.0, "", nullptr, true, /*worldUnits=*/true);
 

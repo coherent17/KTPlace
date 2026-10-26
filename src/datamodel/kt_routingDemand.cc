@@ -36,14 +36,14 @@ RoutingDemand getRoutingDemand(std::span<const std::uint32_t> netPinStart,
                                std::span<const float> pinDy, std::span<const float> x,
                                std::span<const float> y, const BBox &die, std::size_t binsAcross) {
     RoutingDemand map;
-    const double spanX = std::max(die.xhi - die.xlo, 1e-9);
-    const double spanY = std::max(die.yhi - die.ylo, 1e-9);
+    const double spanX = std::max(die.upperRight.x - die.lowerLeft.x, 1e-9);
+    const double spanY = std::max(die.upperRight.y - die.lowerLeft.y, 1e-9);
     const double bin =
         std::max(spanX, spanY) / static_cast<double>(std::max<std::size_t>(binsAcross, 1));
     map.nx = std::max<std::size_t>(1, static_cast<std::size_t>(std::ceil(spanX / bin)));
     map.ny = std::max<std::size_t>(1, static_cast<std::size_t>(std::ceil(spanY / bin)));
-    map.x0 = die.xlo;
-    map.y0 = die.ylo;
+    map.x0 = die.lowerLeft.x;
+    map.y0 = die.lowerLeft.y;
     map.binW = bin;
     map.binH = bin;
     map.demand.assign(map.nx * map.ny, 0.0F);
@@ -61,10 +61,10 @@ RoutingDemand getRoutingDemand(std::span<const std::uint32_t> netPinStart,
             const std::uint32_t cell = pinCell[p];
             box.extend(x[cell] + pinDx[p], y[cell] + pinDy[p]);
         }
-        double xl = box.xlo;
-        double xh = box.xhi;
-        double yl = box.ylo;
-        double yh = box.yhi;
+        double xl = box.lowerLeft.x;
+        double xh = box.upperRight.x;
+        double yl = box.lowerLeft.y;
+        double yh = box.upperRight.y;
         if (xh - xl < minExtent) {
             const double c = (xl + xh) / 2.0;
             xl = c - minExtent / 2.0;

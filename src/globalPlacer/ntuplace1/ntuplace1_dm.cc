@@ -23,7 +23,7 @@ std::size_t collectCells(const ktplace::Graph &graph, Design &design) {
         if (vert.isFixed || vert.isTerminal) {
             if (vert.width > 0.0 && vert.height > 0.0) {
                 design.fixedRects.push_back(
-                    {vert.x, vert.y, vert.x + vert.width, vert.y + vert.height});
+                    {{vert.x, vert.y}, {vert.x + vert.width, vert.y + vert.height}});
             }
             continue;
         }
@@ -80,9 +80,9 @@ void collectRows(const std::vector<ktplace::RowInfo> &rows, Design &design) {
     design.rowBox = BBox::getEmpty();
     for (const ktplace::RowInfo &r : rows) {
         for (const ktplace::SubrowInfo &s : r.subrows) {
-            const BBox rr{s.getXlo(), r.coordinate, s.getXhi(r.getPitch()),
-                          r.coordinate + r.height};
-            if (rr.xhi <= rr.xlo) {
+            const BBox rr{{s.getXlo(), r.coordinate},
+                          {s.getXhi(r.getPitch()), r.coordinate + r.height}};
+            if (rr.upperRight.x <= rr.lowerLeft.x) {
                 continue;
             }
             design.rowRects.push_back(rr);
@@ -94,11 +94,11 @@ void collectRows(const std::vector<ktplace::RowInfo> &rows, Design &design) {
     }
     std::stable_sort(design.rowRects.begin(), design.rowRects.end(),
                      [](const BBox &a, const BBox &b) {
-                         return a.ylo < b.ylo;
+                         return a.lowerLeft.y < b.lowerLeft.y;
                      });
     design.maxRowH = 0.0;
     for (const BBox &r : design.rowRects) {
-        design.maxRowH = std::max(design.maxRowH, r.yhi - r.ylo);
+        design.maxRowH = std::max(design.maxRowH, r.upperRight.y - r.lowerLeft.y);
     }
 }
 

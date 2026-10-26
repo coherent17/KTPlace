@@ -54,12 +54,12 @@ inline std::vector<RowPiece> splitRowByFences(double xlo, double xhi, double y0,
     };
     std::vector<Span> spans;
     for (const FenceRect &rc : rects) {
-        if (!(rc.box.yhi > y0 + eps && rc.box.ylo < y1 - eps) ||
-            !(rc.box.xhi > xlo && rc.box.xlo < xhi)) {
+        if (!(rc.box.upperRight.y > y0 + eps && rc.box.lowerLeft.y < y1 - eps) ||
+            !(rc.box.upperRight.x > xlo && rc.box.lowerLeft.x < xhi)) {
             continue;
         }
-        const bool covers = rc.box.ylo <= y0 + eps && rc.box.yhi >= y1 - eps;
-        spans.push_back({rc.box.xlo, rc.box.xhi, covers ? rc.region : blocked});
+        const bool covers = rc.box.lowerLeft.y <= y0 + eps && rc.box.upperRight.y >= y1 - eps;
+        spans.push_back({rc.box.lowerLeft.x, rc.box.upperRight.x, covers ? rc.region : blocked});
     }
     if (spans.empty()) {
         return {RowPiece{xlo, xhi, openSpace}};

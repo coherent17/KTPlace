@@ -279,8 +279,9 @@ void GlCanvas::setFrame(const LayoutFrame &frame) {
             ranges[range] = {at, shape.size() / 3 - at};
             at = shape.size() / 3;
         };
-        add(static_cast<float>(die.xlo), static_cast<float>(die.ylo),
-            static_cast<float>(die.xhi - die.xlo), static_cast<float>(die.yhi - die.ylo), DieFill);
+        add(static_cast<float>(die.lowerLeft.x), static_cast<float>(die.lowerLeft.y),
+            static_cast<float>(die.upperRight.x - die.lowerLeft.x),
+            static_cast<float>(die.upperRight.y - die.lowerLeft.y), DieFill);
         mark(dieFillRange);
         for (const LayoutGeometry::Row &row : g.rows) {
             add(row.xlo, row.y, row.xhi - row.xlo, 0.0F, Row);
@@ -294,8 +295,9 @@ void GlCanvas::setFrame(const LayoutFrame &frame) {
             }
             mark(slot.range);
         }
-        add(static_cast<float>(die.xlo), static_cast<float>(die.ylo),
-            static_cast<float>(die.xhi - die.xlo), static_cast<float>(die.yhi - die.ylo), DieEdge);
+        add(static_cast<float>(die.lowerLeft.x), static_cast<float>(die.lowerLeft.y),
+            static_cast<float>(die.upperRight.x - die.lowerLeft.x),
+            static_cast<float>(die.upperRight.y - die.lowerLeft.y), DieEdge);
         mark(dieEdgeRange);
         typicalWidth = g.typicalWidth;
         rowHeight = g.rows.empty() ? 0.0 : g.rows.front().height;

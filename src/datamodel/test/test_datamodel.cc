@@ -183,10 +183,10 @@ BOOST_AUTO_TEST_CASE(round_trips_die_area) {
     ktDM db;
     db.setDieArea({0.0, 0.0, 100.0, 50.0});
     const BBox &die = db.getDieArea();
-    BOOST_TEST(die.xlo == 0.0);
-    BOOST_TEST(die.ylo == 0.0);
-    BOOST_TEST(die.xhi == 100.0);
-    BOOST_TEST(die.yhi == 50.0);
+    BOOST_TEST(die.lowerLeft.x == 0.0);
+    BOOST_TEST(die.lowerLeft.y == 0.0);
+    BOOST_TEST(die.upperRight.x == 100.0);
+    BOOST_TEST(die.upperRight.y == 50.0);
 }
 
 BOOST_AUTO_TEST_SUITE_END()
@@ -290,7 +290,7 @@ BOOST_AUTO_TEST_SUITE(row_fences)
 BOOST_AUTO_TEST_CASE(a_fence_covering_the_row_becomes_member_space) {
     // Row [0,100) x [0,10); fence 0 covers x 20..50 over the whole band.
     const std::vector<RowPiece> p =
-        splitRowByFences(0.0, 100.0, 0.0, 10.0, 1.0, {FenceRect{{20.0, 0.0, 50.0, 10.0}, 0}});
+        splitRowByFences(0.0, 100.0, 0.0, 10.0, 1.0, {FenceRect{{{20.0, 0.0}, {50.0, 10.0}}, 0}});
     BOOST_TEST_REQUIRE(p.size() == 3u);
     BOOST_TEST(p[0].xlo == 0.0);
     BOOST_TEST(p[0].xhi == 20.0);
@@ -307,7 +307,7 @@ BOOST_AUTO_TEST_CASE(a_fence_reaching_partly_into_the_row_blocks_it_for_everyone
     // Covers only the top half of the band: a member would stick out, any other
     // cell would sit inside it, so the stretch is dropped.
     const std::vector<RowPiece> p =
-        splitRowByFences(0.0, 100.0, 0.0, 10.0, 1.0, {FenceRect{{60.0, 5.0, 70.0, 20.0}, 0}});
+        splitRowByFences(0.0, 100.0, 0.0, 10.0, 1.0, {FenceRect{{{60.0, 5.0}, {70.0, 20.0}}, 0}});
     BOOST_TEST_REQUIRE(p.size() == 2u);
     BOOST_TEST(p[0].xhi == 60.0);
     BOOST_TEST(p[1].xlo == 70.0);
@@ -320,7 +320,7 @@ BOOST_AUTO_TEST_CASE(fence_edges_off_the_site_grid_are_snapped_inward) {
     // [21,49] and the open pieces stop at 20 and resume at 50, so no cell can sit
     // across the boundary.
     const std::vector<RowPiece> p =
-        splitRowByFences(0.0, 100.0, 0.0, 10.0, 1.0, {FenceRect{{20.5, 0.0, 49.5, 10.0}, 3}});
+        splitRowByFences(0.0, 100.0, 0.0, 10.0, 1.0, {FenceRect{{{20.5, 0.0}, {49.5, 10.0}}, 3}});
     BOOST_TEST_REQUIRE(p.size() == 3u);
     BOOST_TEST(p[0].xhi == 20.0);
     BOOST_TEST(p[1].xlo == 21.0);
@@ -333,14 +333,14 @@ BOOST_AUTO_TEST_CASE(adjacent_rectangles_of_one_region_merge_and_rows_without_fe
     // An L-shaped region as two touching rectangles is one stretch of member space.
     const std::vector<RowPiece> p = splitRowByFences(
         0.0, 100.0, 0.0, 10.0, 1.0,
-        {FenceRect{{10.0, 0.0, 30.0, 10.0}, 1}, FenceRect{{30.0, 0.0, 40.0, 50.0}, 1}});
+        {FenceRect{{{10.0, 0.0}, {30.0, 10.0}}, 1}, FenceRect{{{30.0, 0.0}, {40.0, 50.0}}, 1}});
     BOOST_TEST_REQUIRE(p.size() == 3u);
     BOOST_TEST(p[1].xlo == 10.0);
     BOOST_TEST(p[1].xhi == 40.0);
     BOOST_TEST(p[1].region == 1);
     // A row the fences do not reach is returned whole.
-    const std::vector<RowPiece> q =
-        splitRowByFences(0.0, 100.0, 200.0, 210.0, 1.0, {FenceRect{{10.0, 0.0, 30.0, 10.0}, 1}});
+    const std::vector<RowPiece> q = splitRowByFences(0.0, 100.0, 200.0, 210.0, 1.0,
+                                                     {FenceRect{{{10.0, 0.0}, {30.0, 10.0}}, 1}});
     BOOST_TEST_REQUIRE(q.size() == 1u);
     BOOST_TEST(q[0].xlo == 0.0);
     BOOST_TEST(q[0].xhi == 100.0);

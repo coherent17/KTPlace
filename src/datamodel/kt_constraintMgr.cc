@@ -16,9 +16,9 @@ int constraintMgr::addRegion(std::string name, const std::vector<Point> &points)
     // upper-right of one rectangle. A trailing odd corner cannot form a
     // rectangle and is dropped.
     for (std::size_t i = 0; i + 1 < points.size(); i += 2) {
-        const BBox r{std::min(points[i].x, points[i + 1].x), std::min(points[i].y, points[i + 1].y),
-                     std::max(points[i].x, points[i + 1].x),
-                     std::max(points[i].y, points[i + 1].y)};
+        const BBox r{
+            {std::min(points[i].x, points[i + 1].x), std::min(points[i].y, points[i + 1].y)},
+            {std::max(points[i].x, points[i + 1].x), std::max(points[i].y, points[i + 1].y)}};
         if (!(r.getArea() > 0.0)) {
             continue;  // degenerate rectangle
         }
@@ -94,8 +94,8 @@ void constraintMgr::clampToRegion(int id, double &x, double &y) const {
     const BBox *best = nullptr;
     double bestDist = std::numeric_limits<double>::max();
     for (const BBox &cand : r->rects) {
-        const double cx = std::clamp(x, cand.xlo, cand.xhi);
-        const double cy = std::clamp(y, cand.ylo, cand.yhi);
+        const double cx = std::clamp(x, cand.lowerLeft.x, cand.upperRight.x);
+        const double cy = std::clamp(y, cand.lowerLeft.y, cand.upperRight.y);
         const double dx = cx - x;
         const double dy = cy - y;
         const double dist = dx * dx + dy * dy;
@@ -107,8 +107,8 @@ void constraintMgr::clampToRegion(int id, double &x, double &y) const {
     if (best == nullptr) {
         return;
     }
-    x = std::clamp(x, best->xlo, best->xhi);
-    y = std::clamp(y, best->ylo, best->yhi);
+    x = std::clamp(x, best->lowerLeft.x, best->upperRight.x);
+    y = std::clamp(y, best->lowerLeft.y, best->upperRight.y);
 }
 
 double constraintMgr::getEscapeEpsilon() const {
@@ -157,9 +157,12 @@ bool constraintMgr::pushOutOfRegions(double &x, double &y, const BBox &die) cons
         // per-rectangle epsilon can be far below the output resolution, and the
         // cell then lands back exactly on the (inclusive) boundary.
         const double eps = getEscapeEpsilon();
-        const double exits[4][2] = {
-            {host->xlo - eps, y}, {host->xhi + eps, y}, {x, host->ylo - eps}, {x, host->yhi + eps}};
-        const double dists[4] = {x - host->xlo, host->xhi - x, y - host->ylo, host->yhi - y};
+        const double exits[4][2] = {{host->lowerLeft.x - eps, y},
+                                    {host->upperRight.x + eps, y},
+                                    {x, host->lowerLeft.y - eps},
+                                    {x, host->upperRight.y + eps}};
+        const double dists[4] = {x - host->lowerLeft.x, host->upperRight.x - x,
+                                 y - host->lowerLeft.y, host->upperRight.y - y};
 
         int best = -1;
         double bestDist = std::numeric_limits<double>::max();

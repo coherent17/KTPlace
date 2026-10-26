@@ -317,7 +317,7 @@ void FastDetailedPlacer::Impl::buildSpans() {
             }
         };
         for (const BBox &b : design.blockages) {
-            block(b.xlo, b.xhi, b.ylo, b.yhi);
+            block(b.lowerLeft.x, b.upperRight.x, b.lowerLeft.y, b.upperRight.y);
         }
         for (std::size_t i = 0; i < mov.size(); ++i) {
             if (stranded[i]) {
@@ -416,7 +416,7 @@ void FastDetailedPlacer::Impl::indexFixed() {
                                 static_cast<long>(bands) - 1);
     };
     for (std::size_t i = 0; i < fixedBoxes.size(); ++i) {
-        for (long b = band(fixedBoxes[i].ylo); b <= band(fixedBoxes[i].yhi); ++b) {
+        for (long b = band(fixedBoxes[i].lowerLeft.y); b <= band(fixedBoxes[i].upperRight.y); ++b) {
             fixedByBand[static_cast<std::size_t>(b)].push_back(i);
         }
     }
@@ -460,10 +460,10 @@ NetBox FastDetailedPlacer::Impl::measure(std::size_t n) const {
     }
     for (const NetPin &p : netPins[n]) {
         const auto [x, y] = at(p);
-        out.atXlo += x == out.box.xlo ? 1 : 0;
-        out.atXhi += x == out.box.xhi ? 1 : 0;
-        out.atYlo += y == out.box.ylo ? 1 : 0;
-        out.atYhi += y == out.box.yhi ? 1 : 0;
+        out.atXlo += x == out.box.lowerLeft.x ? 1 : 0;
+        out.atXhi += x == out.box.upperRight.x ? 1 : 0;
+        out.atYlo += y == out.box.lowerLeft.y ? 1 : 0;
+        out.atYhi += y == out.box.upperRight.y ? 1 : 0;
     }
     return out;
 }
@@ -519,18 +519,18 @@ void FastDetailedPlacer::Impl::moveCell(std::size_t c, double x, double y) {
         NetBox &b = netBox[n];
         const double ox = cellX[c] + pin.offX;
         const double oy = cellY[c] + pin.offY;
-        if (!leave(ox, b.box.xlo, b.atXlo) || !leave(ox, b.box.xhi, b.atXhi) ||
-            !leave(oy, b.box.ylo, b.atYlo) || !leave(oy, b.box.yhi, b.atYhi)) {
+        if (!leave(ox, b.box.lowerLeft.x, b.atXlo) || !leave(ox, b.box.upperRight.x, b.atXhi) ||
+            !leave(oy, b.box.lowerLeft.y, b.atYlo) || !leave(oy, b.box.upperRight.y, b.atYhi)) {
             netStale[n] = 1;
             staleNets.push_back(n);
             continue;
         }
         const double nx = x + pin.offX;
         const double ny = y + pin.offY;
-        reachLow(nx, b.box.xlo, b.atXlo);
-        reachHigh(nx, b.box.xhi, b.atXhi);
-        reachLow(ny, b.box.ylo, b.atYlo);
-        reachHigh(ny, b.box.yhi, b.atYhi);
+        reachLow(nx, b.box.lowerLeft.x, b.atXlo);
+        reachHigh(nx, b.box.upperRight.x, b.atXhi);
+        reachLow(ny, b.box.lowerLeft.y, b.atYlo);
+        reachHigh(ny, b.box.upperRight.y, b.atYhi);
     }
     cellX[c] = x;
     cellY[c] = y;
@@ -612,10 +612,10 @@ double FastDetailedPlacer::Impl::getWirelengthDelta(std::span<const Move> moves,
             const NetBox &b = netBox[n];
             const double ox = cellX[m.cell] + pin.offX;
             const double oy = cellY[m.cell] + pin.offY;
-            change.fromXlo += ox == b.box.xlo ? 1 : 0;
-            change.fromXhi += ox == b.box.xhi ? 1 : 0;
-            change.fromYlo += oy == b.box.ylo ? 1 : 0;
-            change.fromYhi += oy == b.box.yhi ? 1 : 0;
+            change.fromXlo += ox == b.box.lowerLeft.x ? 1 : 0;
+            change.fromXhi += ox == b.box.upperRight.x ? 1 : 0;
+            change.fromYlo += oy == b.box.lowerLeft.y ? 1 : 0;
+            change.fromYhi += oy == b.box.upperRight.y ? 1 : 0;
             change.moved.extend(m.x + pin.offX, m.y + pin.offY);
         }
     }
@@ -628,16 +628,17 @@ double FastDetailedPlacer::Impl::getWirelengthDelta(std::span<const Move> moves,
             }
             change.counted = true;
             const NetBox &b = netBox[n];
-            if (change.stale || (change.fromXlo == b.atXlo && change.moved.xlo > b.box.xlo) ||
-                (change.fromXhi == b.atXhi && change.moved.xhi < b.box.xhi) ||
-                (change.fromYlo == b.atYlo && change.moved.ylo > b.box.ylo) ||
-                (change.fromYhi == b.atYhi && change.moved.yhi < b.box.yhi)) {
+            if (change.stale ||
+                (change.fromXlo == b.atXlo && change.moved.lowerLeft.x > b.box.lowerLeft.x) ||
+                (change.fromXhi == b.atXhi && change.moved.upperRight.x < b.box.upperRight.x) ||
+                (change.fromYlo == b.atYlo && change.moved.lowerLeft.y > b.box.lowerLeft.y) ||
+                (change.fromYhi == b.atYhi && change.moved.upperRight.y < b.box.upperRight.y)) {
                 delta += getNetDelta(n, moves, sc.moveOf);
                 continue;
             }
             BBox after = b.box;
-            after.extend(change.moved.xlo, change.moved.ylo);
-            after.extend(change.moved.xhi, change.moved.yhi);
+            after.extend(change.moved.lowerLeft.x, change.moved.lowerLeft.y);
+            after.extend(change.moved.upperRight.x, change.moved.upperRight.y);
             delta += after.getHalfPerimeter() - b.box.getHalfPerimeter();
         }
     }
@@ -662,11 +663,11 @@ OptimalRegion FastDetailedPlacer::Impl::getOptimalRegion(std::size_t c) const {
                 others.extend(cellX[p.slot] + p.offX, cellY[p.slot] + p.offY);
             }
         }
-        if (own == nullptr || others.xlo > others.xhi) {
+        if (own == nullptr || others.lowerLeft.x > others.upperRight.x) {
             continue;
         }
-        xs.insert(xs.end(), {others.xlo - own->offX, others.xhi - own->offX});
-        ys.insert(ys.end(), {others.ylo - own->offY, others.yhi - own->offY});
+        xs.insert(xs.end(), {others.lowerLeft.x - own->offX, others.upperRight.x - own->offX});
+        ys.insert(ys.end(), {others.lowerLeft.y - own->offY, others.upperRight.y - own->offY});
     }
     if (xs.empty()) {
         return {{cellX[c], cellX[c]}, {cellY[c], cellY[c]}};
@@ -1491,8 +1492,8 @@ void FastDetailedPlacer::Impl::selfCheck(Stats &res) const {
                                         0, static_cast<long>(fixedByBand.size()) - 1);
         for (const std::size_t fi : fixedByBand[static_cast<std::size_t>(b)]) {
             const BBox &f = fixedBoxes[fi];
-            if (cellX[i] + cellW[i] > f.xlo + eps && cellX[i] < f.xhi - eps &&
-                cellY[i] + cellH[i] > f.ylo + eps && cellY[i] < f.yhi - eps) {
+            if (cellX[i] + cellW[i] > f.lowerLeft.x + eps && cellX[i] < f.upperRight.x - eps &&
+                cellY[i] + cellH[i] > f.lowerLeft.y + eps && cellY[i] < f.upperRight.y - eps) {
                 ++res.overFixed;
                 break;
             }

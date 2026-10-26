@@ -76,9 +76,9 @@ std::pair<double, double> getOriented(double x, double y, const std::string &ori
 }
 
 BBox getOrientedBox(const BBox &shape, const std::string &orient) {
-    const auto [ax, ay] = getOriented(shape.xlo, shape.ylo, orient);
-    const auto [bx, by] = getOriented(shape.xhi, shape.yhi, orient);
-    return {std::min(ax, bx), std::min(ay, by), std::max(ax, bx), std::max(ay, by)};
+    const auto [ax, ay] = getOriented(shape.lowerLeft.x, shape.lowerLeft.y, orient);
+    const auto [bx, by] = getOriented(shape.upperRight.x, shape.upperRight.y, orient);
+    return {{std::min(ax, bx), std::min(ay, by)}, {std::max(ax, bx), std::max(ay, by)}};
 }
 
 bool readPoint(const std::vector<std::string> &tokens, std::size_t &i, double &x, double &y) {
@@ -114,7 +114,8 @@ void scanPinTokens(const std::vector<std::string> &tokens, bool &placed, double 
             double y1 = 0.0;
             if (readPoint(tokens, at, x0, y0) && readPoint(tokens, at, x1, y1)) {
                 shaped = true;
-                shape = {std::min(x0, x1), std::min(y0, y1), std::max(x0, x1), std::max(y0, y1)};
+                shape = {{std::min(x0, x1), std::min(y0, y1)},
+                         {std::max(x0, x1), std::max(y0, y1)}};
             }
         }
     }
@@ -464,8 +465,8 @@ bool LefDefInputAdapter::parseDefFile(const std::string &filePath) {
             h = mIt->second.heightMicrons * unitsPerMicron;
         } else if (pinShaped) {
             const BBox shape = getOrientedBox(pinShape, pinOrient);
-            lowX = shape.xlo;
-            lowY = shape.ylo;
+            lowX = shape.lowerLeft.x;
+            lowY = shape.lowerLeft.y;
             w = shape.getWidth();
             h = shape.getHeight();
         }
@@ -572,7 +573,7 @@ bool LefDefInputAdapter::parseDefFile(const std::string &filePath) {
                 x1 = std::max(x1, x0 + 1.0);
                 y1 = std::max(y1, y0 + 1.0);
             }
-            db->setDieArea({x0, y0, x1, y1});
+            db->setDieArea({{x0, y0}, {x1, y1}});
             continue;
         }
 

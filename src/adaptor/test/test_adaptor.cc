@@ -364,10 +364,10 @@ BOOST_AUTO_TEST_CASE(reads_die_area_and_rows) {
 
     ktDM &db = adapter.getDM();
     const BBox &die = db.getDieArea();
-    BOOST_TEST(die.xlo == 0.0);
-    BOOST_TEST(die.ylo == 0.0);
-    BOOST_TEST(die.xhi == 10000.0);
-    BOOST_TEST(die.yhi == 20000.0);
+    BOOST_TEST(die.lowerLeft.x == 0.0);
+    BOOST_TEST(die.lowerLeft.y == 0.0);
+    BOOST_TEST(die.upperRight.x == 10000.0);
+    BOOST_TEST(die.upperRight.y == 20000.0);
     // ROW ... STEP 100 0 carries no row height, so the LEF SITE size is used.
     BOOST_TEST(db.getNumRows() == 1);
 }

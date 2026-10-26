@@ -45,7 +45,7 @@ void DieInfo::clear() {
 BBox getPlacementDieBox(const DieInfo &die, const Graph &graph) {
     const double inf = std::numeric_limits<double>::max();
     // The fixed cells: the I/O pad ring bounds the die in a Bookshelf design.
-    BBox box{inf, inf, -inf, -inf};
+    BBox box{{inf, inf}, {-inf, -inf}};
     const std::size_t nv = graph.getNumCells();
     for (std::size_t v = 0; v < nv; ++v) {
         const Vertex &vert = graph.getCell(v);
@@ -54,21 +54,23 @@ BBox getPlacementDieBox(const DieInfo &die, const Graph &graph) {
         }
         box.extend(BBox::of(vert.x, vert.y, std::max(vert.width, 1.0), std::max(vert.height, 1.0)));
     }
-    const bool haveFixed = (box.xhi > box.xlo) && (box.yhi > box.ylo);
+    const bool haveFixed =
+        (box.upperRight.x > box.lowerLeft.x) && (box.upperRight.y > box.lowerLeft.y);
 
     // A declared die area, when the format carries one and it contains every
     // fixed cell. A declared area that excludes a fixed cell is not describing the
     // same die the pads describe, so it is not trusted.
     const BBox &da = die.getDieArea();
-    if (da.xhi > da.xlo && da.yhi > da.ylo) {
+    if (da.upperRight.x > da.lowerLeft.x && da.upperRight.y > da.lowerLeft.y) {
         bool contains = true;
         for (std::size_t v = 0; v < nv; ++v) {
             const Vertex &vert = graph.getCell(v);
             if (!vert.isFixed) {
                 continue;
             }
-            if (vert.x < da.xlo - 1.0 || vert.y < da.ylo - 1.0 ||
-                vert.x + vert.width > da.xhi + 1.0 || vert.y + vert.height > da.yhi + 1.0) {
+            if (vert.x < da.lowerLeft.x - 1.0 || vert.y < da.lowerLeft.y - 1.0 ||
+                vert.x + vert.width > da.upperRight.x + 1.0 ||
+                vert.y + vert.height > da.upperRight.y + 1.0) {
                 contains = false;
                 break;
             }
@@ -79,16 +81,17 @@ BBox getPlacementDieBox(const DieInfo &die, const Graph &graph) {
     }
 
     // The rows, unioned in. A cell in a row is legal by definition of a row.
-    BBox rowBox{inf, inf, -inf, -inf};
+    BBox rowBox{{inf, inf}, {-inf, -inf}};
     bool anyRow = false;
     for (const RowInfo &ri : die.getRows()) {
         if (!(ri.getPitch() > 0.0)) {
             continue;
         }
-        rowBox.extend(BBox{ri.getXlo(), ri.coordinate, ri.getXhi(), ri.coordinate + ri.height});
+        rowBox.extend(BBox{{ri.getXlo(), ri.coordinate}, {ri.getXhi(), ri.coordinate + ri.height}});
         anyRow = true;
     }
-    if (anyRow && (rowBox.xhi > rowBox.xlo) && (rowBox.yhi > rowBox.ylo)) {
+    if (anyRow && (rowBox.upperRight.x > rowBox.lowerLeft.x) &&
+        (rowBox.upperRight.y > rowBox.lowerLeft.y)) {
         if (!haveFixed) {
             box = rowBox;
         } else {

@@ -215,18 +215,18 @@ void registerCommands() {
             view.zoomFit();
             return tcl::Value{};
         });
-    registerLayoutCommand(
-        {.name = "layout_view_area",
-         .usage = "layout_view_area x1 y1 x2 y2",
-         .summary = "show the area between two corners, in design units"},
-        {.min = 4, .max = 4}, [](LayoutView &view, const Words &words) {
-            const double x1 = getCoordinate(words[0]);
-            const double y1 = getCoordinate(words[1]);
-            const double x2 = getCoordinate(words[2]);
-            const double y2 = getCoordinate(words[3]);
-            view.zoomTo({std::min(x1, x2), std::min(y1, y2), std::max(x1, x2), std::max(y1, y2)});
-            return tcl::Value{};
-        });
+    registerLayoutCommand({.name = "layout_view_area",
+                           .usage = "layout_view_area x1 y1 x2 y2",
+                           .summary = "show the area between two corners, in design units"},
+                          {.min = 4, .max = 4}, [](LayoutView &view, const Words &words) {
+                              const double x1 = getCoordinate(words[0]);
+                              const double y1 = getCoordinate(words[1]);
+                              const double x2 = getCoordinate(words[2]);
+                              const double y2 = getCoordinate(words[3]);
+                              view.zoomTo({{std::min(x1, x2), std::min(y1, y2)},
+                                           {std::max(x1, x2), std::max(y1, y2)}});
+                              return tcl::Value{};
+                          });
     registerLayoutCommand(
         {.name = "layout_view_selection",
          .usage = "layout_view_selection",

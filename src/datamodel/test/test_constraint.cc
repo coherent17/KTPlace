@@ -45,10 +45,10 @@ BOOST_AUTO_TEST_CASE(a_fence_becomes_region_zero) {
     BOOST_TEST(r->area == 20000.0);
     // Bounding box is what contains() rejects against, so it must be set even
     // though the region has a single rectangle.
-    BOOST_TEST(r->bounds.xlo == 0.0);
-    BOOST_TEST(r->bounds.ylo == 0.0);
-    BOOST_TEST(r->bounds.xhi == 100.0);
-    BOOST_TEST(r->bounds.yhi == 200.0);
+    BOOST_TEST(r->bounds.lowerLeft.x == 0.0);
+    BOOST_TEST(r->bounds.lowerLeft.y == 0.0);
+    BOOST_TEST(r->bounds.upperRight.x == 100.0);
+    BOOST_TEST(r->bounds.upperRight.y == 200.0);
 }
 
 BOOST_AUTO_TEST_CASE(an_out_of_range_region_id_has_no_region) {
@@ -68,10 +68,10 @@ BOOST_AUTO_TEST_CASE(corners_are_normalised_whichever_way_round_they_arrive) {
     const Region *r = mgr.getRegion(0);
     BOOST_REQUIRE(r != nullptr);
     BOOST_TEST(r->area == 20000.0);
-    BOOST_TEST(r->rects.front().xlo == 0.0);
-    BOOST_TEST(r->rects.front().ylo == 0.0);
-    BOOST_TEST(r->rects.front().xhi == 100.0);
-    BOOST_TEST(r->rects.front().yhi == 200.0);
+    BOOST_TEST(r->rects.front().lowerLeft.x == 0.0);
+    BOOST_TEST(r->rects.front().lowerLeft.y == 0.0);
+    BOOST_TEST(r->rects.front().upperRight.x == 100.0);
+    BOOST_TEST(r->rects.front().upperRight.y == 200.0);
 }
 
 BOOST_AUTO_TEST_CASE(an_odd_trailing_corner_is_dropped_not_misread) {
@@ -136,8 +136,8 @@ BOOST_AUTO_TEST_CASE(a_region_is_the_union_of_its_rectangles_not_an_outline) {
     BOOST_TEST(r->area == 200.0);
     // The bounding box spans the gap, which is why contains() still has to
     // fall through to the per-rectangle test.
-    BOOST_TEST(r->bounds.xlo == 0.0);
-    BOOST_TEST(r->bounds.xhi == 30.0);
+    BOOST_TEST(r->bounds.lowerLeft.x == 0.0);
+    BOOST_TEST(r->bounds.upperRight.x == 30.0);
 }
 
 BOOST_AUTO_TEST_CASE(clamping_leaves_a_legal_position_alone) {
@@ -194,7 +194,7 @@ BOOST_AUTO_TEST_CASE(push_out_escapes_a_fence_and_reports_the_move) {
     const constraintMgr mgr = getSingleFence();
     double x = 50.0;
     double y = 50.0;
-    const bool moved = mgr.pushOutOfRegions(x, y, BBox{0.0, 0.0, 100.0, 100.0});
+    const bool moved = mgr.pushOutOfRegions(x, y, BBox{{0.0, 0.0}, {100.0, 100.0}});
     BOOST_TEST(moved);
     BOOST_TEST(!mgr.contains(0, x, y));
 }
@@ -203,7 +203,7 @@ BOOST_AUTO_TEST_CASE(push_out_leaves_a_clear_position_untouched) {
     const constraintMgr mgr = getSingleFence();
     double x = 500.0;
     double y = 500.0;
-    BOOST_TEST(!mgr.pushOutOfRegions(x, y, BBox{0.0, 0.0, 1000.0, 1000.0}));
+    BOOST_TEST(!mgr.pushOutOfRegions(x, y, BBox{{0.0, 0.0}, {1000.0, 1000.0}}));
     BOOST_TEST(x == 500.0);
     BOOST_TEST(y == 500.0);
 }
@@ -219,7 +219,7 @@ BOOST_AUTO_TEST_CASE(push_out_escapes_abutting_fences_without_ping_ponging) {
 
     double x = 5.0;
     double y = 5.0;
-    const bool moved = mgr.pushOutOfRegions(x, y, BBox{0.0, 0.0, 100.0, 100.0});
+    const bool moved = mgr.pushOutOfRegions(x, y, BBox{{0.0, 0.0}, {100.0, 100.0}});
     BOOST_TEST(moved);
     // The contract is only that the point ends up outside *every* fence, which
     // is the property that keeps the escape from oscillating. Which side it
@@ -241,7 +241,7 @@ BOOST_AUTO_TEST_CASE(push_out_prefers_an_escape_that_stays_on_the_die) {
 
     double x = 10.0;
     double y = 50.0;
-    mgr.pushOutOfRegions(x, y, BBox{0.0, 0.0, 100.0, 100.0});
+    mgr.pushOutOfRegions(x, y, BBox{{0.0, 0.0}, {100.0, 100.0}});
     BOOST_TEST(x > 20.0);
     BOOST_TEST(x <= 100.0);
     BOOST_TEST(y == 50.0);
@@ -251,7 +251,7 @@ BOOST_AUTO_TEST_CASE(push_out_with_no_fences_at_all_changes_nothing) {
     const constraintMgr mgr;
     double x = 5.0;
     double y = 5.0;
-    BOOST_TEST(!mgr.pushOutOfRegions(x, y, BBox{0.0, 0.0, 100.0, 100.0}));
+    BOOST_TEST(!mgr.pushOutOfRegions(x, y, BBox{{0.0, 0.0}, {100.0, 100.0}}));
     BOOST_TEST(x == 5.0);
     BOOST_TEST(y == 5.0);
 }
@@ -353,8 +353,8 @@ BOOST_AUTO_TEST_CASE(a_region_with_many_rectangles_reports_its_full_area) {
     BOOST_REQUIRE(r != nullptr);
     BOOST_TEST(r->rects.size() == 3u);
     BOOST_TEST(r->area == 300.0);
-    BOOST_TEST(r->bounds.ylo == 0.0);
-    BOOST_TEST(r->bounds.yhi == 50.0);
+    BOOST_TEST(r->bounds.lowerLeft.y == 0.0);
+    BOOST_TEST(r->bounds.upperRight.y == 50.0);
     // The gap at y in (10, 20) is outside the union.
     BOOST_TEST(!mgr.contains(0, 5.0, 15.0));
     BOOST_TEST(mgr.contains(0, 5.0, 25.0));
@@ -371,9 +371,9 @@ BOOST_AUTO_TEST_CASE(regions_accessor_exposes_what_was_added) {
 
 BOOST_AUTO_TEST_CASE(a_footprint_must_lie_wholly_inside_its_fence) {
     const constraintMgr mgr = getSingleFence();
-    BOOST_TEST(mgr.containsBox(0, BBox{10.0, 10.0, 20.0, 20.0}));
-    BOOST_TEST(mgr.containsBox(0, BBox{90.0, 90.0, 100.0, 100.0}));
-    BOOST_TEST(!mgr.containsBox(0, BBox{95.0, 10.0, 105.0, 20.0}));
+    BOOST_TEST(mgr.containsBox(0, BBox{{10.0, 10.0}, {20.0, 20.0}}));
+    BOOST_TEST(mgr.containsBox(0, BBox{{90.0, 90.0}, {100.0, 100.0}}));
+    BOOST_TEST(!mgr.containsBox(0, BBox{{95.0, 10.0}, {105.0, 20.0}}));
 }
 
 BOOST_AUTO_TEST_CASE(a_footprint_may_span_abutting_rectangles_of_one_fence) {
@@ -382,11 +382,11 @@ BOOST_AUTO_TEST_CASE(a_footprint_may_span_abutting_rectangles_of_one_fence) {
     const std::vector<Point> right = getRect(50.0, 0.0, 100.0, 100.0);
     corners.insert(corners.end(), right.begin(), right.end());
     mgr.addRegion("er0", corners);
-    BOOST_TEST(mgr.containsBox(0, BBox{40.0, 10.0, 60.0, 20.0}));
+    BOOST_TEST(mgr.containsBox(0, BBox{{40.0, 10.0}, {60.0, 20.0}}));
 }
 
 BOOST_AUTO_TEST_CASE(a_box_overlaps_a_fence_only_through_its_interior) {
     const constraintMgr mgr = getSingleFence();
-    BOOST_TEST(mgr.overlapsAnyRegion(BBox{95.0, 10.0, 105.0, 20.0}));
-    BOOST_TEST(!mgr.overlapsAnyRegion(BBox{100.0, 10.0, 110.0, 20.0}));
+    BOOST_TEST(mgr.overlapsAnyRegion(BBox{{95.0, 10.0}, {105.0, 20.0}}));
+    BOOST_TEST(!mgr.overlapsAnyRegion(BBox{{100.0, 10.0}, {110.0, 20.0}}));
 }

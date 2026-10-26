@@ -90,8 +90,8 @@ struct BinGrid {
         return vertical ? x0 + static_cast<double>(t) * dx : y0 + static_cast<double>(t) * dy;
     }
     [[nodiscard]] BBox getBox(const BinRect &r) const {
-        return {getEdge(true, r.x0), getEdge(false, r.y0), getEdge(true, r.x1 + 1),
-                getEdge(false, r.y1 + 1)};
+        return {{getEdge(true, r.x0), getEdge(false, r.y0)},
+                {getEdge(true, r.x1 + 1), getEdge(false, r.y1 + 1)}};
     }
     [[nodiscard]] double sum(const std::vector<double> &field, const BinRect &r) const {
         double total = 0.0;
@@ -103,15 +103,15 @@ struct BinGrid {
         return total;
     }
     void deposit(const BBox &b, double sign) {
-        if (!(b.xhi > b.xlo) || !(b.yhi > b.ylo)) {
+        if (!(b.upperRight.x > b.lowerLeft.x) || !(b.upperRight.y > b.lowerLeft.y)) {
             return;
         }
-        for (std::size_t iy = getRow(b.ylo); iy <= getRow(b.yhi); ++iy) {
-            const double oy =
-                std::min(b.yhi, getEdge(false, iy + 1)) - std::max(b.ylo, getEdge(false, iy));
-            for (std::size_t ix = getColumn(b.xlo); ix <= getColumn(b.xhi); ++ix) {
-                const double ox =
-                    std::min(b.xhi, getEdge(true, ix + 1)) - std::max(b.xlo, getEdge(true, ix));
+        for (std::size_t iy = getRow(b.lowerLeft.y); iy <= getRow(b.upperRight.y); ++iy) {
+            const double oy = std::min(b.upperRight.y, getEdge(false, iy + 1)) -
+                              std::max(b.lowerLeft.y, getEdge(false, iy));
+            for (std::size_t ix = getColumn(b.lowerLeft.x); ix <= getColumn(b.upperRight.x); ++ix) {
+                const double ox = std::min(b.upperRight.x, getEdge(true, ix + 1)) -
+                                  std::max(b.lowerLeft.x, getEdge(true, ix));
                 if (ox > 0.0 && oy > 0.0) {
                     avail[at(ix, iy)] += sign * ox * oy;
                 }
@@ -148,8 +148,8 @@ struct FreeSpace {
         for (Row &row : rows) {
             std::vector<std::pair<double, double>> cuts;
             for (const BBox &o : obstacles) {
-                if (o.yhi > row.y0 && o.ylo < row.y1) {
-                    cuts.emplace_back(o.xlo, o.xhi);
+                if (o.upperRight.y > row.y0 && o.lowerLeft.y < row.y1) {
+                    cuts.emplace_back(o.lowerLeft.x, o.upperRight.x);
                 }
             }
             std::stable_sort(cuts.begin(), cuts.end());
@@ -175,11 +175,11 @@ struct FreeSpace {
 
     [[nodiscard]] AxisProfile getProfile(const BBox &b, bool vertical) const {
         const auto first =
-            std::upper_bound(rows.begin(), rows.end(), b.ylo, [](double v, const Row &r) {
+            std::upper_bound(rows.begin(), rows.end(), b.lowerLeft.y, [](double v, const Row &r) {
                 return v < r.y1;
             });
-        const double lo = vertical ? b.xlo : b.ylo;
-        const double hi = vertical ? b.xhi : b.yhi;
+        const double lo = vertical ? b.lowerLeft.x : b.lowerLeft.y;
+        const double hi = vertical ? b.upperRight.x : b.upperRight.y;
         AxisProfile out;
         out.edges.push_back(lo);
         out.prefix.push_back(0.0);
@@ -191,8 +191,8 @@ struct FreeSpace {
         };
         if (vertical) {
             std::vector<std::pair<double, double>> steps;
-            for (auto r = first; r != rows.end() && r->y0 < b.yhi; ++r) {
-                const double h = std::min(b.yhi, r->y1) - std::max(b.ylo, r->y0);
+            for (auto r = first; r != rows.end() && r->y0 < b.upperRight.y; ++r) {
+                const double h = std::min(b.upperRight.y, r->y1) - std::max(b.lowerLeft.y, r->y0);
                 for (const auto &[s0, s1] : r->spans) {
                     const double a = std::max(s0, lo);
                     const double z = std::min(s1, hi);
@@ -209,12 +209,12 @@ struct FreeSpace {
                 height += dh;
             }
         } else {
-            for (auto r = first; r != rows.end() && r->y0 < b.yhi; ++r) {
+            for (auto r = first; r != rows.end() && r->y0 < b.upperRight.y; ++r) {
                 const double a = std::max(lo, r->y0);
                 const double z = std::min(hi, r->y1);
                 if (z > a) {
                     extend(a, 0.0);
-                    extend(z, r->getLength(b.xlo, b.xhi) * (z - a));
+                    extend(z, r->getLength(b.lowerLeft.x, b.upperRight.x) * (z - a));
                 }
             }
         }

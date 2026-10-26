@@ -228,8 +228,8 @@ std::optional<std::pair<Block, Block>> LookAheadLegalizer::split(Block &region,
     std::vector<std::uint32_t> high(cells.begin() + static_cast<long>(m), cells.end());
 
     const BBox &box = region.box;
-    const double lo = vertical ? box.xlo : box.ylo;
-    const double hi = vertical ? box.xhi : box.yhi;
+    const double lo = vertical ? box.lowerLeft.x : box.lowerLeft.y;
+    const double hi = vertical ? box.upperRight.x : box.upperRight.y;
     const AxisProfile room = freeSpace.getProfile(box, vertical);
     const double share = cellArea > 0.0 ? lowArea / cellArea : 0.5;
     const double cutline = room.getTotal() > 0.0 ? room.getCoordinateAt(share * room.getTotal())
@@ -237,8 +237,8 @@ std::optional<std::pair<Block, Block>> LookAheadLegalizer::split(Block &region,
 
     BBox lowBox = box;
     BBox highBox = box;
-    (vertical ? lowBox.xhi : lowBox.yhi) = cutline;
-    (vertical ? highBox.xlo : highBox.ylo) = cutline;
+    (vertical ? lowBox.upperRight.x : lowBox.upperRight.y) = cutline;
+    (vertical ? highBox.lowerLeft.x : highBox.lowerLeft.y) = cutline;
 
     nonlinearScale(low, lowBox, vertical, cutline, true, pos, region.regionRoom);
     nonlinearScale(high, highBox, vertical, cutline, false, pos, region.regionRoom);
@@ -250,16 +250,18 @@ std::optional<std::pair<Block, Block>> LookAheadLegalizer::split(Block &region,
 
 std::vector<Stripe> LookAheadLegalizer::getStripes(const BBox &box, bool vertical, double cellArea,
                                                    double regionRoom) const {
-    const double lo = vertical ? box.xlo : box.ylo;
-    const double hi = vertical ? box.xhi : box.yhi;
+    const double lo = vertical ? box.lowerLeft.x : box.lowerLeft.y;
+    const double hi = vertical ? box.upperRight.x : box.upperRight.y;
     const AxisProfile room = freeSpace.getProfile(box, vertical);
 
     std::vector<double> cuts{lo, hi};
     for (const BBox &o : obstacles) {
-        if (o.xhi <= box.xlo || o.xlo >= box.xhi || o.yhi <= box.ylo || o.ylo >= box.yhi) {
+        if (o.upperRight.x <= box.lowerLeft.x || o.lowerLeft.x >= box.upperRight.x ||
+            o.upperRight.y <= box.lowerLeft.y || o.lowerLeft.y >= box.upperRight.y) {
             continue;
         }
-        for (const double edge : {vertical ? o.xlo : o.ylo, vertical ? o.xhi : o.yhi}) {
+        for (const double edge : {vertical ? o.lowerLeft.x : o.lowerLeft.y,
+                                  vertical ? o.upperRight.x : o.upperRight.y}) {
             if (edge > lo && edge < hi) {
                 cuts.push_back(edge);
             }
@@ -344,8 +346,10 @@ void LookAheadLegalizer::nonlinearScale(const std::vector<std::uint32_t> &cells,
 
 void LookAheadLegalizer::clampToDie(std::vector<double> &x, std::vector<double> &y) const {
     for (std::size_t i = 0; i < getNumMovable(); ++i) {
-        x[i] = std::clamp(x[i], die.xlo, std::max(die.xlo, die.xhi - width[i]));
-        y[i] = std::clamp(y[i], die.ylo, std::max(die.ylo, die.yhi - height[i]));
+        x[i] = std::clamp(x[i], die.lowerLeft.x,
+                          std::max(die.lowerLeft.x, die.upperRight.x - width[i]));
+        y[i] = std::clamp(y[i], die.lowerLeft.y,
+                          std::max(die.lowerLeft.y, die.upperRight.y - height[i]));
     }
 }
 
