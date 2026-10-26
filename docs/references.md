@@ -23,12 +23,24 @@ papers themselves are not part of this repository; follow the links.
 ## Legalization
 
 - **Abacus.** P. Spindler, U. Schlichtmann, F. M. Johannes. "Abacus: Fast
-  Legalization of Standard Cell Circuits with Minimal Movement." *ISPD* 2008.
+  Legalization of Standard Cell Circuits with Minimal Movement." *ISPD* 2008, 47–53.
+  [doi:10.1145/1353629.1353640](https://doi.org/10.1145/1353629.1353640). Guide:
+  [Abacus](legalization/abacus/README.md).
+- **Tetris.** D. Hill. "Method and System for High Speed Detailed Placement of Cells
+  Within Integrated Circuit Designs." US Patent 6,370,673, 2002.
 
 ## Detailed placement
 
 - **FastDP.** M. Pan, N. Viswanathan, C. Chu. "An Efficient and Effective Detailed
-  Placement Algorithm." *ICCAD* 2005.
+  Placement Algorithm." *ICCAD* 2005, 48–55.
+  [doi:10.1109/ICCAD.2005.1560039](https://doi.org/10.1109/ICCAD.2005.1560039). Guide:
+  [FastDP](detailed-placement/fastdp/README.md).
+- **Single-row problem.** A. B. Kahng, P. Tucker, A. Zelikovsky. "Optimization of Linear
+  Placements for Wirelength Minimization with Free Sites." *ASP-DAC* 1999, 241–244. The
+  clustering optimality argument both Abacus and FastDP rely on.
+- **Median rule.** S. Goto. "An Efficient Algorithm for the Two-Dimensional Placement
+  Problem in Electrical Circuit Layout." *IEEE Transactions on Circuits and Systems*
+  28(1), 12–18, 1981.
 
 ## Background
 

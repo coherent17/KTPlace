@@ -110,5 +110,20 @@ nav:
           - 2. Look-ahead legalization: global-placement/simpl/02-look-ahead-legalization.md
           - 3. Anchors and convergence: global-placement/simpl/03-anchors-and-convergence.md
           - 4. Speed, results, parallelism: global-placement/simpl/04-speed-results-parallelism.md
+  - Legalization:
+      - Abacus:
+          - Overview: legalization/abacus/README.md
+          - 1. Legalization and Tetris: legalization/abacus/01-legalization-and-tetris.md
+          - 2. PlaceRow: legalization/abacus/02-placerow.md
+          - 3. Clusters and dynamic programming: legalization/abacus/03-clusters-and-dynamic-programming.md
+          - 4. Complexity and results: legalization/abacus/04-complexity-and-results.md
+  - Detailed placement:
+      - FastDP:
+          - Overview: detailed-placement/fastdp/README.md
+          - 1. The flow: detailed-placement/fastdp/01-the-flow.md
+          - 2. Global Swap: detailed-placement/fastdp/02-global-swap.md
+          - 3. Vertical Swap and Local Re-ordering: detailed-placement/fastdp/03-vertical-swap-and-reordering.md
+          - 4. Single-Segment Clustering: detailed-placement/fastdp/04-single-segment-clustering.md
+          - 5. Results: detailed-placement/fastdp/05-results.md
   - Glossary: glossary.md
   - References: references.md
