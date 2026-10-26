@@ -88,24 +88,6 @@ std::string Logger::tracePathFor(const std::string &logFilePath) {
     return logFilePath.substr(0, dot) + "_trace" + logFilePath.substr(dot);
 }
 
-const std::string &Logger::traceFilePath() const {
-    return tracePath;
-}
-
-bool Logger::isVerbose() const {
-    const std::scoped_lock lock(mutex);
-    return verboseEnabled;
-}
-
-const std::string &Logger::logFilePath() const {
-    return path;
-}
-
-std::size_t Logger::recordCount() const {
-    const std::scoped_lock lock(mutex);
-    return records;
-}
-
 void Logger::setSink(Sink newSink) {
     const std::scoped_lock lock(mutex);
     sink = std::move(newSink);
@@ -131,7 +113,6 @@ void Logger::emit(Level level, const std::string &message) {
     }
 
     const std::scoped_lock lock(mutex);
-    ++records;
 
     const std::string prefix = '[' + step + "] ";
     const std::string tag = flagged ? std::string(getLevelTag(level)) + ": " : std::string();

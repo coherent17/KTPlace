@@ -37,9 +37,6 @@ public:
     [[nodiscard]] bool isDouble() const noexcept {
         return kindOf == Kind::Double;
     }
-    [[nodiscard]] bool isBool() const noexcept {
-        return kindOf == Kind::Bool;
-    }
     [[nodiscard]] bool isList() const noexcept {
         return kindOf == Kind::List;
     }
@@ -55,11 +52,9 @@ public:
 
     // True for a number in any spelling. How a script's own quoting is told apart
     // from a deliberate string option.
-    [[nodiscard]] bool isNumeric() const noexcept;
 
     // Two values are equal when their canonical text is: that is the comparison a
     // test and a report both mean, and it makes 1 and 1.0 agree, as Tcl does.
-    friend bool operator==(const Value &left, const Value &right);
 
 private:
     Kind kindOf = Kind::String;
@@ -83,79 +78,6 @@ public:
 private:
     std::string message;
 };
-
-// A register of values addressed by name, the shape an interpreter, a variable
-// table and the option registry all have. Templated so the accessors are generated
-// rather than written three times.
-template <typename ValueType>
-class Register {
-public:
-    Register() = default;
-
-    void assign(std::string name, ValueType value) {
-        entries.insert_or_assign(std::move(name), std::move(value));
-    }
-
-    void remove(const std::string &name) {
-        entries.erase(name);
-    }
-
-    [[nodiscard]] bool contains(const std::string &name) const {
-        return entries.find(name) != entries.end();
-    }
-
-    [[nodiscard]] std::size_t size() const noexcept {
-        return entries.size();
-    }
-
-    void clear() {
-        entries.clear();
-    }
-
-    // Adopts an existing set of entries, so a view can be handed back out.
-    explicit Register(const std::map<std::string, ValueType> &source) : entries(source) {}
-
-    // Null when the name was never set. A component reads its option as an
-    // optional and takes its default when it is empty, which is what makes "not
-    // configured" and "configured to the default value" the same thing.
-    [[nodiscard]] std::optional<ValueType> find(const std::string &name) const {
-        const auto entry = entries.find(name);
-        if (entry == entries.end()) {
-            return std::nullopt;
-        }
-        return entry->second;
-    }
-
-    [[nodiscard]] ValueType get(const std::string &name, ValueType fallback) const {
-        const auto found = find(name);
-        return found ? *found : std::move(fallback);
-    }
-
-    [[nodiscard]] const std::map<std::string, ValueType> &getAll() const noexcept {
-        return entries;
-    }
-
-    [[nodiscard]] std::vector<std::string> getNames() const {
-        std::vector<std::string> out;
-        out.reserve(entries.size());
-        for (const auto &entry : entries) {
-            out.push_back(entry.first);
-        }
-        return out;
-    }
-
-    template <typename Visitor>
-    void forEach(Visitor &&visitor) const {
-        for (const auto &entry : entries) {
-            visitor(entry.first, entry.second);
-        }
-    }
-
-private:
-    std::map<std::string, ValueType> entries;
-};
-
-using Variables = Register<Value>;
 
 // One script command: the command name, then its words, with substitutions not
 // yet applied. A braced word is one that must *not* be substituted, so the parser
@@ -189,7 +111,6 @@ public:
     [[nodiscard]] Value evalFile(const std::string &path);
 
     void registerCommand(CommandHelp help, Command command);
-    [[nodiscard]] bool hasCommand(const std::string &name) const;
     [[nodiscard]] std::string getHelpText(const std::string &name = {}) const;
     [[nodiscard]] const std::map<std::string, Command> &getCommands() const noexcept;
 
@@ -198,11 +119,6 @@ public:
     void unsetVariable(const std::string &name);
     [[nodiscard]] Value getVariable(const std::string &name) const;
     [[nodiscard]] bool hasVariable(const std::string &name) const noexcept;
-    [[nodiscard]] Variables getVariables() const;
-
-    // Runs one already-split command. Exposed because `source` and the option
-    // commands need it, and because it is the unit the tests drive.
-    [[nodiscard]] Value invoke(const Arguments &args);
 
     // Replaces $var, ${var}, [command] and backslash escapes. Braced words never
     // reach it, which is what makes them literal.
@@ -211,8 +127,6 @@ public:
     // A Tcl list literal split into its elements, honouring braces and quotes.
     [[nodiscard]] std::vector<Value> splitList(const std::string &text) const;
 
-    // The script currently being run, outermost first, for error messages.
-    [[nodiscard]] std::string getScriptPath() const;
 
 private:
     void installBuiltins();
@@ -223,8 +137,7 @@ private:
     std::map<std::string, Command> commandTable;
     std::map<std::string, CommandHelp> helpTable;
     std::set<std::string> builtinNames;
-    Variables variableTable;
-    std::vector<std::string> scriptStack;
+    std::map<std::string, Value> variableTable;
     std::string currentCommand;
 };
 

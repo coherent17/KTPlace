@@ -361,7 +361,7 @@ void Visualizer::record(const Graph &g, const std::vector<float> &x, const std::
         // picture that gets looked at was missing the regions the placement was
         // required to respect.
         if (inBackground) {
-            render([path, &g, ix, iy, die, step, total, hpwl, hpwlInitial, resid, note, constraints,
+            render([path, &g, ix, iy, die, hpwl, hpwlInitial, resid, note, constraints,
                     zoom = frameZoom, title = getHeading(note)] {
                 writeFrameRaster(path, g, ix, iy, die, hpwl, hpwlInitial, resid, note, constraints,
                                  /*fixedView=*/true, zoom, /*drawRows=*/false, title);
@@ -461,7 +461,7 @@ struct ViewPort {
     Point lowerLeft;
     double sx = 1.0, sy = 1.0;  // units -> px
     double offsetX = 0.0;
-    double margin = margin;  // px, scaled by the frame's zoom
+    double margin = 0.0;     // px, scaled by the frame's zoom
     double height = imageH;  // px, scaled by the frame's zoom
 };
 
@@ -783,12 +783,6 @@ public:
         lut[3 * i + 1] = c.g;
         lut[3 * i + 2] = c.b;
         return lut.data() + 3 * i;
-    }
-
-    /// The same colour as a 3-value image, for fill(), which takes values
-    /// rather than a pointer.
-    CImg<unsigned char> getValue(const Rgb24 &c) {
-        return CImg<unsigned char>(getPtr(c), 3, 1, 1);
     }
 
 private:

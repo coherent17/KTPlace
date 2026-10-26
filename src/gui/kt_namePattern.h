@@ -15,7 +15,6 @@ public:
 
     [[nodiscard]] bool isMatch(std::string_view name) const;
     [[nodiscard]] bool isLiteral() const;
-    [[nodiscard]] const std::string &getText() const;
 
 private:
     std::string glob;

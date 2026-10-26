@@ -78,10 +78,6 @@ public:
 
     bool pushOutOfRegions(Point &p, const BBox &die) const;
 
-    // Count instances currently outside their region.
-
-    [[nodiscard]] std::size_t countViolations(const std::vector<Point> &positions,
-                                              const std::vector<int> &regionIds) const;
 
 private:
     /// @return true when (x, y) is inside any region

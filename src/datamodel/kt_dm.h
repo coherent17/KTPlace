@@ -86,8 +86,6 @@ public:
     // Cell fixed/movable status
     void setCellFixed(std::size_t cellId, bool fixed);
     void setCellFixed(const std::string &cellName, bool fixed);
-    [[nodiscard]] bool isCellFixed(std::size_t cellId) const;
-    [[nodiscard]] bool isCellFixed(const std::string &cellName) const;
 
     [[nodiscard]] std::size_t addRow(double coordinate, double height, double sitewidth,
                                      double sitespacing);
@@ -100,7 +98,6 @@ public:
     }
 
     void setDieArea(const BBox &box);
-    [[nodiscard]] const BBox &getDieArea() const;
 
     [[nodiscard]] BBox getPlacementDieBox() const;
 
@@ -111,8 +108,6 @@ public:
     [[nodiscard]] double getMacroHeight() const;
     [[nodiscard]] std::vector<std::vector<RowPiece>> getFencedSubrows() const;
 
-    [[nodiscard]] const std::vector<std::size_t> &getNetPins(std::size_t netId) const;
-    [[nodiscard]] const std::vector<std::size_t> &getCellPins(std::size_t cellId) const;
 
     /// Pin ids are what these return, not vertex ids.
 

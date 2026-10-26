@@ -287,10 +287,8 @@ bool LefDefInputAdapter::parseLefFile(const std::string &filePath) {
     bool inSite = false;
     bool inPropDefs = false;
     std::string site;
-    std::size_t lineNum = 0;
 
     while (std::getline(file.getStream(), line)) {
-        ++lineNum;
         const auto tokens = tokenize(line);
         if (tokens.empty()) {
             continue;
@@ -395,7 +393,6 @@ bool LefDefInputAdapter::parseDefFile(const std::string &filePath) {
     }
 
     std::string line;
-    std::size_t lineNum = 0;
     int section = 0;  // 0=none, 1=COMPONENTS, 2=PINS, 3=NETS, 4=REGIONS, 5=GROUPS
 
     // REGIONS/GROUPS entries wrap over several lines, so tokens accumulate
@@ -480,7 +477,6 @@ bool LefDefInputAdapter::parseDefFile(const std::string &filePath) {
     };
 
     while (std::getline(file.getStream(), line)) {
-        ++lineNum;
         const auto tokens = tokenize(line);
         if (tokens.empty()) {
             continue;

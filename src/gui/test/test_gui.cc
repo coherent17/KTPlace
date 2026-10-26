@@ -425,7 +425,7 @@ BOOST_AUTO_TEST_CASE(the_window_runs_a_design_and_logs_it) {
     BOOST_TEST((result->outcome == RunResult::Outcome::Placed));
     BOOST_TEST(window.getStatus().startsWith(QStringLiteral("Placed: ")));
     BOOST_TEST(window.getLayoutView()->getFrame().stage == "detailed placement");
-    BOOST_TEST(window.logView()->toPlainText().contains(
+    BOOST_TEST(window.getLogView()->toPlainText().contains(
         QStringLiteral("Placement completed successfully!")));
 }
 
@@ -874,7 +874,7 @@ BOOST_AUTO_TEST_CASE(locate_buttons_select_and_zoom) {
     QAction *open = getActionNamed(shown.window, QStringLiteral("Locate..."));
     BOOST_REQUIRE(open != nullptr);
     open->trigger();
-    LocateDialog &locate = *shown.window.locateDialog();
+    LocateDialog &locate = *shown.window.getLocateDialog();
     BOOST_TEST(locate.isVisible());
     locate.search(QStringLiteral("c*"), LocateDialog::Target::Cells);
     getChildNamed<QPushButton>(locate, QStringLiteral("Select"))->click();

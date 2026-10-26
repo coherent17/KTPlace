@@ -204,16 +204,4 @@ std::size_t constraintMgr::assignByPrefix(int regionId, const std::string &prefi
     return assigned;
 }
 
-std::size_t constraintMgr::countViolations(const std::vector<Point> &positions,
-                                           const std::vector<int> &regionIds) const {
-    std::size_t violations = 0;
-    const std::size_t count = std::min(positions.size(), regionIds.size());
-    for (std::size_t i = 0; i < count; ++i) {
-        if (!contains(regionIds[i], positions[i])) {
-            ++violations;
-        }
-    }
-    return violations;
-}
-
 }  // namespace ktplace

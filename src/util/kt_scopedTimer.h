@@ -35,15 +35,9 @@ public:
     void started(const std::string &name);
     void stopped();
 
-    [[nodiscard]] bool isEnabled(const std::string &name) const;
-
     [[nodiscard]] const TimerStats *find(const std::string &name) const;
 
     [[nodiscard]] std::vector<std::pair<std::string, TimerStats>> getSnapshot() const;
-
-    [[nodiscard]] double getTotalWallSeconds() const;
-
-    [[nodiscard]] double getTotalCpuSeconds() const;
 
     void reset();
 
@@ -54,7 +48,6 @@ private:
 
     mutable std::mutex mutex;
     std::map<std::string, TimerStats> stats;
-    std::map<std::string, bool> enabled;
     struct FirstRun {
         std::size_t order = 0;
         std::size_t depth = 0;
@@ -65,8 +58,6 @@ private:
 
 class Stopwatch {
 public:
-    void restart();
-
     [[nodiscard]] double getElapsedSeconds() const;
 
     [[nodiscard]] double getCpuElapsedSeconds() const;
@@ -85,13 +76,9 @@ public:
 
     ~ScopedTimer();
 
-    void lap();
-
     [[nodiscard]] double getElapsedSeconds() const;
 
     [[nodiscard]] double getCpuElapsedSeconds() const;
-
-    [[nodiscard]] const std::string &getName() const;
 
 private:
     std::string timerName;

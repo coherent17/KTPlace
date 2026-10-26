@@ -122,14 +122,6 @@ void ktDM::setCellFixed(const std::string &cellName, bool fixed) {
     setCellFixed(getCellId(cellName), fixed);
 }
 
-bool ktDM::isCellFixed(std::size_t cellId) const {
-    return graph.getCell(cellId).isFixed;
-}
-
-bool ktDM::isCellFixed(const std::string &cellName) const {
-    return isCellFixed(getCellId(cellName));
-}
-
 std::size_t ktDM::addRow(double coordinate, double height, double sitewidth, double sitespacing) {
     return dieInfo.addRow(coordinate, height, sitewidth, sitespacing);
 }
@@ -157,18 +149,6 @@ const std::vector<RowInfo> &ktDM::getRows() const {
 
 void ktDM::setDieArea(const BBox &box) {
     dieInfo.setDieArea(box);
-}
-
-const BBox &ktDM::getDieArea() const {
-    return dieInfo.getDieArea();
-}
-
-const std::vector<std::size_t> &ktDM::getNetPins(std::size_t netId) const {
-    return graph.getNetPins(netId);
-}
-
-const std::vector<std::size_t> &ktDM::getCellPins(std::size_t cellId) const {
-    return graph.getCellPins(cellId);
 }
 
 const constraintMgr &ktDM::getConstraints() const {

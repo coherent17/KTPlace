@@ -78,7 +78,6 @@ public:
     [[nodiscard]] std::size_t addCell(const std::string &name);
     [[nodiscard]] bool hasCell(const std::string &name) const;
     [[nodiscard]] std::size_t getCellId(const std::string &name) const;
-    [[nodiscard]] const std::vector<Vertex> &getCells() const;
     [[nodiscard]] Vertex &getCell(std::size_t id);
     [[nodiscard]] const Vertex &getCell(std::size_t id) const;
     [[nodiscard]] std::size_t getNumCells() const;
@@ -87,7 +86,6 @@ public:
     [[nodiscard]] std::size_t addNet(const std::string &name, double weight = 1.0);
     [[nodiscard]] bool hasNet(const std::string &name) const;
     [[nodiscard]] std::size_t getNetId(const std::string &name) const;
-    [[nodiscard]] const std::vector<Net> &getNets() const;
     [[nodiscard]] const Net &getNet(std::size_t id) const;
     [[nodiscard]] std::size_t getNumNets() const;
 

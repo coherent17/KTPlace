@@ -34,15 +34,7 @@ public:
 
     void configure(std::string logFilePath, bool verbose);
 
-    [[nodiscard]] bool isVerbose() const;
-
-    [[nodiscard]] const std::string &logFilePath() const;
-
-    [[nodiscard]] const std::string &traceFilePath() const;
-
     [[nodiscard]] static std::string tracePathFor(const std::string &logFilePath);
-
-    [[nodiscard]] std::size_t recordCount() const;
 
     // Called with the logger locked, so a sink must not log.
     void setSink(Sink sink);
@@ -108,7 +100,6 @@ private:
     bool verboseEnabled = false;
     bool reportedOpenFailure = false;
     std::string step = "ktplace";
-    std::size_t records = 0;
     Sink sink;
     std::atomic<bool> throwFatal = false;
 };

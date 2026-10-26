@@ -77,17 +77,6 @@ public:
         out << content;
     }
 
-    [[nodiscard]] std::vector<std::string> readLines(const std::string &name) const {
-        std::ifstream in(getFile(name));
-        std::vector<std::string> lines;
-        std::string line;
-        while (std::getline(in, line)) {
-            if (!line.empty()) {
-                lines.push_back(line);
-            }
-        }
-        return lines;
-    }
 
 private:
     fs::path path;

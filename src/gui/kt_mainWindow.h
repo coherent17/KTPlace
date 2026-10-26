@@ -27,14 +27,13 @@ public:
     void run();
     void stop();
 
-    [[nodiscard]] const RunRequest &getRequest() const;
     [[nodiscard]] bool isRunning() const;
     [[nodiscard]] LayoutView *getLayoutView() const;
-    [[nodiscard]] LogView *logView() const;
+    [[nodiscard]] LogView *getLogView() const;
     [[nodiscard]] TclConsole *getTclConsole() const;
     [[nodiscard]] VisibilityPanel *getVisibilityPanel() const;
     [[nodiscard]] DetailsPanel *getDetailsPanel() const;
-    [[nodiscard]] LocateDialog *locateDialog() const;
+    [[nodiscard]] LocateDialog *getLocateDialog() const;
     [[nodiscard]] QString getCursorText() const;
     [[nodiscard]] QString getStatus() const;
 

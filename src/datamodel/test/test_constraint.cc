@@ -313,28 +313,6 @@ BOOST_AUTO_TEST_CASE(a_prefix_longer_than_the_name_cannot_match) {
     BOOST_TEST(mgr.assignByPrefix(0, "abcdef", graph) == 0u);
 }
 
-BOOST_AUTO_TEST_CASE(violations_are_counted_over_the_shorter_of_the_inputs) {
-    constraintMgr mgr = getSingleFence();
-    // Two positions, only the first of which is outside the fence.
-    const std::vector<Point> positions{Point(500.0, 500.0), Point(50.0, 50.0)};
-    const std::vector<int> regions{0, 0};
-    BOOST_TEST(mgr.countViolations(positions, regions) == 1u);
-
-    // Unconstrained positions never count, whatever they are.
-    const std::vector<int> free{-1, -1};
-    BOOST_TEST(mgr.countViolations(positions, free) == 0u);
-}
-
-BOOST_AUTO_TEST_CASE(a_missing_region_id_list_truncates_the_count) {
-    // The region id array is per movable; a short one means the caller has not
-    // filled the solver buffers yet. Counting past its end would be a read of
-    // stale memory, so the shorter length wins.
-    constraintMgr mgr = getSingleFence();
-    const std::vector<Point> positions{Point(500.0, 500.0), Point(500.0, 500.0)};
-    const std::vector<int> regions{0};
-    BOOST_TEST(mgr.countViolations(positions, regions) == 1u);
-}
-
 BOOST_AUTO_TEST_CASE(a_region_with_many_rectangles_reports_its_full_area) {
     constraintMgr mgr;
     mgr.addRegion("er0", {Point(0.0, 0.0), Point(10.0, 10.0), Point(0.0, 20.0), Point(10.0, 30.0),

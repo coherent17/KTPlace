@@ -572,10 +572,6 @@ void MainWindow::stop() {
     pImpl->runner.stop();
 }
 
-const RunRequest &MainWindow::getRequest() const {
-    return pImpl->request;
-}
-
 bool MainWindow::isRunning() const {
     return pImpl->runner.isRunning();
 }
@@ -584,7 +580,7 @@ LayoutView *MainWindow::getLayoutView() const {
     return pImpl->view;
 }
 
-LogView *MainWindow::logView() const {
+LogView *MainWindow::getLogView() const {
     return pImpl->log;
 }
 
@@ -600,7 +596,7 @@ DetailsPanel *MainWindow::getDetailsPanel() const {
     return pImpl->details;
 }
 
-LocateDialog *MainWindow::locateDialog() const {
+LocateDialog *MainWindow::getLocateDialog() const {
     return pImpl->locate;
 }
 

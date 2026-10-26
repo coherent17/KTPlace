@@ -192,8 +192,9 @@ namespace {
     return OptionDb::getInstance().getComponentOption(component);
 }
 
-[[nodiscard]] OptionValue getStored(Component component, std::string_view key) {
-    const std::optional<OptionValue> value = getOptionsOf(component).find(key);
+template <OptionType T>
+[[nodiscard]] T getStored(Component component, std::string_view key) {
+    const std::optional<T> value = getOptionsOf(component).get<T>(key);
     BOOST_REQUIRE(value.has_value());
     return *value;
 }
@@ -210,9 +211,9 @@ BOOST_AUTO_TEST_CASE(the_basic_example_sets_what_it_says) {
     OptionsFixture fixture;
     fixture.getMgr().loadScript(getExampleScript("add_option_basic.tcl"));
 
-    BOOST_TEST(std::get<int>(getStored(Component::Simpl, "grid")) == 64);
-    BOOST_TEST(std::get<double>(getStored(Component::Simpl, "cg_tol")) == 1e-6);
-    BOOST_TEST(std::get<int>(getStored(Component::Abacus, "max_row_dist")) == 3);
+    BOOST_TEST(getStored<int>(Component::Simpl, "grid") == 64);
+    BOOST_TEST(getStored<double>(Component::Simpl, "cg_tol") == 1e-6);
+    BOOST_TEST(getStored<int>(Component::Abacus, "max_row_dist") == 3);
     // The script mentioned no fastdp, so fastdp is unconfigured.
     BOOST_TEST(getOptionsOf(Component::FastDp).empty());
 }
@@ -221,12 +222,12 @@ BOOST_AUTO_TEST_CASE(the_types_example_keeps_each_type) {
     OptionsFixture fixture;
     fixture.getMgr().loadScript(getExampleScript("add_option_types.tcl"));
 
-    BOOST_TEST(std::get<int>(getStored(Component::Simpl, "grid")) == 64);
-    BOOST_TEST(std::get<double>(getStored(Component::Simpl, "alpha_base")) == 1.5e-3);
+    BOOST_TEST(getStored<int>(Component::Simpl, "grid") == 64);
+    BOOST_TEST(getStored<double>(Component::Simpl, "alpha_base") == 1.5e-3);
     // A bare 0 is an int, and a bool option reads it as false.
     BOOST_TEST(getOptionsOf(Component::Simpl).get<bool>("fences").value_or(true) == false);
     // Braces keep a string that reads like a number a string.
-    BOOST_TEST(std::get<std::string>(getStored(Component::Simpl, "tag")) == "a name with spaces");
+    BOOST_TEST(getStored<std::string>(Component::Simpl, "tag") == "a name with spaces");
 }
 
 BOOST_AUTO_TEST_CASE(the_computed_example_runs_ordinary_tcl) {
@@ -234,12 +235,12 @@ BOOST_AUTO_TEST_CASE(the_computed_example_runs_ordinary_tcl) {
     fixture.getMgr().loadScript(getExampleScript("computed_options.tcl"));
 
     // The `if` narrowed the default the script set first.
-    BOOST_TEST(std::get<int>(getStored(Component::Simpl, "grid")) == 64);
+    BOOST_TEST(getStored<int>(Component::Simpl, "grid") == 64);
     // `foreach` set an option on each of two components.
-    BOOST_TEST(std::get<int>(getStored(Component::Abacus, "max_row_dist")) == 3);
-    BOOST_TEST(std::get<int>(getStored(Component::FastDp, "window")) == 2);
+    BOOST_TEST(getStored<int>(Component::Abacus, "max_row_dist") == 3);
+    BOOST_TEST(getStored<int>(Component::FastDp, "window") == 2);
     // A value taken from a variable.
-    BOOST_TEST(std::get<int>(getStored(Component::Simpl, "cluster_scale")) == 4);
+    BOOST_TEST(getStored<int>(Component::Simpl, "cluster_scale") == 4);
 }
 
 BOOST_AUTO_TEST_CASE(a_broken_example_names_the_file_and_the_mistake) {
@@ -268,11 +269,11 @@ BOOST_AUTO_TEST_CASE(add_option_records_a_typed_value_per_component) {
     BOOST_TEST(!getOptionsOf(Component::Simpl).contains("cluster_scale"));
     BOOST_TEST(getOptionsOf(Component::FastDp).empty());
 
-    BOOST_TEST(std::get<double>(getStored(Component::Simpl, "cg_tol")) == 1e-6);
-    BOOST_TEST(std::get<int>(getStored(Component::Simpl, "grid")) == 64);
+    BOOST_TEST(getStored<double>(Component::Simpl, "cg_tol") == 1e-6);
+    BOOST_TEST(getStored<int>(Component::Simpl, "grid") == 64);
 
     // Components are independent: the same key in two is two options.
-    BOOST_TEST(std::get<int>(getStored(Component::Abacus, "max_row_dist")) == 3);
+    BOOST_TEST(getStored<int>(Component::Abacus, "max_row_dist") == 3);
     BOOST_TEST(!getOptionsOf(Component::Abacus).contains("grid"));
 }
 
@@ -287,13 +288,13 @@ BOOST_AUTO_TEST_CASE(add_option_needs_three_arguments) {
 BOOST_AUTO_TEST_CASE(an_option_value_is_taken_from_a_variable) {
     OptionsFixture fixture;
     (void)fixture.getMgr().interpreter.eval("set g 128\nadd_option simpl grid $g\n");
-    BOOST_TEST(std::get<int>(getStored(Component::Simpl, "grid")) == 128);
+    BOOST_TEST(getStored<int>(Component::Simpl, "grid") == 128);
 }
 
 BOOST_AUTO_TEST_CASE(a_braced_value_stays_a_string) {
     OptionsFixture fixture;
     (void)fixture.getMgr().interpreter.eval("add_option simpl tag {64}\n");
-    BOOST_TEST(std::get<std::string>(getStored(Component::Simpl, "tag")) == "64");
+    BOOST_TEST(getStored<std::string>(Component::Simpl, "tag") == "64");
 }
 
 BOOST_AUTO_TEST_CASE(a_component_reads_its_own_options) {
