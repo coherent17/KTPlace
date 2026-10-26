@@ -17,7 +17,7 @@ public:
     RatioPlacer(RatioPlacer &&) noexcept;
     RatioPlacer &operator=(RatioPlacer &&) noexcept;
 
-    Ntuplace1Result place(const Ntuplace1Options &options = {});
+    void place(const Ntuplace1Options &options = {});
 
 private:
     class Impl;

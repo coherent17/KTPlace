@@ -21,7 +21,7 @@ int constraintMgr::addRegion(std::string name, const std::vector<Point> &points)
         r.lo.y = std::min(points[i].y, points[i + 1].y);
         r.hi.x = std::max(points[i].x, points[i + 1].x);
         r.hi.y = std::max(points[i].y, points[i + 1].y);
-        if (!(r.area() > 0.0)) {
+        if (!(r.getArea() > 0.0)) {
             continue;  // degenerate rectangle
         }
         region.rects.push_back(r);
@@ -32,7 +32,7 @@ int constraintMgr::addRegion(std::string name, const std::vector<Point> &points)
 
     region.area = 0.0;
     for (const Rect &r : region.rects) {
-        region.area += r.area();
+        region.area += r.getArea();
     }
     region.minX = region.maxX = region.rects.front().lo.x;
     region.minY = region.maxY = region.rects.front().lo.y;
@@ -53,7 +53,7 @@ namespace {
 
 constexpr double areaTolerance = 1e-6;
 
-double overlapArea(const Rect &a, const Rect &b) {
+double getOverlapArea(const Rect &a, const Rect &b) {
     const double width = std::min(a.hi.x, b.hi.x) - std::max(a.lo.x, b.lo.x);
     const double height = std::min(a.hi.y, b.hi.y) - std::max(a.lo.y, b.lo.y);
     return width > 0.0 && height > 0.0 ? width * height : 0.0;
@@ -62,21 +62,21 @@ double overlapArea(const Rect &a, const Rect &b) {
 }  // namespace
 
 bool constraintMgr::containsBox(int id, const Rect &box) const {
-    const Region *r = region(id);
+    const Region *r = getRegion(id);
     if (r == nullptr) {
         return false;
     }
     double covered = 0.0;
     for (const Rect &rect : r->rects) {
-        covered += overlapArea(rect, box);
+        covered += getOverlapArea(rect, box);
     }
-    return covered >= box.area() * (1.0 - areaTolerance);
+    return covered >= box.getArea() * (1.0 - areaTolerance);
 }
 
 bool constraintMgr::overlapsAnyRegion(const Rect &box) const {
     return std::ranges::any_of(regionList, [&](const Region &r) {
         return std::ranges::any_of(r.rects, [&](const Rect &rect) {
-            return overlapArea(rect, box) > areaTolerance * box.area();
+            return getOverlapArea(rect, box) > areaTolerance * box.getArea();
         });
     });
 }
@@ -85,12 +85,12 @@ bool constraintMgr::contains(int id, double x, double y) const {
     if (id == noRegion) {
         return true;  // unconstrained cells are always legal
     }
-    const Region *r = region(id);
+    const Region *r = getRegion(id);
     return r != nullptr && r->contains(x, y);
 }
 
 void constraintMgr::clampToRegion(int id, double &x, double &y) const {
-    const Region *r = region(id);
+    const Region *r = getRegion(id);
     if (r == nullptr || r->contains(x, y)) {
         return;
     }
@@ -116,7 +116,7 @@ void constraintMgr::clampToRegion(int id, double &x, double &y) const {
     y = std::clamp(y, best->lo.y, best->hi.y);
 }
 
-double constraintMgr::escapeEpsilon() const {
+double constraintMgr::getEscapeEpsilon() const {
     double scale = 0.0;
     for (const Region &r : regionList) {
         scale = std::max(scale, std::max(r.maxX - r.minX, r.maxY - r.minY));
@@ -124,7 +124,7 @@ double constraintMgr::escapeEpsilon() const {
     return std::max(scale, 1.0) * 1e-6;
 }
 
-bool constraintMgr::insideAnyRegion(double x, double y) const {
+bool constraintMgr::isInsideAnyRegion(double x, double y) const {
     for (const Region &r : regionList) {
         if (r.contains(x, y)) {
             return true;
@@ -147,8 +147,8 @@ bool constraintMgr::pushOutOfRegions(double &x, double &y, double dieMinX, doubl
         double hostArea = std::numeric_limits<double>::max();
         for (const Region &r : regionList) {
             for (const Rect &cand : r.rects) {
-                if (cand.contains(x, y) && cand.area() < hostArea) {
-                    hostArea = cand.area();
+                if (cand.contains(x, y) && cand.getArea() < hostArea) {
+                    hostArea = cand.getArea();
                     host = &cand;
                 }
             }
@@ -162,7 +162,7 @@ bool constraintMgr::pushOutOfRegions(double &x, double &y, double dieMinX, doubl
         // geometry rather than to the rectangle that caught the point: a
         // per-rectangle epsilon can be far below the output resolution, and the
         // cell then lands back exactly on the (inclusive) boundary.
-        const double eps = escapeEpsilon();
+        const double eps = getEscapeEpsilon();
         const double exits[4][2] = {{host->lo.x - eps, y},
                                     {host->hi.x + eps, y},
                                     {x, host->lo.y - eps},
@@ -175,7 +175,7 @@ bool constraintMgr::pushOutOfRegions(double &x, double &y, double dieMinX, doubl
         for (int k = 0; k < 4; ++k) {
             const bool onDie = exits[k][0] >= dieMinX && exits[k][0] <= dieMaxX &&
                                exits[k][1] >= dieMinY && exits[k][1] <= dieMaxY;
-            const bool legal = onDie && !insideAnyRegion(exits[k][0], exits[k][1]);
+            const bool legal = onDie && !isInsideAnyRegion(exits[k][0], exits[k][1]);
             if (legal && (!bestLegal || dists[k] < bestDist)) {
                 best = k;
                 bestDist = dists[k];
@@ -195,7 +195,7 @@ bool constraintMgr::pushOutOfRegions(double &x, double &y, double dieMinX, doubl
 }
 
 std::size_t constraintMgr::assignByPrefix(int regionId, const std::string &prefix, Graph &graph) {
-    if (regionId == noRegion || region(regionId) == nullptr || prefix.empty()) {
+    if (regionId == noRegion || getRegion(regionId) == nullptr || prefix.empty()) {
         return 0;
     }
     std::size_t assigned = 0;

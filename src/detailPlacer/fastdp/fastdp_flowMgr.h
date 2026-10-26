@@ -9,12 +9,12 @@ class flowMgr {
 public:
     explicit flowMgr(const ktDM &db);
 
-    [[nodiscard]] fastdpDM &dm() noexcept {
+    [[nodiscard]] fastdpDM &getDm() noexcept {
         return fastdpDb;
     }
 
-    FastdpResult run();
-    [[nodiscard]] fastdpSolution solution() const;
+    void run();
+    [[nodiscard]] fastdpSolution getSolution() const;
 
 private:
     fastdpDM fastdpDb;

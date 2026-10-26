@@ -23,7 +23,7 @@ public:
 
     // Whether dirPath holds input this format recognises. Used only to choose an
     // adapter, so it must not read the design.
-    [[nodiscard]] virtual bool recognises(const std::string &dirPath) const = 0;
+    [[nodiscard]] virtual bool isRecognised(const std::string &dirPath) const = 0;
 
     // Reads the design and hands over its database, or returns nullptr if the
     // design could not be read. Anything the design declared beyond the netlist
@@ -32,11 +32,6 @@ public:
     [[nodiscard]] virtual std::unique_ptr<ktDM> read(const std::string &dirPath) = 0;
 
     [[nodiscard]] virtual std::string_view formatName() const = 0;
-
-    // Placement constraints the format carried. Null for a format that has none.
-    [[nodiscard]] virtual const constraintMgr *constraints() const {
-        return nullptr;
-    }
 };
 
 // The adapter for dirPath, chosen by what the directory contains. Null if no

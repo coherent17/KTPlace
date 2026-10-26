@@ -23,7 +23,7 @@ namespace {
 
 constexpr int netIdRole = Qt::UserRole + 1;
 
-QString kindName(CellKind kind) {
+QString getKindName(CellKind kind) {
     switch (kind) {
         case CellKind::Movable:
             return QStringLiteral("Standard cell");
@@ -37,13 +37,13 @@ QString kindName(CellKind kind) {
     return {};
 }
 
-QString number(double value) {
+QString getNumber(double value) {
     return QString::number(value, 'f', 1);
 }
 
-QString boundsText(const Bounds &box) {
+QString getBoundsText(const Bounds &box) {
     return QStringLiteral("(%1, %2) to (%3, %4)")
-        .arg(number(box.xlo), number(box.ylo), number(box.xhi), number(box.yhi));
+        .arg(getNumber(box.xlo), getNumber(box.ylo), getNumber(box.xhi), getNumber(box.yhi));
 }
 
 class NumericItem : public QTableWidgetItem {
@@ -78,16 +78,16 @@ public:
     const LayoutGeometry *listedGeometry = nullptr;
     std::vector<std::uint32_t> listedNets;
 
-    [[nodiscard]] std::uint32_t netInRow(int row) const {
+    [[nodiscard]] std::uint32_t getNetInRow(int row) const {
         return nets->item(row, 0)->data(netIdRole).toUInt();
     }
 
     void updateNetValues(const LayoutFrame &frame) {
         for (int row = 0; row < nets->rowCount(); ++row) {
-            const std::optional<Bounds> box = frame.netBounds(netInRow(row));
-            const double hpwl = box ? box->halfPerimeter() : 0.0;
+            const std::optional<Bounds> box = frame.getNetBounds(getNetInRow(row));
+            const double hpwl = box ? box->getHalfPerimeter() : 0.0;
             if (auto *item = dynamic_cast<NumericItem *>(nets->item(row, 2))) {
-                item->setValue(hpwl, number(hpwl));
+                item->setValue(hpwl, getNumber(hpwl));
             }
         }
     }
@@ -96,7 +96,7 @@ public:
         const QSignalBlocker blocker(nets->selectionModel());
         nets->clearSelection();
         for (int row = 0; row < nets->rowCount(); ++row) {
-            if (std::ranges::binary_search(shown, netInRow(row))) {
+            if (std::ranges::binary_search(shown, getNetInRow(row))) {
                 nets->selectionModel()->select(
                     nets->model()->index(row, 0),
                     QItemSelectionModel::Select | QItemSelectionModel::Rows);
@@ -127,13 +127,13 @@ public:
         for (int row = 0; row < static_cast<int>(ids.size()); ++row) {
             const std::uint32_t net = ids[static_cast<std::size_t>(row)];
             const std::uint32_t pins = geometry.netPinStart[net + 1] - geometry.netPinStart[net];
-            const std::optional<Bounds> box = frame.netBounds(net);
-            const double hpwl = box ? box->halfPerimeter() : 0.0;
+            const std::optional<Bounds> box = frame.getNetBounds(net);
+            const double hpwl = box ? box->getHalfPerimeter() : 0.0;
             auto *name = new QTableWidgetItem(QString::fromStdString(geometry.netName[net]));
             name->setData(netIdRole, net);
             nets->setItem(row, 0, name);
             nets->setItem(row, 1, new NumericItem(pins, QString::number(pins)));
-            nets->setItem(row, 2, new NumericItem(hpwl, number(hpwl)));
+            nets->setItem(row, 2, new NumericItem(hpwl, getNumber(hpwl)));
         }
         nets->setSortingEnabled(true);
         const bool any = !ids.empty();
@@ -157,13 +157,14 @@ public:
             }
         }
         const std::array<std::pair<QString, QString>, 7> rows{{
-            {QStringLiteral("Type"), kindName(geometry.kind[cell])},
-            {QStringLiteral("Size"), QStringLiteral("%1 x %2").arg(number(geometry.width[cell]),
-                                                                   number(geometry.height[cell]))},
+            {QStringLiteral("Type"), getKindName(geometry.kind[cell])},
+            {QStringLiteral("Size"),
+             QStringLiteral("%1 x %2").arg(getNumber(geometry.width[cell]),
+                                           getNumber(geometry.height[cell]))},
             {QStringLiteral("Location"),
-             QStringLiteral("(%1, %2)").arg(number(frame.x[cell]), number(frame.y[cell]))},
+             QStringLiteral("(%1, %2)").arg(getNumber(frame.x[cell]), getNumber(frame.y[cell]))},
             {QStringLiteral("Area"),
-             number(static_cast<double>(geometry.width[cell]) * geometry.height[cell])},
+             getNumber(static_cast<double>(geometry.width[cell]) * geometry.height[cell])},
             {QStringLiteral("Fence"),
              fence >= 0 && static_cast<std::size_t>(fence) < geometry.fences.size()
                  ? QString::fromStdString(geometry.fences[fence].name)
@@ -184,17 +185,17 @@ public:
             area += static_cast<double>(geometry.width[cell]) * geometry.height[cell];
         }
         heading->setText(QStringLiteral("%1 cells selected").arg(cells.size()));
-        const std::optional<Bounds> box = frame.cellsBounds(cells);
+        const std::optional<Bounds> box = frame.getCellsBounds(cells);
         const auto count = [&counts](CellKind kind) {
             return QString::number(counts[static_cast<std::size_t>(kind)]);
         };
         const std::array<std::pair<QString, QString>, 6> rows{{
-            {kindName(CellKind::Movable), count(CellKind::Movable)},
-            {kindName(CellKind::MovableMacro), count(CellKind::MovableMacro)},
-            {kindName(CellKind::Macro), count(CellKind::Macro)},
-            {kindName(CellKind::Pad), count(CellKind::Pad)},
-            {QStringLiteral("Total area"), number(area)},
-            {QStringLiteral("Bounds"), box ? boundsText(*box) : QString()},
+            {getKindName(CellKind::Movable), count(CellKind::Movable)},
+            {getKindName(CellKind::MovableMacro), count(CellKind::MovableMacro)},
+            {getKindName(CellKind::Macro), count(CellKind::Macro)},
+            {getKindName(CellKind::Pad), count(CellKind::Pad)},
+            {QStringLiteral("Total area"), getNumber(area)},
+            {QStringLiteral("Bounds"), box ? getBoundsText(*box) : QString()},
         }};
         setProperties(rows);
         setNets(frame, {});
@@ -208,15 +209,15 @@ public:
         double hpwl = 0.0;
         for (const std::uint32_t net : ids) {
             pins += geometry.netPinStart[net + 1] - geometry.netPinStart[net];
-            if (const std::optional<Bounds> box = frame.netBounds(net)) {
-                hpwl += box->halfPerimeter();
+            if (const std::optional<Bounds> box = frame.getNetBounds(net)) {
+                hpwl += box->getHalfPerimeter();
             }
         }
-        const std::optional<Bounds> box = frame.netsBounds(ids);
+        const std::optional<Bounds> box = frame.getNetsBounds(ids);
         const std::array<std::pair<QString, QString>, 3> rows{{
             {QStringLiteral("Pins"), QString::number(pins)},
-            {QStringLiteral("HPWL"), number(hpwl)},
-            {QStringLiteral("Bounds"), box ? boundsText(*box) : QString()},
+            {QStringLiteral("HPWL"), getNumber(hpwl)},
+            {QStringLiteral("Bounds"), box ? getBoundsText(*box) : QString()},
         }};
         setProperties(rows);
         setNets(frame, ids);
@@ -295,32 +296,32 @@ DetailsPanel::DetailsPanel(QWidget *parent) : QWidget(parent), pImpl(std::make_u
 DetailsPanel::~DetailsPanel() = default;
 
 void DetailsPanel::describe(const LayoutFrame &frame, const SelectionSet &selection) {
-    if (!frame.drawable()) {
+    if (!frame.isDrawable()) {
         pImpl->describeNothing();
         return;
     }
-    const std::vector<std::uint32_t> &cells = selection.cells();
+    const std::vector<std::uint32_t> &cells = selection.getCells();
     if (cells.size() == 1) {
         pImpl->describeCell(frame, cells.front());
     } else if (!cells.empty()) {
         pImpl->describeCells(frame, cells);
-    } else if (!selection.nets().empty()) {
-        pImpl->describeNets(frame, selection.nets());
+    } else if (!selection.getNets().empty()) {
+        pImpl->describeNets(frame, selection.getNets());
     } else {
         pImpl->describeNothing();
     }
-    pImpl->highlightNets(selection.nets());
+    pImpl->highlightNets(selection.getNets());
 }
 
 void DetailsPanel::onNetChosen(std::function<void(std::uint32_t, bool)> listener) {
     pImpl->listener = std::move(listener);
 }
 
-QString DetailsPanel::title() const {
+QString DetailsPanel::getTitle() const {
     return pImpl->heading->text();
 }
 
-int DetailsPanel::netRows() const {
+int DetailsPanel::getNetRows() const {
     return pImpl->nets->rowCount();
 }
 

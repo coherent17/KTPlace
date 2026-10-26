@@ -105,7 +105,8 @@ bool kt_option::parse(int argc, char *argv[]) {
 }
 
 void kt_option::report() const {
-    ktlog.echo("KTPlace - Know Thyself Placement Engine v{}, started {}", version, localDateTime());
+    ktlog.echo("KTPlace - Know Thyself Placement Engine v{}, started {}", version,
+               getLocalDateTime());
     PlatformInfo::detect().report();
 
     ktReportTable config("Configuration");

@@ -47,7 +47,7 @@ public:
         return QString::fromStdString((*names)[ids[static_cast<std::size_t>(index.row())]]);
     }
 
-    [[nodiscard]] const std::vector<std::uint32_t> &found() const {
+    [[nodiscard]] const std::vector<std::uint32_t> &getFound() const {
         return ids;
     }
 
@@ -69,7 +69,7 @@ public:
     QTimer delay;
     std::function<void(Target, std::vector<std::uint32_t>, bool)> listener;
 
-    [[nodiscard]] Target currentTarget() const {
+    [[nodiscard]] Target getCurrentTarget() const {
         return target->currentIndex() == 0 ? Target::Cells : Target::Nets;
     }
 
@@ -81,18 +81,18 @@ public:
             return;
         }
         const std::vector<std::string> &names =
-            currentTarget() == Target::Cells ? geometry->name : geometry->netName;
+            getCurrentTarget() == Target::Cells ? geometry->name : geometry->netName;
         model->reset(&names, matchNames(names, NamePattern(pattern->text().toStdString())));
         summary->setText(QStringLiteral("%1 of %2 %3")
-                             .arg(model->found().size())
+                             .arg(model->getFound().size())
                              .arg(names.size())
-                             .arg(currentTarget() == Target::Cells ? QStringLiteral("cells")
-                                                                   : QStringLiteral("nets")));
+                             .arg(getCurrentTarget() == Target::Cells ? QStringLiteral("cells")
+                                                                      : QStringLiteral("nets")));
     }
 
     void choose(std::vector<std::uint32_t> ids, bool zoom) const {
         if (listener && !ids.empty()) {
-            listener(currentTarget(), std::move(ids), zoom);
+            listener(getCurrentTarget(), std::move(ids), zoom);
         }
     }
 };
@@ -126,7 +126,8 @@ LocateDialog::LocateDialog(QWidget *parent) : QDialog(parent), pImpl(std::make_u
     });
     connect(pImpl->results, &QListView::doubleClicked, this,
             [impl = pImpl.get()](const QModelIndex &index) {
-                impl->choose({impl->model->found()[static_cast<std::size_t>(index.row())]}, true);
+                impl->choose({impl->model->getFound()[static_cast<std::size_t>(index.row())]},
+                             true);
             });
 
     auto *buttons = new QDialogButtonBox(this);
@@ -138,12 +139,12 @@ LocateDialog::LocateDialog(QWidget *parent) : QDialog(parent), pImpl(std::make_u
     const auto chosenIds = [impl = pImpl.get()] {
         const QModelIndexList picked = impl->results->selectionModel()->selectedRows();
         if (picked.isEmpty()) {
-            return impl->model->found();
+            return impl->model->getFound();
         }
         std::vector<std::uint32_t> ids;
         ids.reserve(static_cast<std::size_t>(picked.size()));
         for (const QModelIndex &index : picked) {
-            ids.push_back(impl->model->found()[static_cast<std::size_t>(index.row())]);
+            ids.push_back(impl->model->getFound()[static_cast<std::size_t>(index.row())]);
         }
         return ids;
     };
@@ -189,8 +190,8 @@ void LocateDialog::onChosen(
     pImpl->listener = std::move(listener);
 }
 
-const std::vector<std::uint32_t> &LocateDialog::matches() const {
-    return pImpl->model->found();
+const std::vector<std::uint32_t> &LocateDialog::isMatch() const {
+    return pImpl->model->getFound();
 }
 
 }  // namespace ktplace::gui

@@ -104,19 +104,24 @@ Built buildDesign(ktDM &db, bool withFence, bool pullOthersIn = false) {
     return b;
 }
 
-/// Run SimPL and commit its answer.
-SimplResult place(ktDM &db, bool useFences) {
-    // No plots: this checks the solver, not what it draws.
+double place(ktDM &db, bool useFences) {
     simpl::flowMgr flow(db);
-    flow.dm().options() = SimplOptions{};
-    flow.dm().options().maxIters = 30;
-    flow.dm().options().fences = useFences;
-    const SimplResult res = flow.run();
-    db.setSimplSolution(flow.solution());
-    return res;
+    flow.getDm().getOptions() = SimplOptions{};
+    flow.getDm().getOptions().maxIters = 30;
+    flow.getDm().getOptions().fences = useFences;
+    double warmUpHpwl = 0.0;
+    flow.getDm().setFrameHook([&warmUpHpwl](const std::vector<float> &, const std::vector<float> &,
+                                            const simpl::FrameInfo &info) {
+        if (info.series.starts_with("LSS_init")) {
+            warmUpHpwl = info.hpwl;
+        }
+    });
+    flow.run();
+    db.setSimplSolution(flow.getSolution());
+    return warmUpHpwl;
 }
 
-bool inFence(double x, double y) {
+bool isInFence(double x, double y) {
     return x >= fx0 && x <= fx1 && y >= fy0 && y <= fy1;
 }
 
@@ -124,10 +129,10 @@ bool inFence(double x, double y) {
 
 struct ScopedOption {
     ScopedOption(Component component, std::string key, OptionValue value) {
-        OptionDb::instance().set(component, std::move(key), std::move(value));
+        OptionDb::getInstance().set(component, std::move(key), std::move(value));
     }
     ~ScopedOption() {
-        OptionDb::instance().clear();
+        OptionDb::getInstance().clear();
     }
     ScopedOption(const ScopedOption &) = delete;
     ScopedOption &operator=(const ScopedOption &) = delete;
@@ -138,7 +143,7 @@ struct Offered {
     std::size_t bounds = 0;
 };
 
-Offered offered() {
+Offered getOffered() {
     ktDM db;
     (void)buildDesign(db, /*withFence=*/false);
     simpl::simplDM dm = simpl::buildSimplDM(db);
@@ -150,8 +155,8 @@ Offered offered() {
     dm.setBoundsHook([&n](std::span<const simpl::BoundsPoint> curve) {
         n.bounds = curve.size();
     });
-    dm.options().maxIters = 30;
-    (void)dm.run();
+    dm.getOptions().maxIters = 30;
+    dm.run();
     return n;
 }
 
@@ -160,14 +165,12 @@ BOOST_AUTO_TEST_SUITE(ktplace_simpl)
 BOOST_AUTO_TEST_CASE(the_returned_placement_keeps_members_in_their_fence) {
     ktDM db;
     const Built b = buildDesign(db, /*withFence=*/true);
-    const SimplResult res = place(db, /*useFences=*/true);
+    (void)place(db, /*useFences=*/true);
 
-    BOOST_TEST(res.fenceRegions == 1u);
-    BOOST_TEST(res.fenceViolations == 0u);
     std::size_t outside = 0;
     for (const std::size_t id : b.members) {
         const auto [x, y] = db.getCellPosition(id);
-        outside += inFence(x, y) ? 0u : 1u;
+        outside += isInFence(x, y) ? 0u : 1u;
     }
     BOOST_TEST(outside == 0u);
 }
@@ -181,7 +184,7 @@ BOOST_AUTO_TEST_CASE(the_returned_placement_keeps_other_cells_out_of_the_fence) 
     std::size_t inside = 0;
     for (const std::size_t id : b.others) {
         const auto [x, y] = db.getCellPosition(id);
-        inside += inFence(x, y) ? 1u : 0u;
+        inside += isInFence(x, y) ? 1u : 0u;
     }
     BOOST_TEST(inside == 0u);
 }
@@ -194,15 +197,15 @@ BOOST_AUTO_TEST_CASE(the_wirelength_solve_is_not_fenced) {
     // HPWL on the fenced ISPD 2015 designs.
     ktDM fenced;
     (void)buildDesign(fenced, /*withFence=*/true, /*pullOthersIn=*/true);
-    const SimplResult on = place(fenced, /*useFences=*/true);
+    const double on = place(fenced, /*useFences=*/true);
     ktDM open;
     (void)buildDesign(open, /*withFence=*/true, /*pullOthersIn=*/true);
-    const SimplResult off = place(open, /*useFences=*/false);
+    const double off = place(open, /*useFences=*/false);
 
-    BOOST_TEST(on.fenceRegions == 1u);
+    BOOST_TEST(on > 0.0);
     // A relative tolerance far below what a projection moves (about 35% here),
     // so a change in summation order can never fail it.
-    BOOST_TEST(on.hpwlInit == off.hpwlInit, boost::test_tools::tolerance(1e-9));
+    BOOST_TEST(on == off, boost::test_tools::tolerance(1e-9));
 }
 
 BOOST_AUTO_TEST_CASE(fences_can_still_be_turned_off_to_measure_their_cost) {
@@ -210,23 +213,22 @@ BOOST_AUTO_TEST_CASE(fences_can_still_be_turned_off_to_measure_their_cost) {
     // members are then free to follow their nets out of the fence.
     ktDM db;
     const Built b = buildDesign(db, /*withFence=*/true);
-    const SimplResult res = place(db, /*useFences=*/false);
-    BOOST_TEST(res.fenceRegions == 0u);
+    (void)place(db, /*useFences=*/false);
     std::size_t outside = 0;
     for (const std::size_t id : b.members) {
         const auto [x, y] = db.getCellPosition(id);
-        outside += inFence(x, y) ? 0u : 1u;
+        outside += isInFence(x, y) ? 0u : 1u;
     }
     BOOST_TEST(outside > 0u);
 }
 
 BOOST_AUTO_TEST_CASE(snapshot_cadence_is_simpls_own_option) {
-    const Offered byDefault = offered();
+    const Offered byDefault = getOffered();
     BOOST_TEST(byDefault.lss > 0u);
     BOOST_TEST(byDefault.bounds > 0u);
     {
         const ScopedOption off(Component::Simpl, "trace_every", OptionValue{0});
-        const Offered n = offered();
+        const Offered n = getOffered();
         BOOST_TEST(n.lss == 0u);
         BOOST_TEST(n.bounds == byDefault.bounds);
     }

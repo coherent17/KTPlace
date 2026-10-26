@@ -17,7 +17,7 @@ public:
     simplPlacer(simplPlacer &&) noexcept;
     simplPlacer &operator=(simplPlacer &&) noexcept;
 
-    SimplResult place(const SimplOptions &options);
+    void place(const SimplOptions &options);
 
 private:
     class Impl;

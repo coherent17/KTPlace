@@ -245,7 +245,7 @@ bool isComplete(const std::string &script) {
     return braces <= 0 && brackets <= 0 && !quoted;
 }
 
-std::string trimmed(const std::string &text) {
+std::string getTrimmed(const std::string &text) {
     const auto first = text.find_first_not_of(" \t\r\n");
     if (first == std::string::npos) {
         return {};
@@ -269,7 +269,7 @@ bool evaluateAndReport(FlowMgr &flow, const std::string &script) {
     return false;
 }
 
-std::optional<int> exitStatus(std::string_view command) {
+std::optional<int> getExitStatus(std::string_view command) {
     if (command == "exit" || command == "quit") {
         return 0;
     }
@@ -304,12 +304,12 @@ int runShell(const kt_option &options, std::istream &in) {
         &in == &std::cin && isatty(STDIN_FILENO) != 0 && isatty(STDERR_FILENO) != 0;
     CommandHistory history;
     ktlog.echo("Tcl shell: help lists the commands, exit leaves; history in {}",
-               history.file().empty() ? std::string("memory only") : history.file());
+               history.getFile().empty() ? std::string("memory only") : history.getFile());
     std::string buffer;
     std::optional<int> status;
     while (!status) {
         const std::optional<std::string> line = readLine(
-            in, interactive, buffer.empty() ? "ktplace> " : "    ...> ", history.entries());
+            in, interactive, buffer.empty() ? "ktplace> " : "    ...> ", history.getEntries());
         if (!line) {
             break;
         }
@@ -317,10 +317,10 @@ int runShell(const kt_option &options, std::istream &in) {
         if (!isComplete(buffer)) {
             continue;
         }
-        const std::string command = trimmed(buffer);
+        const std::string command = getTrimmed(buffer);
         buffer.clear();
         history.add(command);
-        status = exitStatus(command);
+        status = getExitStatus(command);
         if (!status && !command.empty()) {
             evaluateAndReport(flow, command);
         }

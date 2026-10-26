@@ -33,16 +33,16 @@ public:
     ScratchDir(const ScratchDir &) = delete;
     ScratchDir &operator=(const ScratchDir &) = delete;
 
-    [[nodiscard]] std::string str() const {
+    [[nodiscard]] std::string getStr() const {
         return path.string();
     }
-    [[nodiscard]] fs::path file(const std::string &name) const {
+    [[nodiscard]] fs::path getFile(const std::string &name) const {
         return path / name;
     }
 
     void write(const std::string &name, const std::string &content) const {
-        fs::create_directories(file(name).parent_path());
-        std::ofstream out(file(name));
+        fs::create_directories(getFile(name).parent_path());
+        std::ofstream out(getFile(name));
         BOOST_REQUIRE(out.is_open());
         out << content;
     }
@@ -158,7 +158,7 @@ BOOST_AUTO_TEST_CASE(reads_a_minimal_design_from_a_directory) {
     dir.write("tiny/tiny.scl", scl);
 
     BookshelfInputAdapter adapter;
-    BOOST_REQUIRE(adapter.readFromDirectory(dir.file("tiny").string()));
+    BOOST_REQUIRE(adapter.readFromDirectory(dir.getFile("tiny").string()));
 
     ktDM &db = adapter.getDM();
     BOOST_TEST(db.getNumCells() == 3);
@@ -176,8 +176,8 @@ BOOST_AUTO_TEST_CASE(reads_cell_geometry_and_terminal_flag) {
     dir.write("tiny/tiny.nets", nets);
 
     BookshelfInputAdapter adapter;
-    BOOST_REQUIRE(adapter.readFromFiles(dir.file("tiny/tiny.nodes").string(),
-                                        dir.file("tiny/tiny.nets").string()));
+    BOOST_REQUIRE(adapter.readFromFiles(dir.getFile("tiny/tiny.nodes").string(),
+                                        dir.getFile("tiny/tiny.nets").string()));
 
     ktDM &db = adapter.getDM();
     const Graph &g = db.getGraph();
@@ -195,9 +195,9 @@ BOOST_AUTO_TEST_CASE(placement_file_marks_pads_fixed) {
     dir.write("tiny/tiny.pl", pl);
 
     BookshelfInputAdapter adapter;
-    BOOST_REQUIRE(adapter.readFromFiles(dir.file("tiny/tiny.nodes").string(),
-                                        dir.file("tiny/tiny.nets").string(),
-                                        dir.file("tiny/tiny.pl").string()));
+    BOOST_REQUIRE(adapter.readFromFiles(dir.getFile("tiny/tiny.nodes").string(),
+                                        dir.getFile("tiny/tiny.nets").string(),
+                                        dir.getFile("tiny/tiny.pl").string()));
 
     ktDM &db = adapter.getDM();
     // The pad is anchored, the standard cell is free to move.
@@ -211,8 +211,8 @@ BOOST_AUTO_TEST_CASE(terminals_are_fixed_even_without_a_pl_file) {
     dir.write("tiny/tiny.nets", nets);
 
     BookshelfInputAdapter adapter;
-    BOOST_REQUIRE(adapter.readFromFiles(dir.file("tiny/tiny.nodes").string(),
-                                        dir.file("tiny/tiny.nets").string()));
+    BOOST_REQUIRE(adapter.readFromFiles(dir.getFile("tiny/tiny.nodes").string(),
+                                        dir.getFile("tiny/tiny.nets").string()));
 
     ktDM &db = adapter.getDM();
     // "terminal" in .nodes alone makes a pad immovable.
@@ -227,9 +227,9 @@ BOOST_AUTO_TEST_CASE(reads_row_structure) {
     dir.write("tiny/tiny.scl", scl);
 
     BookshelfInputAdapter adapter;
-    BOOST_REQUIRE(adapter.readFromFiles(dir.file("tiny/tiny.nodes").string(),
-                                        dir.file("tiny/tiny.nets").string(), "",
-                                        dir.file("tiny/tiny.scl").string()));
+    BOOST_REQUIRE(adapter.readFromFiles(dir.getFile("tiny/tiny.nodes").string(),
+                                        dir.getFile("tiny/tiny.nets").string(), "",
+                                        dir.getFile("tiny/tiny.scl").string()));
 
     BOOST_TEST(adapter.getDM().getNumRows() == 1);
 }
@@ -250,7 +250,7 @@ BOOST_AUTO_TEST_CASE(reads_macros_cells_pads_and_nets) {
     dir.write("floorplan.def", floorplanDef);
 
     LefDefInputAdapter adapter;
-    BOOST_REQUIRE(adapter.readFromDirectory(dir.str()));
+    BOOST_REQUIRE(adapter.readFromDirectory(dir.getStr()));
 
     ktDM &db = adapter.getDM();
     // Two components plus the pad.
@@ -289,7 +289,7 @@ BOOST_AUTO_TEST_CASE(an_io_pin_takes_its_oriented_layer_shape) {
     dir.write("floorplan.def", shapedPinsDef);
 
     LefDefInputAdapter adapter;
-    BOOST_REQUIRE(adapter.readFromDirectory(dir.str()));
+    BOOST_REQUIRE(adapter.readFromDirectory(dir.getStr()));
     const ktDM &db = adapter.getDM();
 
     const Vertex &east = db.getGraph().getCell(db.getCellId("east"));
@@ -317,7 +317,7 @@ BOOST_AUTO_TEST_CASE(scales_lef_microns_by_the_def_units) {
     dir.write("floorplan.def", floorplanDef);
 
     LefDefInputAdapter adapter;
-    BOOST_REQUIRE(adapter.readFromDirectory(dir.str()));
+    BOOST_REQUIRE(adapter.readFromDirectory(dir.getStr()));
 
     ktDM &db = adapter.getDM();
     const Graph &g = db.getGraph();
@@ -338,7 +338,7 @@ BOOST_AUTO_TEST_CASE(keeps_macro_and_placed_component_coordinates) {
     dir.write("floorplan.def", floorplanDef);
 
     LefDefInputAdapter adapter;
-    BOOST_REQUIRE(adapter.readFromDirectory(dir.str()));
+    BOOST_REQUIRE(adapter.readFromDirectory(dir.getStr()));
 
     ktDM &db = adapter.getDM();
     // "+ FIXED ( 5000 5000 )" is the component origin, not its centre.
@@ -360,7 +360,7 @@ BOOST_AUTO_TEST_CASE(reads_die_area_and_rows) {
     dir.write("floorplan.def", floorplanDef);
 
     LefDefInputAdapter adapter;
-    BOOST_REQUIRE(adapter.readFromDirectory(dir.str()));
+    BOOST_REQUIRE(adapter.readFromDirectory(dir.getStr()));
 
     ktDM &db = adapter.getDM();
     const auto [lo, hi] = db.getDieArea();
@@ -385,7 +385,7 @@ END DESIGN
 )");
 
     LefDefInputAdapter adapter;
-    BOOST_REQUIRE(adapter.readFromDirectory(dir.str()));
+    BOOST_REQUIRE(adapter.readFromDirectory(dir.getStr()));
     // "/" is not usable as a graph key, so it becomes "_".
     BOOST_TEST(adapter.getDM().hasCell("u_1"));
 }
@@ -394,7 +394,7 @@ BOOST_AUTO_TEST_CASE(fails_cleanly_without_a_def_file) {
     const ScratchDir dir("ld_empty");
     dir.write("tech.lef", techLef);
     LefDefInputAdapter adapter;
-    BOOST_TEST(!adapter.readFromDirectory(dir.str()));
+    BOOST_TEST(!adapter.readFromDirectory(dir.getStr()));
 }
 
 BOOST_AUTO_TEST_SUITE_END()

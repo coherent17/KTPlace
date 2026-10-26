@@ -30,13 +30,13 @@ constexpr std::array<LayerInfo, displayLayers.size()> layerInfo{{
     {"Routing demand", "demand", 0xff7043, false},
 }};
 
-std::size_t indexOf(DisplayLayer layer) {
+std::size_t getIndexOf(DisplayLayer layer) {
     return static_cast<std::size_t>(layer);
 }
 
 }  // namespace
 
-DisplayLayer layerOf(CellKind kind) {
+DisplayLayer getLayerOf(CellKind kind) {
     switch (kind) {
         case CellKind::Movable:
             return DisplayLayer::MovableCells;
@@ -52,34 +52,34 @@ DisplayLayer layerOf(CellKind kind) {
 
 DisplayStyle::DisplayStyle() {
     for (const DisplayLayer layer : displayLayers) {
-        const LayerInfo &info = layerInfo[indexOf(layer)];
-        looks[indexOf(layer)] = {.visible = info.visible, .color = QColor::fromRgb(info.color)};
+        const LayerInfo &info = layerInfo[getIndexOf(layer)];
+        looks[getIndexOf(layer)] = {.visible = info.visible, .color = QColor::fromRgb(info.color)};
     }
 }
 
 const LayerLook &DisplayStyle::operator[](DisplayLayer layer) const {
-    return looks[indexOf(layer)];
+    return looks[getIndexOf(layer)];
 }
 
 LayerLook &DisplayStyle::operator[](DisplayLayer layer) {
-    return looks[indexOf(layer)];
+    return looks[getIndexOf(layer)];
 }
 
-bool DisplayStyle::shows(DisplayLayer layer) const {
-    return looks[indexOf(layer)].visible;
+bool DisplayStyle::isShown(DisplayLayer layer) const {
+    return looks[getIndexOf(layer)].visible;
 }
 
-std::string_view DisplayStyle::title(DisplayLayer layer) {
-    return layerInfo[indexOf(layer)].title;
+std::string_view DisplayStyle::getTitle(DisplayLayer layer) {
+    return layerInfo[getIndexOf(layer)].title;
 }
 
-std::string_view DisplayStyle::key(DisplayLayer layer) {
-    return layerInfo[indexOf(layer)].key;
+std::string_view DisplayStyle::getKey(DisplayLayer layer) {
+    return layerInfo[getIndexOf(layer)].key;
 }
 
 std::optional<DisplayLayer> DisplayStyle::fromKey(std::string_view key) {
     for (const DisplayLayer layer : displayLayers) {
-        if (layerInfo[indexOf(layer)].key == key) {
+        if (layerInfo[getIndexOf(layer)].key == key) {
             return layer;
         }
     }

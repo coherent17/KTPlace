@@ -17,7 +17,7 @@ public:
     VisibilityPanel &operator=(const VisibilityPanel &) = delete;
 
     void setStyle(const DisplayStyle &style);
-    [[nodiscard]] const DisplayStyle &style() const;
+    [[nodiscard]] const DisplayStyle &getStyle() const;
     void onChanged(std::function<void(const DisplayStyle &)> listener);
 
 private:

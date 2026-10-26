@@ -4,12 +4,12 @@ namespace ktplace::fastdp {
 
 flowMgr::flowMgr(const ktDM &db) : fastdpDb(buildFastdpDM(db)) {}
 
-FastdpResult flowMgr::run() {
-    return fastdpDb.run();
+void flowMgr::run() {
+    fastdpDb.run();
 }
 
-fastdpSolution flowMgr::solution() const {
-    return fastdpDb.solution();
+fastdpSolution flowMgr::getSolution() const {
+    return fastdpDb.getSolution();
 }
 
 }  // namespace ktplace::fastdp

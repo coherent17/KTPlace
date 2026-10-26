@@ -18,7 +18,7 @@ namespace ktplace {
 
 namespace {
 
-bool runningUnderWsl() {
+bool isRunningUnderWsl() {
     utsname uts{};
     if (uname(&uts) != 0) {
         return false;
@@ -27,8 +27,8 @@ bool runningUnderWsl() {
     return release.contains("microsoft") || release.contains("Microsoft");
 }
 
-bool prefersX11() {
-    return runningUnderWsl() && !qEnvironmentVariableIsSet("QT_QPA_PLATFORM") &&
+bool isX11Preferred() {
+    return isRunningUnderWsl() && !qEnvironmentVariableIsSet("QT_QPA_PLATFORM") &&
            !qEnvironmentVariableIsEmpty("DISPLAY");
 }
 
@@ -38,7 +38,7 @@ int runGui(const kt_option &options, int &argc, char *argv[]) {
     std::string platformFlag = "-platform";
     std::string platformName = "xcb";
     std::vector<char *> qtArgs(argv, argv + argc);
-    if (prefersX11()) {
+    if (isX11Preferred()) {
         qtArgs.push_back(platformFlag.data());
         qtArgs.push_back(platformName.data());
     }

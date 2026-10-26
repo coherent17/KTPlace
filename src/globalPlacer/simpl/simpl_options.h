@@ -4,6 +4,7 @@
 
 #include <cstddef>
 #include <string>
+#include <tuple>
 
 namespace ktplace {
 
@@ -36,21 +37,23 @@ struct SimplOptions {
     std::size_t cgEvery = 0;
     std::size_t initCgEvery = 4;
 
-    static void fields(auto &self, auto &&visit) {
-        visit("grid", self.binsPerAxis);
-        visit("cg_tol", self.cgTol);
-        visit("init_iters", self.initMaxIters);
-        visit("init_net", self.initialNetModel);
-        visit("iters", self.maxIters);
-        visit("seed", self.seed);
-        visit("fences", self.fences);
-        visit("density", self.densityLimit);
-        visit("alpha_base", self.alphaBase);
-        visit("trace_every", self.traceEvery);
-        visit("trace_series", self.traceSeries);
-        visit("report_every", self.reportEvery);
-        visit("cg_every", self.cgEvery);
-        visit("init_cg_every", self.initCgEvery);
+    static constexpr auto getConfigurableOptions() {
+        return std::tuple{
+            option("grid", &SimplOptions::binsPerAxis),
+            option("cg_tol", &SimplOptions::cgTol),
+            option("init_iters", &SimplOptions::initMaxIters),
+            option("init_net", &SimplOptions::initialNetModel),
+            option("iters", &SimplOptions::maxIters),
+            option("seed", &SimplOptions::seed),
+            option("fences", &SimplOptions::fences),
+            option("density", &SimplOptions::densityLimit),
+            option("alpha_base", &SimplOptions::alphaBase),
+            option("trace_every", &SimplOptions::traceEvery),
+            option("trace_series", &SimplOptions::traceSeries),
+            option("report_every", &SimplOptions::reportEvery),
+            option("cg_every", &SimplOptions::cgEvery),
+            option("init_cg_every", &SimplOptions::initCgEvery),
+        };
     }
 };
 

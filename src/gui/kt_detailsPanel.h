@@ -20,8 +20,8 @@ public:
 
     void describe(const LayoutFrame &frame, const SelectionSet &selection);
     void onNetChosen(std::function<void(std::uint32_t net, bool zoom)> listener);
-    [[nodiscard]] QString title() const;
-    [[nodiscard]] int netRows() const;
+    [[nodiscard]] QString getTitle() const;
+    [[nodiscard]] int getNetRows() const;
 
 private:
     class Impl;

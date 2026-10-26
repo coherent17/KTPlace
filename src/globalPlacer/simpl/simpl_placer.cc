@@ -23,7 +23,7 @@ namespace ktplace::simpl {
 
 namespace {
 
-std::string frameStep(std::size_t n) {
+std::string getFrameStep(std::size_t n) {
     std::string s = std::to_string(n);
     return std::string(s.size() < 4 ? 4 - s.size() : 0, '0') + s;
 }
@@ -48,38 +48,91 @@ struct Convergence {
     bool update(std::size_t iteration, double gap, double upperHpwl, const SimplOptions &opts);
 };
 
+std::string getScientific(double value) {
+    return std::format("{:.6e}", value);
+}
+
+struct Stats {
+    std::size_t numMovable = 0;
+    std::size_t numFixed = 0;
+    std::size_t nets = 0;
+
+    std::size_t initIters = 0;
+    std::size_t globalIters = 0;
+
+    std::size_t binsX = 0;
+    std::size_t binsY = 0;
+
+    double hpwlSeed = 0.0;
+    double hpwlInit = 0.0;
+    double hpwlLower = 0.0;
+    double hpwlFinal = 0.0;
+    double gap = 0.0;
+
+    double overflowLower = 0.0;
+    double overflowFinal = 0.0;
+
+    std::size_t fenceRegions = 0;
+    std::size_t fenceClamps = 0;
+    std::size_t fencePushes = 0;
+    std::size_t fenceViolations = 0;
+
+    double spreadSeconds = 0.0;
+    double buildSeconds = 0.0;
+    double solveSeconds = 0.0;
+};
+
+void report(const Stats &res) {
+    ktReportTable table("SimPL solver results");
+    table.setHeaders({"metric", "initial", "final"});
+    table.addRow({"HPWL", getScientific(res.hpwlSeed), getScientific(res.hpwlFinal)});
+    table.addRow({"lower bound", "", getScientific(res.hpwlLower)});
+    table.addRow({"gap", "", getScientific(res.gap)});
+    table.addRow({"scaled overflow (lower)", "", getScientific(res.overflowLower)});
+    table.addRow({"scaled overflow (final)", "", getScientific(res.overflowFinal)});
+    table.addRow({"init iterations", "", std::to_string(res.initIters)});
+    table.addRow({"global iterations", "", std::to_string(res.globalIters)});
+    if (res.fenceRegions > 0) {
+        table.addRow({"fence regions", "", std::to_string(res.fenceRegions)});
+        table.addRow({"fence clamps", "", std::to_string(res.fenceClamps)});
+        table.addRow({"fence pushes", "", std::to_string(res.fencePushes)});
+        table.addRow({"fence violations", "", std::to_string(res.fenceViolations)});
+    }
+    table.emit();
+}
+
 }  // namespace
 
 class simplPlacer::Impl {
 public:
-    explicit Impl(Design &d) : design(d), graph(d.graph) {}
+    explicit Impl(Design &d) : design(d) {}
 
-    SimplResult run(const SimplOptions &params);
+    Stats run(const SimplOptions &params);
 
 private:
-    Positions initialPlacement();
+    Positions getInitialPlacement();
     void initialRounds(Positions &lower, NetModel model, InitialRounds &rounds);
-    Positions globalPlacement(Positions &lower);
+    Positions getGlobalPlacement(Positions &lower);
     void refine(Positions &lower, Positions &upper);
     void finish(const Positions &lower, const Positions &upper);
 
     void collect();
     void buildGrid(std::size_t perAxis);
-    [[nodiscard]] std::size_t defaultBinsPerAxis() const;
+    [[nodiscard]] std::size_t getDefaultBinsPerAxis() const;
     void seedUniform(std::vector<double> &x, std::vector<double> &y) const;
 
-    [[nodiscard]] LinearSystems linearSystems() {
+    [[nodiscard]] LinearSystems getLinearSystems() {
         return {.netlist = netlist, .sysX = sysX, .sysY = sysY, .floorX = floorX, .floorY = floorY};
     }
     void solve(std::vector<double> &x, std::vector<double> &y, const std::string &tag,
                const std::string &label, std::size_t frameEvery);
-    [[nodiscard]] double hpwl(const std::vector<double> &x, const std::vector<double> &y) const;
+    [[nodiscard]] double getHpwl(const std::vector<double> &x, const std::vector<double> &y) const;
 
-    [[nodiscard]] double centre(const std::vector<double> &pos, std::uint32_t i,
-                                bool vertical) const;
-    [[nodiscard]] std::vector<double> occupancy(const std::vector<double> &x,
-                                                const std::vector<double> &y) const;
-    [[nodiscard]] double overflow(const std::vector<double> &occ) const;
+    [[nodiscard]] double getCentre(const std::vector<double> &pos, std::uint32_t i,
+                                   bool vertical) const;
+    [[nodiscard]] std::vector<double> getOccupancy(const std::vector<double> &x,
+                                                   const std::vector<double> &y) const;
+    [[nodiscard]] double getOverflow(const std::vector<double> &occ) const;
     void lookAheadLegalize(std::vector<double> &x, std::vector<double> &y) const;
 
     void enforceFences(std::vector<double> &x, std::vector<double> &y);
@@ -90,18 +143,17 @@ private:
     void writeBounds(std::span<const BoundsPoint> bounds) const;
 
     Design &design;
-    const Graph &graph;
     const Fences *fences = nullptr;
 
     SimplOptions opts;
-    SimplResult result;
+    Stats result;
 
-    Netlist netlist;
-    std::vector<double> width;
-    std::vector<double> height;
-    std::vector<double> area;
-    std::vector<int> regionOf;
-    std::vector<Box> obstacles;
+    const Netlist &netlist = design.netlist;
+    const std::vector<double> &width = design.width;
+    const std::vector<double> &height = design.height;
+    const std::vector<double> &area = design.area;
+    const std::vector<int> &region = design.region;
+    const std::vector<Box> &obstacles = design.obstacles;
 
     SparseSystem sysX;
     SparseSystem sysY;
@@ -115,69 +167,7 @@ private:
 };
 
 void simplPlacer::Impl::collect() {
-    const std::size_t numCells = graph.getNumCells();
-    netlist.varOfVertex.assign(numCells, noVar);
-    netlist.fixedX.assign(numCells, 0.0);
-    netlist.fixedY.assign(numCells, 0.0);
-    for (std::size_t v = 0; v < numCells; ++v) {
-        const Cell &cell = graph.getCell(v);
-        netlist.fixedX[v] = cell.x;
-        netlist.fixedY[v] = cell.y;
-        if (cell.isFixed || cell.isTerminal) {
-            if (cell.width > 0.0 && cell.height > 0.0) {
-                obstacles.push_back({cell.x, cell.y, cell.x + cell.width, cell.y + cell.height});
-            }
-            ++result.numFixed;
-            continue;
-        }
-        netlist.varOfVertex[v] = static_cast<std::uint32_t>(netlist.numMovable++);
-        netlist.movVertex.push_back(static_cast<std::uint32_t>(v));
-        width.push_back(cell.width);
-        height.push_back(cell.height);
-        area.push_back(cell.width * cell.height);
-        regionOf.push_back(cell.regionId);
-    }
-
-    netlist.nets.resize(graph.getNumNets());
-    for (std::size_t n = 0; n < netlist.nets.size(); ++n) {
-        const std::vector<std::size_t> &pins = graph.getNetPins(n);
-        std::vector<std::size_t> order(pins.begin(), pins.end());
-        std::stable_sort(order.begin(), order.end(), [&](std::size_t a, std::size_t b) {
-            return graph.getPin(a).cellId < graph.getPin(b).cellId;
-        });
-        NetPins &net = netlist.nets[n];
-        net.weight = graph.getNet(n).weight;
-        for (const std::size_t pinId : order) {
-            const Pin &pin = graph.getPin(pinId);
-            if (!net.cells.empty() && net.cells.back() == pin.cellId) {
-                continue;
-            }
-            net.cells.push_back(static_cast<std::uint32_t>(pin.cellId));
-            net.offX.push_back(pin.offsetX);
-            net.offY.push_back(pin.offsetY);
-        }
-    }
-
-    netlist.pinStart.assign(netlist.numMovable + 1, 0);
-    for (const NetPins &net : netlist.nets) {
-        for (const std::uint32_t c : net.cells) {
-            if (netlist.varOfVertex[c] != noVar) {
-                ++netlist.pinStart[netlist.varOfVertex[c] + 1];
-            }
-        }
-    }
-    std::partial_sum(netlist.pinStart.begin(), netlist.pinStart.end(), netlist.pinStart.begin());
-    netlist.pinsOfCell.resize(netlist.pinStart.back());
-    std::vector<std::size_t> cursor(netlist.pinStart.begin(), netlist.pinStart.end() - 1);
-    for (std::uint32_t n = 0; n < netlist.nets.size(); ++n) {
-        for (std::uint32_t q = 0; q < netlist.nets[n].cells.size(); ++q) {
-            const std::uint32_t v = netlist.varOfVertex[netlist.nets[n].cells[q]];
-            if (v != noVar) {
-                netlist.pinsOfCell[cursor[v]++] = {n, q};
-            }
-        }
-    }
-
+    result.numFixed = design.numFixed;
     result.numMovable = netlist.numMovable;
     result.nets = netlist.nets.size();
     if (netlist.numMovable > 0) {
@@ -188,7 +178,7 @@ void simplPlacer::Impl::collect() {
     }
 }
 
-std::size_t simplPlacer::Impl::defaultBinsPerAxis() const {
+std::size_t simplPlacer::Impl::getDefaultBinsPerAxis() const {
     return opts.binsPerAxis > 0
                ? opts.binsPerAxis
                : static_cast<std::size_t>(std::clamp(
@@ -210,10 +200,10 @@ void simplPlacer::Impl::buildGrid(std::size_t perAxis) {
     std::vector<FreeSpace::Row> rows;
     double smallestSite = std::numeric_limits<double>::max();
     for (const RowInfo &row : design.rows) {
-        if (!(row.height > 0.0) || !(row.pitch() > 0.0)) {
+        if (!(row.height > 0.0) || !(row.getPitch() > 0.0)) {
             continue;
         }
-        smallestSite = std::min(smallestSite, row.pitch() * row.height);
+        smallestSite = std::min(smallestSite, row.getPitch() * row.height);
         FreeSpace::Row r{row.coordinate, row.coordinate + row.height, {}};
         for (const Subrow &sub : row.subrows) {
             r.spans.emplace_back(sub.xlo, sub.xhi);
@@ -264,14 +254,15 @@ void simplPlacer::Impl::solve(std::vector<double> &x, std::vector<double> &y,
     ktlog.trace("  cg {}: residual x {:.3e} y {:.3e}", tag, residuals.x, residuals.y);
 }
 
-double simplPlacer::Impl::hpwl(const std::vector<double> &x, const std::vector<double> &y) const {
+double simplPlacer::Impl::getHpwl(const std::vector<double> &x,
+                                  const std::vector<double> &y) const {
     std::vector<double> px = netlist.fixedX;
     std::vector<double> py = netlist.fixedY;
     for (std::size_t i = 0; i < netlist.numMovable; ++i) {
         px[netlist.movVertex[i]] = x[i];
         py[netlist.movVertex[i]] = y[i];
     }
-    return deterministicSum(netlist.nets.size(), [&](std::size_t n) {
+    return getDeterministicSum(netlist.nets.size(), [&](std::size_t n) {
         const NetPins &net = netlist.nets[n];
         if (net.cells.size() < 2) {
             return 0.0;
@@ -292,21 +283,21 @@ double simplPlacer::Impl::hpwl(const std::vector<double> &x, const std::vector<d
     });
 }
 
-double simplPlacer::Impl::centre(const std::vector<double> &pos, std::uint32_t i,
-                                 bool vertical) const {
+double simplPlacer::Impl::getCentre(const std::vector<double> &pos, std::uint32_t i,
+                                    bool vertical) const {
     return pos[i] + 0.5 * (vertical ? width[i] : height[i]);
 }
 
-std::vector<double> simplPlacer::Impl::occupancy(const std::vector<double> &x,
-                                                 const std::vector<double> &y) const {
+std::vector<double> simplPlacer::Impl::getOccupancy(const std::vector<double> &x,
+                                                    const std::vector<double> &y) const {
     std::vector<double> occ(grid.size(), 0.0);
     for (std::uint32_t i = 0; i < netlist.numMovable; ++i) {
-        occ[grid.binOf(centre(x, i, true), centre(y, i, false))] += area[i];
+        occ[grid.getBinOf(getCentre(x, i, true), getCentre(y, i, false))] += area[i];
     }
     return occ;
 }
 
-double simplPlacer::Impl::overflow(const std::vector<double> &occ) const {
+double simplPlacer::Impl::getOverflow(const std::vector<double> &occ) const {
     double excess = 0.0;
     for (std::size_t k = 0; k < occ.size(); ++k) {
         excess += std::max(occ[k] - densityLimit * grid.avail[k], 0.0);
@@ -328,12 +319,12 @@ void simplPlacer::Impl::lookAheadLegalize(std::vector<double> &x, std::vector<do
 }
 
 void simplPlacer::Impl::enforceFences(std::vector<double> &x, std::vector<double> &y) {
-    if (fences == nullptr || fences->numRegions() == 0) {
+    if (fences == nullptr || fences->getNumRegions() == 0) {
         return;
     }
     for (std::size_t i = 0; i < netlist.numMovable; ++i) {
-        if (regionOf[i] != Fences::noRegion) {
-            result.fenceClamps += fences->clampToRegion(regionOf[i], x[i], y[i]) ? 1 : 0;
+        if (region[i] != Fences::noRegion) {
+            result.fenceClamps += fences->clampToRegion(region[i], x[i], y[i]) ? 1 : 0;
         } else {
             result.fencePushes +=
                 fences->pushOutOfRegions(x[i], y[i], die[0], die[1], die[2], die[3]) ? 1 : 0;
@@ -358,9 +349,9 @@ void simplPlacer::Impl::writeFrame(const std::string &series, const std::vector<
     info.series = series;
     info.step = step;
     info.numSteps = total;
-    info.hpwl = hpwl(x, y);
+    info.hpwl = getHpwl(x, y);
     info.hpwlInitial = 0.0;
-    info.overflow = overflow(occupancy(x, y));
+    info.overflow = getOverflow(getOccupancy(x, y));
     info.mandatory = true;
     design.onFrame(fx, fy, info);
 }
@@ -371,16 +362,16 @@ void simplPlacer::Impl::writeBounds(std::span<const BoundsPoint> bounds) const {
     }
 }
 
-SimplResult simplPlacer::Impl::run(const SimplOptions &params) {
+Stats simplPlacer::Impl::run(const SimplOptions &params) {
     opts = params;
     densityLimit = std::clamp(opts.densityLimit, 0.05, 1.0);
     fences = params.fences ? &design.fences : nullptr;
-    result.fenceRegions = fences != nullptr ? fences->numRegions() : 0;
+    result.fenceRegions = fences != nullptr ? fences->getNumRegions() : 0;
 
     {
         ScopedTimer setup("simpl-setup");
         collect();
-        buildGrid(defaultBinsPerAxis());
+        buildGrid(getDefaultBinsPerAxis());
         result.binsX = grid.nx;
         result.binsY = grid.ny;
     }
@@ -389,16 +380,16 @@ SimplResult simplPlacer::Impl::run(const SimplOptions &params) {
         return result;
     }
 
-    Positions lower = initialPlacement();
-    Positions upper = globalPlacement(lower);
+    Positions lower = getInitialPlacement();
+    Positions upper = getGlobalPlacement(lower);
     finish(lower, upper);
     return result;
 }
 
-Positions simplPlacer::Impl::initialPlacement() {
+Positions simplPlacer::Impl::getInitialPlacement() {
     Positions lower;
     seedUniform(lower.x, lower.y);
-    result.hpwlSeed = hpwl(lower.x, lower.y);
+    result.hpwlSeed = getHpwl(lower.x, lower.y);
     ktlog.echo("grid {}x{}, available area {:.4g}, density limit g = {:.2f}, seed {} (HPWL {:.6e})",
                grid.nx, grid.ny, grid.totalAvail, densityLimit, opts.seed, result.hpwlSeed);
     writeFrame("LSS_init_seed", lower.x, lower.y, "Initial placement - random seed", 0, 0);
@@ -425,7 +416,7 @@ void simplPlacer::Impl::initialRounds(Positions &lower, NetModel model, InitialR
     Positions extended;
     if (star) {
         ScopedTimer timer("simpl-init");
-        const std::size_t size = linearSystems().buildStar();
+        const std::size_t size = getLinearSystems().buildStar();
         extended = lower;
         extended.x.resize(size, 0.5 * (die[0] + die[2]));
         extended.y.resize(size, 0.5 * (die[1] + die[3]));
@@ -434,16 +425,16 @@ void simplPlacer::Impl::initialRounds(Positions &lower, NetModel model, InitialR
         ScopedTimer timer("simpl-init");
         Positions next = star ? extended : lower;
         if (!star) {
-            linearSystems().buildB2B(next.x, next.y, 0.0, noAnchors, noAnchors);
+            getLinearSystems().buildB2B(next.x, next.y, 0.0, noAnchors, noAnchors);
         }
-        solve(next.x, next.y, "init" + frameStep(result.initIters), "Initial placement",
+        solve(next.x, next.y, "init" + getFrameStep(result.initIters), "Initial placement",
               result.initIters == 0 ? opts.initCgEvery : 0);
         if (star) {
             extended = next;
             next.x.resize(netlist.numMovable);
             next.y.resize(netlist.numMovable);
         }
-        const double roundHpwl = hpwl(next.x, next.y);
+        const double roundHpwl = getHpwl(next.x, next.y);
         ktlog.trace("init iter {:2d} ({}): hpwl {:.6e}", result.initIters, star ? "star" : "b2b",
                     roundHpwl);
         ++result.initIters;
@@ -476,7 +467,7 @@ bool Convergence::update(std::size_t iteration, double gap, double upperHpwl,
             (gap <= opts.gapRelaxedFrac * gapReference && upperStalled));
 }
 
-Positions simplPlacer::Impl::globalPlacement(Positions &lower) {
+Positions simplPlacer::Impl::getGlobalPlacement(Positions &lower) {
     Positions upper;
     std::vector<BoundsPoint> bounds;
     Convergence convergence;
@@ -489,16 +480,16 @@ Positions simplPlacer::Impl::globalPlacement(Positions &lower) {
             upper = lower;
             lookAheadLegalize(upper.x, upper.y);
             enforceFences(upper.x, upper.y);
-            result.spreadSeconds += timer.elapsedSeconds();
+            result.spreadSeconds += timer.getElapsedSeconds();
         }
 
-        const double upperHpwl = hpwl(upper.x, upper.y);
-        const double lowerHpwl = hpwl(lower.x, lower.y);
+        const double upperHpwl = getHpwl(upper.x, upper.y);
+        const double lowerHpwl = getHpwl(lower.x, lower.y);
         const double gap = upperHpwl - lowerHpwl;
-        const double upperOverflow = overflow(occupancy(upper.x, upper.y));
+        const double upperOverflow = getOverflow(getOccupancy(upper.x, upper.y));
         bounds.push_back({upperHpwl, lowerHpwl});
         ktlog.trace("iter {:3d}: lower {:.6e} upper {:.6e} gap {:.4e} overflow {:.4f} -> {:.4f}",
-                    it, lowerHpwl, upperHpwl, gap, overflow(occupancy(lower.x, lower.y)),
+                    it, lowerHpwl, upperHpwl, gap, getOverflow(getOccupancy(lower.x, lower.y)),
                     upperOverflow);
         if (opts.traceEvery > 0 && it % opts.traceEvery == 0) {
             if (opts.traceSeries != "lal") {
@@ -529,14 +520,14 @@ Positions simplPlacer::Impl::globalPlacement(Positions &lower) {
         const double alpha = opts.alphaBase * (1.0 + static_cast<double>(it));
         {
             ScopedTimer timer("simpl-build");
-            linearSystems().buildB2B(lower.x, lower.y, alpha, upper.x, upper.y);
-            result.buildSeconds += timer.elapsedSeconds();
+            getLinearSystems().buildB2B(lower.x, lower.y, alpha, upper.x, upper.y);
+            result.buildSeconds += timer.getElapsedSeconds();
         }
         {
             ScopedTimer timer("simpl-solve");
-            solve(lower.x, lower.y, "g" + frameStep(it), std::format("Iteration {}", it),
+            solve(lower.x, lower.y, "g" + getFrameStep(it), std::format("Iteration {}", it),
                   opts.cgEvery);
-            result.solveSeconds += timer.elapsedSeconds();
+            result.solveSeconds += timer.getElapsedSeconds();
         }
     }
 
@@ -559,24 +550,24 @@ void simplPlacer::Impl::refine(Positions &lower, Positions &upper) {
     buildGrid(grid.nx * opts.refineGridFactor);
     for (std::size_t r = 0; r < opts.refineIters; ++r) {
         const double alpha = opts.alphaBase * (1.0 + static_cast<double>(done + r));
-        linearSystems().buildB2B(lower.x, lower.y, alpha, upper.x, upper.y);
-        solve(lower.x, lower.y, "refine" + frameStep(r), std::format("Refinement {}", r),
+        getLinearSystems().buildB2B(lower.x, lower.y, alpha, upper.x, upper.y);
+        solve(lower.x, lower.y, "refine" + getFrameStep(r), std::format("Refinement {}", r),
               opts.cgEvery);
         upper = lower;
         lookAheadLegalize(upper.x, upper.y);
         enforceFences(upper.x, upper.y);
         ktlog.trace("refine {:2d} on {}x{} bins: lower {:.6e} upper {:.6e} overflow {:.4f}", r,
-                    grid.nx, grid.ny, hpwl(lower.x, lower.y), hpwl(upper.x, upper.y),
-                    overflow(occupancy(upper.x, upper.y)));
+                    grid.nx, grid.ny, getHpwl(lower.x, lower.y), getHpwl(upper.x, upper.y),
+                    getOverflow(getOccupancy(upper.x, upper.y)));
     }
 }
 
 void simplPlacer::Impl::finish(const Positions &lower, const Positions &upper) {
-    result.hpwlFinal = hpwl(upper.x, upper.y);
-    result.hpwlLower = hpwl(lower.x, lower.y);
+    result.hpwlFinal = getHpwl(upper.x, upper.y);
+    result.hpwlLower = getHpwl(lower.x, lower.y);
     result.gap = result.hpwlFinal - result.hpwlLower;
-    result.overflowLower = overflow(occupancy(lower.x, lower.y));
-    result.overflowFinal = overflow(occupancy(upper.x, upper.y));
+    result.overflowLower = getOverflow(getOccupancy(lower.x, lower.y));
+    result.overflowFinal = getOverflow(getOccupancy(upper.x, upper.y));
     if (fences != nullptr) {
         std::vector<double> flat;
         flat.reserve(2 * netlist.numMovable);
@@ -584,11 +575,12 @@ void simplPlacer::Impl::finish(const Positions &lower, const Positions &upper) {
             flat.push_back(upper.x[i]);
             flat.push_back(upper.y[i]);
         }
-        result.fenceViolations = fences->countViolations(flat, regionOf);
+        result.fenceViolations = fences->countViolations(flat, region);
     }
 
     for (std::size_t i = 0; i < netlist.numMovable; ++i) {
-        design.graph.setPosition(netlist.movVertex[i], upper.x[i], upper.y[i]);
+        design.x[i] = upper.x[i];
+        design.y[i] = upper.y[i];
     }
 
     writeFrame("FINAL_LAL", upper.x, upper.y, "Result - look-ahead legalized placement",
@@ -600,8 +592,8 @@ simplPlacer::~simplPlacer() = default;
 simplPlacer::simplPlacer(simplPlacer &&) noexcept = default;
 simplPlacer &simplPlacer::operator=(simplPlacer &&) noexcept = default;
 
-SimplResult simplPlacer::place(const SimplOptions &options) {
-    return pImpl->run(options);
+void simplPlacer::place(const SimplOptions &options) {
+    report(pImpl->run(options));
 }
 
 }  // namespace ktplace::simpl

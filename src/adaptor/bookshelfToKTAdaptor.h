@@ -29,7 +29,7 @@ public:
     BookshelfInputAdapter(BookshelfInputAdapter &&) noexcept;
     BookshelfInputAdapter &operator=(BookshelfInputAdapter &&) noexcept;
 
-    [[nodiscard]] bool recognises(const std::string &dirPath) const override;
+    [[nodiscard]] bool isRecognised(const std::string &dirPath) const override;
     [[nodiscard]] std::unique_ptr<ktDM> read(const std::string &dirPath) override;
     [[nodiscard]] std::string_view formatName() const override {
         return "bookshelf";

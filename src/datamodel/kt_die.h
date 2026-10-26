@@ -19,10 +19,10 @@ struct SubrowInfo {
     double originX = 0.0;
     double numSites = 0.0;
 
-    [[nodiscard]] double xlo() const {
+    [[nodiscard]] double getXlo() const {
         return originX;
     }
-    [[nodiscard]] double xhi(double spacing) const {
+    [[nodiscard]] double getXhi(double spacing) const {
         return originX + numSites * spacing;
     }
 };
@@ -33,19 +33,19 @@ struct RowInfo {
     double sitewidth = 0.0;
     double sitespacing = 0.0;
 
-    [[nodiscard]] double pitch() const {
+    [[nodiscard]] double getPitch() const {
         return (sitespacing > 0.0) ? sitespacing : sitewidth;
     }
 
     std::vector<SubrowInfo> subrows;
 
-    [[nodiscard]] double xlo() const {
-        return subrows.empty() ? 0.0 : subrows.front().xlo();
+    [[nodiscard]] double getXlo() const {
+        return subrows.empty() ? 0.0 : subrows.front().getXlo();
     }
-    [[nodiscard]] double xhi() const {
+    [[nodiscard]] double getXhi() const {
         double hi = 0.0;
         for (const SubrowInfo &sr : subrows) {
-            hi = std::max(hi, sr.xhi(pitch()));
+            hi = std::max(hi, sr.getXhi(getPitch()));
         }
         return hi;
     }
@@ -85,6 +85,6 @@ private:
 /// start at y=82 -- so a box built from the fixed cells alone excludes the bottom
 /// row, and every cell the legalizer correctly put in that row is then reported
 /// as outside the die.
-[[nodiscard]] std::array<double, 4> placementDieBox(const DieInfo &die, const Graph &graph);
+[[nodiscard]] std::array<double, 4> getPlacementDieBox(const DieInfo &die, const Graph &graph);
 
 }  // namespace ktplace

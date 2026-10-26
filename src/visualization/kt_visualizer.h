@@ -41,7 +41,7 @@ using BBox = std::array<double, 4>;
 struct Rgb24 {
     std::uint8_t r = 0, g = 0, b = 0;
     /// The three channels as an array, for filling an image a channel at a time.
-    [[nodiscard]] std::array<std::uint8_t, 3> rgb() const {
+    [[nodiscard]] std::array<std::uint8_t, 3> getRgb() const {
         return {r, g, b};
     }
 };
@@ -51,7 +51,7 @@ struct Rgb24 {
 
 /// Bounding box of the fixed/terminal cells -- the die frame.
 /// Returns {0,0,1,1} when there are no fixed cells.
-[[nodiscard]] BBox fixedCellBBox(const Graph &g);
+[[nodiscard]] BBox getFixedCellBBox(const Graph &g);
 
 /// Encode raw RGB pixels as a PNG. @return false when the file cannot be written.
 [[nodiscard]] bool writePng(const std::string &path, int w, int h,
@@ -149,7 +149,7 @@ struct BoundsSample {
 
 class Visualizer {
 public:
-    static Visualizer &instance() noexcept;
+    static Visualizer &getInstance() noexcept;
 
     Visualizer(const Visualizer &) = delete;
     Visualizer &operator=(const Visualizer &) = delete;
@@ -162,15 +162,15 @@ public:
     /// stage with no cadence set draws nothing at all.
     void beginStage(StageVisual stage);
 
-    [[nodiscard]] bool enabled() const noexcept;
-    [[nodiscard]] const PlotOptions &options() const noexcept {
+    [[nodiscard]] bool isEnabled() const noexcept;
+    [[nodiscard]] const PlotOptions &getOptions() const noexcept {
         return opts;
     }
-    [[nodiscard]] const std::string &directory() const noexcept {
+    [[nodiscard]] const std::string &getDirectory() const noexcept {
         return dir;
     }
 
-    [[nodiscard]] std::string heading(const std::string &note) const;
+    [[nodiscard]] std::string getHeading(const std::string &note) const;
 
     /// Draw one snapshot: a vector still, and a frame for the run's animation.
     /// `x` and `y` hold one entry per cell.
@@ -205,15 +205,15 @@ public:
     void holdBack(std::size_t frames);
 
     /// Frames recorded so far this run.
-    [[nodiscard]] std::size_t frameCount() const noexcept {
+    [[nodiscard]] std::size_t getFrameCount() const noexcept {
         return framesKept;
     }
     /// Frames still recordable, ignoring any hold-back.
-    [[nodiscard]] std::size_t budget() const noexcept {
+    [[nodiscard]] std::size_t getBudget() const noexcept {
         return framesKept >= maxFrames ? 0 : maxFrames - framesKept;
     }
     /// True once the frame ceiling has been reached.
-    [[nodiscard]] bool capped() const noexcept {
+    [[nodiscard]] bool isCapped() const noexcept {
         return cappedNow;
     }
     /// Forget the current run. Frames already written are left on disk.
@@ -223,7 +223,7 @@ public:
     void flush();
 
     /// True once configure() has armed this run for an animation.
-    [[nodiscard]] bool animating() const noexcept {
+    [[nodiscard]] bool isAnimating() const noexcept {
         return animOn;
     }
 
@@ -233,7 +233,7 @@ private:
 
     /// `<dir>/<subdir>/<stage>[_<series>]_%06zu.svg`. Numbered to a fixed width
     /// so a directory listing sorts in run order, not alphabetically.
-    [[nodiscard]] std::string framePath(const VisualFrame &frame) const;
+    [[nodiscard]] std::string getFramePath(const VisualFrame &frame) const;
     [[nodiscard]] bool ensureDir(const std::string &where) const;
     void render(std::function<void()> job);
     void record(const Graph &graph, const std::vector<float> &x, const std::vector<float> &y,

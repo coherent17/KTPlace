@@ -6,6 +6,7 @@
 #include "datamodel/kt_optionDb.h"
 
 #include <cstddef>
+#include <tuple>
 
 namespace ktplace {
 
@@ -31,14 +32,16 @@ struct FastdpOptions {
     std::size_t parallelBatch = 4096;
     std::size_t refreshCandidates = 8;
 
-    static void fields(auto &self, auto &&visit) {
-        visit("window", self.reorderWindow);
-        visit("wt1", self.penaltyWeight1);
-        visit("wt2", self.penaltyWeight2);
-        visit("max_iterations", self.maxIterations);
-        visit("min_improvement", self.minImprovement);
-        visit("parallel_batch", self.parallelBatch);
-        visit("refresh_candidates", self.refreshCandidates);
+    static constexpr auto getConfigurableOptions() {
+        return std::tuple{
+            option("window", &FastdpOptions::reorderWindow),
+            option("wt1", &FastdpOptions::penaltyWeight1),
+            option("wt2", &FastdpOptions::penaltyWeight2),
+            option("max_iterations", &FastdpOptions::maxIterations),
+            option("min_improvement", &FastdpOptions::minImprovement),
+            option("parallel_batch", &FastdpOptions::parallelBatch),
+            option("refresh_candidates", &FastdpOptions::refreshCandidates),
+        };
     }
 };
 

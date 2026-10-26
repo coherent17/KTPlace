@@ -20,8 +20,8 @@ public:
     void markNets(std::vector<std::uint32_t> chosen);
     void clear();
 
-    [[nodiscard]] const std::vector<std::uint32_t> &cells() const;
-    [[nodiscard]] const std::vector<std::uint32_t> &nets() const;
+    [[nodiscard]] const std::vector<std::uint32_t> &getCells() const;
+    [[nodiscard]] const std::vector<std::uint32_t> &getNets() const;
     [[nodiscard]] std::optional<std::uint32_t> focus() const;
     [[nodiscard]] bool contains(std::uint32_t cell) const;
     [[nodiscard]] bool empty() const;

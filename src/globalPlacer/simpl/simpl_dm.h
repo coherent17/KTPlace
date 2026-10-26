@@ -1,7 +1,8 @@
 #pragma once
 
 #include "datamodel/kt_solutionMgr.h"
-#include "globalPlacer/simpl/simpl_graph.h"
+#include "globalPlacer/simpl/simpl_grid.h"
+#include "globalPlacer/simpl/simpl_lss.h"
 #include "globalPlacer/simpl/simpl_options.h"
 
 #include <array>
@@ -27,10 +28,10 @@ struct Rect {
     [[nodiscard]] bool contains(double x, double y) const noexcept {
         return x >= xlo && x <= xhi && y >= ylo && y <= yhi;
     }
-    [[nodiscard]] double width() const noexcept {
+    [[nodiscard]] double getWidth() const noexcept {
         return xhi - xlo;
     }
-    [[nodiscard]] double height() const noexcept {
+    [[nodiscard]] double getHeight() const noexcept {
         return yhi - ylo;
     }
 };
@@ -61,10 +62,10 @@ class Fences {
 public:
     static constexpr int noRegion = -1;
 
-    [[nodiscard]] std::size_t numRegions() const noexcept {
+    [[nodiscard]] std::size_t getNumRegions() const noexcept {
         return regions.size();
     }
-    [[nodiscard]] const Region &region(int id) const {
+    [[nodiscard]] const Region &getRegion(int id) const {
         return regions.at(static_cast<std::size_t>(id));
     }
 
@@ -94,7 +95,7 @@ struct RowInfo {
     double height = 0.0;
     double sitePitch = 0.0;
 
-    [[nodiscard]] double pitch() const noexcept {
+    [[nodiscard]] double getPitch() const noexcept {
         return sitePitch;
     }
     std::vector<Subrow> subrows;
@@ -124,7 +125,15 @@ struct BoundsPoint {
 using BoundsHook = std::function<void(std::span<const BoundsPoint> curve)>;
 
 struct Design {
-    Graph graph;
+    Netlist netlist;
+    std::vector<double> width;
+    std::vector<double> height;
+    std::vector<double> area;
+    std::vector<int> region;
+    std::vector<Box> obstacles;
+    std::size_t numFixed = 0;
+    std::vector<double> x;
+    std::vector<double> y;
     std::vector<RowInfo> rows;
     DieBox die{};
     Fences fences;
@@ -132,48 +141,18 @@ struct Design {
     BoundsHook onBounds;
 };
 
-struct SimplResult {
-    std::size_t numMovable = 0;
-    std::size_t numFixed = 0;
-    std::size_t nets = 0;
-
-    std::size_t initIters = 0;
-    std::size_t globalIters = 0;
-
-    std::size_t binsX = 0;
-    std::size_t binsY = 0;
-
-    double hpwlSeed = 0.0;
-    double hpwlInit = 0.0;
-    double hpwlLower = 0.0;
-    double hpwlFinal = 0.0;
-    double gap = 0.0;
-
-    double overflowLower = 0.0;
-    double overflowFinal = 0.0;
-
-    std::size_t fenceRegions = 0;
-    std::size_t fenceClamps = 0;
-    std::size_t fencePushes = 0;
-    std::size_t fenceViolations = 0;
-
-    double spreadSeconds = 0.0;
-    double buildSeconds = 0.0;
-    double solveSeconds = 0.0;
-};
-
 
 class simplDM {
 public:
     simplDM(Design design, SimplOptions options);
 
-    [[nodiscard]] const SimplOptions &options() const noexcept {
+    [[nodiscard]] const SimplOptions &getOptions() const noexcept {
         return opts;
     }
-    [[nodiscard]] SimplOptions &options() noexcept {
+    [[nodiscard]] SimplOptions &getOptions() noexcept {
         return opts;
     }
-    [[nodiscard]] const Design &design() const noexcept {
+    [[nodiscard]] const Design &getDesign() const noexcept {
         return d;
     }
 
@@ -184,8 +163,8 @@ public:
         d.onBounds = std::move(hook);
     }
 
-    SimplResult run();
-    [[nodiscard]] simplSolution solution() const;
+    void run();
+    [[nodiscard]] simplSolution getSolution() const;
 
 private:
     Design d;

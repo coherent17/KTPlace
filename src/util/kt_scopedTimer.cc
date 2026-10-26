@@ -11,7 +11,7 @@
 
 namespace ktplace {
 
-TimerRegistry &TimerRegistry::instance() {
+TimerRegistry &TimerRegistry::getInstance() {
     static TimerRegistry registry;
     return registry;
 }
@@ -54,7 +54,7 @@ const TimerStats *TimerRegistry::find(const std::string &name) const {
     return it == stats.end() ? nullptr : &it->second;
 }
 
-std::vector<std::pair<std::string, TimerStats>> TimerRegistry::snapshot() const {
+std::vector<std::pair<std::string, TimerStats>> TimerRegistry::getSnapshot() const {
     std::lock_guard<std::mutex> lock(mutex);
     std::vector<std::pair<std::string, TimerStats>> out;
     out.reserve(stats.size());
@@ -64,7 +64,7 @@ std::vector<std::pair<std::string, TimerStats>> TimerRegistry::snapshot() const 
     return out;
 }
 
-double TimerRegistry::totalWallSeconds() const {
+double TimerRegistry::getTotalWallSeconds() const {
     std::lock_guard<std::mutex> lock(mutex);
     double sum = 0.0;
     for (const auto &[name, entry] : stats) {
@@ -73,7 +73,7 @@ double TimerRegistry::totalWallSeconds() const {
     return sum;
 }
 
-double TimerRegistry::totalCpuSeconds() const {
+double TimerRegistry::getTotalCpuSeconds() const {
     std::lock_guard<std::mutex> lock(mutex);
     double sum = 0.0;
     for (const auto &[name, entry] : stats) {
@@ -90,7 +90,7 @@ void TimerRegistry::reset() {
 }
 
 void TimerRegistry::report() const {
-    const auto all = snapshot();
+    const auto all = getSnapshot();
     if (all.empty()) {
         return;
     }
@@ -115,27 +115,27 @@ void TimerRegistry::report() const {
         table.addRow({std::string(2 * indent[name], ' ') + name,
                       std::format("{:.3f}s", entry.wallSeconds),
                       std::format("{:.3f}s", entry.cpuSeconds), std::to_string(entry.calls),
-                      std::format("{:.2f}x", entry.parallelism())});
+                      std::format("{:.2f}x", entry.getParallelism())});
     }
     table.emit();
 }
 
 ScopedTimer::ScopedTimer(std::string name, bool announceOnExit)
     : timerName(std::move(name)), announce(announceOnExit) {
-    TimerRegistry::instance().started(timerName);
+    TimerRegistry::getInstance().started(timerName);
 }
 
 ScopedTimer::~ScopedTimer() {
-    const double wall = elapsedSeconds();
-    const double cpu = cpuElapsedSeconds();
-    TimerRegistry::instance().stopped();
-    TimerRegistry::instance().record(timerName, wall, cpu);
+    const double wall = getElapsedSeconds();
+    const double cpu = getCpuElapsedSeconds();
+    TimerRegistry::getInstance().stopped();
+    TimerRegistry::getInstance().record(timerName, wall, cpu);
     if (announce) {
         ktlog.echo("finished in {:.3f}s wall, {:.3f}s cpu", wall, cpu);
     }
 }
 
-std::size_t peakResidentBytes() {
+std::size_t getPeakResidentBytes() {
     rusage usage{};
     if (getrusage(RUSAGE_SELF, &usage) != 0) {
         return 0;
@@ -148,10 +148,10 @@ std::size_t peakResidentBytes() {
 }
 
 void ScopedTimer::lap() {
-    const double wall = elapsedSeconds();
-    const double cpu = cpuElapsedSeconds();
+    const double wall = getElapsedSeconds();
+    const double cpu = getCpuElapsedSeconds();
     stopwatch.restart();
-    TimerRegistry::instance().record(timerName, wall, cpu);
+    TimerRegistry::getInstance().record(timerName, wall, cpu);
 }
 
 void Stopwatch::restart() {
@@ -159,12 +159,12 @@ void Stopwatch::restart() {
     cpuStart = std::clock();
 }
 
-double Stopwatch::elapsedSeconds() const {
+double Stopwatch::getElapsedSeconds() const {
     using clock = std::chrono::steady_clock;
     return std::chrono::duration<double>(clock::now() - start).count();
 }
 
-double Stopwatch::cpuElapsedSeconds() const {
+double Stopwatch::getCpuElapsedSeconds() const {
     const std::clock_t now = std::clock();
     if (cpuStart == 0 || now == static_cast<std::clock_t>(-1)) {
         return 0.0;
@@ -172,15 +172,15 @@ double Stopwatch::cpuElapsedSeconds() const {
     return static_cast<double>(now - cpuStart) / static_cast<double>(CLOCKS_PER_SEC);
 }
 
-double ScopedTimer::elapsedSeconds() const {
-    return stopwatch.elapsedSeconds();
+double ScopedTimer::getElapsedSeconds() const {
+    return stopwatch.getElapsedSeconds();
 }
 
-double ScopedTimer::cpuElapsedSeconds() const {
-    return stopwatch.cpuElapsedSeconds();
+double ScopedTimer::getCpuElapsedSeconds() const {
+    return stopwatch.getCpuElapsedSeconds();
 }
 
-const std::string &ScopedTimer::name() const {
+const std::string &ScopedTimer::getName() const {
     return timerName;
 }
 

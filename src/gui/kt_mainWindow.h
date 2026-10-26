@@ -27,16 +27,16 @@ public:
     void run();
     void stop();
 
-    [[nodiscard]] const RunRequest &request() const;
-    [[nodiscard]] bool running() const;
-    [[nodiscard]] LayoutView *layoutView() const;
+    [[nodiscard]] const RunRequest &getRequest() const;
+    [[nodiscard]] bool isRunning() const;
+    [[nodiscard]] LayoutView *getLayoutView() const;
     [[nodiscard]] LogView *logView() const;
-    [[nodiscard]] TclConsole *tclConsole() const;
-    [[nodiscard]] VisibilityPanel *visibilityPanel() const;
-    [[nodiscard]] DetailsPanel *detailsPanel() const;
+    [[nodiscard]] TclConsole *getTclConsole() const;
+    [[nodiscard]] VisibilityPanel *getVisibilityPanel() const;
+    [[nodiscard]] DetailsPanel *getDetailsPanel() const;
     [[nodiscard]] LocateDialog *locateDialog() const;
-    [[nodiscard]] QString cursorText() const;
-    [[nodiscard]] QString status() const;
+    [[nodiscard]] QString getCursorText() const;
+    [[nodiscard]] QString getStatus() const;
 
     void onFinished(std::function<void(const RunResult &)> callback);
 

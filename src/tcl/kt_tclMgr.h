@@ -29,7 +29,7 @@ class TclMgr {
 public:
     // The run's manager. Process-wide because there is one script and one set of
     // options for the whole process.
-    static TclMgr &instance();
+    static TclMgr &getInstance();
 
     TclMgr();
 
@@ -45,12 +45,12 @@ public:
     tcl::Interpreter interpreter;
 
     // What the store holds, for a report or a test.
-    [[nodiscard]] const OptionDb &db() const noexcept {
-        return OptionDb::instance();
+    [[nodiscard]] const OptionDb &getDb() const noexcept {
+        return OptionDb::getInstance();
     }
 
-    [[nodiscard]] std::size_t optionCount() const noexcept {
-        return OptionDb::instance().size();
+    [[nodiscard]] std::size_t getOptionCount() const noexcept {
+        return OptionDb::getInstance().size();
     }
 
 private:

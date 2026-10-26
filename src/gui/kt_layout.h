@@ -24,7 +24,7 @@ struct Bounds {
 
     void include(double x, double y);
     void include(const Bounds &other);
-    [[nodiscard]] double halfPerimeter() const;
+    [[nodiscard]] double getHalfPerimeter() const;
 };
 
 struct LayoutGeometry {
@@ -67,13 +67,13 @@ struct LayoutFrame {
     double hpwl = 0.0;
     std::string stage;
 
-    [[nodiscard]] static LayoutFrame committed(std::shared_ptr<const LayoutGeometry> geometry,
-                                               const ktDM &db, std::string stage);
-    [[nodiscard]] bool drawable() const;
-    [[nodiscard]] Bounds cellBounds(std::uint32_t cell) const;
-    [[nodiscard]] std::optional<Bounds> cellsBounds(std::span<const std::uint32_t> cells) const;
-    [[nodiscard]] std::optional<Bounds> netBounds(std::uint32_t net) const;
-    [[nodiscard]] std::optional<Bounds> netsBounds(std::span<const std::uint32_t> nets) const;
+    [[nodiscard]] static LayoutFrame getCommitted(std::shared_ptr<const LayoutGeometry> geometry,
+                                                  const ktDM &db, std::string stage);
+    [[nodiscard]] bool isDrawable() const;
+    [[nodiscard]] Bounds getCellBounds(std::uint32_t cell) const;
+    [[nodiscard]] std::optional<Bounds> getCellsBounds(std::span<const std::uint32_t> cells) const;
+    [[nodiscard]] std::optional<Bounds> getNetBounds(std::uint32_t net) const;
+    [[nodiscard]] std::optional<Bounds> getNetsBounds(std::span<const std::uint32_t> nets) const;
 };
 
 }  // namespace ktplace::gui

@@ -27,7 +27,7 @@ public:
     ktDM(const ktDM &) = delete;
     ktDM &operator=(const ktDM &) = delete;
 
-    [[nodiscard]] const constraintMgr &constraints() const;
+    [[nodiscard]] const constraintMgr &getConstraints() const;
     [[nodiscard]] bool hasFences() const;
 
     // One way this placement is wrong.
@@ -36,15 +36,15 @@ public:
         std::size_t count = 0;
     };
 
-    [[nodiscard]] std::vector<Defect> verify() const;
+    [[nodiscard]] std::vector<Defect> getDefects() const;
 
     // Checks the placement as it now stands and reports it. Called where a stage
     // commits its solution, so whoever hands a placement on is the one that says
     // whether it is legal, and each stage's own self-check has something
     // independent to disagree with.
-    void isLegalizePlacement() const;
+    void checkPlacement() const;
 
-    [[nodiscard]] double hpwl() const;
+    [[nodiscard]] double getHpwl() const;
 
     void setConstraints(constraintMgr fences);
 
@@ -99,7 +99,7 @@ public:
     [[nodiscard]] std::size_t getNumRows() const;
     [[nodiscard]] const std::vector<RowInfo> &getRows() const;
 
-    [[nodiscard]] const DieInfo &die() const {
+    [[nodiscard]] const DieInfo &getDie() const {
         return dieInfo;
     }
 
@@ -107,14 +107,14 @@ public:
     [[nodiscard]] std::pair<std::pair<double, double>, std::pair<double, double>> getDieArea()
         const;
 
-    [[nodiscard]] std::array<double, 4> placementDieBox() const;
+    [[nodiscard]] std::array<double, 4> getPlacementDieBox() const;
 
     // Movable cells too tall for any single row, against the shortest row that has
     // a subrow. These are what a single-row legalizer cannot place, so the count is
     // what says whether the design needs a multi-height legalizer at all.
-    [[nodiscard]] std::size_t multiRowCells() const;
-    [[nodiscard]] double macroHeight() const;
-    [[nodiscard]] std::vector<std::vector<RowPiece>> fencedSubrows() const;
+    [[nodiscard]] std::size_t getMultiRowCells() const;
+    [[nodiscard]] double getMacroHeight() const;
+    [[nodiscard]] std::vector<std::vector<RowPiece>> getFencedSubrows() const;
 
     [[nodiscard]] const std::vector<std::size_t> &getNetPins(std::size_t netId) const;
     [[nodiscard]] const std::vector<std::size_t> &getCellPins(std::size_t cellId) const;
@@ -146,7 +146,7 @@ public:
 
     /// 32-bit FNV-1a over every cell's position, size and fixed flag and every pin's
     /// cell, net and offset: equal checksums mean the same design and placement.
-    [[nodiscard]] std::uint32_t checksum() const;
+    [[nodiscard]] std::uint32_t getChecksum() const;
 
 private:
     [[nodiscard]] std::pair<std::size_t, std::size_t> getStats() const;

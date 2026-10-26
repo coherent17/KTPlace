@@ -66,8 +66,8 @@ bool isContinuation(const std::string &s, std::size_t at) {
 }
 
 // Whether a list element has to be braced or quoted to survive a round trip.
-bool needsQuoting(const Value &item) {
-    if (item.kind() == Value::Kind::String) {
+bool isQuotingNeeded(const Value &item) {
+    if (item.getKind() == Value::Kind::String) {
         const std::string &text = item.asString();
         if (text.empty()) {
             return true;
@@ -223,7 +223,7 @@ public:
         : resolve(lookup), source(text) {}
 
     Value parse() {
-        Value out = orExpr();
+        Value out = getOrExpr();
         skip();
         if (cursor != source.size()) {
             throw Error("expr: unexpected '" + source.substr(cursor) + "'");
@@ -256,13 +256,13 @@ private:
         return source.compare(cursor, std::strlen(token), token) == 0;
     }
 
-    Value orExpr() {
-        Value left = andExpr();
+    Value getOrExpr() {
+        Value left = getAndExpr();
         for (;;) {
             skip();
             if (peek("||")) {
                 cursor += 2;
-                const Value right = andExpr();
+                const Value right = getAndExpr();
                 left = Value::boolean(left.asBool() || right.asBool());
                 continue;
             }
@@ -270,13 +270,13 @@ private:
         }
     }
 
-    Value andExpr() {
-        Value left = compareExpr();
+    Value getAndExpr() {
+        Value left = getCompareExpr();
         for (;;) {
             skip();
             if (peek("&&")) {
                 cursor += 2;
-                const Value right = compareExpr();
+                const Value right = getCompareExpr();
                 left = Value::boolean(left.asBool() && right.asBool());
                 continue;
             }
@@ -284,7 +284,7 @@ private:
         }
     }
 
-    Value compareExpr() {
+    Value getCompareExpr() {
         Value left = sumExpr();
         for (;;) {
             skip();
@@ -294,7 +294,7 @@ private:
                 if (peek(op)) {
                     cursor += std::strlen(op);
                     const Value right = sumExpr();
-                    const int cmp = compare(left, right);
+                    const int cmp = getCompare(left, right);
                     const bool result = std::strcmp(op, "==") == 0   ? cmp == 0
                                         : std::strcmp(op, "!=") == 0 ? cmp != 0
                                         : std::strcmp(op, "<=") == 0 ? cmp <= 0
@@ -312,7 +312,7 @@ private:
         }
     }
 
-    static int compare(const Value &a, const Value &b) {
+    static int getCompare(const Value &a, const Value &b) {
         if (a.isInt() && b.isInt()) {
             const std::int64_t x = a.asInt();
             const std::int64_t y = b.asInt();
@@ -324,7 +324,7 @@ private:
     }
 
     Value sumExpr() {
-        Value left = termExpr();
+        Value left = getTermExpr();
         for (;;) {
             skip();
             if (cursor >= source.size()) {
@@ -335,9 +335,9 @@ private:
                 return left;
             }
             ++cursor;
-            const Value right = termExpr();
+            const Value right = getTermExpr();
             if (op == '+') {
-                left = arith(
+                left = getArith(
                     left, right,
                     [](double a, double b) {
                         return a + b;
@@ -346,7 +346,7 @@ private:
                         return a + b;
                     });
             } else {
-                left = arith(
+                left = getArith(
                     left, right,
                     [](double a, double b) {
                         return a - b;
@@ -358,16 +358,16 @@ private:
         }
     }
 
-    static Value arith(const Value &a, const Value &b, std::function<double(double, double)> fd,
-                       std::function<std::int64_t(std::int64_t, std::int64_t)> fi) {
+    static Value getArith(const Value &a, const Value &b, std::function<double(double, double)> fd,
+                          std::function<std::int64_t(std::int64_t, std::int64_t)> fi) {
         if (a.isInt() && b.isInt()) {
             return Value::integer(fi(a.asInt(), b.asInt()));
         }
         return Value::real(fd(a.asDouble(), b.asDouble()));
     }
 
-    Value termExpr() {
-        Value left = unaryExpr();
+    Value getTermExpr() {
+        Value left = getUnaryExpr();
         for (;;) {
             skip();
             if (cursor >= source.size()) {
@@ -378,9 +378,9 @@ private:
                 return left;
             }
             ++cursor;
-            const Value right = unaryExpr();
+            const Value right = getUnaryExpr();
             if (op == '*') {
-                left = arith(
+                left = getArith(
                     left, right,
                     [](double a, double b) {
                         return a * b;
@@ -404,28 +404,28 @@ private:
         }
     }
 
-    Value unaryExpr() {
+    Value getUnaryExpr() {
         skip();
         if (cursor < source.size() && source[cursor] == '!') {
             ++cursor;
-            return Value::boolean(!unaryExpr().asBool());
+            return Value::boolean(!getUnaryExpr().asBool());
         }
         if (cursor < source.size() && source[cursor] == '-') {
             ++cursor;
-            const Value v = unaryExpr();
+            const Value v = getUnaryExpr();
             return v.isInt() ? Value::integer(-v.asInt()) : Value::real(-v.asDouble());
         }
-        return primaryExpr();
+        return getPrimaryExpr();
     }
 
-    Value primaryExpr() {
+    Value getPrimaryExpr() {
         skip();
         if (cursor >= source.size()) {
             throw Error("expr: unexpected end of expression");
         }
         if (source[cursor] == '(') {
             ++cursor;
-            const Value inner = orExpr();
+            const Value inner = getOrExpr();
             skip();
             if (cursor >= source.size() || source[cursor] != ')') {
                 throw Error("expr: missing ')'");
@@ -471,7 +471,7 @@ private:
                         ++cursor;
                         break;
                     }
-                    args.push_back(orExpr().asDouble());
+                    args.push_back(getOrExpr().asDouble());
                     skip();
                     if (cursor < source.size() && source[cursor] == ',') {
                         ++cursor;
@@ -516,12 +516,12 @@ private:
 
 // A word already split by the parser becomes a Value: a braced word is the string
 // it holds, anything else is substituted and then read as a literal.
-Value wordValue(Interpreter &self, const Word &word) {
+Value getWordValue(Interpreter &self, const Word &word) {
     return word.literal ? Value::string(word.text) : parseLiteral(self.substitute(word.text));
 }
 
 // A list argument: already a list, or text to be split.
-std::vector<Value> listValue(Interpreter &self, const Word &word) {
+std::vector<Value> getListValue(Interpreter &self, const Word &word) {
     if (!word.literal) {
         const Value v = parseLiteral(self.substitute(word.text));
         if (v.isList()) {
@@ -532,7 +532,7 @@ std::vector<Value> listValue(Interpreter &self, const Word &word) {
     return self.splitList(word.text);
 }
 
-std::string shellCommand(Interpreter &self, const Arguments &args, std::size_t first) {
+std::string getShellCommand(Interpreter &self, const Arguments &args, std::size_t first) {
     std::string command;
     for (std::size_t i = first; i < args.size(); ++i) {
         command += command.empty() ? "" : " ";
@@ -686,7 +686,7 @@ std::string Value::asString() const {
                 // Tcl quotes only what has to be quoted, so a list of plain words
                 // round-trips as {a b} rather than {"a" "b"}.
                 const std::string &item = listValue[i].asString();
-                out += needsQuoting(listValue[i]) ? quote(item) : item;
+                out += isQuotingNeeded(listValue[i]) ? quote(item) : item;
             }
             return out + "}";
         }
@@ -694,7 +694,7 @@ std::string Value::asString() const {
     return {};
 }
 
-bool Value::looksNumeric() const noexcept {
+bool Value::isNumeric() const noexcept {
     if (kindOf == Kind::String) {
         return isIntegerLiteral(stringValue) || isDoubleLiteral(stringValue);
     }
@@ -771,13 +771,13 @@ void Interpreter::installBuiltins() {
         {.name = "set", .usage = "set <var> [value]", .summary = "read a variable, or set it"},
         [](Interpreter &self, const Arguments &args, Value &result) -> int {
             if (args.size() == 2) {
-                result = self.variable(args[1].text);
+                result = self.getVariable(args[1].text);
                 return 0;
             }
             if (args.size() != 3) {
                 throw Error("set: expected 2 or 3 arguments");
             }
-            result = wordValue(self, args[2]);
+            result = getWordValue(self, args[2]);
             self.setVariable(args[1].text, result);
             return 0;
         });
@@ -824,7 +824,7 @@ void Interpreter::installBuiltins() {
                         }
                         ExprParser parser(
                             [&self](const std::string &name) {
-                                return self.variable(name);
+                                return self.getVariable(name);
                             },
                             text);
                         result = parser.parse();
@@ -840,7 +840,7 @@ void Interpreter::installBuiltins() {
             const std::int64_t step =
                 args.size() == 3 ? parseLiteral(self.substitute(args[2].text, 0)).asInt() : 1;
             const std::int64_t current =
-                self.hasVariable(args[1].text) ? self.variable(args[1].text).asInt() : 0;
+                self.hasVariable(args[1].text) ? self.getVariable(args[1].text).asInt() : 0;
             self.setVariable(args[1].text, Value::integer(current + step));
             return 0;
         });
@@ -865,7 +865,7 @@ void Interpreter::installBuiltins() {
                             }
                             ExprParser parser(
                                 [&self](const std::string &n) {
-                                    return self.variable(n);
+                                    return self.getVariable(n);
                                 },
                                 cond);
                             if (parser.parse().asBool()) {
@@ -905,7 +905,7 @@ void Interpreter::installBuiltins() {
                             const std::string cond = self.substitute(args[1].text, 0);
                             ExprParser parser(
                                 [&self](const std::string &n) {
-                                    return self.variable(n);
+                                    return self.getVariable(n);
                                 },
                                 cond);
                             if (!parser.parse().asBool()) {
@@ -924,7 +924,7 @@ void Interpreter::installBuiltins() {
                             throw Error("foreach: expected var, list and body");
                         }
                         const std::vector<std::string> names = self.parseListNames(args[1].text);
-                        const std::vector<Value> items = listValue(self, args[2]);
+                        const std::vector<Value> items = getListValue(self, args[2]);
                         if (names.size() == 1) {
                             for (const Value &item : items) {
                                 self.setVariable(names[0], item);
@@ -946,7 +946,7 @@ void Interpreter::installBuiltins() {
                     [](Interpreter &self, const Arguments &args, Value &result) -> int {
                         std::vector<Value> items;
                         for (std::size_t i = 1; i < args.size(); ++i) {
-                            items.push_back(wordValue(self, args[i]));
+                            items.push_back(getWordValue(self, args[i]));
                         }
                         result = Value::list(std::move(items));
                         return 0;
@@ -958,8 +958,8 @@ void Interpreter::installBuiltins() {
             if (args.size() != 3) {
                 throw Error("lindex: expected a list and an index");
             }
-            const std::vector<Value> items = listValue(self, args[1]);
-            const std::int64_t index = wordValue(self, args[2]).asInt();
+            const std::vector<Value> items = getListValue(self, args[1]);
+            const std::int64_t index = getWordValue(self, args[2]).asInt();
             if (index < 0 || static_cast<std::size_t>(index) >= items.size()) {
                 result = Value::string("");
                 return 0;
@@ -975,7 +975,7 @@ void Interpreter::installBuiltins() {
                         if (args.size() != 2) {
                             throw Error("llength: expected a list");
                         }
-                        const std::vector<Value> items = listValue(self, args[1]);
+                        const std::vector<Value> items = getListValue(self, args[1]);
                         result = Value::integer(static_cast<std::int64_t>(items.size()));
                         return 0;
                     });
@@ -989,10 +989,10 @@ void Interpreter::installBuiltins() {
                         }
                         std::vector<Value> items;
                         if (self.hasVariable(args[1].text)) {
-                            items = self.variable(args[1].text).asList();
+                            items = self.getVariable(args[1].text).asList();
                         }
                         for (std::size_t i = 2; i < args.size(); ++i) {
-                            items.push_back(wordValue(self, args[i]));
+                            items.push_back(getWordValue(self, args[i]));
                         }
                         const Value out = Value::list(std::move(items));
                         self.setVariable(args[1].text, out);
@@ -1048,7 +1048,7 @@ void Interpreter::installBuiltins() {
                     throw Error("string match: expected a pattern and a string");
                 }
                 const std::string pattern = self.substitute(args[3].text, 0);
-                result = Value::boolean(globMatch(pattern, text));
+                result = Value::boolean(isGlobMatch(pattern, text));
                 return 0;
             }
             if (sub == "first" || sub == "last") {
@@ -1088,7 +1088,7 @@ void Interpreter::installBuiltins() {
                         if (sub == "commands") {
                             result = Value::list([&self] {
                                 std::vector<Value> names;
-                                for (const auto &entry : self.commands()) {
+                                for (const auto &entry : self.getCommands()) {
                                     names.push_back(Value::string(entry.first));
                                 }
                                 return names;
@@ -1113,8 +1113,8 @@ void Interpreter::installBuiltins() {
                         if (args.size() > 2) {
                             throw Error("wrong # args: should be \"help [command]\"");
                         }
-                        result = Value::string(
-                            self.helpText(args.size() == 2 ? self.substitute(args[1].text) : ""));
+                        result = Value::string(self.getHelpText(
+                            args.size() == 2 ? self.substitute(args[1].text) : ""));
                         return 0;
                     });
 
@@ -1125,7 +1125,7 @@ void Interpreter::installBuiltins() {
                         if (args.size() < 2) {
                             throw Error("wrong # args: should be \"exec <command> [arg ...]\"");
                         }
-                        result = runShellCommand(shellCommand(self, args, 1));
+                        result = runShellCommand(getShellCommand(self, args, 1));
                         return 0;
                     });
 
@@ -1133,7 +1133,7 @@ void Interpreter::installBuiltins() {
                      .usage = "ls [option ...] [path ...]",
                      .summary = "list files, as the system ls does"},
                     [](Interpreter &self, const Arguments &args, Value &result) -> int {
-                        result = runShellCommand("ls " + shellCommand(self, args, 1));
+                        result = runShellCommand("ls " + getShellCommand(self, args, 1));
                         return 0;
                     });
 
@@ -1181,7 +1181,7 @@ void Interpreter::registerCommand(CommandHelp help, Command command) {
     helpTable[help.name] = std::move(help);
 }
 
-std::string Interpreter::helpText(const std::string &name) const {
+std::string Interpreter::getHelpText(const std::string &name) const {
     if (!name.empty()) {
         const auto found = helpTable.find(name);
         if (found == helpTable.end()) {
@@ -1213,7 +1213,7 @@ bool Interpreter::hasCommand(const std::string &name) const {
     return commandTable.count(name) != 0;
 }
 
-const std::map<std::string, Command> &Interpreter::commands() const noexcept {
+const std::map<std::string, Command> &Interpreter::getCommands() const noexcept {
     return commandTable;
 }
 
@@ -1225,7 +1225,7 @@ void Interpreter::unsetVariable(const std::string &name) {
     variableTable.remove(name);
 }
 
-Value Interpreter::variable(const std::string &name) const {
+Value Interpreter::getVariable(const std::string &name) const {
     const auto found = variableTable.find(name);
     if (!found) {
         throw Error("can't read \"" + name + "\": no such variable");
@@ -1237,12 +1237,12 @@ bool Interpreter::hasVariable(const std::string &name) const noexcept {
     return variableTable.contains(name);
 }
 
-std::string Interpreter::scriptPath() const {
+std::string Interpreter::getScriptPath() const {
     return scriptStack.empty() ? std::string() : scriptStack.back();
 }
 
-Variables Interpreter::variables() const {
-    return Variables(variableTable.all());
+Variables Interpreter::getVariables() const {
+    return Variables(variableTable.getAll());
 }
 
 // Replaces $name, ${name}, [command] and backslash escapes. Braced words never
@@ -1287,7 +1287,7 @@ std::string Interpreter::substitute(const std::string &text, int depth) {
                 i++;
                 continue;
             }
-            out += variable(name).asString();
+            out += getVariable(name).asString();
             i = j;
             continue;
         }
@@ -1388,7 +1388,7 @@ std::vector<std::string> Interpreter::parseListNames(const std::string &text) co
     return names;
 }
 
-bool globMatch(const std::string &pattern, const std::string &text) {
+bool isGlobMatch(const std::string &pattern, const std::string &text) {
     // Tcl's match is glob-style: * and ? are wildcards, everything else literal.
     std::size_t p = 0;
     std::size_t t = 0;
@@ -1514,7 +1514,7 @@ Value Interpreter::run(const Arguments &words, int depth) {
         const std::string option =
             words[1].literal ? words[1].text : substitute(words[1].text, depth);
         if (option == "-h" || option == "-help" || option == "--help") {
-            return Value::string(helpText(name));
+            return Value::string(getHelpText(name));
         }
     }
     // The command name and each argument in turn, so `[a [b c]]` composes.

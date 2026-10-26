@@ -37,7 +37,7 @@ public:
     void finish();
     [[nodiscard]] bool hasDesign() const;
     [[nodiscard]] bool isFreshlyLoaded(const std::string &dirPath) const;
-    [[nodiscard]] const std::string &designPath() const;
+    [[nodiscard]] const std::string &getDesignPath() const;
 
     void readDesign(const std::string &dirPath);
     void globalPlace();
@@ -45,9 +45,9 @@ public:
     void detailPlace();
     std::string writePlacement(const std::string &path = {});
     void writePlots();
-    [[nodiscard]] double hpwl() const;
+    [[nodiscard]] double getHpwl() const;
     void reportDesign() const;
-    [[nodiscard]] bool checkPlacement() const;
+    [[nodiscard]] bool isPlacementLegal() const;
 
 private:
     class Impl;

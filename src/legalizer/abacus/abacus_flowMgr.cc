@@ -4,12 +4,12 @@ namespace ktplace::abacus {
 
 flowMgr::flowMgr(const ktDM &db) : abacusDb(buildAbacusDM(db)) {}
 
-AbacusResult flowMgr::run() {
-    return abacusDb.run();
+void flowMgr::run() {
+    abacusDb.run();
 }
 
-abacusSolution flowMgr::solution() const {
-    return abacusDb.solution();
+abacusSolution flowMgr::getSolution() const {
+    return abacusDb.getSolution();
 }
 
 }  // namespace ktplace::abacus

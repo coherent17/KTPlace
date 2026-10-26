@@ -25,7 +25,7 @@ public:
 
     static constexpr std::size_t maxRecordBytes = 8000;
 
-    static Logger &instance();
+    static Logger &getInstance();
 
     ~Logger();
 
@@ -34,7 +34,7 @@ public:
 
     void configure(std::string logFilePath, bool verbose);
 
-    [[nodiscard]] bool verbose() const;
+    [[nodiscard]] bool isVerbose() const;
 
     [[nodiscard]] const std::string &logFilePath() const;
 
@@ -87,7 +87,7 @@ public:
     /// Start a step of the run: print its banner and prefix every later line
     /// with its name until the next step begins.
     void beginStep(std::string name);
-    [[nodiscard]] std::string currentStep() const;
+    [[nodiscard]] std::string getCurrentStep() const;
 
     void shutdown();
 
@@ -96,8 +96,8 @@ private:
 
     void emit(Level level, const std::string &message);
     [[noreturn]] void fail(const std::string &message);
-    static const char *levelTag(Level level);
-    static const char *levelColor(Level level);
+    static const char *getLevelTag(Level level);
+    static const char *getLevelColor(Level level);
     void closeFiles();
 
     mutable std::mutex mutex;
@@ -113,9 +113,9 @@ private:
     std::atomic<bool> throwFatal = false;
 };
 
-inline Logger &ktlog = Logger::instance();
+inline Logger &ktlog = Logger::getInstance();
 
 /// The local date and time, e.g. "2026-10-16 13:50:04 CST".
-[[nodiscard]] std::string localDateTime();
+[[nodiscard]] std::string getLocalDateTime();
 
 }  // namespace ktplace

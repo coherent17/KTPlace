@@ -28,7 +28,7 @@ std::string toText(const OptionValue &value) {
 
 }  // namespace
 
-std::optional<Component> componentFromName(std::string_view name) noexcept {
+std::optional<Component> getComponentFromName(std::string_view name) noexcept {
     const auto found = std::ranges::find(componentNames, name);
     if (found == componentNames.end()) {
         return std::nullopt;
@@ -66,7 +66,7 @@ void reportOptionTable(Component component,
     table.emit();
 }
 
-OptionDb &OptionDb::instance() {
+OptionDb &OptionDb::getInstance() {
     static OptionDb db;
     return db;
 }

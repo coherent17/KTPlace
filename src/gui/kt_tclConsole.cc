@@ -26,7 +26,7 @@ public:
     QLineEdit *input = nullptr;
     std::function<void(const QString &)> handler;
     CommandHistory history;
-    std::size_t recall = history.entries().size();
+    std::size_t recall = history.getEntries().size();
 };
 
 TclConsole::TclConsole(QWidget *parent) : QWidget(parent), pImpl(std::make_unique<Impl>()) {
@@ -63,7 +63,7 @@ void TclConsole::submit(const QString &command) {
         return;
     }
     pImpl->history.add(command.toStdString());
-    pImpl->recall = pImpl->history.entries().size();
+    pImpl->recall = pImpl->history.getEntries().size();
     append(QStringLiteral("% ") + command, Kind::Command);
     if (pImpl->handler) {
         pImpl->handler(command);
@@ -97,7 +97,7 @@ void TclConsole::focusInput() {
     pImpl->input->setFocus();
 }
 
-QString TclConsole::transcript() const {
+QString TclConsole::getTranscript() const {
     return pImpl->output->toPlainText();
 }
 
@@ -109,7 +109,7 @@ bool TclConsole::eventFilter(QObject *watched, QEvent *event) {
     if (key != Qt::Key_Up && key != Qt::Key_Down) {
         return QWidget::eventFilter(watched, event);
     }
-    const std::vector<std::string> &entries = pImpl->history.entries();
+    const std::vector<std::string> &entries = pImpl->history.getEntries();
     if (key == Qt::Key_Up && pImpl->recall > 0) {
         --pImpl->recall;
     } else if (key == Qt::Key_Down && pImpl->recall < entries.size()) {

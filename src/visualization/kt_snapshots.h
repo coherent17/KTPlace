@@ -49,10 +49,10 @@ public:
     /// Flush and close the file; nothing may be recorded after.
     void close();
 
-    [[nodiscard]] std::size_t frameCount() const noexcept {
+    [[nodiscard]] std::size_t getFrameCount() const noexcept {
         return frames;
     }
-    [[nodiscard]] const std::string &path() const noexcept {
+    [[nodiscard]] const std::string &getPath() const noexcept {
         return file;
     }
 

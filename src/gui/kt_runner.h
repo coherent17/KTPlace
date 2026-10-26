@@ -40,7 +40,7 @@ public:
     bool open(const RunRequest &request);
     bool execute(const std::string &command, const RunRequest &request);
     void stop();
-    [[nodiscard]] bool running() const;
+    [[nodiscard]] bool isRunning() const;
 
 private:
     class Impl;

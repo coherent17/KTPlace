@@ -20,13 +20,13 @@ public:
     bool verbose = false;
 
     [[nodiscard]] std::string getOutputPath() const {
-        return inWorkDir("placed.pl");
+        return getInWorkDir("placed.pl");
     }
     [[nodiscard]] std::string getPlotDir() const {
-        return inWorkDir("plots");
+        return getInWorkDir("plots");
     }
     [[nodiscard]] std::string getLogFile() const {
-        return inWorkDir("ktplace.log");
+        return getInWorkDir("ktplace.log");
     }
 
     bool parse(int argc, char *argv[]);
@@ -36,7 +36,7 @@ public:
     static void printVersion();
 
 private:
-    [[nodiscard]] std::string inWorkDir(std::string_view name) const {
+    [[nodiscard]] std::string getInWorkDir(std::string_view name) const {
         return (std::filesystem::path(workDir) / name).string();
     }
 };

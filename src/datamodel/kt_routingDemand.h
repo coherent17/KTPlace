@@ -39,13 +39,11 @@ struct RoutingDemand {
     }
 };
 
-[[nodiscard]] RoutingDemand routingDemand(std::span<const std::uint32_t> netPinStart,
-                                          std::span<const std::uint32_t> pinCell,
-                                          std::span<const float> pinDx,
-                                          std::span<const float> pinDy, std::span<const float> x,
-                                          std::span<const float> y,
-                                          const std::array<double, 4> &die, std::size_t binsAcross);
+[[nodiscard]] RoutingDemand getRoutingDemand(
+    std::span<const std::uint32_t> netPinStart, std::span<const std::uint32_t> pinCell,
+    std::span<const float> pinDx, std::span<const float> pinDy, std::span<const float> x,
+    std::span<const float> y, const std::array<double, 4> &die, std::size_t binsAcross);
 
-[[nodiscard]] std::array<std::uint8_t, 4> demandColour(float scaled);
+[[nodiscard]] std::array<std::uint8_t, 4> getDemandColour(float scaled);
 
 }  // namespace ktplace

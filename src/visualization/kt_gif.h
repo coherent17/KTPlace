@@ -28,16 +28,16 @@ public:
 
     Canvas(int w, int h, const std::vector<std::uint8_t> &indices, const std::vector<Rgb> &palette);
 
-    int width() const {
+    int getWidth() const {
         return pixelWidth;
     }
-    int height() const {
+    int getHeight() const {
         return pixelHeight;
     }
-    const std::vector<std::uint8_t> &pixels() const {
+    const std::vector<std::uint8_t> &getPixels() const {
         return pixelIndex;
     }
-    const std::vector<Rgb> &palette() const {
+    const std::vector<Rgb> &getPalette() const {
         return colorTable;
     }
 
@@ -56,14 +56,14 @@ public:
     void text(int x, int y, const std::string &s, int idx, int scale = 1);
 
     /// Width in pixels that @p s would occupy at @p scale, including spacing.
-    static int textWidth(const std::string &s, int scale = 1);
+    static int getTextWidth(const std::string &s, int scale = 1);
 
 private:
     /// Blend @p src over the pixel at (x,y) and store the nearest palette index.
     void blendPixel(int x, int y, const Rgb &src, double alpha);
 
     /// Palette index of the colour nearest to @p c, by squared RGB distance.
-    int nearest(const Rgb &c) const;
+    int getNearest(const Rgb &c) const;
 
     int pixelWidth = 0;
     int pixelHeight = 0;

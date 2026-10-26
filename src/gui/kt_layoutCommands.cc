@@ -80,7 +80,7 @@ tcl::Value onViewThread(const std::string &command, Body body, Words words) {
 }
 
 void registerLayoutCommand(tcl::CommandHelp help, Arity arity, Body body) {
-    tcl::TclMgr::instance().registerCommand(
+    tcl::TclMgr::getInstance().registerCommand(
         help, [help, arity, body = std::move(body)](
                   tcl::Interpreter &interp, const tcl::Arguments &args, tcl::Value &result) {
             const std::size_t given = args.size() - 1;
@@ -101,11 +101,11 @@ void registerLayoutCommand(tcl::CommandHelp help, Arity arity, Body body) {
         });
 }
 
-const LayoutFrame &shownFrame(const LayoutView &view) {
-    if (!view.frame().drawable()) {
+const LayoutFrame &getShownFrame(const LayoutView &view) {
+    if (!view.getFrame().isDrawable()) {
         throw std::logic_error("no design is shown; read or open one first");
     }
-    return view.frame();
+    return view.getFrame();
 }
 
 std::vector<std::uint32_t> matchAll(const std::vector<std::string> &names,
@@ -121,7 +121,7 @@ std::vector<std::uint32_t> matchAll(const std::vector<std::string> &names,
     return found;
 }
 
-double coordinate(const std::string &word) {
+double getCoordinate(const std::string &word) {
     std::size_t used = 0;
     double value = 0.0;
     try {
@@ -135,7 +135,7 @@ double coordinate(const std::string &word) {
     return value;
 }
 
-bool switchValue(const std::string &word) {
+bool isSwitchOn(const std::string &word) {
     if (word == "on" || word == "1" || word == "true" || word == "yes") {
         return true;
     }
@@ -145,13 +145,13 @@ bool switchValue(const std::string &word) {
     throw std::logic_error(std::format("expected on or off but got \"{}\"", word));
 }
 
-DisplayLayer layerNamed(const std::string &word) {
+DisplayLayer getLayerNamed(const std::string &word) {
     if (const std::optional<DisplayLayer> layer = DisplayStyle::fromKey(word)) {
         return *layer;
     }
     std::string known;
     for (const DisplayLayer layer : displayLayers) {
-        known += std::format("{}{}", known.empty() ? "" : ", ", DisplayStyle::key(layer));
+        known += std::format("{}{}", known.empty() ? "" : ", ", DisplayStyle::getKey(layer));
     }
     throw std::logic_error(std::format("unknown layer \"{}\"; known layers: {}", word, known));
 }
@@ -162,7 +162,7 @@ void registerCommands() {
          .usage = "layout_select ?-add? pattern ?pattern ...?",
          .summary = "select the cells whose names match; returns how many matched"},
         {.min = 1, .max = unlimited}, [](LayoutView &view, const Words &words) {
-            const LayoutFrame &frame = shownFrame(view);
+            const LayoutFrame &frame = getShownFrame(view);
             const bool add = words.front() == "-add";
             const std::span<const std::string> patterns = std::span(words).subspan(add ? 1 : 0);
             if (patterns.empty()) {
@@ -171,9 +171,9 @@ void registerCommands() {
             std::vector<std::uint32_t> found = matchAll(frame.geometry->name, patterns);
             const auto count = static_cast<std::int64_t>(found.size());
             if (add) {
-                view.selection().addCells(found);
+                view.getSelection().addCells(found);
             } else {
-                view.selection().selectCells(std::move(found));
+                view.getSelection().selectCells(std::move(found));
             }
             return tcl::Value::integer(count);
         });
@@ -181,11 +181,11 @@ void registerCommands() {
                            .usage = "layout_mark_nets pattern ?pattern ...?",
                            .summary = "mark the nets whose names match; returns how many matched"},
                           {.min = 1, .max = unlimited}, [](LayoutView &view, const Words &words) {
-                              const LayoutFrame &frame = shownFrame(view);
+                              const LayoutFrame &frame = getShownFrame(view);
                               std::vector<std::uint32_t> found =
                                   matchAll(frame.geometry->netName, words);
                               const auto count = static_cast<std::int64_t>(found.size());
-                              view.selection().markNets(std::move(found));
+                              view.getSelection().markNets(std::move(found));
                               return tcl::Value::integer(count);
                           });
     registerLayoutCommand(
@@ -193,19 +193,20 @@ void registerCommands() {
          .usage = "layout_connectivity ?on|off?",
          .summary = "show or hide the nets of the selected cells; returns how many are shown"},
         {.min = 0, .max = 1}, [](LayoutView &view, const Words &words) {
-            shownFrame(view);
-            if (words.empty() || switchValue(words.front())) {
+            getShownFrame(view);
+            if (words.empty() || isSwitchOn(words.front())) {
                 view.showConnectivity();
             } else {
                 view.hideConnectivity();
             }
-            return tcl::Value::integer(static_cast<std::int64_t>(view.selection().nets().size()));
+            return tcl::Value::integer(
+                static_cast<std::int64_t>(view.getSelection().getNets().size()));
         });
     registerLayoutCommand({.name = "layout_clear",
                            .usage = "layout_clear",
                            .summary = "drop the selected cells and the marked nets"},
                           {}, [](LayoutView &view, const Words &) {
-                              view.selection().clear();
+                              view.getSelection().clear();
                               return tcl::Value{};
                           });
     registerLayoutCommand(
@@ -219,10 +220,10 @@ void registerCommands() {
          .usage = "layout_view_area x1 y1 x2 y2",
          .summary = "show the area between two corners, in design units"},
         {.min = 4, .max = 4}, [](LayoutView &view, const Words &words) {
-            const double x1 = coordinate(words[0]);
-            const double y1 = coordinate(words[1]);
-            const double x2 = coordinate(words[2]);
-            const double y2 = coordinate(words[3]);
+            const double x1 = getCoordinate(words[0]);
+            const double y1 = getCoordinate(words[1]);
+            const double x2 = getCoordinate(words[2]);
+            const double y2 = getCoordinate(words[3]);
             view.zoomTo({std::min(x1, x2), std::min(y1, y2), std::max(x1, x2), std::max(y1, y2)});
             return tcl::Value{};
         });
@@ -241,19 +242,19 @@ void registerCommands() {
             if (words.empty()) {
                 std::vector<tcl::Value> layers;
                 for (const DisplayLayer layer : displayLayers) {
-                    layers.push_back(
-                        tcl::Value::string(std::format("{} {}", DisplayStyle::key(layer),
-                                                       view.style().shows(layer) ? "on" : "off")));
+                    layers.push_back(tcl::Value::string(
+                        std::format("{} {}", DisplayStyle::getKey(layer),
+                                    view.getStyle().isShown(layer) ? "on" : "off")));
                 }
                 return tcl::Value::list(std::move(layers));
             }
-            const DisplayLayer layer = layerNamed(words[0]);
+            const DisplayLayer layer = getLayerNamed(words[0]);
             if (words.size() == 2) {
-                DisplayStyle next = view.style();
-                next[layer].visible = switchValue(words[1]);
+                DisplayStyle next = view.getStyle();
+                next[layer].visible = isSwitchOn(words[1]);
                 view.setStyle(next);
             }
-            return tcl::Value::boolean(view.style().shows(layer));
+            return tcl::Value::boolean(view.getStyle().isShown(layer));
         });
     registerLayoutCommand(
         {.name = "layout_capture",

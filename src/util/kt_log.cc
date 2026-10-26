@@ -8,7 +8,7 @@
 
 namespace ktplace {
 
-std::string localDateTime() {
+std::string getLocalDateTime() {
     const std::time_t now = std::time(nullptr);
     std::tm tm{};
     localtime_r(&now, &tm);
@@ -17,7 +17,7 @@ std::string localDateTime() {
     return buf;
 }
 
-const char *Logger::levelTag(Level tag) {
+const char *Logger::getLevelTag(Level tag) {
     switch (tag) {
         case Level::Echo:
             return "echo";
@@ -31,7 +31,7 @@ const char *Logger::levelTag(Level tag) {
     return "?";
 }
 
-const char *Logger::levelColor(Level tag) {
+const char *Logger::getLevelColor(Level tag) {
     switch (tag) {
         case Level::Warning:
             return "\033[1;33m";
@@ -44,7 +44,7 @@ const char *Logger::levelColor(Level tag) {
     return "";
 }
 
-Logger &Logger::instance() {
+Logger &Logger::getInstance() {
     static Logger logger;
     return logger;
 }
@@ -92,7 +92,7 @@ const std::string &Logger::traceFilePath() const {
     return tracePath;
 }
 
-bool Logger::verbose() const {
+bool Logger::isVerbose() const {
     const std::scoped_lock lock(mutex);
     return verboseEnabled;
 }
@@ -134,7 +134,7 @@ void Logger::emit(Level level, const std::string &message) {
     ++records;
 
     const std::string prefix = '[' + step + "] ";
-    const std::string tag = flagged ? std::string(levelTag(level)) + ": " : std::string();
+    const std::string tag = flagged ? std::string(getLevelTag(level)) + ": " : std::string();
     if (traceFile.is_open()) {
         traceFile << prefix << tag << body << '\n';
         traceFile.flush();
@@ -145,7 +145,7 @@ void Logger::emit(Level level, const std::string &message) {
     }
     if (!isTrace || verboseEnabled) {
         if (flagged) {
-            std::cerr << prefix << levelColor(level) << tag << "\033[0m" << body << '\n';
+            std::cerr << prefix << getLevelColor(level) << tag << "\033[0m" << body << '\n';
         } else {
             std::cerr << prefix << body << '\n';
         }
@@ -155,7 +155,7 @@ void Logger::emit(Level level, const std::string &message) {
     }
 }
 
-std::string Logger::currentStep() const {
+std::string Logger::getCurrentStep() const {
     const std::scoped_lock lock(mutex);
     return step;
 }

@@ -31,14 +31,14 @@ struct Arity {
     std::size_t max = 0;
 };
 
-Step action(auto method) {
+Step getAction(auto method) {
     return [method](FlowMgr &flow, const Words &) {
         std::invoke(method, flow);
         return tcl::Value{};
     };
 }
 
-Words substitutedWords(tcl::Interpreter &interp, const tcl::Arguments &args) {
+Words getSubstitutedWords(tcl::Interpreter &interp, const tcl::Arguments &args) {
     Words words;
     words.reserve(args.size() - 1);
     for (std::size_t i = 1; i < args.size(); ++i) {
@@ -48,7 +48,7 @@ Words substitutedWords(tcl::Interpreter &interp, const tcl::Arguments &args) {
 }
 
 void registerStep(tcl::CommandHelp help, Arity arity, Needs needs, Step step) {
-    tcl::TclMgr::instance().registerCommand(
+    tcl::TclMgr::getInstance().registerCommand(
         help, [help, arity, needs, step = std::move(step)](
                   tcl::Interpreter &interp, const tcl::Arguments &args, tcl::Value &result) {
             const std::size_t given = args.size() - 1;
@@ -63,7 +63,7 @@ void registerStep(tcl::CommandHelp help, Arity arity, Needs needs, Step step) {
                     std::format("{}: no design is loaded; call read_design first", help.name));
             }
             try {
-                result = step(*bound, substitutedWords(interp, args));
+                result = step(*bound, getSubstitutedWords(interp, args));
             } catch (const std::logic_error &error) {
                 throw tcl::Error(std::format("{}: {}", help.name, error.what()));
             }
@@ -71,7 +71,7 @@ void registerStep(tcl::CommandHelp help, Arity arity, Needs needs, Step step) {
         });
 }
 
-std::string firstOr(const Words &words, std::string fallback) {
+std::string getFirstOr(const Words &words, std::string fallback) {
     return words.empty() ? std::move(fallback) : words.front();
 }
 
@@ -81,7 +81,7 @@ void registerCommands() {
          .usage = "read_design [dir]",
          .summary = "load a Bookshelf or LEF/DEF design (default: the opened or given design)"},
         {.min = 0, .max = 1}, Needs::Session, [](FlowMgr &flow, const Words &words) {
-            const std::string dir = firstOr(words, flow.designPath());
+            const std::string dir = getFirstOr(words, flow.getDesignPath());
             if (dir.empty()) {
                 throw std::logic_error("no design to read; give a directory or open a design");
             }
@@ -93,8 +93,8 @@ void registerCommands() {
                   .summary = "global placement (default: the flow algorithm option)"},
                  {.min = 0, .max = 1}, Needs::Design, [](FlowMgr &flow, const Words &words) {
                      if (!words.empty()) {
-                         OptionDb::instance().set(Component::Flow, "algorithm",
-                                                  OptionValue{words.front()});
+                         OptionDb::getInstance().set(Component::Flow, "algorithm",
+                                                     OptionValue{words.front()});
                      }
                      flow.globalPlace();
                      return tcl::Value{};
@@ -102,14 +102,14 @@ void registerCommands() {
     registerStep({.name = "legalize_placement",
                   .usage = "legalize_placement",
                   .summary = "legalize: Abacus, or the multi-row legalizer when cells span rows"},
-                 {}, Needs::Design, action(&FlowMgr::legalize));
+                 {}, Needs::Design, getAction(&FlowMgr::legalize));
     registerStep(
         {.name = "detail_place", .usage = "detail_place", .summary = "detailed placement (FastDP)"},
-        {}, Needs::Design, action(&FlowMgr::detailPlace));
+        {}, Needs::Design, getAction(&FlowMgr::detailPlace));
     registerStep({.name = "place_design",
                   .usage = "place_design",
                   .summary = "gplace_design, legalize_placement and detail_place"},
-                 {}, Needs::Design, action([](FlowMgr &flow) {
+                 {}, Needs::Design, getAction([](FlowMgr &flow) {
                      flow.globalPlace();
                      flow.legalize();
                      flow.detailPlace();
@@ -119,29 +119,29 @@ void registerCommands() {
          .usage = "write_placement [file]",
          .summary = "write the placement (default <work-dir>/placed.pl); returns the path"},
         {.min = 0, .max = 1}, Needs::Design, [](FlowMgr &flow, const Words &words) {
-            return tcl::Value::string(flow.writePlacement(firstOr(words, "")));
+            return tcl::Value::string(flow.writePlacement(getFirstOr(words, "")));
         });
     registerStep({.name = "write_plots",
                   .usage = "write_plots",
                   .summary = "draw the GIFs and the final image now"},
-                 {}, Needs::Design, action(&FlowMgr::writePlots));
+                 {}, Needs::Design, getAction(&FlowMgr::writePlots));
     registerStep({.name = "report_hpwl",
                   .usage = "report_hpwl",
                   .summary = "log the half-perimeter wirelength and return it"},
                  {}, Needs::Design, [](FlowMgr &flow, const Words &) {
-                     const double hpwl = flow.hpwl();
+                     const double hpwl = flow.getHpwl();
                      ktlog.echo("HPWL {:.6e}", hpwl);
                      return tcl::Value::real(hpwl);
                  });
     registerStep({.name = "report_design",
                   .usage = "report_design",
                   .summary = "report the design's size and utilisation"},
-                 {}, Needs::Design, action(&FlowMgr::reportDesign));
+                 {}, Needs::Design, getAction(&FlowMgr::reportDesign));
     registerStep({.name = "check_placement",
                   .usage = "check_placement",
                   .summary = "check overlaps, die and fences; returns 1 if the placement is legal"},
                  {}, Needs::Design, [](FlowMgr &flow, const Words &) {
-                     return tcl::Value::boolean(flow.checkPlacement());
+                     return tcl::Value::boolean(flow.isPlacementLegal());
                  });
 }
 

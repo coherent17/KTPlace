@@ -28,7 +28,7 @@ public:
     [[nodiscard]] static Value list(std::vector<Value> items);
     [[nodiscard]] static Value string(std::string text);
 
-    [[nodiscard]] Kind kind() const noexcept {
+    [[nodiscard]] Kind getKind() const noexcept {
         return kindOf;
     }
     [[nodiscard]] bool isInt() const noexcept {
@@ -55,7 +55,7 @@ public:
 
     // True for a number in any spelling. How a script's own quoting is told apart
     // from a deliberate string option.
-    [[nodiscard]] bool looksNumeric() const noexcept;
+    [[nodiscard]] bool isNumeric() const noexcept;
 
     // Two values are equal when their canonical text is: that is the comparison a
     // test and a report both mean, and it makes 1 and 1.0 agree, as Tcl does.
@@ -131,11 +131,11 @@ public:
         return found ? *found : std::move(fallback);
     }
 
-    [[nodiscard]] const std::map<std::string, ValueType> &all() const noexcept {
+    [[nodiscard]] const std::map<std::string, ValueType> &getAll() const noexcept {
         return entries;
     }
 
-    [[nodiscard]] std::vector<std::string> names() const {
+    [[nodiscard]] std::vector<std::string> getNames() const {
         std::vector<std::string> out;
         out.reserve(entries.size());
         for (const auto &entry : entries) {
@@ -190,15 +190,15 @@ public:
 
     void registerCommand(CommandHelp help, Command command);
     [[nodiscard]] bool hasCommand(const std::string &name) const;
-    [[nodiscard]] std::string helpText(const std::string &name = {}) const;
-    [[nodiscard]] const std::map<std::string, Command> &commands() const noexcept;
+    [[nodiscard]] std::string getHelpText(const std::string &name = {}) const;
+    [[nodiscard]] const std::map<std::string, Command> &getCommands() const noexcept;
 
     // Variables, as `set` and `$name` see them.
     void setVariable(const std::string &name, Value value);
     void unsetVariable(const std::string &name);
-    [[nodiscard]] Value variable(const std::string &name) const;
+    [[nodiscard]] Value getVariable(const std::string &name) const;
     [[nodiscard]] bool hasVariable(const std::string &name) const noexcept;
-    [[nodiscard]] Variables variables() const;
+    [[nodiscard]] Variables getVariables() const;
 
     // Runs one already-split command. Exposed because `source` and the option
     // commands need it, and because it is the unit the tests drive.
@@ -212,7 +212,7 @@ public:
     [[nodiscard]] std::vector<Value> splitList(const std::string &text) const;
 
     // The script currently being run, outermost first, for error messages.
-    [[nodiscard]] std::string scriptPath() const;
+    [[nodiscard]] std::string getScriptPath() const;
 
 private:
     void installBuiltins();
@@ -229,7 +229,7 @@ private:
 };
 
 // Tcl's `string match`: '*' and '?' are wildcards, everything else is literal.
-[[nodiscard]] bool globMatch(const std::string &pattern, const std::string &text);
+[[nodiscard]] bool isGlobMatch(const std::string &pattern, const std::string &text);
 
 // True when `text` is a whole integer / a whole real number: Tcl's own rule for
 // what a bare word becomes.

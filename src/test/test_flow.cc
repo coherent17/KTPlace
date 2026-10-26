@@ -63,22 +63,22 @@ public:
     ScratchDir(const ScratchDir &) = delete;
     ScratchDir &operator=(const ScratchDir &) = delete;
 
-    [[nodiscard]] std::string str() const {
+    [[nodiscard]] std::string getStr() const {
         return path.string();
     }
-    [[nodiscard]] fs::path file(const std::string &name) const {
+    [[nodiscard]] fs::path getFile(const std::string &name) const {
         return path / name;
     }
 
     void write(const std::string &name, const std::string &content) const {
-        std::filesystem::create_directories(file(name).parent_path());
-        std::ofstream out(file(name));
+        std::filesystem::create_directories(getFile(name).parent_path());
+        std::ofstream out(getFile(name));
         BOOST_REQUIRE(out.is_open());
         out << content;
     }
 
     [[nodiscard]] std::vector<std::string> readLines(const std::string &name) const {
-        std::ifstream in(file(name));
+        std::ifstream in(getFile(name));
         std::vector<std::string> lines;
         std::string line;
         while (std::getline(in, line)) {
@@ -97,17 +97,17 @@ private:
 /// real work to do on a die that is large enough to spread into.
 /// The design lives in its own directory, because that directory's name is what
 /// the reader takes the design name from.
-std::filesystem::path designDir(const ScratchDir &dir) {
-    return dir.file("tiny");
+std::filesystem::path getDesignDir(const ScratchDir &dir) {
+    return dir.getFile("tiny");
 }
 
 /// The options a run under test gets: a design to read and a work directory to
 /// write into. The output and plot paths are derived from the latter, so tests
 /// read them back off the options rather than naming them twice.
-kt_option optionsFor(const ScratchDir &dir, const std::string &inputPath) {
+kt_option getOptionsFor(const ScratchDir &dir, const std::string &inputPath) {
     kt_option opt;
     opt.inputPath = inputPath;
-    opt.workDir = dir.str();
+    opt.workDir = dir.getStr();
     return opt;
 }
 
@@ -235,7 +235,7 @@ std::size_t countNonEmptyLines(const fs::path &file) {
 BOOST_AUTO_TEST_CASE(flow_places_a_bookshelf_design_and_writes_pl) {
     const ScratchDir dir("place");
     writeBookshelfDesign(dir);
-    const kt_option opt = optionsFor(dir, designDir(dir).string());
+    const kt_option opt = getOptionsFor(dir, getDesignDir(dir).string());
 
     FlowMgr flow;
     flow.run(opt);
@@ -287,15 +287,15 @@ BOOST_AUTO_TEST_CASE(flow_places_a_bookshelf_design_and_writes_pl) {
 BOOST_AUTO_TEST_CASE(flow_writes_visualization_output_when_asked) {
     const ScratchDir dir("plots");
     writeBookshelfDesign(dir);
-    OptionDb::instance().set(Component::Visualizer, "svg_frames", OptionValue{1});
-    const kt_option opt = optionsFor(dir, designDir(dir).string());
+    OptionDb::getInstance().set(Component::Visualizer, "svg_frames", OptionValue{1});
+    const kt_option opt = getOptionsFor(dir, getDesignDir(dir).string());
     const fs::path plots = opt.getPlotDir();
 
     {
         FlowMgr flow;
         flow.run(opt);
     }
-    OptionDb::instance().clear();
+    OptionDb::getInstance().clear();
 
     // SimPL plots the LSS/HPWL bound it converges against, not the raw
     // per-iteration HPWL series the quadratic placer emitted.
@@ -367,7 +367,7 @@ NETS 2 ;
 END NETS
 END DESIGN
 )");
-    const kt_option opt = optionsFor(dir, dir.str());
+    const kt_option opt = getOptionsFor(dir, dir.getStr());
 
     FlowMgr flow;
     // Format auto-detection picks LEF/DEF because the directory holds a .def.
@@ -383,8 +383,8 @@ BOOST_AUTO_TEST_CASE(flow_exits_on_an_unknown_algorithm) {
     expectFatalExit(
         [&] {
             FlowMgr flow;
-            OptionDb::instance().set(Component::Flow, "algorithm", std::string("no_such_algo"));
-            const kt_option opt = optionsFor(dir, designDir(dir).string());
+            OptionDb::getInstance().set(Component::Flow, "algorithm", std::string("no_such_algo"));
+            const kt_option opt = getOptionsFor(dir, getDesignDir(dir).string());
             flow.run(opt);
         },
         "unknown placer");
@@ -393,12 +393,12 @@ BOOST_AUTO_TEST_CASE(flow_exits_on_an_unknown_algorithm) {
 BOOST_AUTO_TEST_CASE(flow_reads_the_placer_from_its_tcl_script) {
     const ScratchDir dir("tclalgo");
     writeBookshelfDesign(dir);
-    const fs::path script = fs::path(dir.str()) / "run.tcl";
+    const fs::path script = fs::path(dir.getStr()) / "run.tcl";
     std::ofstream(script) << "add_option flow algorithm no_such_algo\n";
     expectFatalExit(
         [&] {
             FlowMgr flow;
-            kt_option opt = optionsFor(dir, designDir(dir).string());
+            kt_option opt = getOptionsFor(dir, getDesignDir(dir).string());
             opt.tclFile = script.string();
             flow.run(opt);
         },
@@ -408,30 +408,30 @@ BOOST_AUTO_TEST_CASE(flow_reads_the_placer_from_its_tcl_script) {
 BOOST_AUTO_TEST_CASE(a_script_with_steps_is_the_flow) {
     const ScratchDir dir("stepscript");
     writeBookshelfDesign(dir);
-    const fs::path script = fs::path(dir.str()) / "flow.tcl";
+    const fs::path script = fs::path(dir.getStr()) / "flow.tcl";
     std::ofstream(script) << "add_option visualizer plot 0\n"
-                          << "read_design {" << designDir(dir).string() << "}\n"
+                          << "read_design {" << getDesignDir(dir).string() << "}\n"
                           << "gplace_design\n"
                           << "set gp [report_hpwl]\n"
                           << "legalize_placement\n"
                           << "detail_place\n"
-                          << "write_placement {" << dir.str() << "/mine.pl}\n";
-    kt_option opt = optionsFor(dir, "");
+                          << "write_placement {" << dir.getStr() << "/mine.pl}\n";
+    kt_option opt = getOptionsFor(dir, "");
     opt.tclFile = script.string();
     {
         FlowMgr flow;
         flow.run(opt);
     }
-    OptionDb::instance().clear();
-    BOOST_TEST(fs::exists(fs::path(dir.str()) / "mine.pl"));
+    OptionDb::getInstance().clear();
+    BOOST_TEST(fs::exists(fs::path(dir.getStr()) / "mine.pl"));
     BOOST_TEST(!fs::exists(opt.getOutputPath()));
-    BOOST_TEST(countNonEmptyLines(fs::path(dir.str()) / "mine.pl") == 6);
+    BOOST_TEST(countNonEmptyLines(fs::path(dir.getStr()) / "mine.pl") == 6);
 }
 
 BOOST_AUTO_TEST_CASE(a_step_before_read_design_is_a_tcl_error) {
     const ScratchDir dir("nodesign");
     FlowMgr flow;
-    flow.begin(optionsFor(dir, ""));
+    flow.begin(getOptionsFor(dir, ""));
     BOOST_CHECK_THROW((void)flow.evaluate("gplace_design"), tcl::Error);
     BOOST_CHECK_THROW((void)flow.evaluate("write_placement"), tcl::Error);
     BOOST_CHECK_THROW((void)flow.evaluate("read_design"), tcl::Error);
@@ -442,17 +442,17 @@ BOOST_AUTO_TEST_CASE(report_hpwl_returns_the_hpwl_to_the_script) {
     const ScratchDir dir("hpwl");
     writeBookshelfDesign(dir);
     FlowMgr flow;
-    flow.begin(optionsFor(dir, ""));
-    (void)flow.evaluate("read_design {" + designDir(dir).string() + "}");
+    flow.begin(getOptionsFor(dir, ""));
+    (void)flow.evaluate("read_design {" + getDesignDir(dir).string() + "}");
     BOOST_TEST(flow.hasDesign());
-    BOOST_TEST(flow.evaluate("read_design") == designDir(dir).string());
+    BOOST_TEST(flow.evaluate("read_design") == getDesignDir(dir).string());
     BOOST_TEST(std::stod(flow.evaluate("report_hpwl")) > 0.0);
 }
 
 BOOST_AUTO_TEST_CASE(help_lists_every_command_and_explains_one) {
     const ScratchDir dir("help");
     FlowMgr flow;
-    flow.begin(optionsFor(dir, ""));
+    flow.begin(getOptionsFor(dir, ""));
     const std::string all = flow.evaluate("help");
     for (const char *command : {"read_design", "gplace_design", "legalize_placement",
                                 "detail_place", "place_design", "write_placement", "report_hpwl"}) {
@@ -469,16 +469,16 @@ BOOST_AUTO_TEST_CASE(help_lists_every_command_and_explains_one) {
 BOOST_AUTO_TEST_CASE(the_shell_remembers_its_commands) {
     const ScratchDir dir("shellhistory");
     std::istringstream input("help\nreport_design\nexit\n");
-    BOOST_TEST(runShell(optionsFor(dir, ""), input) == 0);
+    BOOST_TEST(runShell(getOptionsFor(dir, ""), input) == 0);
     const CommandHistory history;
-    BOOST_TEST(std::ranges::count(history.entries(), "help") == 1);
+    BOOST_TEST(std::ranges::count(history.getEntries(), "help") == 1);
 }
 
 BOOST_AUTO_TEST_CASE(running_a_freshly_loaded_design_does_not_read_it_again) {
     const ScratchDir dir("freshrun");
     writeBookshelfDesign(dir);
-    OptionDb::instance().set(Component::Visualizer, "plot", OptionValue{0});
-    const kt_option opt = optionsFor(dir, designDir(dir).string());
+    OptionDb::getInstance().set(Component::Visualizer, "plot", OptionValue{0});
+    const kt_option opt = getOptionsFor(dir, getDesignDir(dir).string());
     const auto reads = [&opt] {
         std::ifstream log(opt.getLogFile());
         std::size_t count = 0;
@@ -497,30 +497,30 @@ BOOST_AUTO_TEST_CASE(running_a_freshly_loaded_design_does_not_read_it_again) {
     BOOST_TEST(fs::exists(opt.getOutputPath()));
     flow.run(opt);
     BOOST_TEST(reads() == 2U);
-    OptionDb::instance().clear();
+    OptionDb::getInstance().clear();
 }
 
 BOOST_AUTO_TEST_CASE(a_batch_run_places_the_design_and_succeeds) {
     const ScratchDir dir("batch");
     writeBookshelfDesign(dir);
-    OptionDb::instance().set(Component::Visualizer, "plot", OptionValue{0});
-    const kt_option opt = optionsFor(dir, designDir(dir).string());
+    OptionDb::getInstance().set(Component::Visualizer, "plot", OptionValue{0});
+    const kt_option opt = getOptionsFor(dir, getDesignDir(dir).string());
     BOOST_TEST(runBatch(opt) == 0);
-    OptionDb::instance().clear();
+    OptionDb::getInstance().clear();
     BOOST_TEST(fs::exists(opt.getOutputPath()));
 }
 
 BOOST_AUTO_TEST_CASE(the_shell_exits_with_the_status_it_is_given) {
     const ScratchDir dir("shellexit");
     std::istringstream input("help\nexit 3\nhelp\n");
-    BOOST_TEST(runShell(optionsFor(dir, ""), input) == 3);
+    BOOST_TEST(runShell(getOptionsFor(dir, ""), input) == 3);
 }
 
 BOOST_AUTO_TEST_CASE(the_shell_fails_when_its_startup_script_fails) {
     const ScratchDir dir("shellbadscript");
-    const fs::path script = dir.file("broken.tcl");
+    const fs::path script = dir.getFile("broken.tcl");
     std::ofstream(script) << "no_such_command\n";
-    kt_option opt = optionsFor(dir, "");
+    kt_option opt = getOptionsFor(dir, "");
     opt.tclFile = script.string();
     std::istringstream input("");
     BOOST_TEST(runShell(opt, input) == 1);
@@ -538,21 +538,21 @@ BOOST_AUTO_TEST_CASE(the_shell_runs_commands_and_survives_a_bad_one) {
         "}\n"
         "write_placement\n"
         "exit\n");
-    const kt_option opt = optionsFor(dir, designDir(dir).string());
+    const kt_option opt = getOptionsFor(dir, getDesignDir(dir).string());
     BOOST_TEST(runShell(opt, input) == 0);
-    OptionDb::instance().clear();
+    OptionDb::getInstance().clear();
     BOOST_TEST(fs::exists(opt.getOutputPath()));
 }
 
 BOOST_AUTO_TEST_CASE(flow_exits_on_a_broken_tcl_script) {
     const ScratchDir dir("badtcl");
     writeBookshelfDesign(dir);
-    const fs::path script = fs::path(dir.str()) / "run.tcl";
+    const fs::path script = fs::path(dir.getStr()) / "run.tcl";
     std::ofstream(script) << "add_option nonesuch grid 64\n";
     expectFatalExit(
         [&] {
             FlowMgr flow;
-            kt_option opt = optionsFor(dir, designDir(dir).string());
+            kt_option opt = getOptionsFor(dir, getDesignDir(dir).string());
             opt.tclFile = script.string();
             flow.run(opt);
         },
@@ -564,7 +564,7 @@ BOOST_AUTO_TEST_CASE(flow_exits_when_the_input_directory_is_missing) {
     expectFatalExit(
         [&] {
             FlowMgr flow;
-            flow.run(optionsFor(dir, dir.str() + "/no_such_dir"));
+            flow.run(getOptionsFor(dir, dir.getStr() + "/no_such_dir"));
         },
         "cannot read input directory");
 }
@@ -576,7 +576,7 @@ BOOST_AUTO_TEST_CASE(flow_exits_when_the_design_files_are_missing) {
     expectFatalExit(
         [&] {
             FlowMgr flow;
-            flow.run(optionsFor(dir, dir.str()));
+            flow.run(getOptionsFor(dir, dir.getStr()));
         },
         "no input format recognises");
 }
@@ -584,7 +584,7 @@ BOOST_AUTO_TEST_CASE(flow_exits_when_the_design_files_are_missing) {
 BOOST_AUTO_TEST_CASE(a_run_draws_its_recorded_pictures_and_removes_the_snapshot_file) {
     const ScratchDir dir("drawn");
     writeBookshelfDesign(dir);
-    const kt_option options = optionsFor(dir, designDir(dir).string());
+    const kt_option options = getOptionsFor(dir, getDesignDir(dir).string());
     {
         FlowMgr flow;
         flow.run(options);
@@ -600,21 +600,21 @@ BOOST_AUTO_TEST_CASE(a_run_draws_its_recorded_pictures_and_removes_the_snapshot_
 BOOST_AUTO_TEST_CASE(keep_snapshots_leaves_the_snapshot_file) {
     const ScratchDir dir("kept");
     writeBookshelfDesign(dir);
-    OptionDb::instance().set(Component::Visualizer, "keep_snapshots", OptionValue{1});
-    const kt_option options = optionsFor(dir, designDir(dir).string());
+    OptionDb::getInstance().set(Component::Visualizer, "keep_snapshots", OptionValue{1});
+    const kt_option options = getOptionsFor(dir, getDesignDir(dir).string());
     {
         FlowMgr flow;
         flow.run(options);
     }
-    OptionDb::instance().clear();
+    OptionDb::getInstance().clear();
     BOOST_TEST(fs::exists(fs::path(options.getPlotDir()) / "snapshots.ktsnap"));
 }
 
 BOOST_AUTO_TEST_CASE(an_observer_sees_every_commit_and_the_stage_frames_without_plots) {
     const ScratchDir dir("observed");
     writeBookshelfDesign(dir);
-    const kt_option options = optionsFor(dir, designDir(dir).string());
-    OptionDb::instance().set(Component::Visualizer, "plot", OptionValue{0});
+    const kt_option options = getOptionsFor(dir, getDesignDir(dir).string());
+    OptionDb::getInstance().set(Component::Visualizer, "plot", OptionValue{0});
 
     std::vector<std::string> stages;
     std::size_t cells = 0;
@@ -633,7 +633,7 @@ BOOST_AUTO_TEST_CASE(an_observer_sees_every_commit_and_the_stage_frames_without_
                           frameSize = std::min(x.size(), y.size());
                       }});
     flow.run(options);
-    OptionDb::instance().clear();
+    OptionDb::getInstance().clear();
 
     const std::vector<std::string> expected{"load", "global placement", "legalization",
                                             "detailed placement"};
@@ -642,14 +642,14 @@ BOOST_AUTO_TEST_CASE(an_observer_sees_every_commit_and_the_stage_frames_without_
     BOOST_TEST(frames > 0U);
     BOOST_TEST(frameSize == 6U);
     BOOST_TEST(fs::exists(options.getOutputPath()));
-    BOOST_TEST(!fs::exists(dir.file("plots")));
+    BOOST_TEST(!fs::exists(dir.getFile("plots")));
 }
 
 BOOST_AUTO_TEST_CASE(an_observer_that_throws_stops_the_run_before_it_writes) {
     const ScratchDir dir("stopped");
     writeBookshelfDesign(dir);
-    const kt_option options = optionsFor(dir, designDir(dir).string());
-    OptionDb::instance().set(Component::Visualizer, "plot", OptionValue{0});
+    const kt_option options = getOptionsFor(dir, getDesignDir(dir).string());
+    OptionDb::getInstance().set(Component::Visualizer, "plot", OptionValue{0});
 
     struct Stop {};
     FlowMgr flow;
@@ -659,6 +659,6 @@ BOOST_AUTO_TEST_CASE(an_observer_that_throws_stops_the_run_before_it_writes) {
                       throw Stop{};
                   }});
     BOOST_CHECK_THROW(flow.run(options), Stop);
-    OptionDb::instance().clear();
+    OptionDb::getInstance().clear();
     BOOST_TEST(!fs::exists(options.getOutputPath()));
 }

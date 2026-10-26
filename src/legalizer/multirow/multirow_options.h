@@ -6,6 +6,7 @@
 #include "datamodel/kt_optionDb.h"
 
 #include <cstddef>
+#include <tuple>
 
 namespace ktplace {
 
@@ -15,9 +16,11 @@ struct MultiRowOptions {
     std::size_t macroRows = 3;
     std::size_t frames = 24;
 
-    static void fields(auto &self, auto &&visit) {
-        visit("macro_rows", self.macroRows);
-        visit("frames", self.frames);
+    static constexpr auto getConfigurableOptions() {
+        return std::tuple{
+            option("macro_rows", &MultiRowOptions::macroRows),
+            option("frames", &MultiRowOptions::frames),
+        };
     }
 };
 

@@ -33,13 +33,13 @@ struct PlotOptions {
     // The defaults, with the run's visualizer options applied over them.
     [[nodiscard]] static PlotOptions fromOptions(const std::string &plotDir);
 
-    [[nodiscard]] bool enabled() const {
+    [[nodiscard]] bool isEnabled() const {
         return !dir.empty();
     }
 
     // A stage's own directory under the root, or empty when drawing is off.
-    [[nodiscard]] std::string sub(const char *stage) const {
-        return enabled() ? dir + "/" + stage : std::string();
+    [[nodiscard]] std::string getSub(const char *stage) const {
+        return isEnabled() ? dir + "/" + stage : std::string();
     }
 };
 

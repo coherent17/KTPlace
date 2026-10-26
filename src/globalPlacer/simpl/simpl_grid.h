@@ -20,10 +20,10 @@ struct BinRect {
     std::size_t y0 = 0;
     std::size_t y1 = 0;
 
-    [[nodiscard]] BinRect merged(const BinRect &o) const {
+    [[nodiscard]] BinRect getMerged(const BinRect &o) const {
         return {std::min(x0, o.x0), std::max(x1, o.x1), std::min(y0, o.y0), std::max(y1, o.y1)};
     }
-    [[nodiscard]] std::size_t bins() const {
+    [[nodiscard]] std::size_t getBins() const {
         return (x1 - x0 + 1) * (y1 - y0 + 1);
     }
 };
@@ -32,15 +32,15 @@ struct AxisProfile {
     std::vector<double> edges;
     std::vector<double> prefix;
 
-    [[nodiscard]] double total() const {
+    [[nodiscard]] double getTotal() const {
         return prefix.back();
     }
-    [[nodiscard]] double before(double c) const {
+    [[nodiscard]] double getBefore(double c) const {
         if (c <= edges.front()) {
             return 0.0;
         }
         if (c >= edges.back()) {
-            return total();
+            return getTotal();
         }
         const std::size_t k = static_cast<std::size_t>(
                                   std::upper_bound(edges.begin(), edges.end(), c) - edges.begin()) -
@@ -48,14 +48,14 @@ struct AxisProfile {
         const double f = (c - edges[k]) / (edges[k + 1] - edges[k]);
         return prefix[k] + f * (prefix[k + 1] - prefix[k]);
     }
-    [[nodiscard]] double between(double a, double b) const {
-        return before(b) - before(a);
+    [[nodiscard]] double getBetween(double a, double b) const {
+        return getBefore(b) - getBefore(a);
     }
-    [[nodiscard]] double coordinateAt(double target) const {
+    [[nodiscard]] double getCoordinateAt(double target) const {
         if (target <= 0.0) {
             return edges.front();
         }
-        if (target >= total()) {
+        if (target >= getTotal()) {
             return edges.back();
         }
         const std::size_t k = static_cast<std::size_t>(
@@ -82,20 +82,21 @@ struct BinGrid {
     [[nodiscard]] std::size_t at(std::size_t ix, std::size_t iy) const {
         return iy * nx + ix;
     }
-    [[nodiscard]] std::size_t column(double x) const {
+    [[nodiscard]] std::size_t getColumn(double x) const {
         return clampIndex((x - x0) / dx, nx);
     }
-    [[nodiscard]] std::size_t row(double y) const {
+    [[nodiscard]] std::size_t getRow(double y) const {
         return clampIndex((y - y0) / dy, ny);
     }
-    [[nodiscard]] std::size_t binOf(double x, double y) const {
-        return at(column(x), row(y));
+    [[nodiscard]] std::size_t getBinOf(double x, double y) const {
+        return at(getColumn(x), getRow(y));
     }
-    [[nodiscard]] double edge(bool vertical, std::size_t t) const {
+    [[nodiscard]] double getEdge(bool vertical, std::size_t t) const {
         return vertical ? x0 + static_cast<double>(t) * dx : y0 + static_cast<double>(t) * dy;
     }
-    [[nodiscard]] Box box(const BinRect &r) const {
-        return {edge(true, r.x0), edge(false, r.y0), edge(true, r.x1 + 1), edge(false, r.y1 + 1)};
+    [[nodiscard]] Box getBox(const BinRect &r) const {
+        return {getEdge(true, r.x0), getEdge(false, r.y0), getEdge(true, r.x1 + 1),
+                getEdge(false, r.y1 + 1)};
     }
     [[nodiscard]] double sum(const std::vector<double> &field, const BinRect &r) const {
         double total = 0.0;
@@ -110,11 +111,12 @@ struct BinGrid {
         if (!(b.x1 > b.x0) || !(b.y1 > b.y0)) {
             return;
         }
-        for (std::size_t iy = row(b.y0); iy <= row(b.y1); ++iy) {
-            const double oy = std::min(b.y1, edge(false, iy + 1)) - std::max(b.y0, edge(false, iy));
-            for (std::size_t ix = column(b.x0); ix <= column(b.x1); ++ix) {
+        for (std::size_t iy = getRow(b.y0); iy <= getRow(b.y1); ++iy) {
+            const double oy =
+                std::min(b.y1, getEdge(false, iy + 1)) - std::max(b.y0, getEdge(false, iy));
+            for (std::size_t ix = getColumn(b.x0); ix <= getColumn(b.x1); ++ix) {
                 const double ox =
-                    std::min(b.x1, edge(true, ix + 1)) - std::max(b.x0, edge(true, ix));
+                    std::min(b.x1, getEdge(true, ix + 1)) - std::max(b.x0, getEdge(true, ix));
                 if (ox > 0.0 && oy > 0.0) {
                     avail[at(ix, iy)] += sign * ox * oy;
                 }
@@ -133,7 +135,7 @@ struct FreeSpace {
         double y1 = 0.0;
         std::vector<std::pair<double, double>> spans;
 
-        [[nodiscard]] double length(double a, double b) const {
+        [[nodiscard]] double getLength(double a, double b) const {
             double total = 0.0;
             for (const auto &[s0, s1] : spans) {
                 total += std::max(0.0, std::min(b, s1) - std::max(a, s0));
@@ -176,7 +178,7 @@ struct FreeSpace {
         }
     }
 
-    [[nodiscard]] AxisProfile profile(const Box &b, bool vertical) const {
+    [[nodiscard]] AxisProfile getProfile(const Box &b, bool vertical) const {
         const auto first =
             std::upper_bound(rows.begin(), rows.end(), b.y0, [](double v, const Row &r) {
                 return v < r.y1;
@@ -217,7 +219,7 @@ struct FreeSpace {
                 const double z = std::min(hi, r->y1);
                 if (z > a) {
                     extend(a, 0.0);
-                    extend(z, r->length(b.x0, b.x1) * (z - a));
+                    extend(z, r->getLength(b.x0, b.x1) * (z - a));
                 }
             }
         }

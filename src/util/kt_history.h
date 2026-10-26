@@ -10,17 +10,17 @@ class CommandHistory {
 public:
     static constexpr std::size_t capacity = 1000;
 
-    explicit CommandHistory(std::string file = defaultFile());
+    explicit CommandHistory(std::string file = getDefaultFile());
 
     void add(const std::string &command);
-    [[nodiscard]] const std::vector<std::string> &entries() const noexcept {
+    [[nodiscard]] const std::vector<std::string> &getEntries() const noexcept {
         return lines;
     }
-    [[nodiscard]] const std::string &file() const noexcept {
+    [[nodiscard]] const std::string &getFile() const noexcept {
         return path;
     }
 
-    [[nodiscard]] static std::string defaultFile();
+    [[nodiscard]] static std::string getDefaultFile();
 
 private:
     std::string path;

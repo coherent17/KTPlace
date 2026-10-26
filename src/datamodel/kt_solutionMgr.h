@@ -12,19 +12,12 @@
 namespace ktplace {
 
 /// Half-perimeter wirelength of a placement, computed from a netlist and the
-/// positions that go with it.
-///
-/// A free function taking the graph and the coordinates, because that is what a
-/// stage actually has: it is working on its own positions and has not committed
-/// them to the design yet. There were three HPWL implementations before this --
-/// ktDM::hpwl() over the committed placement, SimplePlacer::Impl::hpwl() over its
-/// own arrays, and FastDP::segmentHpwl() over a cell subset -- and this is the
-/// shape the plotter already takes (writeFrameSvg(path, g, x, y, ...)).
+/// positions that go with it, through netHpwl (kt_hpwl.h) like every stage's HPWL.
 ///
 /// @p x and @p y are indexed by vertex id and must cover every vertex. Entries
 /// for net vertices are ignored.
-[[nodiscard]] double netlistHPWL(const Graph &graph, const std::vector<double> &x,
-                                 const std::vector<double> &y);
+[[nodiscard]] double getNetlistHPWL(const Graph &graph, const std::vector<double> &x,
+                                    const std::vector<double> &y);
 
 struct simplSolution {
     std::vector<double> xs;
@@ -100,10 +93,10 @@ public:
     /// and must not clear any.
     void commitTo(Graph &graph) const;
 
-    [[nodiscard]] double x(std::size_t vertexId) const {
+    [[nodiscard]] double getX(std::size_t vertexId) const {
         return xPos.at(vertexId);
     }
-    [[nodiscard]] double y(std::size_t vertexId) const {
+    [[nodiscard]] double getY(std::size_t vertexId) const {
         return yPos.at(vertexId);
     }
     void setX(std::size_t vertexId, double x) {
@@ -124,10 +117,10 @@ public:
         yPos = ys;
     }
 
-    [[nodiscard]] const std::vector<double> &xs() const {
+    [[nodiscard]] const std::vector<double> &getXs() const {
         return xPos;
     }
-    [[nodiscard]] const std::vector<double> &ys() const {
+    [[nodiscard]] const std::vector<double> &getYs() const {
         return yPos;
     }
 

@@ -38,7 +38,7 @@ struct LayerLook {
     friend bool operator==(const LayerLook &, const LayerLook &) = default;
 };
 
-[[nodiscard]] DisplayLayer layerOf(CellKind kind);
+[[nodiscard]] DisplayLayer getLayerOf(CellKind kind);
 
 class DisplayStyle {
 public:
@@ -46,10 +46,10 @@ public:
 
     [[nodiscard]] const LayerLook &operator[](DisplayLayer layer) const;
     [[nodiscard]] LayerLook &operator[](DisplayLayer layer);
-    [[nodiscard]] bool shows(DisplayLayer layer) const;
+    [[nodiscard]] bool isShown(DisplayLayer layer) const;
 
-    [[nodiscard]] static std::string_view title(DisplayLayer layer);
-    [[nodiscard]] static std::string_view key(DisplayLayer layer);
+    [[nodiscard]] static std::string_view getTitle(DisplayLayer layer);
+    [[nodiscard]] static std::string_view getKey(DisplayLayer layer);
     [[nodiscard]] static std::optional<DisplayLayer> fromKey(std::string_view key);
 
     friend bool operator==(const DisplayStyle &, const DisplayStyle &) = default;

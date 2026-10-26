@@ -115,7 +115,7 @@ public:
     }
 
     [[nodiscard]] QLineEdit *input() const {
-        return window.tclConsole()->findChild<QLineEdit *>();
+        return window.getTclConsole()->findChild<QLineEdit *>();
     }
 
     void key(int code, const QString &text = {}) {
@@ -138,7 +138,7 @@ public:
     }
 
     void waitIdle(int sampleMs, double frameSeconds) {
-        while (window.running()) {
+        while (window.isRunning()) {
             pump(sampleMs);
             snap(frameSeconds);
         }
@@ -169,7 +169,7 @@ private:
         font.setPixelSize(24);
         font.setBold(true);
         painter.setFont(font);
-        const LayoutView *view = window.layoutView();
+        const LayoutView *view = window.getLayoutView();
         const QRectF area(view->mapTo(&window, QPoint(0, 0)) * scale,
                           view->size().toSizeF() * scale);
         const QRectF text =
@@ -223,9 +223,9 @@ QPointF centreOf(const QWidget *widget, const QWidget *window) {
 }
 
 QPointF cellCentre(const LayoutView &view, std::uint32_t cell) {
-    const LayoutFrame &frame = view.frame();
-    return view.worldToScreen({frame.x[cell] + frame.geometry->width[cell] / 2.0,
-                               frame.y[cell] + frame.geometry->height[cell] / 2.0});
+    const LayoutFrame &frame = view.getFrame();
+    return view.getWorldToScreen({frame.x[cell] + frame.geometry->width[cell] / 2.0,
+                                  frame.y[cell] + frame.geometry->height[cell] / 2.0});
 }
 
 int fanout(const LayoutGeometry &geometry, std::uint32_t cell) {
@@ -247,7 +247,7 @@ int fanout(const LayoutGeometry &geometry, std::uint32_t cell) {
 }
 
 std::optional<std::uint32_t> selectHighFanoutCell(LayoutView &view) {
-    const LayoutGeometry &geometry = *view.frame().geometry;
+    const LayoutGeometry &geometry = *view.getFrame().geometry;
     std::vector<std::pair<int, std::uint32_t>> ranked;
     for (std::uint32_t cell = 0; cell < geometry.kind.size(); ++cell) {
         if (const int value = fanout(geometry, cell); value > 0) {
@@ -263,7 +263,7 @@ std::optional<std::uint32_t> selectHighFanoutCell(LayoutView &view) {
             continue;
         }
         view.selectAt(at);
-        if (view.selectedCell() == cell) {
+        if (view.getSelectedCell() == cell) {
             return cell;
         }
     }
@@ -302,7 +302,7 @@ void zoomSteps(Recorder &recorder, LayoutView &view, int steps, double factor,
 }
 
 void play(MainWindow &window, Recorder &recorder, const QString &design) {
-    LayoutView &view = *window.layoutView();
+    LayoutView &view = *window.getLayoutView();
     const QPointF origin = view.mapTo(&window, QPoint(0, 0));
 
     recorder.caption = QStringLiteral("KTPlace GUI: ktplace --gui");
@@ -354,7 +354,7 @@ void play(MainWindow &window, Recorder &recorder, const QString &design) {
     recorder.command(QStringLiteral("report_hpwl"), 1.6);
 
     const auto selected = [&view] {
-        const std::optional<std::uint32_t> cell = view.selectedCell();
+        const std::optional<std::uint32_t> cell = view.getSelectedCell();
         return cell ? cellCentre(view, *cell) : QPointF(view.width() / 2.0, view.height() / 2.0);
     };
     recorder.caption = QStringLiteral("Zoom in to watch the cells shift");

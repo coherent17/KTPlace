@@ -29,7 +29,7 @@ struct Rect {
     }
 
     /// @return area in database units squared
-    [[nodiscard]] double area() const {
+    [[nodiscard]] double getArea() const {
         return (hi.x - lo.x) * (hi.y - lo.y);
     }
 };
@@ -78,18 +78,18 @@ public:
     std::size_t assignByPrefix(int regionId, const std::string &prefix, Graph &graph);
 
     /// @return number of regions
-    [[nodiscard]] std::size_t numRegions() const {
+    [[nodiscard]] std::size_t getNumRegions() const {
         return regionList.size();
     }
 
     /// @return the region with the given id, or nullptr when out of range
-    [[nodiscard]] const Region *region(int id) const {
+    [[nodiscard]] const Region *getRegion(int id) const {
         return (id >= 0 && static_cast<std::size_t>(id) < regionList.size()) ? &regionList[id]
                                                                              : nullptr;
     }
 
     /// @return all regions
-    [[nodiscard]] const std::vector<Region> &regions() const {
+    [[nodiscard]] const std::vector<Region> &getRegions() const {
         return regionList;
     }
 
@@ -115,10 +115,10 @@ public:
 
 private:
     /// @return true when (x, y) is inside any region
-    [[nodiscard]] bool insideAnyRegion(double x, double y) const;
+    [[nodiscard]] bool isInsideAnyRegion(double x, double y) const;
 
     /// @return step used to land just outside a fence, scaled to the geometry
-    [[nodiscard]] double escapeEpsilon() const;
+    [[nodiscard]] double getEscapeEpsilon() const;
 
     std::vector<Region> regionList;
     std::unordered_map<std::string, int> idByName;

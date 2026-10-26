@@ -13,8 +13,8 @@ int runBatch(const kt_option &options) {
     FlowMgr().run(options);
     ktlog.echo(
         "Placement completed successfully! {:.3f}s wall, {:.3f}s cpu, peak memory {:.1f} MiB",
-        stopwatch.elapsedSeconds(), stopwatch.cpuElapsedSeconds(),
-        static_cast<double>(peakResidentBytes()) / (1024.0 * 1024.0));
+        stopwatch.getElapsedSeconds(), stopwatch.getCpuElapsedSeconds(),
+        static_cast<double>(getPeakResidentBytes()) / (1024.0 * 1024.0));
     return 0;
 }
 

@@ -81,7 +81,7 @@ void Runner::Impl::openSession() {
                               if (!geometry || stage == "load") {
                                   geometry = LayoutGeometry::of(db);
                               }
-                              deliver(LayoutFrame::committed(geometry, db, std::string(stage)),
+                              deliver(LayoutFrame::getCommitted(geometry, db, std::string(stage)),
                                       false);
                               if (stopRequested) {
                                   throw StopRequested{};
@@ -98,10 +98,10 @@ void Runner::Impl::openSession() {
 }
 
 RunResult Runner::Impl::place(const RunRequest &request) {
-    OptionDb::instance().clear();
+    OptionDb::getInstance().clear();
     const bool reuseSession = session && session->isFreshlyLoaded(request.design);
     if (!reuseSession) {
-        TimerRegistry::instance().reset();
+        TimerRegistry::getInstance().reset();
     }
 
     kt_option options;
@@ -133,7 +133,7 @@ RunResult Runner::Impl::place(const RunRequest &request) {
 }
 
 void Runner::Impl::beginSession(const RunRequest &request) {
-    OptionDb::instance().clear();
+    OptionDb::getInstance().clear();
     kt_option options;
     options.inputPath = request.design;
     options.workDir = request.workDir;
@@ -204,7 +204,7 @@ Runner::~Runner() {
 }
 
 bool Runner::start(const RunRequest &request) {
-    if (running()) {
+    if (isRunning()) {
         return false;
     }
     pImpl->launch([impl = pImpl.get(), request] {
@@ -214,7 +214,7 @@ bool Runner::start(const RunRequest &request) {
 }
 
 bool Runner::open(const RunRequest &request) {
-    if (running()) {
+    if (isRunning()) {
         return false;
     }
     pImpl->launch([impl = pImpl.get(), request] {
@@ -224,7 +224,7 @@ bool Runner::open(const RunRequest &request) {
 }
 
 bool Runner::execute(const std::string &command, const RunRequest &request) {
-    if (running()) {
+    if (isRunning()) {
         return false;
     }
     pImpl->launch([impl = pImpl.get(), command, request] {
@@ -237,7 +237,7 @@ void Runner::stop() {
     pImpl->stopRequested = true;
 }
 
-bool Runner::running() const {
+bool Runner::isRunning() const {
     return pImpl->thread && !pImpl->thread->isFinished();
 }
 

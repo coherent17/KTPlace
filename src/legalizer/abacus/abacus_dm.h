@@ -2,10 +2,12 @@
 
 #include "datamodel/kt_solutionMgr.h"
 #include "legalizer/abacus/abacus_options.h"
+#include "util/kt_packedLists.h"
 
 #include <array>
 #include <cstddef>
 #include <functional>
+#include <limits>
 #include <string>
 #include <utility>
 #include <vector>
@@ -16,26 +18,37 @@ class ktDM;
 
 namespace ktplace::abacus {
 
-struct Cell {
-    double x = 0.0;
-    double y = 0.0;
-    double width = 0.0;
-    double height = 0.0;
-    bool isFixed = false;
-    bool isTerminal = false;
-    int region = -1;
-};
-
 inline constexpr int noRegion = -1;
+inline constexpr std::size_t noSlot = std::numeric_limits<std::size_t>::max();
 
-struct Pin {
-    std::size_t cellId = 0;
-    double offsetX = 0.0;
-    double offsetY = 0.0;
+struct Cells {
+    std::vector<std::size_t> id;
+    std::vector<double> x;
+    std::vector<double> y;
+    std::vector<double> width;
+    std::vector<double> height;
+    std::vector<int> region;
+
+    [[nodiscard]] std::size_t size() const noexcept {
+        return id.size();
+    }
 };
 
-struct Net {
-    std::vector<std::size_t> pins;
+struct NetPin {
+    std::size_t slot = noSlot;
+    double offX = 0.0;
+    double offY = 0.0;
+    double absX = 0.0;
+    double absY = 0.0;
+};
+
+using Nets = PackedLists<NetPin>;
+
+struct FixedBox {
+    double y0 = 0.0;
+    double y1 = 0.0;
+    double x0 = 0.0;
+    double x1 = 0.0;
 };
 
 struct Subrow {
@@ -49,64 +62,13 @@ struct RowInfo {
     double height = 0.0;
     double sitePitch = 0.0;
 
-    [[nodiscard]] double pitch() const noexcept {
+    [[nodiscard]] double getPitch() const noexcept {
         return sitePitch;
     }
     std::vector<Subrow> subrows;
 };
 
 using DieBox = std::array<double, 4>;
-
-struct Rect {
-    double xlo = 0.0;
-    double ylo = 0.0;
-    double xhi = 0.0;
-    double yhi = 0.0;
-
-    [[nodiscard]] bool contains(double x, double y) const noexcept {
-        return x >= xlo && x <= xhi && y >= ylo && y <= yhi;
-    }
-};
-
-struct Region {
-    std::vector<Rect> rects;
-    double minX = 0.0;
-    double minY = 0.0;
-    double maxX = 0.0;
-    double maxY = 0.0;
-
-    [[nodiscard]] bool contains(double x, double y) const {
-        if (x < minX || x > maxX || y < minY || y > maxY) {
-            return false;
-        }
-        for (const Rect &r : rects) {
-            if (r.contains(x, y)) {
-                return true;
-            }
-        }
-        return false;
-    }
-    void seal();
-};
-
-class Fences {
-public:
-    [[nodiscard]] std::size_t numRegions() const noexcept {
-        return regions.size();
-    }
-    [[nodiscard]] const Region &region(int id) const {
-        return regions.at(static_cast<std::size_t>(id));
-    }
-    void addRegion(Region r) {
-        regions.push_back(std::move(r));
-    }
-
-    [[nodiscard]] std::size_t countViolations(const std::vector<double> &positions,
-                                              const std::vector<int> &regionIds) const;
-
-private:
-    std::vector<Region> regions;
-};
 
 struct FrameInfo {
     std::string note;
@@ -123,42 +85,27 @@ using FrameHook = std::function<void(const std::vector<float> &xs, const std::ve
                                      const FrameInfo &info)>;
 
 struct Design {
-    std::vector<Cell> cells;
-    std::vector<Pin> pins;
-    std::vector<Net> nets;
+    Cells cells;
+    Nets nets;
+    std::vector<FixedBox> fixedBoxes;
     std::vector<RowInfo> rows;
+    std::vector<double> vertexX;
+    std::vector<double> vertexY;
     DieBox die{};
-    Fences fences;
     FrameHook onFrame;
-};
-
-struct AbacusResult {
-    std::size_t cellsPlaced = 0;
-    std::size_t unplaced = 0;
-    double totalSquaredDisplacement = 0.0;
-    double maxDisplacement = 0.0;
-    double hpwlBefore = 0.0;
-    double hpwlAfter = 0.0;
-    double seconds = 0.0;
-    std::size_t overlappingPairs = 0;
-    std::size_t offRow = 0;
-    std::size_t offSite = 0;
-    std::size_t overFixed = 0;
-    std::size_t outOfRows = 0;
-    std::size_t commitFailures = 0;
 };
 
 class abacusDM {
 public:
     abacusDM(Design design, AbacusOptions options);
 
-    [[nodiscard]] const AbacusOptions &options() const noexcept {
+    [[nodiscard]] const AbacusOptions &getOptions() const noexcept {
         return opts;
     }
-    [[nodiscard]] AbacusOptions &options() noexcept {
+    [[nodiscard]] AbacusOptions &getOptions() noexcept {
         return opts;
     }
-    [[nodiscard]] const Design &design() const noexcept {
+    [[nodiscard]] const Design &getDesign() const noexcept {
         return d;
     }
 
@@ -166,8 +113,8 @@ public:
         d.onFrame = std::move(hook);
     }
 
-    AbacusResult run();
-    [[nodiscard]] abacusSolution solution() const;
+    void run();
+    [[nodiscard]] abacusSolution getSolution() const;
 
 private:
     Design d;

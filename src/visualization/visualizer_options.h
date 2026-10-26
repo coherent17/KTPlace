@@ -6,6 +6,7 @@
 #include "datamodel/kt_optionDb.h"
 
 #include <cstddef>
+#include <tuple>
 
 namespace ktplace {
 
@@ -23,17 +24,19 @@ struct VisualizerOptions {
     bool congestion = true;
     std::size_t congestionBins = 128;
 
-    static void fields(auto &self, auto &&visit) {
-        visit("plot", self.plot);
-        visit("anim", self.anim);
-        visit("anim_max_frames", self.animMaxFrames);
-        visit("anim_zoom", self.animZoom);
-        visit("final_zoom", self.finalZoom);
-        visit("anim_blend", self.animBlend);
-        visit("keep_snapshots", self.keepSnapshots);
-        visit("svg_frames", self.svgFrames);
-        visit("congestion", self.congestion);
-        visit("congestion_bins", self.congestionBins);
+    static constexpr auto getConfigurableOptions() {
+        return std::tuple{
+            option("plot", &VisualizerOptions::plot),
+            option("anim", &VisualizerOptions::anim),
+            option("anim_max_frames", &VisualizerOptions::animMaxFrames),
+            option("anim_zoom", &VisualizerOptions::animZoom),
+            option("final_zoom", &VisualizerOptions::finalZoom),
+            option("anim_blend", &VisualizerOptions::animBlend),
+            option("keep_snapshots", &VisualizerOptions::keepSnapshots),
+            option("svg_frames", &VisualizerOptions::svgFrames),
+            option("congestion", &VisualizerOptions::congestion),
+            option("congestion_bins", &VisualizerOptions::congestionBins),
+        };
     }
 };
 

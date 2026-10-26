@@ -146,7 +146,7 @@ public:
         }
     }
 
-    std::vector<std::uint8_t> &bytes() {
+    std::vector<std::uint8_t> &getBytes() {
         return buffer;
     }
 
@@ -217,7 +217,7 @@ Canvas::Canvas(int w, int h, const std::vector<std::uint8_t> &indices,
     }
 }
 
-int Canvas::nearest(const Rgb &c) const {
+int Canvas::getNearest(const Rgb &c) const {
     int best = 0;
     long bestD = -1;
     for (std::size_t i = 0; i < colorTable.size(); ++i) {
@@ -252,7 +252,7 @@ void Canvas::blendPixel(int x, int y, const Rgb &src, double alpha) {
         dst.b = static_cast<std::uint8_t>(src.b * a + bg.b * (1.0 - a) + 0.5);
     }
     pixelIndex[static_cast<std::size_t>(y) * pixelWidth + x] =
-        static_cast<std::uint8_t>(nearest(dst));
+        static_cast<std::uint8_t>(getNearest(dst));
 }
 
 void Canvas::clear(int idx) {
@@ -289,7 +289,7 @@ void Canvas::vLine(int y0, int y1, int x, int idx) {
     fillRect(x, y0, 1, y1 - y0 + 1, idx);
 }
 
-int Canvas::textWidth(const std::string &s, int scale) {
+int Canvas::getTextWidth(const std::string &s, int scale) {
     const int sc = scale > 0 ? scale : 1;
     return static_cast<int>(s.size()) * glyphAdvance * sc;
 }
@@ -391,7 +391,7 @@ std::vector<std::uint8_t> gifCompress(const std::vector<std::uint8_t> &pixels, i
     bw.put(prefix, codeSize);
     bw.put(eoiCode, codeSize);
     bw.flush();
-    putSubBlocks(body, bw.bytes());
+    putSubBlocks(body, bw.getBytes());
     return body;
 }
 
@@ -403,14 +403,14 @@ bool writeGif(const std::string &path, const std::vector<Canvas> &frames, int de
     }
     // Every frame must agree on the palette, because the colour table is written
     // once for the whole file.
-    const std::size_t npal = frames.front().palette().size();
+    const std::size_t npal = frames.front().getPalette().size();
     if (npal < 1 || npal > 256) {
         return false;
     }
-    const int w = frames.front().width();
-    const int h = frames.front().height();
+    const int w = frames.front().getWidth();
+    const int h = frames.front().getHeight();
     for (const Canvas &c : frames) {
-        if (c.width() != w || c.height() != h || c.palette().size() != npal) {
+        if (c.getWidth() != w || c.getHeight() != h || c.getPalette().size() != npal) {
             return false;
         }
     }
@@ -438,7 +438,7 @@ bool writeGif(const std::string &path, const std::vector<Canvas> &frames, int de
     f.push_back(0);  // background colour index
     f.push_back(0);  // pixel aspect ratio
 
-    const std::vector<Rgb> &pal = frames.front().palette();
+    const std::vector<Rgb> &pal = frames.front().getPalette();
     for (int i = 0; i < tableSize; ++i) {
         const Rgb c = i < static_cast<int>(pal.size()) ? pal[static_cast<std::size_t>(i)] : Rgb{};
         f.push_back(c.r);
@@ -460,7 +460,7 @@ bool writeGif(const std::string &path, const std::vector<Canvas> &frames, int de
 
     std::vector<std::vector<std::uint8_t>> bodies(frames.size());
     tbb::parallel_for(std::size_t{0}, frames.size(), [&](std::size_t i) {
-        bodies[i] = gifCompress(frames[i].pixels(), bitsPerPixel);
+        bodies[i] = gifCompress(frames[i].getPixels(), bitsPerPixel);
     });
 
     const std::uint32_t delay = delayCs > 0 ? static_cast<std::uint32_t>(delayCs) : 0u;

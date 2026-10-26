@@ -32,7 +32,7 @@ public:
     CaptureCerr(const CaptureCerr &) = delete;
     CaptureCerr &operator=(const CaptureCerr &) = delete;
 
-    [[nodiscard]] std::string str() const {
+    [[nodiscard]] std::string getStr() const {
         return buffer.str();
     }
 
@@ -55,11 +55,11 @@ public:
     TempLog(const TempLog &) = delete;
     TempLog &operator=(const TempLog &) = delete;
 
-    [[nodiscard]] std::string str() const {
+    [[nodiscard]] std::string getStr() const {
         return path.string();
     }
 
-    [[nodiscard]] std::string contents() const {
+    [[nodiscard]] std::string getContents() const {
         std::ifstream in(path);
         if (!in.is_open()) {
             return {};
@@ -81,28 +81,28 @@ constexpr const char *reset = "\033[0m";
 
 BOOST_AUTO_TEST_CASE(echo_reaches_both_sinks_without_colour) {
     TempLog log;
-    ktlog.configure(log.str(), false);
+    ktlog.configure(log.getStr(), false);
 
     {
         CaptureCerr cap;
         ktlog.echo("plain record {}", 42);
-        BOOST_TEST(cap.str().find("plain record 42") != std::string::npos);
-        BOOST_TEST(cap.str().find(yellow) == std::string::npos);
-        BOOST_TEST(cap.str().find(red) == std::string::npos);
+        BOOST_TEST(cap.getStr().find("plain record 42") != std::string::npos);
+        BOOST_TEST(cap.getStr().find(yellow) == std::string::npos);
+        BOOST_TEST(cap.getStr().find(red) == std::string::npos);
     }
-    BOOST_TEST(log.contents().find("plain record 42") != std::string::npos);
+    BOOST_TEST(log.getContents().find("plain record 42") != std::string::npos);
     ktlog.configure("", false);
 }
 
 BOOST_AUTO_TEST_CASE(warning_is_yellow_on_console_and_plain_in_the_transcript) {
     TempLog log;
-    ktlog.configure(log.str(), false);
+    ktlog.configure(log.getStr(), false);
 
     std::string console;
     {
         CaptureCerr cap;
         ktlog.warning("cell {} is taller than one row", 7);
-        console = cap.str();
+        console = cap.getStr();
     }
 
     BOOST_TEST(console.find(yellow) != std::string::npos);
@@ -110,7 +110,7 @@ BOOST_AUTO_TEST_CASE(warning_is_yellow_on_console_and_plain_in_the_transcript) {
     BOOST_TEST(console.find(reset) != std::string::npos);
     BOOST_TEST(console.find("cell 7 is taller than one row") != std::string::npos);
 
-    const std::string file = log.contents();
+    const std::string file = log.getContents();
     BOOST_TEST(file.find("warning: ") != std::string::npos);
     BOOST_TEST(file.find("cell 7 is taller than one row") != std::string::npos);
     BOOST_TEST(file.find('\033') == std::string::npos);
@@ -119,23 +119,23 @@ BOOST_AUTO_TEST_CASE(warning_is_yellow_on_console_and_plain_in_the_transcript) {
 
 BOOST_AUTO_TEST_CASE(warning_accepts_a_preassembled_message) {
     TempLog log;
-    ktlog.configure(log.str(), false);
+    ktlog.configure(log.getStr(), false);
 
     const std::string message = "malformed {brace} in input";
     std::string console;
     {
         CaptureCerr cap;
         ktlog.warning(std::string_view(message));
-        console = cap.str();
+        console = cap.getStr();
     }
     BOOST_TEST(console.find(message) != std::string::npos);
-    BOOST_TEST(log.contents().find(message) != std::string::npos);
+    BOOST_TEST(log.getContents().find(message) != std::string::npos);
     ktlog.configure("", false);
 }
 
 BOOST_AUTO_TEST_CASE(fatal_is_red_and_exits) {
     TempLog log;
-    const std::string transcript = log.str();
+    const std::string transcript = log.getStr();
 
     int channel[2];
     BOOST_REQUIRE_EQUAL(::pipe(channel), 0);
@@ -170,7 +170,7 @@ BOOST_AUTO_TEST_CASE(fatal_is_red_and_exits) {
     BOOST_TEST(console.find("fatal") != std::string::npos);
     BOOST_TEST(console.find("cannot open x.nodes") != std::string::npos);
 
-    const std::string file = log.contents();
+    const std::string file = log.getContents();
     BOOST_TEST(file.find("fatal: ") != std::string::npos);
     BOOST_TEST(file.find("cannot open x.nodes") != std::string::npos);
     BOOST_TEST(file.find('\033') == std::string::npos);
@@ -210,12 +210,12 @@ BOOST_AUTO_TEST_CASE(fatal_throws_instead_of_exiting_when_asked) {
     }
     ktlog.throwOnFatal(false);
     BOOST_TEST(thrown == "cannot open y.nodes");
-    BOOST_TEST(console.str().find("cannot open y.nodes") != std::string::npos);
+    BOOST_TEST(console.getStr().find("cannot open y.nodes") != std::string::npos);
 }
 
 BOOST_AUTO_TEST_CASE(the_trace_log_holds_every_level_and_the_log_all_but_trace) {
     TempLog log;
-    ktlog.configure(log.str(), false);
+    ktlog.configure(log.getStr(), false);
     {
         CaptureCerr cap;
         ktlog.echo("an echo");
@@ -223,19 +223,19 @@ BOOST_AUTO_TEST_CASE(the_trace_log_holds_every_level_and_the_log_all_but_trace) 
         ktlog.trace("a trace");
     }
     ktlog.configure("", false);
-    std::ifstream in(Logger::tracePathFor(log.str()));
+    std::ifstream in(Logger::tracePathFor(log.getStr()));
     std::ostringstream trace;
     trace << in.rdbuf();
-    std::filesystem::remove(Logger::tracePathFor(log.str()));
+    std::filesystem::remove(Logger::tracePathFor(log.getStr()));
 
-    BOOST_TEST(log.contents() == "[ktplace] an echo\n[ktplace] warning: a warning\n");
+    BOOST_TEST(log.getContents() == "[ktplace] an echo\n[ktplace] warning: a warning\n");
     BOOST_TEST(trace.str() ==
                "[ktplace] an echo\n[ktplace] warning: a warning\n[ktplace] a trace\n");
 }
 
 BOOST_AUTO_TEST_CASE(a_step_prints_a_centred_banner_and_prefixes_its_lines) {
     TempLog log;
-    ktlog.configure(log.str(), false);
+    ktlog.configure(log.getStr(), false);
     {
         CaptureCerr cap;
         ktlog.beginStep("load");
@@ -243,16 +243,16 @@ BOOST_AUTO_TEST_CASE(a_step_prints_a_centred_banner_and_prefixes_its_lines) {
     }
     ktlog.configure("", false);
     ktlog.beginStep("ktplace");
-    std::filesystem::remove(Logger::tracePathFor(log.str()));
+    std::filesystem::remove(Logger::tracePathFor(log.getStr()));
 
     const std::string rule(60, '#');
     const std::string title = '#' + std::string(27, ' ') + "load" + std::string(27, ' ') + '#';
-    BOOST_TEST(log.contents() == rule + "\n" + title + "\n" + rule + "\n[load] reading\n");
+    BOOST_TEST(log.getContents() == rule + "\n" + title + "\n" + rule + "\n[load] reading\n");
 }
 
 BOOST_AUTO_TEST_CASE(record_count_includes_warnings) {
     TempLog log;
-    ktlog.configure(log.str(), false);
+    ktlog.configure(log.getStr(), false);
     const std::size_t before = ktlog.recordCount();
     {
         CaptureCerr cap;
@@ -264,13 +264,13 @@ BOOST_AUTO_TEST_CASE(record_count_includes_warnings) {
 }
 
 BOOST_AUTO_TEST_CASE(a_scoped_timer_records_its_interval_on_scope_exit) {
-    TimerRegistry::instance().reset();
+    TimerRegistry::getInstance().reset();
     {
         const ScopedTimer timer("unit-timer-a");
-        BOOST_TEST(timer.name() == "unit-timer-a");
-        BOOST_TEST(timer.elapsedSeconds() >= 0.0);
+        BOOST_TEST(timer.getName() == "unit-timer-a");
+        BOOST_TEST(timer.getElapsedSeconds() >= 0.0);
     }
-    const TimerStats *stats = TimerRegistry::instance().find("unit-timer-a");
+    const TimerStats *stats = TimerRegistry::getInstance().find("unit-timer-a");
     BOOST_REQUIRE(stats != nullptr);
     BOOST_TEST(stats->calls == 1U);
     BOOST_TEST(stats->wallSeconds >= 0.0);
@@ -278,45 +278,45 @@ BOOST_AUTO_TEST_CASE(a_scoped_timer_records_its_interval_on_scope_exit) {
 }
 
 BOOST_AUTO_TEST_CASE(repeated_intervals_accumulate_under_one_name) {
-    TimerRegistry::instance().reset();
+    TimerRegistry::getInstance().reset();
     for (int i = 0; i < 5; ++i) {
         const ScopedTimer timer("unit-timer-b");
     }
-    const TimerStats *stats = TimerRegistry::instance().find("unit-timer-b");
+    const TimerStats *stats = TimerRegistry::getInstance().find("unit-timer-b");
     BOOST_REQUIRE(stats != nullptr);
     BOOST_TEST(stats->calls == 5U);
 }
 
 BOOST_AUTO_TEST_CASE(timer_totals_cover_every_recorded_name) {
-    TimerRegistry::instance().reset();
+    TimerRegistry::getInstance().reset();
     { const ScopedTimer a("unit-timer-c"); }
     { const ScopedTimer b("unit-timer-d"); }
-    TimerRegistry &registry = TimerRegistry::instance();
-    const auto snapshot = registry.snapshot();
+    TimerRegistry &registry = TimerRegistry::getInstance();
+    const auto snapshot = registry.getSnapshot();
     BOOST_TEST(snapshot.size() == 2U);
     BOOST_TEST(snapshot[0].first == "unit-timer-c");
     BOOST_TEST(snapshot[1].first == "unit-timer-d");
-    BOOST_TEST(registry.totalWallSeconds() >= 0.0);
-    BOOST_TEST(registry.totalCpuSeconds() >= 0.0);
+    BOOST_TEST(registry.getTotalWallSeconds() >= 0.0);
+    BOOST_TEST(registry.getTotalCpuSeconds() >= 0.0);
     BOOST_TEST(registry.isEnabled("unit-timer-c"));
 }
 
 BOOST_AUTO_TEST_CASE(reset_clears_statistics_but_keeps_names_known) {
-    TimerRegistry::instance().reset();
+    TimerRegistry::getInstance().reset();
     { const ScopedTimer timer("unit-timer-e"); }
-    BOOST_TEST(TimerRegistry::instance().find("unit-timer-e") != nullptr);
-    TimerRegistry::instance().reset();
-    BOOST_TEST(TimerRegistry::instance().find("unit-timer-e") == nullptr);
-    BOOST_TEST(TimerRegistry::instance().isEnabled("unit-timer-e"));
+    BOOST_TEST(TimerRegistry::getInstance().find("unit-timer-e") != nullptr);
+    TimerRegistry::getInstance().reset();
+    BOOST_TEST(TimerRegistry::getInstance().find("unit-timer-e") == nullptr);
+    BOOST_TEST(TimerRegistry::getInstance().isEnabled("unit-timer-e"));
 }
 
 BOOST_AUTO_TEST_CASE(parallelism_of_an_unrun_timer_is_zero_not_a_division) {
     const TimerStats fresh;
-    BOOST_TEST(fresh.parallelism() == 0.0);
+    BOOST_TEST(fresh.getParallelism() == 0.0);
     const TimerStats serial{1.0, 1.0, 1};
-    BOOST_TEST(serial.parallelism() == 1.0);
+    BOOST_TEST(serial.getParallelism() == 1.0);
     const TimerStats parallel{1.0, 4.0, 1};
-    BOOST_TEST(parallel.parallelism() == 4.0);
+    BOOST_TEST(parallel.getParallelism() == 4.0);
 }
 
 BOOST_AUTO_TEST_CASE(command_history_persists_across_sessions) {
@@ -330,11 +330,11 @@ BOOST_AUTO_TEST_CASE(command_history_persists_across_sessions) {
         history.add("gplace_design");
         history.add("");
         history.add("foreach s {1 2} {\n}");
-        BOOST_TEST(history.entries().size() == 2U);
+        BOOST_TEST(history.getEntries().size() == 2U);
     }
     const CommandHistory reopened(file.string());
     BOOST_TEST(
-        reopened.entries() == (std::vector<std::string>{"read_design ibm01", "gplace_design"}),
+        reopened.getEntries() == (std::vector<std::string>{"read_design ibm01", "gplace_design"}),
         boost::test_tools::per_element());
     std::filesystem::remove(file);
 }
@@ -349,18 +349,18 @@ BOOST_AUTO_TEST_CASE(command_history_keeps_only_the_newest_entries) {
         }
     }
     const CommandHistory history(file.string());
-    BOOST_TEST(history.entries().size() == CommandHistory::capacity);
-    BOOST_TEST(history.entries().front() == "cmd5");
+    BOOST_TEST(history.getEntries().size() == CommandHistory::capacity);
+    BOOST_TEST(history.getEntries().front() == "cmd5");
     const CommandHistory reread(file.string());
-    BOOST_TEST(reread.entries().size() == CommandHistory::capacity);
+    BOOST_TEST(reread.getEntries().size() == CommandHistory::capacity);
     std::filesystem::remove(file);
 }
 
 BOOST_AUTO_TEST_CASE(command_history_without_a_file_lives_in_memory) {
     CommandHistory history("");
     history.add("help");
-    BOOST_TEST(history.entries().size() == 1U);
-    BOOST_TEST(history.file().empty());
+    BOOST_TEST(history.getEntries().size() == 1U);
+    BOOST_TEST(history.getFile().empty());
 }
 
 BOOST_AUTO_TEST_CASE(the_platform_reports_its_cpu_threads_and_memory) {
