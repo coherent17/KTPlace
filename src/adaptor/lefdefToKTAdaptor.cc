@@ -83,11 +83,11 @@ BBox getOrientedBox(const BBox &shape, const std::string &orient) {
     return box;
 }
 
-bool readPoint(const std::vector<std::string> &tokens, std::size_t &i, double &x, double &y) {
+bool readPoint(const std::vector<std::string> &tokens, std::size_t &i, Point &p) {
     if (i < tokens.size() && tokens[i] == "(") {
         ++i;
     }
-    if (i + 1 >= tokens.size() || !tryDouble(tokens[i], x) || !tryDouble(tokens[i + 1], y)) {
+    if (i + 1 >= tokens.size() || !tryDouble(tokens[i], p.x) || !tryDouble(tokens[i + 1], p.y)) {
         return false;
     }
     i += 2;
@@ -97,12 +97,12 @@ bool readPoint(const std::vector<std::string> &tokens, std::size_t &i, double &x
     return true;
 }
 
-void scanPinTokens(const std::vector<std::string> &tokens, bool &placed, double &x, double &y,
+void scanPinTokens(const std::vector<std::string> &tokens, bool &placed, Point &position,
                    std::string &orient, bool &shaped, BBox &shape) {
     for (std::size_t i = 0; i < tokens.size(); ++i) {
         if (tokens[i] == "PLACED" || tokens[i] == "FIXED") {
             std::size_t at = i + 1;
-            if (readPoint(tokens, at, x, y)) {
+            if (readPoint(tokens, at, position)) {
                 placed = true;
                 if (at < tokens.size() && tokens[at] != "+" && tokens[at] != ";") {
                     orient = tokens[at];
@@ -110,14 +110,13 @@ void scanPinTokens(const std::vector<std::string> &tokens, bool &placed, double 
             }
         } else if (tokens[i] == "LAYER" && !shaped) {
             std::size_t at = i + 2;
-            double x0 = 0.0;
-            double y0 = 0.0;
-            double x1 = 0.0;
-            double y1 = 0.0;
-            if (readPoint(tokens, at, x0, y0) && readPoint(tokens, at, x1, y1)) {
+            Point a;
+            Point b;
+            if (readPoint(tokens, at, a) && readPoint(tokens, at, b)) {
                 shaped = true;
-                shape = {.lowerLeft = {.x = std::min(x0, x1), .y = std::min(y0, y1)},
-                         .upperRight = {.x = std::max(x0, x1), .y = std::max(y0, y1)}};
+                shape = BBox::getEmpty();
+                shape.extend(a);
+                shape.extend(b);
             }
         }
     }
@@ -421,7 +420,7 @@ bool LefDefInputAdapter::parseDefFile(const std::string &filePath) {
     std::string pinName;
     bool pinSeen = false;
     bool pinPlaced = false;
-    double pinX = 0.0, pinY = 0.0;
+    Point pinPosition;
     std::string pinOrient = "N";
     bool pinShaped = false;
     BBox pinShape;
@@ -475,7 +474,7 @@ bool LefDefInputAdapter::parseDefFile(const std::string &filePath) {
         (void)db->addCell(pname, w, h, true);
         db->markIoPin(pname);
         if (pinPlaced) {
-            db->setCellPosition(pname, {.x = pinX + lowX, .y = pinY + lowY});
+            db->setCellPosition(pname, {.x = pinPosition.x + lowX, .y = pinPosition.y + lowY});
         }
         ioPinOffset[pname] = {.x = -lowX, .y = -lowY};
     };
@@ -750,13 +749,12 @@ bool LefDefInputAdapter::parseDefFile(const std::string &filePath) {
                 pinName = tokens[1];
                 pinSeen = true;
                 pinPlaced = false;
-                pinX = 0.0;
-                pinY = 0.0;
+                pinPosition = {};
                 pinOrient = "N";
                 pinShaped = false;
             }
             if (pinSeen) {
-                scanPinTokens(tokens, pinPlaced, pinX, pinY, pinOrient, pinShaped, pinShape);
+                scanPinTokens(tokens, pinPlaced, pinPosition, pinOrient, pinShaped, pinShape);
             }
             continue;
         }

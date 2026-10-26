@@ -48,9 +48,9 @@ BOOST_AUTO_TEST_CASE(of_builds_a_box_from_corner_and_size) {
 
 BOOST_AUTO_TEST_CASE(containment_includes_the_edges) {
     const BBox box{.lowerLeft = {.x = 0.0, .y = 0.0}, .upperRight = {.x = 10.0, .y = 10.0}};
-    BOOST_TEST(box.contains(0.0, 10.0));
-    BOOST_TEST(box.contains(5.0, 5.0));
-    BOOST_TEST(!box.contains(10.5, 5.0));
+    BOOST_TEST(box.contains({.x = 0.0, .y = 10.0}));
+    BOOST_TEST(box.contains({.x = 5.0, .y = 5.0}));
+    BOOST_TEST(!box.contains({.x = 10.5, .y = 5.0}));
 }
 
 BOOST_AUTO_TEST_CASE(boxes_that_only_touch_do_not_overlap) {

@@ -17,6 +17,7 @@ struct Interval {
 
     [[nodiscard]] double getCenter() const noexcept;
     [[nodiscard]] bool contains(double v, double tolerance = 0.0) const noexcept;
+    [[nodiscard]] double getClamped(double v) const noexcept;
 };
 
 struct BBox {
@@ -41,7 +42,7 @@ struct BBox {
     [[nodiscard]] Interval getY() const noexcept;
     [[nodiscard]] bool isEmpty() const noexcept;
 
-    [[nodiscard]] bool contains(double x, double y) const noexcept;
+    [[nodiscard]] bool contains(const Point &p) const noexcept;
     [[nodiscard]] bool isOverlapping(const BBox &o) const noexcept;
     [[nodiscard]] BBox getIntersection(const BBox &o) const noexcept;
 

@@ -287,7 +287,7 @@ std::vector<double> simplPlacer::Impl::getOccupancy(const std::vector<double> &x
                                                     const std::vector<double> &y) const {
     std::vector<double> occ(grid.size(), 0.0);
     for (std::uint32_t i = 0; i < netlist.numMovable; ++i) {
-        occ[grid.getBinOf(getCentre(x, i, true), getCentre(y, i, false))] += area[i];
+        occ[grid.getBinOf({.x = getCentre(x, i, true), .y = getCentre(y, i, false)})] += area[i];
     }
     return occ;
 }
@@ -318,11 +318,14 @@ void simplPlacer::Impl::enforceFences(std::vector<double> &x, std::vector<double
         return;
     }
     for (std::size_t i = 0; i < netlist.numMovable; ++i) {
+        Point p{.x = x[i], .y = y[i]};
         if (region[i] != Fences::noRegion) {
-            result.fenceClamps += fences->clampToRegion(region[i], x[i], y[i]) ? 1 : 0;
+            result.fenceClamps += fences->clampToRegion(region[i], p) ? 1 : 0;
         } else {
-            result.fencePushes += fences->pushOutOfRegions(x[i], y[i], die) ? 1 : 0;
+            result.fencePushes += fences->pushOutOfRegions(p, die) ? 1 : 0;
         }
+        x[i] = p.x;
+        y[i] = p.y;
     }
 }
 
@@ -563,13 +566,12 @@ void simplPlacer::Impl::finish(const Positions &lower, const Positions &upper) {
     result.overflowLower = getOverflow(getOccupancy(lower.x, lower.y));
     result.overflowFinal = getOverflow(getOccupancy(upper.x, upper.y));
     if (fences != nullptr) {
-        std::vector<double> flat;
-        flat.reserve(2 * netlist.numMovable);
+        std::vector<Point> positions;
+        positions.reserve(netlist.numMovable);
         for (std::size_t i = 0; i < netlist.numMovable; ++i) {
-            flat.push_back(upper.x[i]);
-            flat.push_back(upper.y[i]);
+            positions.push_back({.x = upper.x[i], .y = upper.y[i]});
         }
-        result.fenceViolations = fences->countViolations(flat, region);
+        result.fenceViolations = fences->countViolations(positions, region);
     }
 
     for (std::size_t i = 0; i < netlist.numMovable; ++i) {

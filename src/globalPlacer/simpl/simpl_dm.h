@@ -25,9 +25,9 @@ struct Region {
     std::vector<BBox> rects;
     BBox bounds;
 
-    [[nodiscard]] bool contains(double x, double y) const {
-        return bounds.contains(x, y) && std::ranges::any_of(rects, [&](const BBox &r) {
-                   return r.contains(x, y);
+    [[nodiscard]] bool contains(const Point &p) const {
+        return bounds.contains(p) && std::ranges::any_of(rects, [&](const BBox &r) {
+                   return r.contains(p);
                });
     }
 };
@@ -43,11 +43,11 @@ public:
         return regions.at(static_cast<std::size_t>(id));
     }
 
-    bool clampToRegion(int id, double &x, double &y) const;
+    bool clampToRegion(int id, Point &p) const;
 
-    bool pushOutOfRegions(double &x, double &y, const BBox &die) const;
+    bool pushOutOfRegions(Point &p, const BBox &die) const;
 
-    [[nodiscard]] std::size_t countViolations(const std::vector<double> &positions,
+    [[nodiscard]] std::size_t countViolations(const std::vector<Point> &positions,
                                               const std::vector<int> &regionIds) const;
 
     void addRegion(Region r) {

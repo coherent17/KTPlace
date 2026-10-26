@@ -101,22 +101,22 @@ BOOST_AUTO_TEST_CASE(containment_includes_the_boundary) {
     const constraintMgr mgr = getSingleFence();
     // The lower-left and upper-right corners are inside, not outside: a cell
     // snapped exactly to a fence edge is legal and must not be pushed out.
-    BOOST_TEST(mgr.contains(0, 50.0, 50.0));
-    BOOST_TEST(mgr.contains(0, 0.0, 0.0));
-    BOOST_TEST(mgr.contains(0, 100.0, 100.0));
-    BOOST_TEST(mgr.contains(0, 0.0, 100.0));
-    BOOST_TEST(!mgr.contains(0, -0.001, 50.0));
-    BOOST_TEST(!mgr.contains(0, 50.0, 100.001));
+    BOOST_TEST(mgr.contains(0, {.x = 50.0, .y = 50.0}));
+    BOOST_TEST(mgr.contains(0, {.x = 0.0, .y = 0.0}));
+    BOOST_TEST(mgr.contains(0, {.x = 100.0, .y = 100.0}));
+    BOOST_TEST(mgr.contains(0, {.x = 0.0, .y = 100.0}));
+    BOOST_TEST(!mgr.contains(0, {.x = -0.001, .y = 50.0}));
+    BOOST_TEST(!mgr.contains(0, {.x = 50.0, .y = 100.001}));
 }
 
 BOOST_AUTO_TEST_CASE(an_unconstrained_cell_is_always_legal) {
     // noRegion means "not fenced", so it must not report a violation for a
     // position that happens to be outside every fence.
     const constraintMgr mgr = getSingleFence();
-    BOOST_TEST(mgr.contains(constraintMgr::noRegion, 1e9, 1e9));
+    BOOST_TEST(mgr.contains(constraintMgr::noRegion, {.x = 1e9, .y = 1e9}));
     // An id that is in range of the manager but not of its region list is not
     // silently treated as unconstrained.
-    BOOST_TEST(!mgr.contains(7, 1e9, 1e9));
+    BOOST_TEST(!mgr.contains(7, {.x = 1e9, .y = 1e9}));
 }
 
 BOOST_AUTO_TEST_CASE(a_region_is_the_union_of_its_rectangles_not_an_outline) {
@@ -127,9 +127,9 @@ BOOST_AUTO_TEST_CASE(a_region_is_the_union_of_its_rectangles_not_an_outline) {
     mgr.addRegion("er0", {Point{.x = 0.0, .y = 0.0}, Point{.x = 10.0, .y = 10.0},
                           Point{.x = 20.0, .y = 0.0}, Point{.x = 30.0, .y = 10.0}});
 
-    BOOST_TEST(mgr.contains(0, 5.0, 5.0));
-    BOOST_TEST(mgr.contains(0, 25.0, 5.0));
-    BOOST_TEST(!mgr.contains(0, 15.0, 5.0));
+    BOOST_TEST(mgr.contains(0, {.x = 5.0, .y = 5.0}));
+    BOOST_TEST(mgr.contains(0, {.x = 25.0, .y = 5.0}));
+    BOOST_TEST(!mgr.contains(0, {.x = 15.0, .y = 5.0}));
 
     const Region *r = mgr.getRegion(0);
     BOOST_REQUIRE(r != nullptr);
@@ -144,26 +144,23 @@ BOOST_AUTO_TEST_CASE(a_region_is_the_union_of_its_rectangles_not_an_outline) {
 
 BOOST_AUTO_TEST_CASE(clamping_leaves_a_legal_position_alone) {
     const constraintMgr mgr = getSingleFence();
-    double x = 42.0;
-    double y = 42.0;
-    mgr.clampToRegion(0, x, y);
-    BOOST_TEST(x == 42.0);
-    BOOST_TEST(y == 42.0);
+    Point p{.x = 42.0, .y = 42.0};
+    mgr.clampToRegion(0, p);
+    BOOST_TEST(p.x == 42.0);
+    BOOST_TEST(p.y == 42.0);
 }
 
 BOOST_AUTO_TEST_CASE(clamping_pulls_a_position_inside) {
     const constraintMgr mgr = getSingleFence();
-    double x = 500.0;
-    double y = 20.0;
-    mgr.clampToRegion(0, x, y);
-    BOOST_TEST(x == 100.0);  // only x is out of range
-    BOOST_TEST(y == 20.0);
+    Point p{.x = 500.0, .y = 20.0};
+    mgr.clampToRegion(0, p);
+    BOOST_TEST(p.x == 100.0);  // only p.x is out of range
+    BOOST_TEST(p.y == 20.0);
 
-    double u = -5.0;
-    double v = -5.0;
-    mgr.clampToRegion(0, u, v);
-    BOOST_TEST(u == 0.0);
-    BOOST_TEST(v == 0.0);
+    Point q{.x = -5.0, .y = -5.0};
+    mgr.clampToRegion(0, q);
+    BOOST_TEST(q.x == 0.0);
+    BOOST_TEST(q.y == 0.0);
 }
 
 BOOST_AUTO_TEST_CASE(clamping_chooses_the_nearest_rectangle_of_a_split_region) {
@@ -172,43 +169,39 @@ BOOST_AUTO_TEST_CASE(clamping_chooses_the_nearest_rectangle_of_a_split_region) {
     mgr.addRegion("er0", {Point{.x = 0.0, .y = 0.0}, Point{.x = 10.0, .y = 10.0},
                           Point{.x = 100.0, .y = 0.0}, Point{.x = 110.0, .y = 10.0}});
 
-    double x = 99.0;
-    double y = 5.0;
-    mgr.clampToRegion(0, x, y);
-    BOOST_TEST(x == 100.0);
-    BOOST_TEST(y == 5.0);
-    BOOST_TEST(mgr.contains(0, x, y));
+    Point p{.x = 99.0, .y = 5.0};
+    mgr.clampToRegion(0, p);
+    BOOST_TEST(p.x == 100.0);
+    BOOST_TEST(p.y == 5.0);
+    BOOST_TEST(mgr.contains(0, p));
 }
 
 BOOST_AUTO_TEST_CASE(clamping_an_unknown_region_is_a_no_op) {
     const constraintMgr mgr = getSingleFence();
-    double x = 1e6;
-    double y = 1e6;
-    mgr.clampToRegion(constraintMgr::noRegion, x, y);
-    BOOST_TEST(x == 1e6);
-    BOOST_TEST(y == 1e6);
-    mgr.clampToRegion(42, x, y);
-    BOOST_TEST(x == 1e6);
-    BOOST_TEST(y == 1e6);
+    Point p{.x = 1e6, .y = 1e6};
+    mgr.clampToRegion(constraintMgr::noRegion, p);
+    BOOST_TEST(p.x == 1e6);
+    BOOST_TEST(p.y == 1e6);
+    mgr.clampToRegion(42, p);
+    BOOST_TEST(p.x == 1e6);
+    BOOST_TEST(p.y == 1e6);
 }
 
 BOOST_AUTO_TEST_CASE(push_out_escapes_a_fence_and_reports_the_move) {
     const constraintMgr mgr = getSingleFence();
-    double x = 50.0;
-    double y = 50.0;
+    Point p{.x = 50.0, .y = 50.0};
     const bool moved = mgr.pushOutOfRegions(
-        x, y, BBox{.lowerLeft = {.x = 0.0, .y = 0.0}, .upperRight = {.x = 100.0, .y = 100.0}});
+        p, BBox{.lowerLeft = {.x = 0.0, .y = 0.0}, .upperRight = {.x = 100.0, .y = 100.0}});
     BOOST_TEST(moved);
-    BOOST_TEST(!mgr.contains(0, x, y));
+    BOOST_TEST(!mgr.contains(0, p));
 }
 
 BOOST_AUTO_TEST_CASE(push_out_leaves_a_clear_position_untouched) {
     const constraintMgr mgr = getSingleFence();
-    double x = 500.0;
-    double y = 500.0;
-    BOOST_TEST(!mgr.pushOutOfRegions(x, y, BBox{{0.0, 0.0}, {1000.0, 1000.0}}));
-    BOOST_TEST(x == 500.0);
-    BOOST_TEST(y == 500.0);
+    Point p{.x = 500.0, .y = 500.0};
+    BOOST_TEST(!mgr.pushOutOfRegions(p, BBox{{0.0, 0.0}, {1000.0, 1000.0}}));
+    BOOST_TEST(p.x == 500.0);
+    BOOST_TEST(p.y == 500.0);
 }
 
 BOOST_AUTO_TEST_CASE(push_out_escapes_abutting_fences_without_ping_ponging) {
@@ -220,21 +213,20 @@ BOOST_AUTO_TEST_CASE(push_out_escapes_abutting_fences_without_ping_ponging) {
     mgr.addRegion("er0", getRect(0.0, 0.0, 10.0, 10.0));
     mgr.addRegion("er1", getRect(10.0, 0.0, 20.0, 10.0));
 
-    double x = 5.0;
-    double y = 5.0;
+    Point p{.x = 5.0, .y = 5.0};
     const bool moved = mgr.pushOutOfRegions(
-        x, y, BBox{.lowerLeft = {.x = 0.0, .y = 0.0}, .upperRight = {.x = 100.0, .y = 100.0}});
+        p, BBox{.lowerLeft = {.x = 0.0, .y = 0.0}, .upperRight = {.x = 100.0, .y = 100.0}});
     BOOST_TEST(moved);
     // The contract is only that the point ends up outside *every* fence, which
     // is the property that keeps the escape from oscillating. Which side it
     // takes is the algorithm's choice: here the right-hand exit is blocked by
     // er1 and the left-hand one is off-die, so upward is the only legal way out.
-    BOOST_TEST(!mgr.contains(0, x, y));
-    BOOST_TEST(!mgr.contains(1, x, y));
-    BOOST_TEST(x >= 0.0);
-    BOOST_TEST(x <= 100.0);
-    BOOST_TEST(y >= 0.0);
-    BOOST_TEST(y <= 100.0);
+    BOOST_TEST(!mgr.contains(0, p));
+    BOOST_TEST(!mgr.contains(1, p));
+    BOOST_TEST(p.x >= 0.0);
+    BOOST_TEST(p.x <= 100.0);
+    BOOST_TEST(p.y >= 0.0);
+    BOOST_TEST(p.y <= 100.0);
 }
 
 BOOST_AUTO_TEST_CASE(push_out_prefers_an_escape_that_stays_on_the_die) {
@@ -243,22 +235,20 @@ BOOST_AUTO_TEST_CASE(push_out_prefers_an_escape_that_stays_on_the_die) {
     constraintMgr mgr;
     mgr.addRegion("er0", getRect(0.0, 0.0, 20.0, 100.0));
 
-    double x = 10.0;
-    double y = 50.0;
+    Point p{.x = 10.0, .y = 50.0};
     mgr.pushOutOfRegions(
-        x, y, BBox{.lowerLeft = {.x = 0.0, .y = 0.0}, .upperRight = {.x = 100.0, .y = 100.0}});
-    BOOST_TEST(x > 20.0);
-    BOOST_TEST(x <= 100.0);
-    BOOST_TEST(y == 50.0);
+        p, BBox{.lowerLeft = {.x = 0.0, .y = 0.0}, .upperRight = {.x = 100.0, .y = 100.0}});
+    BOOST_TEST(p.x > 20.0);
+    BOOST_TEST(p.x <= 100.0);
+    BOOST_TEST(p.y == 50.0);
 }
 
 BOOST_AUTO_TEST_CASE(push_out_with_no_fences_at_all_changes_nothing) {
     const constraintMgr mgr;
-    double x = 5.0;
-    double y = 5.0;
-    BOOST_TEST(!mgr.pushOutOfRegions(x, y, BBox{{0.0, 0.0}, {100.0, 100.0}}));
-    BOOST_TEST(x == 5.0);
-    BOOST_TEST(y == 5.0);
+    Point p{.x = 5.0, .y = 5.0};
+    BOOST_TEST(!mgr.pushOutOfRegions(p, BBox{{0.0, 0.0}, {100.0, 100.0}}));
+    BOOST_TEST(p.x == 5.0);
+    BOOST_TEST(p.y == 5.0);
 }
 
 BOOST_AUTO_TEST_CASE(assign_by_prefix_stamps_matching_cells_only) {
@@ -331,7 +321,7 @@ BOOST_AUTO_TEST_CASE(a_prefix_longer_than_the_name_cannot_match) {
 BOOST_AUTO_TEST_CASE(violations_are_counted_over_the_shorter_of_the_inputs) {
     constraintMgr mgr = getSingleFence();
     // Two positions, only the first of which is outside the fence.
-    const std::vector<double> positions{500.0, 500.0, 50.0, 50.0};
+    const std::vector<Point> positions{{.x = 500.0, .y = 500.0}, {.x = 50.0, .y = 50.0}};
     const std::vector<int> regions{0, 0};
     BOOST_TEST(mgr.countViolations(positions, regions) == 1u);
 
@@ -345,7 +335,7 @@ BOOST_AUTO_TEST_CASE(a_missing_region_id_list_truncates_the_count) {
     // filled the solver buffers yet. Counting past its end would be a read of
     // stale memory, so the shorter length wins.
     constraintMgr mgr = getSingleFence();
-    const std::vector<double> positions{500.0, 500.0, 500.0, 500.0};
+    const std::vector<Point> positions{{.x = 500.0, .y = 500.0}, {.x = 500.0, .y = 500.0}};
     const std::vector<int> regions{0};
     BOOST_TEST(mgr.countViolations(positions, regions) == 1u);
 }
@@ -362,8 +352,8 @@ BOOST_AUTO_TEST_CASE(a_region_with_many_rectangles_reports_its_full_area) {
     BOOST_TEST(r->bounds.lowerLeft.y == 0.0);
     BOOST_TEST(r->bounds.upperRight.y == 50.0);
     // The gap at y in (10, 20) is outside the union.
-    BOOST_TEST(!mgr.contains(0, 5.0, 15.0));
-    BOOST_TEST(mgr.contains(0, 5.0, 25.0));
+    BOOST_TEST(!mgr.contains(0, {.x = 5.0, .y = 15.0}));
+    BOOST_TEST(mgr.contains(0, {.x = 5.0, .y = 25.0}));
 }
 
 BOOST_AUTO_TEST_CASE(regions_accessor_exposes_what_was_added) {

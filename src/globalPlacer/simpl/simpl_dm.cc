@@ -117,12 +117,12 @@ Fences copyFences(const ktplace::constraintMgr &constraints) {
 
 }  // namespace
 
-bool Fences::clampToRegion(int id, double &x, double &y) const {
+bool Fences::clampToRegion(int id, Point &p) const {
     if (id < 0 || static_cast<std::size_t>(id) >= regions.size()) {
         return false;
     }
     const Region &r = regions[static_cast<std::size_t>(id)];
-    if (r.contains(x, y)) {
+    if (r.contains(p)) {
         return false;
     }
     // Snap into the rectangle that is nearest, measured as the distance still
@@ -130,10 +130,8 @@ bool Fences::clampToRegion(int id, double &x, double &y) const {
     const BBox *best = nullptr;
     double bestDist = std::numeric_limits<double>::max();
     for (const BBox &cand : r.rects) {
-        const double cx = std::clamp(x, cand.lowerLeft.x, cand.upperRight.x);
-        const double cy = std::clamp(y, cand.lowerLeft.y, cand.upperRight.y);
-        const double dx = cx - x;
-        const double dy = cy - y;
+        const double dx = cand.getX().getClamped(p.x) - p.x;
+        const double dy = cand.getY().getClamped(p.y) - p.y;
         const double dist = dx * dx + dy * dy;
         if (dist < bestDist) {
             bestDist = dist;
@@ -143,16 +141,15 @@ bool Fences::clampToRegion(int id, double &x, double &y) const {
     if (best == nullptr) {
         return false;
     }
-    x = std::clamp(x, best->lowerLeft.x, best->upperRight.x);
-    y = std::clamp(y, best->lowerLeft.y, best->upperRight.y);
+    p = {.x = best->getX().getClamped(p.x), .y = best->getY().getClamped(p.y)};
     return true;
 }
 
 namespace {
 
-bool isInsideAnyRegion(const std::vector<Region> &regions, double x, double y) {
+bool isInsideAnyRegion(const std::vector<Region> &regions, const Point &p) {
     for (const Region &r : regions) {
-        if (r.contains(x, y)) {
+        if (r.contains(p)) {
             return true;
         }
     }
@@ -169,7 +166,7 @@ double getEscapeEpsilon(const std::vector<Region> &regions) {
 
 }  // namespace
 
-bool Fences::pushOutOfRegions(double &x, double &y, const BBox &die) const {
+bool Fences::pushOutOfRegions(Point &p, const BBox &die) const {
     // Escaping is planned against the *union* of the fences, not one rectangle
     // at a time. Fences are often rings or combs of abutting rectangles, so
     // stepping to the nearest edge of the rectangle that caught the point can
@@ -182,8 +179,8 @@ bool Fences::pushOutOfRegions(double &x, double &y, const BBox &die) const {
         double hostArea = std::numeric_limits<double>::max();
         for (const Region &r : regions) {
             for (const BBox &cand : r.rects) {
-                const double area = cand.getWidth() * cand.getHeight();
-                if (cand.contains(x, y) && area < hostArea) {
+                const double area = cand.getArea();
+                if (cand.contains(p) && area < hostArea) {
                     hostArea = area;
                     host = &cand;
                 }
@@ -198,19 +195,18 @@ bool Fences::pushOutOfRegions(double &x, double &y, const BBox &die) const {
         // that caught the point: a per-rectangle epsilon can fall below the
         // output resolution, and the cell then lands back on the boundary.
         const double eps = getEscapeEpsilon(regions);
-        const double exits[4][2] = {{host->lowerLeft.x - eps, y},
-                                    {host->upperRight.x + eps, y},
-                                    {x, host->lowerLeft.y - eps},
-                                    {x, host->upperRight.y + eps}};
-        const double dists[4] = {x - host->lowerLeft.x, host->upperRight.x - x,
-                                 y - host->lowerLeft.y, host->upperRight.y - y};
+        const Point exits[4] = {{.x = host->lowerLeft.x - eps, .y = p.y},
+                                {.x = host->upperRight.x + eps, .y = p.y},
+                                {.x = p.x, .y = host->lowerLeft.y - eps},
+                                {.x = p.x, .y = host->upperRight.y + eps}};
+        const double dists[4] = {p.x - host->lowerLeft.x, host->upperRight.x - p.x,
+                                 p.y - host->lowerLeft.y, host->upperRight.y - p.y};
 
         int best = -1;
         double bestDist = std::numeric_limits<double>::max();
         bool bestLegal = false;
         for (int k = 0; k < 4; ++k) {
-            const bool onDie = die.contains(exits[k][0], exits[k][1]);
-            const bool legal = onDie && !isInsideAnyRegion(regions, exits[k][0], exits[k][1]);
+            const bool legal = die.contains(exits[k]) && !isInsideAnyRegion(regions, exits[k]);
             if (legal && (!bestLegal || dists[k] < bestDist)) {
                 best = k;
                 bestDist = dists[k];
@@ -223,23 +219,21 @@ bool Fences::pushOutOfRegions(double &x, double &y, const BBox &die) const {
             // let the next pass continue from there.
             best = static_cast<int>(std::min_element(dists, dists + 4) - dists);
         }
-        x = exits[best][0];
-        y = exits[best][1];
+        p = exits[best];
     }
     return true;
 }
 
-std::size_t Fences::countViolations(const std::vector<double> &positions,
+std::size_t Fences::countViolations(const std::vector<Point> &positions,
                                     const std::vector<int> &regionIds) const {
     std::size_t bad = 0;
-    const std::size_t n = std::min(regionIds.size(), positions.size() / 2);
+    const std::size_t n = std::min(regionIds.size(), positions.size());
     for (std::size_t i = 0; i < n; ++i) {
         const int id = regionIds[i];
         if (id < 0 || static_cast<std::size_t>(id) >= regions.size()) {
             continue;
         }
-        if (!regions[static_cast<std::size_t>(id)].contains(positions[2 * i],
-                                                            positions[2 * i + 1])) {
+        if (!regions[static_cast<std::size_t>(id)].contains(positions[i])) {
             ++bad;
         }
     }

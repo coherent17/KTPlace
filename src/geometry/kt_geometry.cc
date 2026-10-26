@@ -12,6 +12,10 @@ bool Interval::contains(double v, double tolerance) const noexcept {
     return v >= lo - tolerance && v <= hi + tolerance;
 }
 
+double Interval::getClamped(double v) const noexcept {
+    return std::clamp(v, lo, hi);
+}
+
 double BBox::getWidth() const noexcept {
     return upperRight.x - lowerLeft.x;
 }
@@ -44,8 +48,8 @@ bool BBox::isEmpty() const noexcept {
     return lowerLeft.x > upperRight.x || lowerLeft.y > upperRight.y;
 }
 
-bool BBox::contains(double x, double y) const noexcept {
-    return x >= lowerLeft.x && x <= upperRight.x && y >= lowerLeft.y && y <= upperRight.y;
+bool BBox::contains(const Point &p) const noexcept {
+    return p.x >= lowerLeft.x && p.x <= upperRight.x && p.y >= lowerLeft.y && p.y <= upperRight.y;
 }
 
 bool BBox::isOverlapping(const BBox &o) const noexcept {

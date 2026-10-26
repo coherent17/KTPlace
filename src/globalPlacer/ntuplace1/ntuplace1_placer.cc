@@ -435,14 +435,15 @@ std::size_t RatioPlacer::Impl::applyFences() {
     }
     std::size_t outside = 0;
     for (std::size_t i = 0; i < mov.size(); ++i) {
-        double &x = design.cells.x[i];
-        double &y = design.cells.y[i];
+        Point p{.x = design.cells.x[i], .y = design.cells.y[i]};
         if (cellRegion[i] != constraintMgr::noRegion) {
-            fences->clampToRegion(cellRegion[i], x, y);
-            outside += fences->contains(cellRegion[i], x, y) ? 0u : 1u;
+            fences->clampToRegion(cellRegion[i], p);
+            outside += fences->contains(cellRegion[i], p) ? 0u : 1u;
         } else {
-            (void)fences->pushOutOfRegions(x, y, rowBox);
+            (void)fences->pushOutOfRegions(p, rowBox);
         }
+        design.cells.x[i] = p.x;
+        design.cells.y[i] = p.y;
     }
     return outside;
 }

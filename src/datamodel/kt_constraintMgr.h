@@ -24,9 +24,9 @@ struct Region {
     std::size_t cellCount = 0;  ///< instances assigned to this region
 
     /// @return true when (x, y) is inside any of the rectangles
-    [[nodiscard]] bool contains(double x, double y) const {
-        return bounds.contains(x, y) && std::ranges::any_of(rects, [&](const BBox &r) {
-                   return r.contains(x, y);
+    [[nodiscard]] bool contains(const Point &p) const {
+        return bounds.contains(p) && std::ranges::any_of(rects, [&](const BBox &r) {
+                   return r.contains(p);
                });
     }
 };
@@ -66,26 +66,26 @@ public:
 
     // Is (x, y) inside the region?
 
-    [[nodiscard]] bool contains(int id, double x, double y) const;
+    [[nodiscard]] bool contains(int id, const Point &p) const;
     [[nodiscard]] bool containsBox(int id, const BBox &box) const;
     [[nodiscard]] bool overlapsAnyRegion(const BBox &box) const;
 
     // Move (x, y) to the nearest position inside its region.// Inside positions are returned unchanged. Positions outside are clamped// into the nearest rectangle of the region, so a caller can use this as a// hard fence.
 
-    void clampToRegion(int id, double &x, double &y) const;
+    void clampToRegion(int id, Point &p) const;
 
     // Move (x, y) out of every region it happens to sit in.// A fence is reserved for the cells assigned to it, so a cell belonging to// no region has to stay out. Positions already outside every region are// returned unchanged; a position inside is moved to the nearest point of the// boundary of the smallest region rectangle containing it, which for// touching fences may take a few passes.// Fences frequently hug the die border, so an exit that leaves the die is// no use: the caller would clamp the cell straight back in. Passing the die// bounds makes the search prefer an escape that stays on-chip.
 
-    bool pushOutOfRegions(double &x, double &y, const BBox &die) const;
+    bool pushOutOfRegions(Point &p, const BBox &die) const;
 
     // Count instances currently outside their region.
 
-    [[nodiscard]] std::size_t countViolations(const std::vector<double> &positions,
+    [[nodiscard]] std::size_t countViolations(const std::vector<Point> &positions,
                                               const std::vector<int> &regionIds) const;
 
 private:
     /// @return true when (x, y) is inside any region
-    [[nodiscard]] bool isInsideAnyRegion(double x, double y) const;
+    [[nodiscard]] bool isInsideAnyRegion(const Point &p) const;
 
     /// @return step used to land just outside a fence, scaled to the geometry
     [[nodiscard]] double getEscapeEpsilon() const;

@@ -86,8 +86,8 @@ struct BinGrid {
     [[nodiscard]] std::size_t getRow(double y) const {
         return clampIndex((y - y0) / dy, ny);
     }
-    [[nodiscard]] std::size_t getBinOf(double x, double y) const {
-        return at(getColumn(x), getRow(y));
+    [[nodiscard]] std::size_t getBinOf(const Point &p) const {
+        return at(getColumn(p.x), getRow(p.y));
     }
     [[nodiscard]] double getEdge(bool vertical, std::size_t t) const {
         return vertical ? x0 + static_cast<double>(t) * dx : y0 + static_cast<double>(t) * dy;
