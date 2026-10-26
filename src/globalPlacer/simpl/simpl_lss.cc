@@ -169,13 +169,14 @@ void LinearSystems::buildStarAxis(SparseSystem &sys, const std::vector<std::uint
         }
         const auto end = [&](std::size_t q) {
             const std::uint32_t c = net.cells[q];
-            return End{netlist.varOfVertex[c], vertical ? net.offX[q] : net.offY[q],
-                       vertical ? netlist.fixedX[c] : netlist.fixedY[c]};
+            return End{.var = netlist.varOfVertex[c],
+                       .offset = vertical ? net.offX[q] : net.offY[q],
+                       .fixed = vertical ? netlist.fixedX[c] : netlist.fixedY[c]};
         };
         if (p == 2) {
             spring(end(0), end(1), net.weight);
         } else if (starOf[n] != noVar) {
-            const End star{starOf[n], 0.0, 0.0};
+            const End star{.var = starOf[n], .offset = 0.0, .fixed = 0.0};
             const double w = net.weight * static_cast<double>(p) / static_cast<double>(p - 1);
             for (std::size_t q = 0; q < p; ++q) {
                 spring(end(q), star, w);
@@ -282,10 +283,10 @@ Residuals solveBothAxes(const SparseSystem &sysX, std::vector<double> &x, const 
                 }
             });
         if (observe) {
-            observe(it + 1, Residuals{ax.resid, ay.resid}, !live(ax) && !live(ay));
+            observe(it + 1, Residuals{.x = ax.resid, .y = ay.resid}, !live(ax) && !live(ay));
         }
     }
-    return Residuals{ax.resid, ay.resid};
+    return Residuals{.x = ax.resid, .y = ay.resid};
 }
 
 }  // namespace ktplace::simpl

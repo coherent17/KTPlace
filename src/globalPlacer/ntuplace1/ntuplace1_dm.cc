@@ -23,7 +23,8 @@ std::size_t collectCells(const ktplace::Graph &graph, Design &design) {
         if (vert.isFixed || vert.isTerminal) {
             if (vert.width > 0.0 && vert.height > 0.0) {
                 design.fixedRects.push_back(
-                    {{vert.x, vert.y}, {vert.x + vert.width, vert.y + vert.height}});
+                    {.lowerLeft = {.x = vert.x, .y = vert.y},
+                     .upperRight = {.x = vert.x + vert.width, .y = vert.y + vert.height}});
             }
             continue;
         }
@@ -80,8 +81,9 @@ void collectRows(const std::vector<ktplace::RowInfo> &rows, Design &design) {
     design.rowBox = BBox::getEmpty();
     for (const ktplace::RowInfo &r : rows) {
         for (const ktplace::SubrowInfo &s : r.subrows) {
-            const BBox rr{{s.getXlo(), r.coordinate},
-                          {s.getXhi(r.getPitch()), r.coordinate + r.height}};
+            const BBox rr{
+                .lowerLeft = {.x = s.getXlo(), .y = r.coordinate},
+                .upperRight = {.x = s.getXhi(r.getPitch()), .y = r.coordinate + r.height}};
             if (rr.upperRight.x <= rr.lowerLeft.x) {
                 continue;
             }
@@ -132,8 +134,11 @@ ntuplace1DM buildNtuplace1DM(const ktDM &db) {
     collectRows(db.getRows(), design);
     design.fences = db.getConstraints();
 
-    const StageCounts counts{graph.getNumCells(), movable, graph.getNumNets(), graph.getNumPins(),
-                             db.getRows().size()};
+    const StageCounts counts{.cells = graph.getNumCells(),
+                             .movable = movable,
+                             .nets = graph.getNumNets(),
+                             .pins = graph.getNumPins(),
+                             .rows = db.getRows().size()};
     ntuplace1DM dm(std::move(design), loadOptions<Ntuplace1Options>());
     reportStageBuild(counts, db.getChecksum(), dm.getOptions());
     return dm;

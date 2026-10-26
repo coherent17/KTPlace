@@ -319,7 +319,8 @@ std::vector<ktDM::Defect> ktDM::getDefects() const {
         if (!hasFences()) {
             continue;
         }
-        const BBox footprint{{vert.x, vert.y}, {vert.x + vert.width, vert.y + vert.height}};
+        const BBox footprint{.lowerLeft = {.x = vert.x, .y = vert.y},
+                             .upperRight = {.x = vert.x + vert.width, .y = vert.y + vert.height}};
         if (vert.regionId != constraintMgr::noRegion) {
             offFence += getConstraints().containsBox(vert.regionId, footprint) ? 0 : 1;
         } else if (!vert.isFixed && !vert.isTerminal) {
@@ -436,16 +437,16 @@ std::vector<ktDM::Defect> ktDM::getDefects() const {
     }
 
     if (outOfDie > 0) {
-        defects.push_back({"cells outside the die", outOfDie});
+        defects.push_back({.what = "cells outside the die", .count = outOfDie});
     }
     if (overlaps > 0) {
-        defects.push_back({"overlapping cell pairs", overlaps});
+        defects.push_back({.what = "overlapping cell pairs", .count = overlaps});
     }
     if (offFence > 0) {
-        defects.push_back({"cells outside their fence", offFence});
+        defects.push_back({.what = "cells outside their fence", .count = offFence});
     }
     if (inForeignFence > 0) {
-        defects.push_back({"non-member cells inside a fence", inForeignFence});
+        defects.push_back({.what = "non-member cells inside a fence", .count = inForeignFence});
     }
     return defects;
 }
@@ -526,7 +527,7 @@ std::vector<std::vector<RowPiece>> ktDM::getFencedSubrows() const {
     const constraintMgr &mgr = getConstraints();
     for (int id = 0; id < static_cast<int>(mgr.getNumRegions()); ++id) {
         for (const BBox &rc : mgr.getRegion(id)->rects) {
-            rects.push_back(FenceRect{rc, id});
+            rects.push_back(FenceRect{.box = rc, .region = id});
         }
     }
     std::vector<std::vector<RowPiece>> out;

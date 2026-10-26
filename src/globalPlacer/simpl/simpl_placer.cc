@@ -204,7 +204,7 @@ void simplPlacer::Impl::buildGrid(std::size_t perAxis) {
             continue;
         }
         smallestSite = std::min(smallestSite, row.getPitch() * row.height);
-        FreeSpace::Row r{row.coordinate, row.coordinate + row.height, {}};
+        FreeSpace::Row r{.y0 = row.coordinate, .y1 = row.coordinate + row.height, .spans = {}};
         for (const Subrow &sub : row.subrows) {
             r.spans.emplace_back(sub.xlo, sub.xhi);
         }
@@ -213,7 +213,8 @@ void simplPlacer::Impl::buildGrid(std::size_t perAxis) {
     freeSpace.build(std::move(rows), obstacles);
     for (const FreeSpace::Row &row : freeSpace.rows) {
         for (const auto &[lo, hi] : row.spans) {
-            grid.deposit({{lo, row.y0}, {hi, row.y1}}, 1.0);
+            grid.deposit(
+                {.lowerLeft = {.x = lo, .y = row.y0}, .upperRight = {.x = hi, .y = row.y1}}, 1.0);
         }
     }
     const double sliver =
@@ -480,7 +481,7 @@ Positions simplPlacer::Impl::getGlobalPlacement(Positions &lower) {
         const double lowerHpwl = getHpwl(lower.x, lower.y);
         const double gap = upperHpwl - lowerHpwl;
         const double upperOverflow = getOverflow(getOccupancy(upper.x, upper.y));
-        bounds.push_back({upperHpwl, lowerHpwl});
+        bounds.push_back({.upper = upperHpwl, .lower = lowerHpwl});
         ktlog.trace("iter {:3d}: lower {:.6e} upper {:.6e} gap {:.4e} overflow {:.4f} -> {:.4f}",
                     it, lowerHpwl, upperHpwl, gap, getOverflow(getOccupancy(lower.x, lower.y)),
                     upperOverflow);

@@ -26,7 +26,8 @@ void collectCells(const ktplace::Graph &graph, Design &design) {
         if (cell.isFixed || cell.isTerminal) {
             if (cell.width > 0.0 && cell.height > 0.0) {
                 design.obstacles.push_back(
-                    {{cell.x, cell.y}, {cell.x + cell.width, cell.y + cell.height}});
+                    {.lowerLeft = {.x = cell.x, .y = cell.y},
+                     .upperRight = {.x = cell.x + cell.width, .y = cell.y + cell.height}});
             }
             ++design.numFixed;
             continue;
@@ -78,7 +79,7 @@ void collectNets(const ktplace::Graph &graph, Netlist &netlist) {
         for (std::uint32_t q = 0; q < netlist.nets[n].cells.size(); ++q) {
             const std::uint32_t v = netlist.varOfVertex[netlist.nets[n].cells[q]];
             if (v != noVar) {
-                netlist.pinsOfCell[cursor[v]++] = {n, q};
+                netlist.pinsOfCell[cursor[v]++] = {.net = n, .pin = q};
             }
         }
     }
@@ -88,10 +89,14 @@ std::vector<RowInfo> copyRows(const std::vector<ktplace::RowInfo> &rows) {
     std::vector<RowInfo> out;
     out.reserve(rows.size());
     for (const ktplace::RowInfo &row : rows) {
-        RowInfo info{row.coordinate, row.height, row.getPitch(), {}};
+        RowInfo info{.coordinate = row.coordinate,
+                     .height = row.height,
+                     .sitePitch = row.getPitch(),
+                     .subrows = {}};
         info.subrows.reserve(row.subrows.size());
         for (const ktplace::SubrowInfo &subrow : row.subrows) {
-            info.subrows.push_back(Subrow{subrow.getXlo(), subrow.getXhi(row.getPitch())});
+            info.subrows.push_back(
+                Subrow{.xlo = subrow.getXlo(), .xhi = subrow.getXhi(row.getPitch())});
         }
         out.push_back(std::move(info));
     }
@@ -105,7 +110,8 @@ Fences copyFences(const ktplace::constraintMgr &constraints) {
         if (source == nullptr) {
             continue;
         }
-        out.addRegion(Region{source->name, source->rects, source->bounds});
+        out.addRegion(
+            Region{.name = source->name, .rects = source->rects, .bounds = source->bounds});
     }
     return out;
 }
@@ -269,8 +275,11 @@ simplDM buildSimplDM(const ktDM &db) {
     design.fences = copyFences(db.getConstraints());
     design.die = getPlacementDieBox(db.getDie(), db.getGraph());
 
-    const StageCounts counts{graph.getNumCells(), design.netlist.numMovable, graph.getNumNets(),
-                             graph.getNumPins(), design.rows.size()};
+    const StageCounts counts{.cells = graph.getNumCells(),
+                             .movable = design.netlist.numMovable,
+                             .nets = graph.getNumNets(),
+                             .pins = graph.getNumPins(),
+                             .rows = design.rows.size()};
     simplDM dm(std::move(design), loadOptions<SimplOptions>());
     reportStageBuild(counts, db.getChecksum(), dm.getOptions());
     return dm;

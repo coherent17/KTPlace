@@ -365,7 +365,8 @@ void MultiRowLegalizer::Impl::legalizeMacros(const std::vector<std::uint32_t> &m
                 const double cost = (x - cell.x) * (x - cell.x) + dy * dy;
                 if (cost < bestCost) {
                     bestCost = cost;
-                    best = {{x, y0}, {x + cell.width, y1}};
+                    best = {.lowerLeft = {.x = x, .y = y0},
+                            .upperRight = {.x = x + cell.width, .y = y1}};
                 }
             }
         }
@@ -405,7 +406,14 @@ void MultiRowLegalizer::Impl::buildLanes() {
         std::ranges::stable_sort(pieces);
         for (const auto &[lo, hi, region] : pieces) {
             lanesOfRow[r].push_back(static_cast<std::uint32_t>(lanes.size()));
-            lanes.push_back({r, y0, row.height, lo, hi, row.getPitch(), region, {}});
+            lanes.push_back({.row = r,
+                             .y = y0,
+                             .height = row.height,
+                             .xlo = lo,
+                             .xhi = hi,
+                             .pitch = row.getPitch(),
+                             .region = region,
+                             .clusters = {}});
         }
     }
 }
@@ -423,7 +431,7 @@ std::vector<Slot> MultiRowLegalizer::Impl::getSlots(std::size_t bottom, std::siz
     }
     for (const std::uint32_t l : lanesOfRow[bottom]) {
         if (lanes[l].region == region) {
-            out.push_back({{l}, lanes[l].xlo, lanes[l].xhi});
+            out.push_back({.lanes = {l}, .lo = lanes[l].xlo, .hi = lanes[l].xhi});
         }
     }
     for (std::size_t k = bottom + 1; k < bottom + span && !out.empty(); ++k) {
@@ -573,7 +581,7 @@ void MultiRowLegalizer::Impl::merge(std::uint32_t left, std::uint32_t right) {
                 list.erase(list.begin() + static_cast<long>(at));
             }
         } else {
-            l.extents.push_back({e.lane, e.lo + shift, e.hi + shift});
+            l.extents.push_back({.lane = e.lane, .lo = e.lo + shift, .hi = e.hi + shift});
             if (at < list.size()) {
                 list[at] = left;
             }
@@ -593,7 +601,7 @@ std::uint32_t MultiRowLegalizer::Impl::insert(std::uint32_t cell, const Slot &sl
     fresh.b = target * target;
     fresh.root = cell;
     for (const std::uint32_t l : slot.lanes) {
-        fresh.extents.push_back({l, 0.0, c.width});
+        fresh.extents.push_back({.lane = l, .lo = 0.0, .hi = c.width});
     }
     auto id = static_cast<std::uint32_t>(clusters.size());
     clusters.push_back(std::move(fresh));

@@ -96,7 +96,7 @@ void recordSimplBounds(simpl::simplDM &dm, SnapshotWriter &snapshots) {
         std::vector<BoundsSample> samples;
         samples.reserve(curve.size());
         for (const simpl::BoundsPoint &point : curve) {
-            samples.push_back({point.upper, point.lower});
+            samples.push_back({.upper = point.upper, .lower = point.lower});
         }
         snapshots.boundsCurve("simpl_convergence",
                               "SimPL convergence: HPWL of the lower and upper bounds", samples);
@@ -411,7 +411,8 @@ void FlowMgr::Impl::runGlobalPlacement() {
     switch (placer) {
         case GlobalPlacer::Simpl: {
             simpl::flowMgr stage(*db);
-            if (recordStage(stage.getDm(), snapshots.get(), observer, {"simpl", "simpl", 0})) {
+            if (recordStage(stage.getDm(), snapshots.get(), observer,
+                            {.stage = "simpl", .subdir = "simpl", .cadence = 0})) {
                 recordSimplBounds(stage.getDm(), *snapshots);
             }
             if (!stage.getDm().getOptions().fences) {
@@ -438,13 +439,15 @@ void FlowMgr::Impl::runLegalization() {
     if (const std::size_t tall = db->getMultiRowCells(); tall > 0) {
         multirow::flowMgr stage(*db);
         ktlog.echo("multi-row legalization ({} cell(s) taller than a row)", tall);
-        recordStage(stage.getDm(), snapshots.get(), observer, {"legalize_multi", "", 0});
+        recordStage(stage.getDm(), snapshots.get(), observer,
+                    {.stage = "legalize_multi", .subdir = "", .cadence = 0});
         runStage(stage, &ktDM::setMultiRowSolution, "legalization");
         return;
     }
 
     abacus::flowMgr stage(*db);
-    recordStage(stage.getDm(), snapshots.get(), observer, {"legalize", "", 0});
+    recordStage(stage.getDm(), snapshots.get(), observer,
+                {.stage = "legalize", .subdir = "", .cadence = 0});
     runStage(stage, &ktDM::setAbacusSolution, "legalization");
 }
 
@@ -452,7 +455,8 @@ void FlowMgr::Impl::runDetailedPlacement() {
     ScopedTimer timer("detailed placement", true);
     preparePlots();
     fastdp::flowMgr stage(*db);
-    recordStage(stage.getDm(), snapshots.get(), observer, {"detailplace", "", 0});
+    recordStage(stage.getDm(), snapshots.get(), observer,
+                {.stage = "detailplace", .subdir = "", .cadence = 0});
     runStage(stage, &ktDM::setFastdpSolution, "detailed placement");
 }
 
@@ -514,8 +518,10 @@ void FlowMgr::Impl::finishAnimation() {
 }
 
 void FlowMgr::Impl::commit(std::string_view stage) {
-    committed.push_back(
-        {std::string(stage), ktlog.getCurrentStep(), db->getHpwl(), db->getChecksum()});
+    committed.push_back({.stage = std::string(stage),
+                         .step = ktlog.getCurrentStep(),
+                         .hpwl = db->getHpwl(),
+                         .checksum = db->getChecksum()});
     const Committed &entry = committed.back();
     ktlog.echo("committed to ktDM: HPWL {:.6e}, checksum {:08x}", entry.hpwl, entry.checksum);
     if (observer.committed) {

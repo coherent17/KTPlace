@@ -372,7 +372,7 @@ BOOST_AUTO_TEST_CASE(clicking_a_cell_selects_it_and_its_nets_are_known) {
 
 BOOST_AUTO_TEST_CASE(a_net_spreads_one_unit_of_demand_evenly_over_its_bounding_box) {
     LayoutGeometry geometry;
-    geometry.die = {0.0, 0.0, 4.0, 2.0};
+    geometry.die = {.lowerLeft = {.x = 0.0, .y = 0.0}, .upperRight = {.x = 4.0, .y = 2.0}};
     geometry.width = {0.0F, 0.0F};
     geometry.height = {0.0F, 0.0F};
     geometry.kind = {CellKind::Movable, CellKind::Movable};

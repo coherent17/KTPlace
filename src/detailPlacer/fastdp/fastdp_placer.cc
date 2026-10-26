@@ -91,7 +91,7 @@ Interval getMedianInterval(std::vector<double> &values) {
     const double lo =
         k == 0 ? hi
                : *std::max_element(values.begin(), values.begin() + static_cast<std::ptrdiff_t>(k));
-    return {lo, hi};
+    return {.lo = lo, .hi = hi};
 }
 
 void keepCentral(std::vector<double> &bounds, std::size_t keep) {
@@ -335,14 +335,14 @@ void FastDetailedPlacer::Impl::buildSpans() {
                 const auto emit = [&](double lo, double hi) {
                     if (hi > lo + eps) {
                         spansInRow[r].push_back(spans.size());
-                        spans.push_back(Span{ri.coordinate,
-                                             ri.coordinate + ri.height,
-                                             lo,
-                                             hi,
-                                             ri.getPitch() > 0.0 ? ri.getPitch() : 1.0,
-                                             r,
-                                             sub.region,
-                                             {}});
+                        spans.push_back(Span{.ylo = ri.coordinate,
+                                             .yhi = ri.coordinate + ri.height,
+                                             .xlo = lo,
+                                             .xhi = hi,
+                                             .site = ri.getPitch() > 0.0 ? ri.getPitch() : 1.0,
+                                             .row = r,
+                                             .region = sub.region,
+                                             .cells = {}});
                     }
                 };
                 double cursor = sub.xlo;
@@ -670,9 +670,9 @@ OptimalRegion FastDetailedPlacer::Impl::getOptimalRegion(std::size_t c) const {
         ys.insert(ys.end(), {others.lowerLeft.y - own->offY, others.upperRight.y - own->offY});
     }
     if (xs.empty()) {
-        return {{cellX[c], cellX[c]}, {cellY[c], cellY[c]}};
+        return {.x = {.lo = cellX[c], .hi = cellX[c]}, .y = {.lo = cellY[c], .hi = cellY[c]}};
     }
-    return {getMedianInterval(xs), getMedianInterval(ys)};
+    return {.x = getMedianInterval(xs), .y = getMedianInterval(ys)};
 }
 
 std::size_t FastDetailedPlacer::Impl::getIndexIn(std::size_t s, std::size_t c) const {
@@ -749,11 +749,16 @@ FastDetailedPlacer::Impl::Candidate FastDetailedPlacer::Impl::swapWith(std::size
     }
     const double xi = snap(cellX[j] + 0.5 * (cellW[j] - cellW[i]), sj, cellW[i]);
     const double xj = snap(cellX[i] + 0.5 * (cellW[i] - cellW[j]), si, cellW[j]);
-    const std::array<Move, 2> moves{Move{i, xi, spans[sj].ylo}, Move{j, xj, spans[si].ylo}};
+    const std::array<Move, 2> moves{Move{.cell = i, .x = xi, .y = spans[sj].ylo},
+                                    Move{.cell = j, .x = xj, .y = spans[si].ylo}};
     const double overlap = cellW[i] > cellW[j]
                                ? getCellPenalty(sj, getIndexIn(sj, j), cellW[i] - cellW[j])
                                : getCellPenalty(si, getIndexIn(si, i), cellW[j] - cellW[i]);
-    return {-getWirelengthDelta(moves, sc) - overlap, j, sj, xi, xj};
+    return {.benefit = -getWirelengthDelta(moves, sc) - overlap,
+            .partner = j,
+            .span = sj,
+            .x = xi,
+            .partnerX = xj};
 }
 
 FastDetailedPlacer::Impl::Candidate FastDetailedPlacer::Impl::moveInto(std::size_t i, std::size_t s,
@@ -769,11 +774,15 @@ FastDetailedPlacer::Impl::Candidate FastDetailedPlacer::Impl::moveInto(std::size
     const double x = room >= cellW[i]
                          ? snap(std::clamp(target, left, left + room - cellW[i]), s, cellW[i])
                          : snap(left + 0.5 * (room - cellW[i]), s, cellW[i]);
-    const std::array<Move, 1> moves{Move{i, x, sp.ylo}};
+    const std::array<Move, 1> moves{Move{.cell = i, .x = x, .y = sp.ylo}};
     const double overlap =
         room >= cellW[i] ? 0.0
                          : getPenalty(cellW[i], room, room + getGap(s, gi - 1) + getGap(s, gi + 1));
-    return {-getWirelengthDelta(moves, sc) - overlap, noSlot, s, x, 0.0};
+    return {.benefit = -getWirelengthDelta(moves, sc) - overlap,
+            .partner = noSlot,
+            .span = s,
+            .x = x,
+            .partnerX = 0.0};
 }
 
 FastDetailedPlacer::Impl::Plan FastDetailedPlacer::Impl::getGlobalPlan(std::size_t i,
@@ -827,14 +836,17 @@ FastDetailedPlacer::Impl::Plan FastDetailedPlacer::Impl::getGlobalPlan(std::size
             items.clear();
             for (std::size_t k = first; k < last; ++k) {
                 if (region.x.contains(cellX[cells[k]], eps)) {
-                    items.push_back({std::abs(cellX[cells[k]] - cx), k, false});
+                    items.push_back(
+                        {.distance = std::abs(cellX[cells[k]] - cx), .index = k, .isGap = false});
                 }
             }
             for (std::size_t g = first; g <= last; ++g) {
                 const double left = g == 0 ? sp.xlo : cellX[cells[g - 1]] + cellW[cells[g - 1]];
                 const double right = g == cells.size() ? sp.xhi : cellX[cells[g]];
                 if (right > left + eps && right >= region.x.lo - eps && left <= region.x.hi + eps) {
-                    items.push_back({std::abs(std::clamp(cx, left, right) - cx), g, true});
+                    items.push_back({.distance = std::abs(std::clamp(cx, left, right) - cx),
+                                     .index = g,
+                                     .isGap = true});
                 }
             }
             std::ranges::stable_sort(items, {}, &Item::distance);
@@ -987,9 +999,9 @@ bool FastDetailedPlacer::Impl::applyIfShorter(std::size_t i, const Candidate &c)
     const std::size_t home = spanOf[i];
     const std::size_t vacated = getIndexIn(home, i);
     const std::array<double, 2> usedBefore{used[home], used[c.span]};
-    std::vector<Move> before{Move{i, cellX[i], cellY[i]}};
+    std::vector<Move> before{Move{.cell = i, .x = cellX[i], .y = cellY[i]}};
     if (c.partner != noSlot) {
-        before.push_back(Move{c.partner, cellX[c.partner], cellY[c.partner]});
+        before.push_back(Move{.cell = c.partner, .x = cellX[c.partner], .y = cellY[c.partner]});
     }
 
     apply(i, c);
@@ -1004,7 +1016,8 @@ bool FastDetailedPlacer::Impl::applyIfShorter(std::size_t i, const Candidate &c)
         const std::vector<std::size_t> &cells = spans[w.span].cells;
         for (std::size_t k = w.first; k < w.last; ++k) {
             if (std::ranges::find(before, cells[k], &Move::cell) == before.end()) {
-                before.push_back(Move{cells[k], cellX[cells[k]], cellY[cells[k]]});
+                before.push_back(
+                    Move{.cell = cells[k], .x = cellX[cells[k]], .y = cellY[cells[k]]});
             }
         }
         legalizeWindow(w);
@@ -1062,7 +1075,11 @@ void FastDetailedPlacer::Impl::attach(std::size_t c, std::size_t s) {
 }
 
 FastDetailedPlacer::Impl::Window FastDetailedPlacer::Impl::getWholeSpan(std::size_t s) const {
-    return {s, 0, spans[s].cells.size(), spans[s].xlo, spans[s].xhi};
+    return {.span = s,
+            .first = 0,
+            .last = spans[s].cells.size(),
+            .lo = spans[s].xlo,
+            .hi = spans[s].xhi};
 }
 
 FastDetailedPlacer::Impl::Window FastDetailedPlacer::Impl::getWindowAt(std::size_t s,
@@ -1084,7 +1101,7 @@ FastDetailedPlacer::Impl::Window FastDetailedPlacer::Impl::getWindowAt(std::size
         const double room =
             std::floor(hi / sp.site + eps) * sp.site - std::ceil(lo / sp.site - eps) * sp.site;
         if (widths <= room + eps) {
-            return {s, first, last, lo, hi};
+            return {.span = s, .first = first, .last = last, .lo = lo, .hi = hi};
         }
     }
 }
@@ -1113,7 +1130,7 @@ void FastDetailedPlacer::Impl::legalizeWindow(const Window &w) {
     };
     for (std::size_t k = w.first; k < w.last; ++k) {
         const std::size_t c = cells[k];
-        Cluster cur{1.0, cellX[c], cellW[c], 0.0, k};
+        Cluster cur{.weight = 1.0, .q = cellX[c], .width = cellW[c], .x = 0.0, .first = k};
         place(cur);
         while (!clusters.empty() && clusters.back().x + clusters.back().width > cur.x + eps) {
             Cluster prev = clusters.back();
@@ -1241,7 +1258,9 @@ std::vector<Move> FastDetailedPlacer::Impl::getBestOrder(std::size_t s, std::siz
         double x = left;
         for (std::size_t t = 0; t < n; ++t) {
             const std::size_t c = group[order[t]];
-            trial[t] = Move{c, left + std::floor((x - left) / sp.site + eps) * sp.site, cellY[c]};
+            trial[t] = Move{.cell = c,
+                            .x = left + std::floor((x - left) / sp.site + eps) * sp.site,
+                            .y = cellY[c]};
             x += cellW[c] + spacing;
         }
         if (const double delta = getWirelengthDelta(trial, sc); delta < bestDelta) {
@@ -1271,7 +1290,7 @@ std::size_t FastDetailedPlacer::Impl::localReorder() {
         windows.clear();
         for (std::size_t s = 0; s < spans.size(); ++s) {
             for (std::size_t k = offset; k + n <= spans[s].cells.size(); k += n) {
-                windows.push_back({s, k});
+                windows.push_back({.span = s, .first = k});
             }
         }
         best.assign(windows.size(), {});
@@ -1378,7 +1397,7 @@ std::vector<Move> FastDetailedPlacer::Impl::clusterProposal(const Window &w,
     };
 
     for (std::size_t k = w.first; k < w.last; ++k) {
-        Cluster cur{boundsOf(cells[k]), cellW[cells[k]], 0.0, k};
+        Cluster cur{.bounds = boundsOf(cells[k]), .width = cellW[cells[k]], .x = 0.0, .first = k};
         place(cur);
         while (!clusters.empty() && clusters.back().x + clusters.back().width > cur.x + eps) {
             Cluster prev = std::move(clusters.back());
@@ -1399,7 +1418,7 @@ std::vector<Move> FastDetailedPlacer::Impl::clusterProposal(const Window &w,
         const std::size_t end = m + 1 < clusters.size() ? clusters[m + 1].first : w.last;
         double x = clusters[m].x;
         for (std::size_t k = clusters[m].first; k < end; ++k) {
-            placed.push_back(Move{cells[k], x, cellY[cells[k]]});
+            placed.push_back(Move{.cell = cells[k], .x = x, .y = cellY[cells[k]]});
             x += cellW[cells[k]];
         }
     }

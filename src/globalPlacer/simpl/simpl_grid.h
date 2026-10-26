@@ -16,7 +16,10 @@ struct BinRect {
     std::size_t y1 = 0;
 
     [[nodiscard]] BinRect getMerged(const BinRect &o) const {
-        return {std::min(x0, o.x0), std::max(x1, o.x1), std::min(y0, o.y0), std::max(y1, o.y1)};
+        return {.x0 = std::min(x0, o.x0),
+                .x1 = std::max(x1, o.x1),
+                .y0 = std::min(y0, o.y0),
+                .y1 = std::max(y1, o.y1)};
     }
     [[nodiscard]] std::size_t getBins() const {
         return (x1 - x0 + 1) * (y1 - y0 + 1);
@@ -90,8 +93,8 @@ struct BinGrid {
         return vertical ? x0 + static_cast<double>(t) * dx : y0 + static_cast<double>(t) * dy;
     }
     [[nodiscard]] BBox getBox(const BinRect &r) const {
-        return {{getEdge(true, r.x0), getEdge(false, r.y0)},
-                {getEdge(true, r.x1 + 1), getEdge(false, r.y1 + 1)}};
+        return {.lowerLeft = {.x = getEdge(true, r.x0), .y = getEdge(false, r.y0)},
+                .upperRight = {.x = getEdge(true, r.x1 + 1), .y = getEdge(false, r.y1 + 1)}};
     }
     [[nodiscard]] double sum(const std::vector<double> &field, const BinRect &r) const {
         double total = 0.0;

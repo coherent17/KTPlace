@@ -214,7 +214,8 @@ void Visualizer::frame(const Graph &graph, const std::vector<float> &x, const st
     if (!drawingNow) {
         return;
     }
-    const BBox dieBox{{die.lowerLeft.x, die.lowerLeft.y}, {die.upperRight.x, die.upperRight.y}};
+    const BBox dieBox{.lowerLeft = {.x = die.lowerLeft.x, .y = die.lowerLeft.y},
+                      .upperRight = {.x = die.upperRight.x, .y = die.upperRight.y}};
 
     // Every framesKept of a sequence is drawn at the same die-relative scale, so step
     // 7 and step 8 are comparable instead of being auto-zoomed apart.
@@ -272,7 +273,8 @@ bool Visualizer::finish(const Graph &graph, const std::vector<float> &x,
     // same time as any other single frame, and the animation scrolls past the
     // thing it spent minutes producing. Recorded rather than re-encoded, so it
     // costs one placement pass.
-    const BBox dieBox{{die.lowerLeft.x, die.lowerLeft.y}, {die.upperRight.x, die.upperRight.y}};
+    const BBox dieBox{.lowerLeft = {.x = die.lowerLeft.x, .y = die.lowerLeft.y},
+                      .upperRight = {.x = die.upperRight.x, .y = die.upperRight.y}};
     for (std::size_t i = 0; i < opts.finalHold; ++i) {
         recordFrame(graph, x, y, dieBox, framesKept, 0, hpwl, 0.0, 0.0, finalNote, fences,
                     /*mandatory=*/true);
@@ -528,7 +530,7 @@ double toPxY(const ViewPort &vp, double v) {
 // Raster (CImg) rendering
 // ---------------------------------------------------------------------------
 
-constexpr Rgb24 bgColor{0x10, 0x14, 0x18};
+constexpr Rgb24 bgColor{.r = 0x10, .g = 0x14, .b = 0x18};
 
 /// Parse "#rrggbb" as used throughout the SVG renderer.
 Rgb24 getHexColor(const char *s) {
@@ -550,9 +552,9 @@ Rgb24 getHexColor(const char *s) {
 /// possible in the first place.
 /// A darker relative of @p c, for the rim that separates touching cells.
 Rgb24 darken(const Rgb24 &c, double f) {
-    return Rgb24{static_cast<std::uint8_t>(std::lround(c.r * f)),
-                 static_cast<std::uint8_t>(std::lround(c.g * f)),
-                 static_cast<std::uint8_t>(std::lround(c.b * f))};
+    return Rgb24{.r = static_cast<std::uint8_t>(std::lround(c.r * f)),
+                 .g = static_cast<std::uint8_t>(std::lround(c.g * f)),
+                 .b = static_cast<std::uint8_t>(std::lround(c.b * f))};
 }
 
 Rgb24 blendOnBg(const Rgb24 &c, double alpha) {
@@ -679,11 +681,11 @@ std::vector<Rgb24> getMedianCutPalette(const std::map<std::uint32_t, std::uint32
             w += ww;
         }
         if (w <= 0.0) {
-            return Rgb24{0, 0, 0};
+            return Rgb24{.r = 0, .g = 0, .b = 0};
         }
-        return Rgb24{static_cast<std::uint8_t>(std::lround(r / w)),
-                     static_cast<std::uint8_t>(std::lround(g / w)),
-                     static_cast<std::uint8_t>(std::lround(b / w))};
+        return Rgb24{.r = static_cast<std::uint8_t>(std::lround(r / w)),
+                     .g = static_cast<std::uint8_t>(std::lround(g / w)),
+                     .b = static_cast<std::uint8_t>(std::lround(b / w))};
     };
 
     while (boxes.size() < maxColors) {
@@ -1281,8 +1283,8 @@ CImg<unsigned char> renderDemandCImg(const Graph &g, const std::vector<float> &x
     const float top = map.p99 > 0.0F ? map.p99 : std::max(map.peak, 1e-9F);
     const auto heat = [&pal](float scaled) {
         const std::array<std::uint8_t, 4> c = getDemandColour(scaled);
-        return std::make_pair(pal.getPtr(blendOnBg(Rgb24{c[0], c[1], c[2]}, c[3] / 255.0)),
-                              c[3] > 0);
+        return std::make_pair(
+            pal.getPtr(blendOnBg(Rgb24{.r = c[0], .g = c[1], .b = c[2]}, c[3] / 255.0)), c[3] > 0);
     };
     for (std::size_t iy = 0; iy < map.ny; ++iy) {
         const double y0 = map.y0 + static_cast<double>(iy) * map.binH;
@@ -1623,7 +1625,8 @@ BBox getFixedCellBBox(const Graph &g) {
         // that know the row structure pass a real core box anyway; this only has
         // to be good enough to frame the drawing.
         if (all.isEmpty()) {
-            return {{0.0, 0.0}, {1.0, 1.0}};  // genuinely empty graph
+            return {.lowerLeft = {.x = 0.0, .y = 0.0},
+                    .upperRight = {.x = 1.0, .y = 1.0}};  // genuinely empty graph
         }
         return all;
     }
@@ -2047,9 +2050,9 @@ bool writeAnimatedGif(const std::string &dir, const std::string &gifPath, int de
     }
 
     const auto unpack = [](std::uint32_t key) {
-        return Rgb24{static_cast<std::uint8_t>((key >> 16) & 0xff),
-                     static_cast<std::uint8_t>((key >> 8) & 0xff),
-                     static_cast<std::uint8_t>(key & 0xff)};
+        return Rgb24{.r = static_cast<std::uint8_t>((key >> 16) & 0xff),
+                     .g = static_cast<std::uint8_t>((key >> 8) & 0xff),
+                     .b = static_cast<std::uint8_t>(key & 0xff)};
     };
     GifPalette pal;
     for (const Rgb24 &c : getMedianCutPalette(histogram, maxPalette)) {
@@ -2095,7 +2098,7 @@ bool writeAnimatedGif(const std::string &dir, const std::string &gifPath, int de
     std::vector<Rgb> palRgb;
     palRgb.reserve(pal.getColors().size());
     for (const Rgb24 &c : pal.getColors()) {
-        palRgb.push_back(Rgb{c.r, c.g, c.b});
+        palRgb.push_back(Rgb{.r = c.r, .g = c.g, .b = c.b});
     }
 
     std::vector<Canvas> canvases;

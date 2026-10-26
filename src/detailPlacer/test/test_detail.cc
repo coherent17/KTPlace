@@ -685,7 +685,7 @@ BOOST_AUTO_TEST_CASE(fences_are_accepted_without_being_enforced) {
     addCell(db, "a", 1.0, 0);
     addCell(db, "b", 2.0, 0);
     constraintMgr cstr;
-    cstr.addRegion("er0", {Point{0.0, 0.0}, Point{1.0, 10.0}});
+    cstr.addRegion("er0", {Point{.x = 0.0, .y = 0.0}, Point{.x = 1.0, .y = 10.0}});
     db.setConstraints(std::move(cstr));
 
     FastdpOptions p = none();
@@ -797,7 +797,8 @@ BOOST_AUTO_TEST_CASE(cells_stay_on_their_side_of_a_fence) {
     addNet(db, "n2", "o0", "padL");
     {
         constraintMgr mgr;
-        const int id = mgr.addRegion("f0", {Point{0.0, 0.0}, Point{20.0, 20.0}});
+        const int id =
+            mgr.addRegion("f0", {Point{.x = 0.0, .y = 0.0}, Point{.x = 20.0, .y = 20.0}});
         (void)mgr.assignByPrefix(id, "m", db.getGraph());
         db.setConstraints(std::move(mgr));
     }
@@ -832,7 +833,8 @@ BOOST_AUTO_TEST_CASE(a_vertical_swap_does_not_carry_cells_across_a_fence) {
     addNet(db, "n1", "o0", "dn");
     {
         constraintMgr mgr;
-        const int id = mgr.addRegion("f0", {Point{0.0, 10.0}, Point{30.0, 20.0}});
+        const int id =
+            mgr.addRegion("f0", {Point{.x = 0.0, .y = 10.0}, Point{.x = 30.0, .y = 20.0}});
         (void)mgr.assignByPrefix(id, "m", db.getGraph());
         db.setConstraints(std::move(mgr));
     }

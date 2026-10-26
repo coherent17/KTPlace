@@ -225,7 +225,7 @@ BOOST_AUTO_TEST_CASE(fenced_cells_are_placed_in_their_region_and_others_kept_out
     }
     {
         constraintMgr mgr;
-        const int id = mgr.addRegion("f0", {Point{fx0, fy0}, Point{fx1, fy1}});
+        const int id = mgr.addRegion("f0", {Point{.x = fx0, .y = fy0}, Point{.x = fx1, .y = fy1}});
         (void)mgr.assignByPrefix(id, "m", db.getGraph());
         db.setConstraints(std::move(mgr));
     }

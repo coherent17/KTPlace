@@ -59,10 +59,12 @@ inline std::vector<RowPiece> splitRowByFences(double xlo, double xhi, double y0,
             continue;
         }
         const bool covers = rc.box.lowerLeft.y <= y0 + eps && rc.box.upperRight.y >= y1 - eps;
-        spans.push_back({rc.box.lowerLeft.x, rc.box.upperRight.x, covers ? rc.region : blocked});
+        spans.push_back({.lo = rc.box.lowerLeft.x,
+                         .hi = rc.box.upperRight.x,
+                         .region = covers ? rc.region : blocked});
     }
     if (spans.empty()) {
-        return {RowPiece{xlo, xhi, openSpace}};
+        return {RowPiece{.xlo = xlo, .xhi = xhi, .region = openSpace}};
     }
     std::vector<double> cuts{xlo, xhi};
     for (const Span &sp : spans) {
@@ -107,7 +109,7 @@ inline std::vector<RowPiece> splitRowByFences(double xlo, double xhi, double y0,
         if (label != blocked) {
             const double lo = snapLo(cuts[k]), hi = snapHi(cuts[e]);
             if (hi > lo + eps) {
-                out.push_back(RowPiece{lo, hi, label});
+                out.push_back(RowPiece{.xlo = lo, .xhi = hi, .region = label});
             }
         }
         k = e;

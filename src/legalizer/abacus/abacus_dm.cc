@@ -16,10 +16,13 @@ std::vector<RowInfo> copyRows(const std::vector<ktplace::RowInfo> &rows,
     out.reserve(rows.size());
     for (std::size_t i = 0; i < rows.size(); ++i) {
         const ktplace::RowInfo &r = rows[i];
-        RowInfo info{r.coordinate, r.height, r.getPitch(), {}};
+        RowInfo info{.coordinate = r.coordinate,
+                     .height = r.height,
+                     .sitePitch = r.getPitch(),
+                     .subrows = {}};
         info.subrows.reserve(pieces[i].size());
         for (const ktplace::RowPiece &p : pieces[i]) {
-            info.subrows.push_back(Subrow{p.xlo, p.xhi, p.region});
+            info.subrows.push_back(Subrow{.xlo = p.xlo, .xhi = p.xhi, .region = p.region});
         }
         out.push_back(std::move(info));
     }
@@ -64,8 +67,11 @@ void collectNets(const ktplace::Graph &graph, Design &design) {
         for (const std::size_t pinId : graph.getNetPins(n)) {
             const ktplace::Pin &pin = graph.getPin(pinId);
             const ktplace::Vertex &cell = graph.getCell(pin.cellId);
-            pins.push_back(NetPin{slotOf[pin.cellId], pin.offsetX, pin.offsetY,
-                                  cell.x + pin.offsetX, cell.y + pin.offsetY});
+            pins.push_back(NetPin{.slot = slotOf[pin.cellId],
+                                  .offX = pin.offsetX,
+                                  .offY = pin.offsetY,
+                                  .absX = cell.x + pin.offsetX,
+                                  .absY = cell.y + pin.offsetY});
         }
         design.nets.add(pins);
     }
@@ -100,8 +106,11 @@ abacusDM buildAbacusDM(const ktDM &db) {
     design.rows = copyRows(db.getRows(), db.getFencedSubrows());
     design.die = getPlacementDieBox(db.getDie(), graph);
 
-    const StageCounts counts{graph.getNumCells(), movable, graph.getNumNets(), graph.getNumPins(),
-                             design.rows.size()};
+    const StageCounts counts{.cells = graph.getNumCells(),
+                             .movable = movable,
+                             .nets = graph.getNumNets(),
+                             .pins = graph.getNumPins(),
+                             .rows = design.rows.size()};
     abacusDM dm(std::move(design), loadOptions<AbacusOptions>());
     reportStageBuild(counts, db.getChecksum(), dm.getOptions());
     return dm;

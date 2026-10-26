@@ -33,7 +33,7 @@ void TimerRegistry::record(std::string name, double wallSeconds, double cpuSecon
 
 void TimerRegistry::started(const std::string &name) {
     std::lock_guard<std::mutex> lock(mutex);
-    firstRun.try_emplace(name, FirstRun{firstRun.size(), depth});
+    firstRun.try_emplace(name, FirstRun{.order = firstRun.size(), .depth = depth});
     ++depth;
 }
 

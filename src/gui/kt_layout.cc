@@ -64,17 +64,18 @@ std::shared_ptr<const LayoutGeometry> LayoutGeometry::of(const ktDM &db) {
     }
 
     for (const RowInfo &row : db.getRows()) {
-        geometry->rows.push_back({static_cast<float>(row.coordinate),
-                                  static_cast<float>(row.height), static_cast<float>(row.getXlo()),
-                                  static_cast<float>(row.getXhi())});
+        geometry->rows.push_back({.y = static_cast<float>(row.coordinate),
+                                  .height = static_cast<float>(row.height),
+                                  .xlo = static_cast<float>(row.getXlo()),
+                                  .xhi = static_cast<float>(row.getXhi())});
     }
     geometry->die = db.getPlacementDieBox();
     for (const Region &region : db.getConstraints().getRegions()) {
         LayoutGeometry::Fence &fence = geometry->fences.emplace_back();
         fence.name = region.name;
         for (const BBox &rect : region.rects) {
-            fence.rects.push_back(
-                {{rect.lowerLeft.x, rect.lowerLeft.y}, {rect.upperRight.x, rect.upperRight.y}});
+            fence.rects.push_back({.lowerLeft = {.x = rect.lowerLeft.x, .y = rect.lowerLeft.y},
+                                   .upperRight = {.x = rect.upperRight.x, .y = rect.upperRight.y}});
         }
     }
 
@@ -127,8 +128,9 @@ bool LayoutFrame::isDrawable() const {
 }
 
 BBox LayoutFrame::getCellBounds(std::uint32_t cell) const {
-    return {{x[cell], y[cell]},
-            {x[cell] + geometry->width[cell], y[cell] + geometry->height[cell]}};
+    return {.lowerLeft = {.x = x[cell], .y = y[cell]},
+            .upperRight = {.x = x[cell] + geometry->width[cell],
+                           .y = y[cell] + geometry->height[cell]}};
 }
 
 std::optional<BBox> LayoutFrame::getCellsBounds(std::span<const std::uint32_t> cells) const {
@@ -154,7 +156,7 @@ std::optional<BBox> LayoutFrame::getNetBounds(std::uint32_t net) const {
         if (box) {
             box->extend(px, py);
         } else {
-            box = BBox{{px, py}, {px, py}};
+            box = BBox{.lowerLeft = {.x = px, .y = py}, .upperRight = {.x = px, .y = py}};
         }
     }
     return box;

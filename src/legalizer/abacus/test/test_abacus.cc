@@ -52,7 +52,7 @@ std::vector<std::size_t> addCells(ktDM &db, const std::string &prefix, int n, do
 /// `prefix`. Installed after the cells exist, as the LEF/DEF reader does.
 void addFence(ktDM &db, double x0, double y0, double x1, double y1, const std::string &prefix) {
     constraintMgr mgr;
-    const int id = mgr.addRegion("f0", {Point{x0, y0}, Point{x1, y1}});
+    const int id = mgr.addRegion("f0", {Point{.x = x0, .y = y0}, Point{.x = x1, .y = y1}});
     (void)mgr.assignByPrefix(id, prefix, db.getGraph());
     db.setConstraints(std::move(mgr));
 }

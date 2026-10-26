@@ -408,7 +408,7 @@ int main(int argc, char **argv) {
     }
     QApplication app(argc, argv);
     ktlog.throwOnFatal(true);
-    MainWindow window({"", argv[1], ""});
+    MainWindow window({.design = "", .workDir = argv[1], .script = ""});
     window.showMaximized();
     Recorder recorder(window, QString::fromUtf8(argv[3]));
     const QString design = QString::fromUtf8(argv[2]);

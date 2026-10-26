@@ -97,7 +97,7 @@ Built buildDesign(ktDM &db, bool withFence, bool pullOthersIn = false) {
     addNet("m0", "o0");
     if (withFence) {
         constraintMgr mgr;
-        const int id = mgr.addRegion("f0", {Point{fx0, fy0}, Point{fx1, fy1}});
+        const int id = mgr.addRegion("f0", {Point{.x = fx0, .y = fy0}, Point{.x = fx1, .y = fy1}});
         (void)mgr.assignByPrefix(id, "m", db.getGraph());
         db.setConstraints(std::move(mgr));
     }

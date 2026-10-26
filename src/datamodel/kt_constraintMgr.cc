@@ -16,9 +16,10 @@ int constraintMgr::addRegion(std::string name, const std::vector<Point> &points)
     // upper-right of one rectangle. A trailing odd corner cannot form a
     // rectangle and is dropped.
     for (std::size_t i = 0; i + 1 < points.size(); i += 2) {
-        const BBox r{
-            {std::min(points[i].x, points[i + 1].x), std::min(points[i].y, points[i + 1].y)},
-            {std::max(points[i].x, points[i + 1].x), std::max(points[i].y, points[i + 1].y)}};
+        const BBox r{.lowerLeft = {.x = std::min(points[i].x, points[i + 1].x),
+                                   .y = std::min(points[i].y, points[i + 1].y)},
+                     .upperRight = {.x = std::max(points[i].x, points[i + 1].x),
+                                    .y = std::max(points[i].y, points[i + 1].y)}};
         if (!(r.getArea() > 0.0)) {
             continue;  // degenerate rectangle
         }

@@ -19,10 +19,13 @@ std::vector<RowInfo> copyRows(const std::vector<ktplace::RowInfo> &rows,
     out.reserve(rows.size());
     for (std::size_t i = 0; i < rows.size(); ++i) {
         const ktplace::RowInfo &r = rows[i];
-        RowInfo info{r.coordinate, r.height, r.getPitch(), {}};
+        RowInfo info{.coordinate = r.coordinate,
+                     .height = r.height,
+                     .sitePitch = r.getPitch(),
+                     .subrows = {}};
         info.subrows.reserve(pieces[i].size());
         for (const ktplace::RowPiece &p : pieces[i]) {
-            info.subrows.push_back(Subrow{p.xlo, p.xhi, p.region});
+            info.subrows.push_back(Subrow{.xlo = p.xlo, .xhi = p.xhi, .region = p.region});
         }
         out.push_back(std::move(info));
     }
@@ -85,10 +88,17 @@ void collectNets(const ktplace::Graph &graph, Design &design) {
             const std::size_t slot = slotOf[pin.cellId];
             if (slot == noSlot) {
                 const ktplace::Vertex &cell = graph.getCell(pin.cellId);
-                pins.push_back(NetPin{noSlot, pin.offsetX, pin.offsetY, cell.x + pin.offsetX,
-                                      cell.y + pin.offsetY});
+                pins.push_back(NetPin{.slot = noSlot,
+                                      .offX = pin.offsetX,
+                                      .offY = pin.offsetY,
+                                      .absX = cell.x + pin.offsetX,
+                                      .absY = cell.y + pin.offsetY});
             } else {
-                pins.push_back(NetPin{slot, pin.offsetX, pin.offsetY, 0.0, 0.0});
+                pins.push_back(NetPin{.slot = slot,
+                                      .offX = pin.offsetX,
+                                      .offY = pin.offsetY,
+                                      .absX = 0.0,
+                                      .absY = 0.0});
             }
         }
         design.nets.add(pins);
@@ -124,8 +134,11 @@ fastdpDM buildFastdpDM(const ktDM &db) {
     collectNets(graph, design);
     design.die = getPlacementDieBox(db.getDie(), graph);
 
-    const StageCounts counts{graph.getNumCells(), placeable, graph.getNumNets(), graph.getNumPins(),
-                             design.rows.size()};
+    const StageCounts counts{.cells = graph.getNumCells(),
+                             .movable = placeable,
+                             .nets = graph.getNumNets(),
+                             .pins = graph.getNumPins(),
+                             .rows = design.rows.size()};
     fastdpDM dm(std::move(design), loadOptions<FastdpOptions>());
     reportStageBuild(counts, db.getChecksum(), dm.getOptions());
     return dm;

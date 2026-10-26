@@ -17,7 +17,7 @@ namespace {
 
 /// Build a corner list for a single rectangle.
 std::vector<Point> getRect(double loX, double loY, double hiX, double hiY) {
-    return {Point{loX, loY}, Point{hiX, hiY}};
+    return {Point{.x = loX, .y = loY}, Point{.x = hiX, .y = hiY}};
 }
 
 /// A manager with one rectangle fence at [0,100] x [0,100].
@@ -63,7 +63,7 @@ BOOST_AUTO_TEST_CASE(corners_are_normalised_whichever_way_round_they_arrive) {
     // DEF point pairs are documented as lower-left/upper-right, but taking them
     // as unordered costs nothing and avoids a silently inverted fence.
     constraintMgr mgr;
-    mgr.addRegion("er0", {Point{100.0, 200.0}, Point{0.0, 0.0}});
+    mgr.addRegion("er0", {Point{.x = 100.0, .y = 200.0}, Point{.x = 0.0, .y = 0.0}});
 
     const Region *r = mgr.getRegion(0);
     BOOST_REQUIRE(r != nullptr);
@@ -78,7 +78,8 @@ BOOST_AUTO_TEST_CASE(an_odd_trailing_corner_is_dropped_not_misread) {
     // A dangling corner cannot form a rectangle. Reading it as a rectangle with
     // a missing half would invent geometry, so the pair is simply not made.
     constraintMgr mgr;
-    mgr.addRegion("er0", {Point{0.0, 0.0}, Point{10.0, 10.0}, Point{20.0, 20.0}});
+    mgr.addRegion("er0", {Point{.x = 0.0, .y = 0.0}, Point{.x = 10.0, .y = 10.0},
+                          Point{.x = 20.0, .y = 20.0}});
 
     const Region *r = mgr.getRegion(0);
     BOOST_REQUIRE(r != nullptr);
@@ -123,7 +124,8 @@ BOOST_AUTO_TEST_CASE(a_region_is_the_union_of_its_rectangles_not_an_outline) {
     // polygon would call the gap legal; the ISPD fences are genuinely
     // disconnected, so the gap has to be outside.
     constraintMgr mgr;
-    mgr.addRegion("er0", {Point{0.0, 0.0}, Point{10.0, 10.0}, Point{20.0, 0.0}, Point{30.0, 10.0}});
+    mgr.addRegion("er0", {Point{.x = 0.0, .y = 0.0}, Point{.x = 10.0, .y = 10.0},
+                          Point{.x = 20.0, .y = 0.0}, Point{.x = 30.0, .y = 10.0}});
 
     BOOST_TEST(mgr.contains(0, 5.0, 5.0));
     BOOST_TEST(mgr.contains(0, 25.0, 5.0));
@@ -167,8 +169,8 @@ BOOST_AUTO_TEST_CASE(clamping_pulls_a_position_inside) {
 BOOST_AUTO_TEST_CASE(clamping_chooses_the_nearest_rectangle_of_a_split_region) {
     // The nearest rectangle is the one on the same side, not simply the first.
     constraintMgr mgr;
-    mgr.addRegion("er0",
-                  {Point{0.0, 0.0}, Point{10.0, 10.0}, Point{100.0, 0.0}, Point{110.0, 10.0}});
+    mgr.addRegion("er0", {Point{.x = 0.0, .y = 0.0}, Point{.x = 10.0, .y = 10.0},
+                          Point{.x = 100.0, .y = 0.0}, Point{.x = 110.0, .y = 10.0}});
 
     double x = 99.0;
     double y = 5.0;
@@ -194,7 +196,8 @@ BOOST_AUTO_TEST_CASE(push_out_escapes_a_fence_and_reports_the_move) {
     const constraintMgr mgr = getSingleFence();
     double x = 50.0;
     double y = 50.0;
-    const bool moved = mgr.pushOutOfRegions(x, y, BBox{{0.0, 0.0}, {100.0, 100.0}});
+    const bool moved = mgr.pushOutOfRegions(
+        x, y, BBox{.lowerLeft = {.x = 0.0, .y = 0.0}, .upperRight = {.x = 100.0, .y = 100.0}});
     BOOST_TEST(moved);
     BOOST_TEST(!mgr.contains(0, x, y));
 }
@@ -219,7 +222,8 @@ BOOST_AUTO_TEST_CASE(push_out_escapes_abutting_fences_without_ping_ponging) {
 
     double x = 5.0;
     double y = 5.0;
-    const bool moved = mgr.pushOutOfRegions(x, y, BBox{{0.0, 0.0}, {100.0, 100.0}});
+    const bool moved = mgr.pushOutOfRegions(
+        x, y, BBox{.lowerLeft = {.x = 0.0, .y = 0.0}, .upperRight = {.x = 100.0, .y = 100.0}});
     BOOST_TEST(moved);
     // The contract is only that the point ends up outside *every* fence, which
     // is the property that keeps the escape from oscillating. Which side it
@@ -241,7 +245,8 @@ BOOST_AUTO_TEST_CASE(push_out_prefers_an_escape_that_stays_on_the_die) {
 
     double x = 10.0;
     double y = 50.0;
-    mgr.pushOutOfRegions(x, y, BBox{{0.0, 0.0}, {100.0, 100.0}});
+    mgr.pushOutOfRegions(
+        x, y, BBox{.lowerLeft = {.x = 0.0, .y = 0.0}, .upperRight = {.x = 100.0, .y = 100.0}});
     BOOST_TEST(x > 20.0);
     BOOST_TEST(x <= 100.0);
     BOOST_TEST(y == 50.0);
@@ -347,8 +352,9 @@ BOOST_AUTO_TEST_CASE(a_missing_region_id_list_truncates_the_count) {
 
 BOOST_AUTO_TEST_CASE(a_region_with_many_rectangles_reports_its_full_area) {
     constraintMgr mgr;
-    mgr.addRegion("er0", {Point{0.0, 0.0}, Point{10.0, 10.0}, Point{0.0, 20.0}, Point{10.0, 30.0},
-                          Point{0.0, 40.0}, Point{10.0, 50.0}});
+    mgr.addRegion("er0", {Point{.x = 0.0, .y = 0.0}, Point{.x = 10.0, .y = 10.0},
+                          Point{.x = 0.0, .y = 20.0}, Point{.x = 10.0, .y = 30.0},
+                          Point{.x = 0.0, .y = 40.0}, Point{.x = 10.0, .y = 50.0}});
     const Region *r = mgr.getRegion(0);
     BOOST_REQUIRE(r != nullptr);
     BOOST_TEST(r->rects.size() == 3u);

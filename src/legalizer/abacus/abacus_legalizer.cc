@@ -174,7 +174,7 @@ private:
     std::vector<double> targetY = design.cells.y;
     std::vector<double> liveX, liveY;
     const std::vector<BBox> &fixedBoxes = design.fixedBoxes;
-    BBox dieBox = {{0.0, 0.0}, {0.0, 0.0}};
+    BBox dieBox = {.lowerLeft = {.x = 0.0, .y = 0.0}, .upperRight = {.x = 0.0, .y = 0.0}};
     double minSubrowSites = 1.0;
 };
 
@@ -286,7 +286,7 @@ Trial AbacusLegalizer::Impl::getTrial(const Segment &sr, double grid, std::size_
         return x;
     };
 
-    Span span{1.0, cellW[i], -sortKey[i], sortKey[i] * sortKey[i]};
+    Span span{.n = 1.0, .w = cellW[i], .a = -sortKey[i], .b = sortKey[i] * sortKey[i]};
     std::size_t first = sr.clusters.size();
     double before = 0.0;
     double x = position(span);
@@ -302,7 +302,7 @@ Trial AbacusLegalizer::Impl::getTrial(const Segment &sr, double grid, std::size_
     if (x < sr.xlo - 1e-9 || x + span.w > sr.xhi + 1e-9) {
         return {};
     }
-    return {span.getCostAt(x) - before, first, x, span};
+    return {.delta = span.getCostAt(x) - before, .first = first, .x = x, .span = span};
 }
 
 void AbacusLegalizer::Impl::commit(Segment &sr, std::size_t i, const Trial &t) {

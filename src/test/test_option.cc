@@ -233,7 +233,8 @@ BOOST_AUTO_TEST_CASE(every_flag_is_accepted_in_both_its_short_and_long_form) {
         const char *shortForm;
         const char *longForm;
         const char *value;
-    } forms[] = {{"-w", "--work-dir", work.c_str()}, {"-tcl", "--tcl", "run.tcl"}};
+    } forms[] = {{.shortForm = "-w", .longForm = "--work-dir", .value = work.c_str()},
+                 {.shortForm = "-tcl", .longForm = "--tcl", .value = "run.tcl"}};
 
     for (const auto &f : forms) {
         BOOST_TEST_CONTEXT(f.shortForm) {

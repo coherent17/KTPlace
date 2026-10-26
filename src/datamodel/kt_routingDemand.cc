@@ -127,11 +127,11 @@ std::array<std::uint8_t, 4> getDemandColour(float scaled) {
         float at;
         float r, g, b;
     };
-    constexpr std::array<Stop, 5> stops{{{0.0F, 0x1f, 0x4e, 0xd8},
-                                         {0.35F, 0x1f, 0xb5, 0x8f},
-                                         {0.6F, 0xe6, 0xd2, 0x2e},
-                                         {0.8F, 0xf0, 0x8a, 0x24},
-                                         {1.0F, 0xe5, 0x2b, 0x2b}}};
+    constexpr std::array<Stop, 5> stops{{{.at = 0.0F, .r = 0x1f, .g = 0x4e, .b = 0xd8},
+                                         {.at = 0.35F, .r = 0x1f, .g = 0xb5, .b = 0x8f},
+                                         {.at = 0.6F, .r = 0xe6, .g = 0xd2, .b = 0x2e},
+                                         {.at = 0.8F, .r = 0xf0, .g = 0x8a, .b = 0x24},
+                                         {.at = 1.0F, .r = 0xe5, .g = 0x2b, .b = 0x2b}}};
     std::size_t k = 1;
     while (k + 1 < stops.size() && v > stops[k].at) {
         ++k;

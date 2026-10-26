@@ -591,7 +591,8 @@ bool BookshelfInputAdapter::parseSclRow(const std::vector<std::string> &tokens) 
                 // subrow's first site and anchors the site grid; dropping it
                 // left rows with no origin and no capacity.
                 if (haveOrigin && pendingNumSites > 0.0) {
-                    subrows.push_back(Subrow{pendingOrigin, pendingNumSites});
+                    subrows.push_back(
+                        Subrow{.originX = pendingOrigin, .numSites = pendingNumSites});
                 }
                 pendingOrigin = std::stod(parts[valIdx]);
                 haveOrigin = true;
@@ -616,7 +617,7 @@ bool BookshelfInputAdapter::parseSclRow(const std::vector<std::string> &tokens) 
     }
 
     if (haveOrigin && pendingNumSites > 0.0) {
-        subrows.push_back(Subrow{pendingOrigin, pendingNumSites});
+        subrows.push_back(Subrow{.originX = pendingOrigin, .numSites = pendingNumSites});
     }
     if (subrows.empty()) {
         return true;  // a row with no subrow has no placeable sites

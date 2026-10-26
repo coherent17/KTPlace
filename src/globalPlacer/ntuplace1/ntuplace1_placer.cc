@@ -403,7 +403,7 @@ void RatioPlacer::Impl::writeFrame(std::size_t depth, const char *note) const {
         xs[mov[i]] = static_cast<float>(posX[i] - 0.5 * design.cells.width[i]);
         ys[mov[i]] = static_cast<float>(posY[i] - 0.5 * design.cells.height[i]);
     }
-    design.onFrame(xs, ys, FrameInfo{note, depth, opts.maxLevels});
+    design.onFrame(xs, ys, FrameInfo{.note = note, .step = depth, .numSteps = opts.maxLevels});
 }
 
 int RatioPlacer::Impl::getForcedSide(int region, const RatioRegion &r0,
