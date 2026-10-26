@@ -78,6 +78,12 @@ The trouble: if the bowl is a long narrow valley, the steepest direction points
 mostly across the valley, not along it. Steepest descent then zigzags from wall
 to wall and creeps along the valley floor very slowly.
 
+
+<figure class="kt-figure" markdown="span">
+  [![Steepest descent and CG](images/descent-paths.svg)](images/descent-paths.svg)
+  <figcaption>Real iterations on two 2-unknown bowls. On a round bowl (κ = 1) one steepest-descent step lands on the bottom. On a valley ten times steeper one way (κ = 10) steepest descent zigzags; conjugate gradient needs exactly two steps (§4.4).</figcaption>
+</figure>
+
 ### 4.4 Conjugate gradient (CG)
 
 CG fixes the zigzag. Each new search direction is the downhill direction, corrected

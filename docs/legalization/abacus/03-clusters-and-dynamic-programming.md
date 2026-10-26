@@ -129,10 +129,43 @@ $x' = 0, 1, 2, 5.5, 6$.
 Final positions: $-1.1, 0.9, 2.9, 4.9, 6.9$. Movements: $-1.1, -0.1, +0.9, -0.6, +0.9$.
 They sum to zero: one rigid block of equal weights, centred on its cells' wishes.
 
+
 Notice what cell 5 did: it did not fit next to cell 4, pushed cluster B left into
 cluster A, and in the end shifted all five cells a little. Tetris, on integer sites, never
 moves a placed cell: cells 1 to 5 go to 0, 2, 4, 6, 8, with movements 0, 1, 2, 0.5, 2.
 Total movement: 5.5 for Tetris against 3.6 for Abacus.
+
+The same row, one step at a time (click through the tabs):
+
+=== "Step 1"
+
+    [![PlaceRow step 1](images/placerow-step1.svg){ .kt-step }](images/placerow-step1.svg)
+
+=== "Step 2"
+
+    [![PlaceRow step 2](images/placerow-step2.svg){ .kt-step }](images/placerow-step2.svg)
+
+=== "Step 3"
+
+    [![PlaceRow step 3](images/placerow-step3.svg){ .kt-step }](images/placerow-step3.svg)
+
+=== "Step 4"
+
+    [![PlaceRow step 4](images/placerow-step4.svg){ .kt-step }](images/placerow-step4.svg)
+
+=== "Step 5"
+
+    [![PlaceRow step 5](images/placerow-step5.svg){ .kt-step }](images/placerow-step5.svg)
+
+=== "Step 6"
+
+    [![PlaceRow step 6](images/placerow-step6.svg){ .kt-step }](images/placerow-step6.svg)
+
+### Try it yourself
+
+Drag the pink cells along the top lane: they are the global positions. The middle lane is PlaceRow's result, with its clusters shaded; the bottom lane is Tetris, which never moves a cell it has placed. Pile several cells on top of each other and watch clusters form, merge and push each other.
+
+<div class="kt-widget" data-widget="placerow"></div>
 
 ### 3.6 Why it is optimal
 

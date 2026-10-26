@@ -26,6 +26,12 @@ The bin's density is $A_c / A_a$. Given a **target density** $0 < \gamma \le 1$
 
 ### 2.2 Clusters and their regions (Algorithm 1, lines 1–5)
 
+
+<figure class="kt-figure" markdown="span">
+  [![Over-filled bins](images/density-bins.svg)](images/density-bins.svg)
+  <figcaption>Bins whose density exceeds γ (red) touch each other and form one cluster; the region R around it is grown until it has room for its cells.</figcaption>
+</figure>
+
 1. Over-filled bins that touch each other are grouped into **clusters** with
    **breadth-first search** (BFS: start at one over-filled bin, add its over-filled
    neighbours, then their neighbours, and so on).
@@ -51,6 +57,12 @@ The clump is lopsided: $C_c$ sits where the cells are, $C_B$ where the room is
 cells into half the room on each side, which **equalizes the density of the two
 halves**. The move is done by **nonlinear scaling** (next). Then $B_0$ and $B_1$ go
 back into the queue with `level + 1`, and the next cut runs in the other direction.
+
+
+<figure class="kt-figure" markdown="span">
+  [![Cutlines C_c and C_B](images/cutlines.svg)](images/cutlines.svg)
+  <figcaption>C_c splits the cells into two halves by area, C_B splits the free space; each half of the cells moves into its half of the room.</figcaption>
+</figure>
 
 > [!TIP]
 > The paper's footnote *c* explains why this order-preserving packing is reasonable:
@@ -102,6 +114,12 @@ the room is. Cells that were far from the cut moved far; cells near it moved lit
 Paper Figure 5 shows this on the real benchmark adaptec1: one vertical cut and
 scaling, then each half cut horizontally, and so on; four rounds of scaling spread
 the clump over the region.
+
+
+<figure class="kt-figure" markdown="span">
+  [![Nonlinear scaling](images/nonlinear-scaling.svg)](images/nonlinear-scaling.svg)
+  <figcaption>Exercise 2 below: four cells crowded next to C_B are packed farthest-first into two stripes and spread evenly inside each.</figcaption>
+</figure>
 
 ### 2.5 What comes out
 

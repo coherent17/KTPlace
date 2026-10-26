@@ -27,6 +27,12 @@ below)** as swap partners. It uses the same benefit as Global Swap,
 $b = (W_1 - W_2) - P_1 - P_2$, and swaps with the best candidate if the benefit is
 positive. A cell moves by **one row at a time**.
 
+
+<figure class="kt-figure" markdown="span">
+  [![Vertical Swap](images/vertical-swap.svg)](images/vertical-swap.svg)
+  <figcaption>Cell i's optimal region is two rows up; Vertical Swap only considers a few cells in the next row up.</figcaption>
+</figure>
+
 It differs from Global Swap in three ways:
 
 - **Less greedy.** Global Swap jumps straight into the optimal region; Vertical Swap only
@@ -71,10 +77,15 @@ Local Re-ordering is only there to fix local errors cheaply.
 
 > [!TIP]
 > **Example.** Cells A, B, C sit left to right in a window spanning $[0, 9]$, all width 3.
-> A's nets pull it to the right, C's to the left. The six orders ABC, ACB, BAC, BCA, CAB,
-> CBA each place the cells evenly in $[0, 9]$ (here simply at 0, 3, 6); the wirelength of
-> the nets touching A, B and C is evaluated for each, and an order like CBA wins if it is
-> shorter.
+> Each is on one net to a fixed pin: A's pin is at $x = 9$, B's at 4.5, C's at 0. Every
+> order puts the cells at 0, 3 and 6 (centres 1.5, 4.5, 7.5), and its cost is the sum of
+> the distances from each centre to its pin. The original order ABC costs 15; CBA costs 3
+> and wins.
+<figure class="kt-figure" markdown="span">
+  [![Local Re-ordering](images/reorder.svg)](images/reorder.svg)
+  <figcaption>The six orders of the example and their costs.</figcaption>
+</figure>
+
 
 > [!IMPORTANT]
 > **Key takeaways**

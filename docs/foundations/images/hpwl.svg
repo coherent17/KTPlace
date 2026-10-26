@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 556 376" width="556" height="376" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" role="img" aria-label="Half-perimeter wirelength of a three-pin net">
+<title>Half-perimeter wirelength of a three-pin net</title>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#4f46e5"/></marker><marker id="arrowred" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#dc2626"/></marker></defs>
+<rect x="0.5" y="0.5" width="555" height="375" rx="12" fill="#ffffff" stroke="#c7d2fe"/>
+<text x="20.0" y="26.0" font-size="13" fill="#1e1b4b" text-anchor="start" font-weight="bold">HPWL of one net: half the perimeter of the box around its pins</text>
+<line x1="50.0" y1="40.0" x2="50.0" y2="316.0" stroke="#f1f5f9" stroke-width="1"/>
+<text x="50.0" y="332.0" font-size="10" fill="#64748b" text-anchor="middle" font-weight="normal">0</text>
+<line x1="50.0" y1="316.0" x2="326.0" y2="316.0" stroke="#f1f5f9" stroke-width="1"/>
+<text x="42.0" y="320.0" font-size="10" fill="#64748b" text-anchor="end" font-weight="normal">0</text>
+<line x1="96.0" y1="40.0" x2="96.0" y2="316.0" stroke="#f1f5f9" stroke-width="1"/>
+<text x="96.0" y="332.0" font-size="10" fill="#64748b" text-anchor="middle" font-weight="normal">1</text>
+<line x1="50.0" y1="270.0" x2="326.0" y2="270.0" stroke="#f1f5f9" stroke-width="1"/>
+<text x="42.0" y="274.0" font-size="10" fill="#64748b" text-anchor="end" font-weight="normal">1</text>
+<line x1="142.0" y1="40.0" x2="142.0" y2="316.0" stroke="#f1f5f9" stroke-width="1"/>
+<text x="142.0" y="332.0" font-size="10" fill="#64748b" text-anchor="middle" font-weight="normal">2</text>
+<line x1="50.0" y1="224.0" x2="326.0" y2="224.0" stroke="#f1f5f9" stroke-width="1"/>
+<text x="42.0" y="228.0" font-size="10" fill="#64748b" text-anchor="end" font-weight="normal">2</text>
+<line x1="188.0" y1="40.0" x2="188.0" y2="316.0" stroke="#f1f5f9" stroke-width="1"/>
+<text x="188.0" y="332.0" font-size="10" fill="#64748b" text-anchor="middle" font-weight="normal">3</text>
+<line x1="50.0" y1="178.0" x2="326.0" y2="178.0" stroke="#f1f5f9" stroke-width="1"/>
+<text x="42.0" y="182.0" font-size="10" fill="#64748b" text-anchor="end" font-weight="normal">3</text>
+<line x1="234.0" y1="40.0" x2="234.0" y2="316.0" stroke="#f1f5f9" stroke-width="1"/>
+<text x="234.0" y="332.0" font-size="10" fill="#64748b" text-anchor="middle" font-weight="normal">4</text>
+<line x1="50.0" y1="132.0" x2="326.0" y2="132.0" stroke="#f1f5f9" stroke-width="1"/>
+<text x="42.0" y="136.0" font-size="10" fill="#64748b" text-anchor="end" font-weight="normal">4</text>
+<line x1="280.0" y1="40.0" x2="280.0" y2="316.0" stroke="#f1f5f9" stroke-width="1"/>
+<text x="280.0" y="332.0" font-size="10" fill="#64748b" text-anchor="middle" font-weight="normal">5</text>
+<line x1="50.0" y1="86.0" x2="326.0" y2="86.0" stroke="#f1f5f9" stroke-width="1"/>
+<text x="42.0" y="90.0" font-size="10" fill="#64748b" text-anchor="end" font-weight="normal">5</text>
+<line x1="326.0" y1="40.0" x2="326.0" y2="316.0" stroke="#f1f5f9" stroke-width="1"/>
+<text x="326.0" y="332.0" font-size="10" fill="#64748b" text-anchor="middle" font-weight="normal">6</text>
+<line x1="50.0" y1="40.0" x2="326.0" y2="40.0" stroke="#f1f5f9" stroke-width="1"/>
+<text x="42.0" y="44.0" font-size="10" fill="#64748b" text-anchor="end" font-weight="normal">6</text>
+<rect x="96.0" y="86.0" width="138.0" height="184.0" rx="0" fill="rgba(79,70,229,0.07)" stroke="#4f46e5" stroke-width="2" stroke-dasharray="6 4" opacity="1.0"/>
+<rect x="89.0" y="263.0" width="14.0" height="14.0" rx="2" fill="#dbeafe" stroke="#2563eb" stroke-width="2" opacity="1.0"/>
+<text x="106.0" y="262.0" font-size="11" fill="#2563eb" text-anchor="start" font-weight="normal">(1,1)</text>
+<rect x="227.0" y="217.0" width="14.0" height="14.0" rx="2" fill="#dbeafe" stroke="#2563eb" stroke-width="2" opacity="1.0"/>
+<text x="244.0" y="216.0" font-size="11" fill="#2563eb" text-anchor="start" font-weight="normal">(4,2)</text>
+<rect x="135.0" y="79.0" width="14.0" height="14.0" rx="2" fill="#dbeafe" stroke="#2563eb" stroke-width="2" opacity="1.0"/>
+<text x="152.0" y="78.0" font-size="11" fill="#2563eb" text-anchor="start" font-weight="normal">(2,5)</text>
+<line x1="96.0" y1="288.0" x2="234.0" y2="288.0" stroke="#db2777" stroke-width="2"/>
+<text x="165.0" y="304.0" font-size="12" fill="#db2777" text-anchor="middle" font-weight="bold">width 3</text>
+<line x1="252.0" y1="86.0" x2="252.0" y2="270.0" stroke="#0f766e" stroke-width="2"/>
+<text x="260.0" y="182.0" font-size="12" fill="#0f766e" text-anchor="start" font-weight="bold">height 4</text>
+<text x="356.0" y="120.0" font-size="15" fill="#1e1b4b" text-anchor="start" font-weight="bold">HPWL = 3 + 4 = 7</text>
+<text x="356.0" y="150.0" font-size="12" fill="#64748b" text-anchor="start" font-weight="normal">two pins: the Manhattan</text>
+<text x="356.0" y="166.0" font-size="12" fill="#64748b" text-anchor="start" font-weight="normal">distance |Δx| + |Δy|</text>
+</svg>

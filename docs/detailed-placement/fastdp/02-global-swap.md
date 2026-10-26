@@ -48,9 +48,25 @@ when the two medians are equal.
 > second, so the nets grow by $0.5 + 0 + 0.5 = 1$ in total. At $x = 3$ they grow by
 > $0 + 1 + 3 = 4$.
 
+
+<figure class="kt-figure" markdown="span">
+  [![Wirelength bathtub](images/bathtub.svg)](images/bathtub.svg)
+  <figcaption>The example in x: each net adds a bathtub (dashed); the total (solid) has slopes −3 to +3 and is flat between the medians 5 and 6.</figcaption>
+</figure>
+
 Paper Figure 2 shows the two-dimensional picture: cell 1 is on three nets; the bounding
 boxes of those nets, without cell 1, draw a grid of x- and y-lines, and the optimal region
 is the cell of that grid between the middle lines in both directions.
+
+
+<figure class="kt-figure" markdown="span">
+  [![Optimal region in two dimensions](images/optimal-region.svg)](images/optimal-region.svg)
+  <figcaption>The example extended to y: the nets' boxes (without cell i) draw a grid; the optimal region is [5, 6] × [4, 6], between the medians in both directions.</figcaption>
+</figure>
+
+**Try it yourself.** Drag cell $i$ along x. The red stretches show how much each net grows; the slope is the number of bounds to the left of $i$ minus the number of nets, and it is zero exactly between the medians. "New random nets" makes a new set of boxes, so you can check the median rule on any of them.
+
+<div class="kt-widget" data-widget="optimal-region"></div>
 
 ### 2.2 Why the optimal region alone is not enough
 
@@ -75,6 +91,12 @@ Around $j$:
 - $s_2$ and $s_3$: the free spaces between $j$ and $j_1$, and between $j$ and $j_2$;
 - $s_1$ and $s_4$: the next free spaces further out, beyond $j_1$ and $j_2$;
 - $S_1 = s_1 + s_2 + s_3 + s_4$.
+
+
+<figure class="kt-figure" markdown="span">
+  [![Overlap penalties](images/penalty.svg)](images/penalty.svg)
+  <figcaption>Cell i (width 6) replaces cell j (width 2), with a space of 1 on each side of j and of j1 and j2: the 4 extra units exceed s2 + s3 = 2, so the neighbours shift and P1 applies; the four nearest spaces add up to exactly 4, so P2 does not.</figcaption>
+</figure>
 
 If the two spaces next to $j$ are wide enough ($w_i - w_j \le s_2 + s_3$), the swap creates
 no overlap and costs no penalty. Otherwise the neighbours $j_1$ and $j_2$ have to shift

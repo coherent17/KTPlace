@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 930 330" width="930" height="330" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" role="img" aria-label="Clique, star and Bound2Bound net models on a four-pin net">
+<title>Clique, star and Bound2Bound net models on a four-pin net</title>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#4f46e5"/></marker><marker id="arrowred" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#dc2626"/></marker></defs>
+<rect x="0.5" y="0.5" width="929" height="329" rx="12" fill="#ffffff" stroke="#c7d2fe"/>
+<text x="25.0" y="32.0" font-size="12" fill="#1e1b4b" text-anchor="start" font-weight="bold">Clique: all pairs, 6 edges</text>
+<line x1="35.0" y1="165.0" x2="85.0" y2="93.0" stroke="#4f46e5" stroke-width="1.5"/>
+<line x1="35.0" y1="165.0" x2="160.0" y2="192.0" stroke="#4f46e5" stroke-width="1.5"/>
+<line x1="35.0" y1="165.0" x2="285.0" y2="129.0" stroke="#4f46e5" stroke-width="1.5"/>
+<line x1="85.0" y1="93.0" x2="160.0" y2="192.0" stroke="#4f46e5" stroke-width="1.5"/>
+<line x1="85.0" y1="93.0" x2="285.0" y2="129.0" stroke="#4f46e5" stroke-width="1.5"/>
+<line x1="160.0" y1="192.0" x2="285.0" y2="129.0" stroke="#4f46e5" stroke-width="1.5"/>
+<rect x="28.0" y="158.0" width="14.0" height="14.0" rx="2" fill="#dbeafe" stroke="#2563eb" stroke-width="2" opacity="1.0"/>
+<text x="35.0" y="187.0" font-size="10" fill="#64748b" text-anchor="middle" font-weight="normal">x=0</text>
+<rect x="78.0" y="86.0" width="14.0" height="14.0" rx="2" fill="#dbeafe" stroke="#2563eb" stroke-width="2" opacity="1.0"/>
+<text x="85.0" y="115.0" font-size="10" fill="#64748b" text-anchor="middle" font-weight="normal">x=2</text>
+<rect x="153.0" y="185.0" width="14.0" height="14.0" rx="2" fill="#dbeafe" stroke="#2563eb" stroke-width="2" opacity="1.0"/>
+<text x="160.0" y="214.0" font-size="10" fill="#64748b" text-anchor="middle" font-weight="normal">x=5</text>
+<rect x="278.0" y="122.0" width="14.0" height="14.0" rx="2" fill="#dbeafe" stroke="#2563eb" stroke-width="2" opacity="1.0"/>
+<text x="285.0" y="151.0" font-size="10" fill="#64748b" text-anchor="middle" font-weight="normal">x=10</text>
+<text x="330.0" y="32.0" font-size="12" fill="#1e1b4b" text-anchor="start" font-weight="bold">Star: 1 new node, 4 edges</text>
+<line x1="340.0" y1="165.0" x2="446.2" y2="144.8" stroke="#4f46e5" stroke-width="1.5"/>
+<line x1="390.0" y1="93.0" x2="446.2" y2="144.8" stroke="#4f46e5" stroke-width="1.5"/>
+<line x1="465.0" y1="192.0" x2="446.2" y2="144.8" stroke="#4f46e5" stroke-width="1.5"/>
+<line x1="590.0" y1="129.0" x2="446.2" y2="144.8" stroke="#4f46e5" stroke-width="1.5"/>
+<circle cx="446.2" cy="144.8" r="7" fill="#fce7f3" stroke="#db2777" stroke-width="2"/>
+<text x="456.2" y="134.8" font-size="10" fill="#db2777" text-anchor="start" font-weight="normal">star node</text>
+<rect x="333.0" y="158.0" width="14.0" height="14.0" rx="2" fill="#dbeafe" stroke="#2563eb" stroke-width="2" opacity="1.0"/>
+<text x="340.0" y="187.0" font-size="10" fill="#64748b" text-anchor="middle" font-weight="normal">x=0</text>
+<rect x="383.0" y="86.0" width="14.0" height="14.0" rx="2" fill="#dbeafe" stroke="#2563eb" stroke-width="2" opacity="1.0"/>
+<text x="390.0" y="115.0" font-size="10" fill="#64748b" text-anchor="middle" font-weight="normal">x=2</text>
+<rect x="458.0" y="185.0" width="14.0" height="14.0" rx="2" fill="#dbeafe" stroke="#2563eb" stroke-width="2" opacity="1.0"/>
+<text x="465.0" y="214.0" font-size="10" fill="#64748b" text-anchor="middle" font-weight="normal">x=5</text>
+<rect x="583.0" y="122.0" width="14.0" height="14.0" rx="2" fill="#dbeafe" stroke="#2563eb" stroke-width="2" opacity="1.0"/>
+<text x="590.0" y="151.0" font-size="10" fill="#64748b" text-anchor="middle" font-weight="normal">x=10</text>
+<text x="635.0" y="32.0" font-size="12" fill="#1e1b4b" text-anchor="start" font-weight="bold">Bound2Bound: 5 edges</text>
+<line x1="645.0" y1="165.0" x2="895.0" y2="129.0" stroke="#4f46e5" stroke-width="2.5"/>
+<line x1="695.0" y1="93.0" x2="645.0" y2="165.0" stroke="#0f766e" stroke-width="1.8"/>
+<line x1="695.0" y1="93.0" x2="895.0" y2="129.0" stroke="#d97706" stroke-width="1.8"/>
+<line x1="770.0" y1="192.0" x2="645.0" y2="165.0" stroke="#0f766e" stroke-width="1.8"/>
+<line x1="770.0" y1="192.0" x2="895.0" y2="129.0" stroke="#d97706" stroke-width="1.8"/>
+<text x="645.0" y="260.0" font-size="11" fill="#64748b" text-anchor="start" font-weight="normal">indigo L–R, teal to L, amber to R</text>
+<text x="645.0" y="280.0" font-size="11" fill="#1e1b4b" text-anchor="start" font-weight="normal">lengths 10 + (2 + 8) + (5 + 5) = 30 = 3 · 10</text>
+<text x="645.0" y="300.0" font-size="11" fill="#0f766e" text-anchor="start" font-weight="bold">weight 1/(3ℓ) each: cost 10 = HPWL in x</text>
+<rect x="638.0" y="158.0" width="14.0" height="14.0" rx="2" fill="#dbeafe" stroke="#2563eb" stroke-width="2" opacity="1.0"/>
+<text x="645.0" y="187.0" font-size="10" fill="#64748b" text-anchor="middle" font-weight="normal">x=0</text>
+<rect x="688.0" y="86.0" width="14.0" height="14.0" rx="2" fill="#dbeafe" stroke="#2563eb" stroke-width="2" opacity="1.0"/>
+<text x="695.0" y="115.0" font-size="10" fill="#64748b" text-anchor="middle" font-weight="normal">x=2</text>
+<rect x="763.0" y="185.0" width="14.0" height="14.0" rx="2" fill="#dbeafe" stroke="#2563eb" stroke-width="2" opacity="1.0"/>
+<text x="770.0" y="214.0" font-size="10" fill="#64748b" text-anchor="middle" font-weight="normal">x=5</text>
+<rect x="888.0" y="122.0" width="14.0" height="14.0" rx="2" fill="#dbeafe" stroke="#2563eb" stroke-width="2" opacity="1.0"/>
+<text x="895.0" y="151.0" font-size="10" fill="#64748b" text-anchor="middle" font-weight="normal">x=10</text>
+</svg>

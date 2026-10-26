@@ -100,6 +100,21 @@ against that end instead, so no cell leaves the segment.
 >   long, total 1. At cluster position 8 the total is also 1 (A on target, B 1 too far): the
 >   whole region $[7, 8]$ is optimal, and the center is one point of it.
 
+
+The example as pictures:
+
+=== "1 · overlap"
+
+    [![Clustering step 1](images/clustering-step1.svg){ .kt-step }](images/clustering-step1.svg)
+
+=== "2 · merged"
+
+    [![Clustering step 2](images/clustering-step2.svg){ .kt-step }](images/clustering-step2.svg)
+
+=== "The merged cluster's wirelength"
+
+    [![Merged cluster wirelength](images/cluster-wirelength.svg){ .kt-step }](images/cluster-wirelength.svg)
+
 ### 4.5 Why it is optimal (Theorem 1, Figure 5)
 
 **Theorem.** The algorithm finds an optimal solution of the fixed-order single segment

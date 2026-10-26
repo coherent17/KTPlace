@@ -38,6 +38,11 @@ the gap is small, the upper bound is the answer. The name **look-ahead** comes f
 step 1: each upper bound is a "preview" of a legal placement that is used once as a
 target and then thrown away, never refined directly.
 
+<figure class="kt-figure" markdown="span">
+  [![Lower and upper bound placements](images/squeeze.svg)](images/squeeze.svg)
+  <figcaption>Schematic: early on the lower bound (dots) is a clump and the anchors (squares) are spread out; the anchor springs pull the two together until they agree.</figcaption>
+</figure>
+
 The flow (paper Figure 2):
 
 ```mermaid
