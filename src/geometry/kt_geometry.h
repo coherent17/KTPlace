@@ -1,12 +1,26 @@
 #pragma once
 
-#include "geometry/kt_interval.h"
-#include "geometry/kt_point.h"
-
 #include <algorithm>
 #include <limits>
 
 namespace ktplace {
+
+struct Point {
+    double x = 0.0;
+    double y = 0.0;
+};
+
+struct Interval {
+    double lo = 0.0;
+    double hi = 0.0;
+
+    [[nodiscard]] double getCenter() const noexcept {
+        return 0.5 * (lo + hi);
+    }
+    [[nodiscard]] bool contains(double v, double tolerance = 0.0) const noexcept {
+        return v >= lo - tolerance && v <= hi + tolerance;
+    }
+};
 
 struct BBox {
     double xlo = 0.0;
@@ -16,11 +30,11 @@ struct BBox {
 
     [[nodiscard]] static constexpr BBox getEmpty() noexcept {
         constexpr double inf = std::numeric_limits<double>::infinity();
-        return {inf, inf, -inf, -inf};
+        return {.xlo = inf, .ylo = inf, .xhi = -inf, .yhi = -inf};
     }
     [[nodiscard]] static constexpr BBox of(double x, double y, double width,
                                            double height) noexcept {
-        return {x, y, x + width, y + height};
+        return {.xlo = x, .ylo = y, .xhi = x + width, .yhi = y + height};
     }
 
     [[nodiscard]] double getWidth() const noexcept {
@@ -36,13 +50,13 @@ struct BBox {
         return isEmpty() ? 0.0 : getWidth() + getHeight();
     }
     [[nodiscard]] Point getCenter() const noexcept {
-        return {0.5 * (xlo + xhi), 0.5 * (ylo + yhi)};
+        return {.x = 0.5 * (xlo + xhi), .y = 0.5 * (ylo + yhi)};
     }
     [[nodiscard]] Interval getX() const noexcept {
-        return {xlo, xhi};
+        return {.lo = xlo, .hi = xhi};
     }
     [[nodiscard]] Interval getY() const noexcept {
-        return {ylo, yhi};
+        return {.lo = ylo, .hi = yhi};
     }
     [[nodiscard]] bool isEmpty() const noexcept {
         return xlo > xhi || ylo > yhi;
@@ -55,8 +69,10 @@ struct BBox {
         return xlo < o.xhi && o.xlo < xhi && ylo < o.yhi && o.ylo < yhi;
     }
     [[nodiscard]] BBox getIntersection(const BBox &o) const noexcept {
-        return {std::max(xlo, o.xlo), std::max(ylo, o.ylo), std::min(xhi, o.xhi),
-                std::min(yhi, o.yhi)};
+        return {.xlo = std::max(xlo, o.xlo),
+                .ylo = std::max(ylo, o.ylo),
+                .xhi = std::min(xhi, o.xhi),
+                .yhi = std::min(yhi, o.yhi)};
     }
 
     void extend(double x, double y) noexcept {

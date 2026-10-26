@@ -2,8 +2,7 @@
 
 #include "datamodel/kt_hpwl.h"
 #include "detailPlacer/fastdp/fastdp_options.h"
-#include "geometry/kt_bbox.h"
-#include "geometry/kt_interval.h"
+#include "geometry/kt_geometry.h"
 #include "util/kt_log.h"
 #include "util/kt_reportTable.h"
 #include "util/kt_scopedTimer.h"

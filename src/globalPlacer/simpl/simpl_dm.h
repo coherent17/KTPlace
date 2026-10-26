@@ -1,7 +1,7 @@
 #pragma once
 
 #include "datamodel/kt_solutionMgr.h"
-#include "geometry/kt_bbox.h"
+#include "geometry/kt_geometry.h"
 #include "globalPlacer/simpl/simpl_grid.h"
 #include "globalPlacer/simpl/simpl_lss.h"
 #include "globalPlacer/simpl/simpl_options.h"

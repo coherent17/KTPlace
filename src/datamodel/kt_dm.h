@@ -8,7 +8,7 @@
 #include "datamodel/kt_graph.h"
 #include "datamodel/kt_rowFence.h"
 #include "datamodel/kt_solutionMgr.h"
-#include "geometry/kt_bbox.h"
+#include "geometry/kt_geometry.h"
 
 #include <cstddef>
 #include <cstdint>

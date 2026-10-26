@@ -12,7 +12,7 @@
 
 #pragma once
 
-#include "geometry/kt_bbox.h"
+#include "geometry/kt_geometry.h"
 
 #include <algorithm>
 #include <cmath>

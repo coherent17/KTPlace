@@ -2,7 +2,7 @@
 
 #include "datamodel/kt_constraintMgr.h"
 #include "datamodel/kt_solutionMgr.h"
-#include "geometry/kt_bbox.h"
+#include "geometry/kt_geometry.h"
 #include "globalPlacer/ntuplace1/ntuplace1_options.h"
 
 #include <cstddef>

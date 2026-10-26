@@ -4,7 +4,7 @@
 #pragma once
 
 #include "datamodel/kt_graph.h"
-#include "geometry/kt_bbox.h"
+#include "geometry/kt_geometry.h"
 
 #include <algorithm>
 #include <cstddef>

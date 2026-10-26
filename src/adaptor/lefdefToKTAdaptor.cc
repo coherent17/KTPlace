@@ -3,7 +3,7 @@
 
 #include "adaptor/lefdefToKTAdaptor.h"
 
-#include "geometry/kt_bbox.h"
+#include "geometry/kt_geometry.h"
 #include "util/kt_gzipFile.h"
 #include "util/kt_log.h"
 #include "util/kt_scopedTimer.h"

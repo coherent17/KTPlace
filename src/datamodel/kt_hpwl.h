@@ -1,6 +1,6 @@
 #pragma once
 
-#include "geometry/kt_bbox.h"
+#include "geometry/kt_geometry.h"
 #include "util/kt_parallel.h"
 
 #include <cstddef>

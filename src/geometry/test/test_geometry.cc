@@ -1,7 +1,6 @@
 #define BOOST_TEST_MODULE ktplace_geometry
 #define BOOST_TEST_DYN_LINK
-#include "geometry/kt_bbox.h"
-#include "geometry/kt_interval.h"
+#include "geometry/kt_geometry.h"
 
 #include <boost/test/unit_test.hpp>
 

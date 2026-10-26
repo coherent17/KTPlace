@@ -18,7 +18,7 @@
 
 #include "datamodel/kt_constraintMgr.h"
 #include "datamodel/kt_graph.h"
-#include "geometry/kt_bbox.h"
+#include "geometry/kt_geometry.h"
 #include "visualization/kt_plotOptions.h"
 
 #include <array>

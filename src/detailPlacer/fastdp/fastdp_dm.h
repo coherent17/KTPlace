@@ -2,7 +2,7 @@
 
 #include "datamodel/kt_solutionMgr.h"
 #include "detailPlacer/fastdp/fastdp_options.h"
-#include "geometry/kt_bbox.h"
+#include "geometry/kt_geometry.h"
 #include "util/kt_packedLists.h"
 
 #include <cstddef>

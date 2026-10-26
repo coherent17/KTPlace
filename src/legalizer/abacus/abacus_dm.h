@@ -1,7 +1,7 @@
 #pragma once
 
 #include "datamodel/kt_solutionMgr.h"
-#include "geometry/kt_bbox.h"
+#include "geometry/kt_geometry.h"
 #include "legalizer/abacus/abacus_options.h"
 #include "util/kt_packedLists.h"
 
