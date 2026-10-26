@@ -53,27 +53,27 @@ bool tryDouble(const std::string &s, double &out) {
 Point getOriented(const Point &p, const std::string &orient) {
     const auto [x, y] = p;
     if (orient == "S") {
-        return {.x = -x, .y = -y};
+        return Point(-x, -y);
     }
     if (orient == "W") {
-        return {.x = -y, .y = x};
+        return Point(-y, x);
     }
     if (orient == "E") {
-        return {.x = y, .y = -x};
+        return Point(y, -x);
     }
     if (orient == "FN") {
-        return {.x = -x, .y = y};
+        return Point(-x, y);
     }
     if (orient == "FS") {
-        return {.x = x, .y = -y};
+        return Point(x, -y);
     }
     if (orient == "FW") {
-        return {.x = -y, .y = -x};
+        return Point(-y, -x);
     }
     if (orient == "FE") {
-        return {.x = y, .y = x};
+        return Point(y, x);
     }
-    return {.x = x, .y = y};
+    return Point(x, y);
 }
 
 BBox getOrientedBox(const BBox &shape, const std::string &orient) {
@@ -371,7 +371,7 @@ bool LefDefInputAdapter::parseLefFile(const std::string &filePath) {
             double x1 = 0.0, y1 = 0.0;
             tryDouble(tokens[1], x1);
             tryDouble(tokens[2], y1);
-            rec.pinOffset[pin] = {.x = x1, .y = y1};
+            rec.pinOffset[pin] = Point(x1, y1);
         } else if (tokens[0] == "END") {
             if (tokens.size() >= 2) {
                 if (inPin && sanitizeName(tokens[1]) == pin) {
@@ -443,7 +443,7 @@ bool LefDefInputAdapter::parseDefFile(const std::string &filePath) {
         }
         (void)db->addCell(cname, w, h, false);
         if (compPlaced) {
-            db->setCellPosition(cname, {.x = compX, .y = compY});
+            db->setCellPosition(cname, Point(compX, compY));
         }
         if (compFixed) {
             db->setCellFixed(cname, true);
@@ -474,9 +474,9 @@ bool LefDefInputAdapter::parseDefFile(const std::string &filePath) {
         (void)db->addCell(pname, w, h, true);
         db->markIoPin(pname);
         if (pinPlaced) {
-            db->setCellPosition(pname, {.x = pinPosition.x + lowX, .y = pinPosition.y + lowY});
+            db->setCellPosition(pname, Point(pinPosition.x + lowX, pinPosition.y + lowY));
         }
-        ioPinOffset[pname] = {.x = -lowX, .y = -lowY};
+        ioPinOffset[pname] = Point(-lowX, -lowY);
     };
 
     while (std::getline(file.getStream(), line)) {
@@ -574,7 +574,7 @@ bool LefDefInputAdapter::parseDefFile(const std::string &filePath) {
                 x1 = std::max(x1, x0 + 1.0);
                 y1 = std::max(y1, y0 + 1.0);
             }
-            db->setDieArea({.lowerLeft = {.x = x0, .y = y0}, .upperRight = {.x = x1, .y = y1}});
+            db->setDieArea(BBox(Point(x0, y0), Point(x1, y1)));
             continue;
         }
 
@@ -601,7 +601,7 @@ bool LefDefInputAdapter::parseDefFile(const std::string &filePath) {
                     std::vector<Point> polygon;
                     polygon.reserve(coords.size() / 2);
                     for (std::size_t i = 0; i + 1 < coords.size(); i += 2) {
-                        polygon.push_back(Point{.x = coords[i], .y = coords[i + 1]});
+                        polygon.push_back(Point(coords[i], coords[i + 1]));
                     }
                     if (fences.addRegion(name, std::move(polygon)) != constraintMgr::noRegion) {
                         ++numRegions;
@@ -749,7 +749,7 @@ bool LefDefInputAdapter::parseDefFile(const std::string &filePath) {
                 pinName = tokens[1];
                 pinSeen = true;
                 pinPlaced = false;
-                pinPosition = {};
+                pinPosition = Point();
                 pinOrient = "N";
                 pinShaped = false;
             }
@@ -825,8 +825,8 @@ bool LefDefInputAdapter::parseDefFile(const std::string &filePath) {
                         const MacroRec &mr = mIt->second;
                         auto pOff = mr.pinOffset.find(ref.pin);
                         if (pOff != mr.pinOffset.end()) {
-                            offset = {.x = pOff->second.x * unitsPerMicron,
-                                      .y = pOff->second.y * unitsPerMicron};
+                            offset = Point(pOff->second.x * unitsPerMicron,
+                                           pOff->second.y * unitsPerMicron);
                         }
                         auto pIn = mr.pinIsInput.find(ref.pin);
                         if (pIn != mr.pinIsInput.end()) {

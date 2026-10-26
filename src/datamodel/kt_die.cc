@@ -45,7 +45,7 @@ void DieInfo::clear() {
 BBox getPlacementDieBox(const DieInfo &die, const Graph &graph) {
     const double inf = std::numeric_limits<double>::max();
     // The fixed cells: the I/O pad ring bounds the die in a Bookshelf design.
-    BBox box{.lowerLeft = {.x = inf, .y = inf}, .upperRight = {.x = -inf, .y = -inf}};
+    BBox box(Point(inf, inf), Point(-inf, -inf));
     const std::size_t nv = graph.getNumCells();
     for (std::size_t v = 0; v < nv; ++v) {
         const Vertex &vert = graph.getCell(v);
@@ -82,14 +82,14 @@ BBox getPlacementDieBox(const DieInfo &die, const Graph &graph) {
     }
 
     // The rows, unioned in. A cell in a row is legal by definition of a row.
-    BBox rowBox{.lowerLeft = {.x = inf, .y = inf}, .upperRight = {.x = -inf, .y = -inf}};
+    BBox rowBox(Point(inf, inf), Point(-inf, -inf));
     bool anyRow = false;
     for (const RowInfo &ri : die.getRows()) {
         if (!(ri.getPitch() > 0.0)) {
             continue;
         }
-        rowBox.extend(BBox{.lowerLeft = {.x = ri.getXlo(), .y = ri.coordinate},
-                           .upperRight = {.x = ri.getXhi(), .y = ri.coordinate + ri.height}});
+        rowBox.extend(
+            BBox(Point(ri.getXlo(), ri.coordinate), Point(ri.getXhi(), ri.coordinate + ri.height)));
         anyRow = true;
     }
     if (anyRow && (rowBox.upperRight.x > rowBox.lowerLeft.x) &&

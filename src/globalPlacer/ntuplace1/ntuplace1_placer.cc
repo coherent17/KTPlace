@@ -188,8 +188,8 @@ std::size_t RatioPlacer::Impl::getBipartition(const std::vector<std::uint32_t> &
             }
             if (net.fixedPins > 0) {
                 const Interval span = vertical ? net.fixedPinBox.getX() : net.fixedPinBox.getY();
-                const double lo = span.lo;
-                const double hi = span.hi;
+                const double lo = span.start;
+                const double hi = span.end;
                 mask |= (hi < cut) ? 1 : (lo > cut) ? 2 : 3;
             }
             anchor[e] = mask;
@@ -435,7 +435,7 @@ std::size_t RatioPlacer::Impl::applyFences() {
     }
     std::size_t outside = 0;
     for (std::size_t i = 0; i < mov.size(); ++i) {
-        Point p{.x = design.cells.x[i], .y = design.cells.y[i]};
+        Point p(design.cells.x[i], design.cells.y[i]);
         if (cellRegion[i] != constraintMgr::noRegion) {
             fences->clampToRegion(cellRegion[i], p);
             outside += fences->contains(cellRegion[i], p) ? 0u : 1u;

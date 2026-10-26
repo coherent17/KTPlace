@@ -427,7 +427,7 @@ bool BookshelfInputAdapter::parseNetsFile(const std::string &filePath) {
                 const Vertex &cell = db->getGraph().getCell(db->getCellId(pin.cellName));
                 (void)db->addPin(
                     pin.cellName, netName,
-                    {.x = pin.offset.x + 0.5 * cell.width, .y = pin.offset.y + 0.5 * cell.height},
+                    Point(pin.offset.x + 0.5 * cell.width, pin.offset.y + 0.5 * cell.height),
                     pin.isInput);
             } catch (const std::exception &e) {
                 ktlog.warning("cannot add pin: {}", e.what());
@@ -486,7 +486,7 @@ bool BookshelfInputAdapter::parsePlacementLine(const std::string &line) {
     }
 
     try {
-        db->setCellPosition(cellName, {.x = x, .y = y});
+        db->setCellPosition(cellName, Point(x, y));
         if (fixed) {
             db->setCellFixed(cellName, true);
         }

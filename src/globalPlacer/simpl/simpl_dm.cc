@@ -141,7 +141,7 @@ bool Fences::clampToRegion(int id, Point &p) const {
     if (best == nullptr) {
         return false;
     }
-    p = {.x = best->getX().getClamped(p.x), .y = best->getY().getClamped(p.y)};
+    p = Point(best->getX().getClamped(p.x), best->getY().getClamped(p.y));
     return true;
 }
 
@@ -195,10 +195,9 @@ bool Fences::pushOutOfRegions(Point &p, const BBox &die) const {
         // that caught the point: a per-rectangle epsilon can fall below the
         // output resolution, and the cell then lands back on the boundary.
         const double eps = getEscapeEpsilon(regions);
-        const Point exits[4] = {{.x = host->lowerLeft.x - eps, .y = p.y},
-                                {.x = host->upperRight.x + eps, .y = p.y},
-                                {.x = p.x, .y = host->lowerLeft.y - eps},
-                                {.x = p.x, .y = host->upperRight.y + eps}};
+        const Point exits[4] = {
+            Point(host->lowerLeft.x - eps, p.y), Point(host->upperRight.x + eps, p.y),
+            Point(p.x, host->lowerLeft.y - eps), Point(p.x, host->upperRight.y + eps)};
         const double dists[4] = {p.x - host->lowerLeft.x, host->upperRight.x - p.x,
                                  p.y - host->lowerLeft.y, host->upperRight.y - p.y};
 
@@ -252,10 +251,10 @@ simplSolution simplDM::getSolution() const {
     simplSolution out;
     out.positions.reserve(d.netlist.fixedX.size());
     for (std::size_t v = 0; v < d.netlist.fixedX.size(); ++v) {
-        out.positions.push_back({.x = d.netlist.fixedX[v], .y = d.netlist.fixedY[v]});
+        out.positions.push_back(Point(d.netlist.fixedX[v], d.netlist.fixedY[v]));
     }
     for (std::size_t i = 0; i < d.netlist.numMovable; ++i) {
-        out.positions[d.netlist.movVertex[i]] = {.x = d.x[i], .y = d.y[i]};
+        out.positions[d.netlist.movVertex[i]] = Point(d.x[i], d.y[i]);
     }
     return out;
 }

@@ -1623,8 +1623,7 @@ BBox getFixedCellBBox(const Graph &g) {
         // that know the row structure pass a real core box anyway; this only has
         // to be good enough to frame the drawing.
         if (all.isEmpty()) {
-            return {.lowerLeft = {.x = 0.0, .y = 0.0},
-                    .upperRight = {.x = 1.0, .y = 1.0}};  // genuinely empty graph
+            return BBox(Point(0.0, 0.0), Point(1.0, 1.0));  // genuinely empty graph
         }
         return all;
     }

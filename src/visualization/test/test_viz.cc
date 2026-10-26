@@ -490,7 +490,7 @@ BOOST_AUTO_TEST_CASE(an_svg_with_no_fences_and_one_with_fences_both_draw) {
     const ScratchDir dir("svgfence");
     const Graph g = getSampleGraph();
     constraintMgr cstr;
-    cstr.addRegion("er0", {Point{.x = 20.0, .y = 20.0}, Point{.x = 50.0, .y = 50.0}});
+    cstr.addRegion("er0", {Point(20.0, 20.0), Point(50.0, 50.0)});
 
     const std::string plain = (dir.getFile("plain.svg")).string();
     writeFrameSvg(plain, g, getSampleX(g), getSampleY(g), getFixedCellBBox(g), 1, 2, 1.0, 1.0, 0.0,
@@ -545,7 +545,7 @@ BOOST_AUTO_TEST_CASE(movable_cells_are_written_once_each_in_vertex_order) {
         x[first + i] = static_cast<float>(i);
         y[first + i] = 50.0F;
     }
-    const BBox die{.lowerLeft = {.x = 0.0, .y = 0.0}, .upperRight = {.x = 20000.0, .y = 100.0}};
+    const BBox die(Point(0.0, 0.0), Point(20000.0, 100.0));
     const std::string path = dir.getFile("o.svg").string();
     writeFrameSvg(path, g, x, y, die, 0, 1, 0.0, 0.0, 0.0, "", nullptr, true, /*worldUnits=*/true);
 

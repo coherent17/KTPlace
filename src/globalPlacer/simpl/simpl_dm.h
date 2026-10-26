@@ -106,7 +106,7 @@ struct Design {
     std::vector<double> x;
     std::vector<double> y;
     std::vector<RowInfo> rows;
-    BBox die{};
+    BBox die;
     Fences fences;
     FrameHook onFrame;
     BoundsHook onBounds;

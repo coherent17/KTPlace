@@ -42,7 +42,7 @@ void addRows(ktDM &db) {
 /// exactly the case the placer once ignored, so these are terminals too.
 std::size_t addFixed(ktDM &db, const std::string &name, double x, double y, double w, double h) {
     const std::size_t id = db.addCell(name, w, h, /*isTerminal=*/true);
-    db.setCellPosition(id, {.x = x, .y = y});
+    db.setCellPosition(id, Point(x, y));
     db.setCellFixed(id, true);
     return id;
 }
@@ -58,7 +58,7 @@ std::vector<std::size_t> addCells(ktDM &db, const std::string &prefix, int n) {
 void addNet(ktDM &db, const std::string &net, const std::vector<std::string> &cells) {
     (void)db.addNet(net);
     for (const std::string &c : cells) {
-        (void)db.addPin(c, net, {.x = 0.0, .y = 0.0}, true);
+        (void)db.addPin(c, net, Point(0.0, 0.0), true);
     }
 }
 
@@ -225,7 +225,7 @@ BOOST_AUTO_TEST_CASE(fenced_cells_are_placed_in_their_region_and_others_kept_out
     }
     {
         constraintMgr mgr;
-        const int id = mgr.addRegion("f0", {Point{.x = fx0, .y = fy0}, Point{.x = fx1, .y = fy1}});
+        const int id = mgr.addRegion("f0", {Point(fx0, fy0), Point(fx1, fy1)});
         (void)mgr.assignByPrefix(id, "m", db.getGraph());
         db.setConstraints(std::move(mgr));
     }

@@ -44,7 +44,7 @@ struct LayoutGeometry {
     std::vector<float> pinDx;
     std::vector<float> pinDy;
     std::vector<Row> rows;
-    BBox die{};
+    BBox die;
     float typicalWidth = 1.0F;
 
     [[nodiscard]] static std::shared_ptr<const LayoutGeometry> of(const ktDM &db);

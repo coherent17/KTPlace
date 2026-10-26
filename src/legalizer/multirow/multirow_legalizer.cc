@@ -367,8 +367,7 @@ void MultiRowLegalizer::Impl::legalizeMacros(const std::vector<std::uint32_t> &m
                 const double cost = (x - cell.position.x) * (x - cell.position.x) + dy * dy;
                 if (cost < bestCost) {
                     bestCost = cost;
-                    best = {.lowerLeft = {.x = x, .y = y0},
-                            .upperRight = {.x = x + cell.width, .y = y1}};
+                    best = BBox(Point(x, y0), Point(x + cell.width, y1));
                 }
             }
         }
@@ -891,7 +890,7 @@ double MultiRowLegalizer::Impl::getHpwlOf(const std::vector<double> &px,
             return design.nets[n];
         },
         [&](const NetPin &pin) {
-            return Point{.x = px[pin.cellId] + pin.offset.x, .y = py[pin.cellId] + pin.offset.y};
+            return Point(px[pin.cellId] + pin.offset.x, py[pin.cellId] + pin.offset.y);
         });
 }
 

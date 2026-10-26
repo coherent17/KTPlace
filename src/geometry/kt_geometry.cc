@@ -5,15 +5,15 @@
 namespace ktplace {
 
 double Interval::getCenter() const noexcept {
-    return 0.5 * (lo + hi);
+    return 0.5 * (start + end);
 }
 
 bool Interval::contains(double v, double tolerance) const noexcept {
-    return v >= lo - tolerance && v <= hi + tolerance;
+    return v >= start - tolerance && v <= end + tolerance;
 }
 
 double Interval::getClamped(double v) const noexcept {
-    return std::clamp(v, lo, hi);
+    return std::clamp(v, start, end);
 }
 
 double BBox::getWidth() const noexcept {
@@ -33,15 +33,15 @@ double BBox::getHalfPerimeter() const noexcept {
 }
 
 Point BBox::getCenter() const noexcept {
-    return {.x = 0.5 * (lowerLeft.x + upperRight.x), .y = 0.5 * (lowerLeft.y + upperRight.y)};
+    return Point(0.5 * (lowerLeft.x + upperRight.x), 0.5 * (lowerLeft.y + upperRight.y));
 }
 
 Interval BBox::getX() const noexcept {
-    return {.lo = lowerLeft.x, .hi = upperRight.x};
+    return Interval(lowerLeft.x, upperRight.x);
 }
 
 Interval BBox::getY() const noexcept {
-    return {.lo = lowerLeft.y, .hi = upperRight.y};
+    return Interval(lowerLeft.y, upperRight.y);
 }
 
 bool BBox::isEmpty() const noexcept {
@@ -58,10 +58,9 @@ bool BBox::isOverlapping(const BBox &o) const noexcept {
 }
 
 BBox BBox::getIntersection(const BBox &o) const noexcept {
-    return {.lowerLeft = {.x = std::max(lowerLeft.x, o.lowerLeft.x),
-                          .y = std::max(lowerLeft.y, o.lowerLeft.y)},
-            .upperRight = {.x = std::min(upperRight.x, o.upperRight.x),
-                           .y = std::min(upperRight.y, o.upperRight.y)}};
+    return BBox(
+        Point(std::max(lowerLeft.x, o.lowerLeft.x), std::max(lowerLeft.y, o.lowerLeft.y)),
+        Point(std::min(upperRight.x, o.upperRight.x), std::min(upperRight.y, o.upperRight.y)));
 }
 
 void BBox::extend(double x, double y) noexcept {

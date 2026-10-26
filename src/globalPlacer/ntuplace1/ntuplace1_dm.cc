@@ -80,9 +80,8 @@ void collectRows(const std::vector<ktplace::RowInfo> &rows, Design &design) {
     design.rowBox = BBox::getEmpty();
     for (const ktplace::RowInfo &r : rows) {
         for (const ktplace::SubrowInfo &s : r.subrows) {
-            const BBox rr{
-                .lowerLeft = {.x = s.getXlo(), .y = r.coordinate},
-                .upperRight = {.x = s.getXhi(r.getPitch()), .y = r.coordinate + r.height}};
+            const BBox rr(Point(s.getXlo(), r.coordinate),
+                          Point(s.getXhi(r.getPitch()), r.coordinate + r.height));
             if (rr.upperRight.x <= rr.lowerLeft.x) {
                 continue;
             }
@@ -117,10 +116,10 @@ ntuplace1Solution ntuplace1DM::getSolution() const {
     ntuplace1Solution out;
     out.positions.reserve(d.vertexX.size());
     for (std::size_t v = 0; v < d.vertexX.size(); ++v) {
-        out.positions.push_back({.x = d.vertexX[v], .y = d.vertexY[v]});
+        out.positions.push_back(Point(d.vertexX[v], d.vertexY[v]));
     }
     for (std::size_t i = 0; i < d.cells.size(); ++i) {
-        out.positions[d.cells.id[i]] = {.x = d.cells.x[i], .y = d.cells.y[i]};
+        out.positions[d.cells.id[i]] = Point(d.cells.x[i], d.cells.y[i]);
     }
     return out;
 }

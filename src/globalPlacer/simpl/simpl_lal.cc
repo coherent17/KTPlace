@@ -46,8 +46,7 @@ void LookAheadLegalizer::legalize(std::vector<double> &x, std::vector<double> &y
     std::vector<std::uint32_t> binOf(getNumMovable());
     std::vector<double> occ(grid.size(), 0.0);
     for (std::uint32_t i = 0; i < getNumMovable(); ++i) {
-        const std::size_t k =
-            grid.getBinOf({.x = getCentre(x, i, true), .y = getCentre(y, i, false)});
+        const std::size_t k = grid.getBinOf(Point(getCentre(x, i, true), getCentre(y, i, false)));
         binOf[i] = static_cast<std::uint32_t>(k);
         members[k].push_back(i);
         occ[k] += area[i];
@@ -90,7 +89,7 @@ void LookAheadLegalizer::legalize(std::vector<double> &x, std::vector<double> &y
         legalizeBlock(top, x, y);
         for (const std::uint32_t i : cells) {
             const std::size_t k =
-                grid.getBinOf({.x = getCentre(x, i, true), .y = getCentre(y, i, false)});
+                grid.getBinOf(Point(getCentre(x, i, true), getCentre(y, i, false)));
             if (k != binOf[i]) {
                 occ[binOf[i]] -= area[i];
                 occ[k] += area[i];

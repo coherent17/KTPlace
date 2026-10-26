@@ -70,8 +70,8 @@ void collectNets(const ktplace::Graph &graph, Design &design) {
             const ktplace::Vertex &cell = graph.getCell(pin.cellId);
             pins.push_back(NetPin{.slot = slotOf[pin.cellId],
                                   .offset = pin.offset,
-                                  .fixedPosition = {.x = cell.position.x + pin.offset.x,
-                                                    .y = cell.position.y + pin.offset.y}});
+                                  .fixedPosition = Point(cell.position.x + pin.offset.x,
+                                                         cell.position.y + pin.offset.y)});
         }
         design.nets.add(pins);
     }
@@ -91,10 +91,10 @@ abacusSolution abacusDM::getSolution() const {
     abacusSolution out;
     out.positions.reserve(d.vertexX.size());
     for (std::size_t v = 0; v < d.vertexX.size(); ++v) {
-        out.positions.push_back({.x = d.vertexX[v], .y = d.vertexY[v]});
+        out.positions.push_back(Point(d.vertexX[v], d.vertexY[v]));
     }
     for (std::size_t i = 0; i < d.cells.size(); ++i) {
-        out.positions[d.cells.id[i]] = {.x = d.cells.x[i], .y = d.cells.y[i]};
+        out.positions[d.cells.id[i]] = Point(d.cells.x[i], d.cells.y[i]);
     }
     return out;
 }

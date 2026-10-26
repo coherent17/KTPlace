@@ -53,11 +53,11 @@ struct Design {
     std::vector<std::vector<std::uint32_t>> cellNets;
     std::vector<BBox> fixedRects;
     std::vector<BBox> rowRects;
-    BBox rowBox{};
+    BBox rowBox;
     double maxRowH = 0.0;
     std::vector<double> vertexX;
     std::vector<double> vertexY;
-    BBox die{};
+    BBox die;
     constraintMgr fences;
     FrameHook onFrame;
 };

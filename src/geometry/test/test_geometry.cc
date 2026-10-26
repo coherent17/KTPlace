@@ -28,7 +28,7 @@ BOOST_AUTO_TEST_CASE(extending_by_points_and_boxes_grows_to_cover_them) {
     BOOST_TEST(box.getWidth() == 3.0);
     BOOST_TEST(box.getHeight() == 3.0);
     BOOST_TEST(box.getHalfPerimeter() == 6.0);
-    box.extend(BBox{.lowerLeft = {.x = -1.0, .y = 0.0}, .upperRight = {.x = 2.0, .y = 10.0}});
+    box.extend(BBox(Point(-1.0, 0.0), Point(2.0, 10.0)));
     BOOST_TEST(box.lowerLeft.x == -1.0);
     BOOST_TEST(box.lowerLeft.y == 0.0);
     BOOST_TEST(box.upperRight.x == 4.0);
@@ -42,37 +42,36 @@ BOOST_AUTO_TEST_CASE(of_builds_a_box_from_corner_and_size) {
     BOOST_TEST(box.getArea() == 20.0);
     BOOST_TEST(box.getCenter().x == 4.0);
     BOOST_TEST(box.getCenter().y == 5.5);
-    BOOST_TEST(box.getX().lo == 2.0);
-    BOOST_TEST(box.getY().hi == 8.0);
+    BOOST_TEST(box.getX().start == 2.0);
+    BOOST_TEST(box.getY().end == 8.0);
 }
 
 BOOST_AUTO_TEST_CASE(containment_includes_the_edges) {
-    const BBox box{.lowerLeft = {.x = 0.0, .y = 0.0}, .upperRight = {.x = 10.0, .y = 10.0}};
-    BOOST_TEST(box.contains({.x = 0.0, .y = 10.0}));
-    BOOST_TEST(box.contains({.x = 5.0, .y = 5.0}));
-    BOOST_TEST(!box.contains({.x = 10.5, .y = 5.0}));
+    const BBox box(Point(0.0, 0.0), Point(10.0, 10.0));
+    BOOST_TEST(box.contains(Point(0.0, 10.0)));
+    BOOST_TEST(box.contains(Point(5.0, 5.0)));
+    BOOST_TEST(!box.contains(Point(10.5, 5.0)));
 }
 
 BOOST_AUTO_TEST_CASE(boxes_that_only_touch_do_not_overlap) {
-    const BBox a{.lowerLeft = {.x = 0.0, .y = 0.0}, .upperRight = {.x = 10.0, .y = 10.0}};
-    BOOST_TEST(a.isOverlapping(BBox{{5.0, 5.0}, {15.0, 15.0}}));
-    BOOST_TEST(!a.isOverlapping(BBox{{10.0, 0.0}, {20.0, 10.0}}));
-    BOOST_TEST(!a.isOverlapping(BBox{{0.0, 10.0}, {10.0, 20.0}}));
+    const BBox a(Point(0.0, 0.0), Point(10.0, 10.0));
+    BOOST_TEST(a.isOverlapping(BBox(Point(5.0, 5.0), Point(15.0, 15.0))));
+    BOOST_TEST(!a.isOverlapping(BBox(Point(10.0, 0.0), Point(20.0, 10.0))));
+    BOOST_TEST(!a.isOverlapping(BBox(Point(0.0, 10.0), Point(10.0, 20.0))));
 }
 
 BOOST_AUTO_TEST_CASE(the_intersection_of_disjoint_boxes_is_empty) {
-    const BBox a{.lowerLeft = {.x = 0.0, .y = 0.0}, .upperRight = {.x = 10.0, .y = 10.0}};
-    const BBox overlap = a.getIntersection(
-        BBox{.lowerLeft = {.x = 5.0, .y = -5.0}, .upperRight = {.x = 15.0, .y = 5.0}});
+    const BBox a(Point(0.0, 0.0), Point(10.0, 10.0));
+    const BBox overlap = a.getIntersection(BBox(Point(5.0, -5.0), Point(15.0, 5.0)));
     BOOST_TEST(overlap.lowerLeft.x == 5.0);
     BOOST_TEST(overlap.lowerLeft.y == 0.0);
     BOOST_TEST(overlap.upperRight.x == 10.0);
     BOOST_TEST(overlap.upperRight.y == 5.0);
-    BOOST_TEST(a.getIntersection(BBox{{20.0, 20.0}, {30.0, 30.0}}).isEmpty());
+    BOOST_TEST(a.getIntersection(BBox(Point(20.0, 20.0), Point(30.0, 30.0))).isEmpty());
 }
 
 BOOST_AUTO_TEST_CASE(an_interval_contains_its_ends_and_the_tolerance_widens_it) {
-    const Interval span{.lo = 1.0, .hi = 3.0};
+    const Interval span(1.0, 3.0);
     BOOST_TEST(span.getCenter() == 2.0);
     BOOST_TEST(span.contains(1.0));
     BOOST_TEST(span.contains(3.0));

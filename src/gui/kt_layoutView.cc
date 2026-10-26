@@ -871,7 +871,7 @@ void LayoutView::mouseReleaseEvent(QMouseEvent *event) {
         if (band.width() > dragThreshold && band.height() > dragThreshold) {
             const QPointF lo = getScreenToWorld(band.bottomLeft());
             const QPointF hi = getScreenToWorld(band.topRight());
-            zoomTo({{lo.x(), lo.y()}, {hi.x(), hi.y()}});
+            zoomTo(BBox(Point(lo.x(), lo.y()), Point(hi.x(), hi.y())));
         }
         return;
     }

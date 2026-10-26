@@ -50,7 +50,7 @@ std::size_t addNet(ktDM &db, const std::string &name, double weight = 1.0) {
 std::size_t addPin(ktDM &db, const std::string &cell, const std::string &net, double x, double y,
                    bool isInput) {
     const std::size_t before = db.getNumPins();
-    const std::size_t id = db.addPin(cell, net, {.x = x, .y = y}, isInput);
+    const std::size_t id = db.addPin(cell, net, Point(x, y), isInput);
     const std::size_t after = db.getNumPins();
     BOOST_TEST(id < after);
     BOOST_TEST(after == before + 1);
@@ -105,7 +105,7 @@ BOOST_AUTO_TEST_CASE(rejects_unknown_cell) {
 BOOST_AUTO_TEST_CASE(tracks_positions_and_fixed_flag) {
     ktDM db;
     addCell(db, "c0", 1.0, 1.0);
-    db.setCellPosition("c0", {.x = 12.0, .y = 34.0});
+    db.setCellPosition("c0", Point(12.0, 34.0));
     const auto [x, y] = db.getCellPosition("c0");
     BOOST_TEST(x == 12.0);
     BOOST_TEST(y == 34.0);
@@ -181,7 +181,7 @@ BOOST_AUTO_TEST_CASE(counts_rows) {
 
 BOOST_AUTO_TEST_CASE(round_trips_die_area) {
     ktDM db;
-    db.setDieArea({.lowerLeft = {.x = 0.0, .y = 0.0}, .upperRight = {.x = 100.0, .y = 50.0}});
+    db.setDieArea(BBox(Point(0.0, 0.0), Point(100.0, 50.0)));
     const BBox &die = db.getDieArea();
     BOOST_TEST(die.lowerLeft.x == 0.0);
     BOOST_TEST(die.lowerLeft.y == 0.0);
@@ -197,7 +197,7 @@ BOOST_AUTO_TEST_CASE(a_pin_joins_a_cell_to_a_net) {
     Graph g;
     const std::size_t cell = g.addCell("c0");
     const std::size_t net = g.addNet("n0");
-    const std::size_t pin = g.addPin(cell, net, PinRole::Driver, {.x = 1.5, .y = 2.5});
+    const std::size_t pin = g.addPin(cell, net, PinRole::Driver, Point(1.5, 2.5));
 
     BOOST_TEST(g.getCellId("c0") == cell);
     BOOST_TEST(g.getNetId("n0") == net);
@@ -253,16 +253,16 @@ BOOST_AUTO_TEST_CASE(the_checksum_follows_the_placement) {
         addNet(db, "n0");
         addPin(db, "c0", "n0", 0.5, 0.5, true);
         addPin(db, "c1", "n0", 0.0, 0.0, false);
-        db.setCellPosition("c0", {.x = 4.0, .y = 0.0});
+        db.setCellPosition("c0", Point(4.0, 0.0));
     };
     ktDM a;
     ktDM b;
     build(a);
     build(b);
     BOOST_TEST(a.getChecksum() == b.getChecksum());
-    b.setCellPosition("c1", {.x = 1.0, .y = 0.0});
+    b.setCellPosition("c1", Point(1.0, 0.0));
     BOOST_TEST(a.getChecksum() != b.getChecksum());
-    a.setCellPosition("c1", {.x = 1.0, .y = 0.0});
+    a.setCellPosition("c1", Point(1.0, 0.0));
     BOOST_TEST(a.getChecksum() == b.getChecksum());
 }
 
@@ -291,9 +291,7 @@ BOOST_AUTO_TEST_CASE(a_fence_covering_the_row_becomes_member_space) {
     // Row [0,100) x [0,10); fence 0 covers x 20..50 over the whole band.
     const std::vector<RowPiece> p = splitRowByFences(
         0.0, 100.0, 0.0, 10.0, 1.0,
-        {FenceRect{
-            .box = {.lowerLeft = {.x = 20.0, .y = 0.0}, .upperRight = {.x = 50.0, .y = 10.0}},
-            .region = 0}});
+        {FenceRect{.box = BBox(Point(20.0, 0.0), Point(50.0, 10.0)), .region = 0}});
     BOOST_TEST_REQUIRE(p.size() == 3u);
     BOOST_TEST(p[0].xlo == 0.0);
     BOOST_TEST(p[0].xhi == 20.0);
@@ -311,9 +309,7 @@ BOOST_AUTO_TEST_CASE(a_fence_reaching_partly_into_the_row_blocks_it_for_everyone
     // cell would sit inside it, so the stretch is dropped.
     const std::vector<RowPiece> p = splitRowByFences(
         0.0, 100.0, 0.0, 10.0, 1.0,
-        {FenceRect{
-            .box = {.lowerLeft = {.x = 60.0, .y = 5.0}, .upperRight = {.x = 70.0, .y = 20.0}},
-            .region = 0}});
+        {FenceRect{.box = BBox(Point(60.0, 5.0), Point(70.0, 20.0)), .region = 0}});
     BOOST_TEST_REQUIRE(p.size() == 2u);
     BOOST_TEST(p[0].xhi == 60.0);
     BOOST_TEST(p[1].xlo == 70.0);
@@ -327,9 +323,7 @@ BOOST_AUTO_TEST_CASE(fence_edges_off_the_site_grid_are_snapped_inward) {
     // across the boundary.
     const std::vector<RowPiece> p = splitRowByFences(
         0.0, 100.0, 0.0, 10.0, 1.0,
-        {FenceRect{
-            .box = {.lowerLeft = {.x = 20.5, .y = 0.0}, .upperRight = {.x = 49.5, .y = 10.0}},
-            .region = 3}});
+        {FenceRect{.box = BBox(Point(20.5, 0.0), Point(49.5, 10.0)), .region = 3}});
     BOOST_TEST_REQUIRE(p.size() == 3u);
     BOOST_TEST(p[0].xhi == 20.0);
     BOOST_TEST(p[1].xlo == 21.0);
@@ -342,12 +336,8 @@ BOOST_AUTO_TEST_CASE(adjacent_rectangles_of_one_region_merge_and_rows_without_fe
     // An L-shaped region as two touching rectangles is one stretch of member space.
     const std::vector<RowPiece> p = splitRowByFences(
         0.0, 100.0, 0.0, 10.0, 1.0,
-        {FenceRect{
-             .box = {.lowerLeft = {.x = 10.0, .y = 0.0}, .upperRight = {.x = 30.0, .y = 10.0}},
-             .region = 1},
-         FenceRect{
-             .box = {.lowerLeft = {.x = 30.0, .y = 0.0}, .upperRight = {.x = 40.0, .y = 50.0}},
-             .region = 1}});
+        {FenceRect{.box = BBox(Point(10.0, 0.0), Point(30.0, 10.0)), .region = 1},
+         FenceRect{.box = BBox(Point(30.0, 0.0), Point(40.0, 50.0)), .region = 1}});
     BOOST_TEST_REQUIRE(p.size() == 3u);
     BOOST_TEST(p[1].xlo == 10.0);
     BOOST_TEST(p[1].xhi == 40.0);
@@ -355,9 +345,7 @@ BOOST_AUTO_TEST_CASE(adjacent_rectangles_of_one_region_merge_and_rows_without_fe
     // A row the fences do not reach is returned whole.
     const std::vector<RowPiece> q = splitRowByFences(
         0.0, 100.0, 200.0, 210.0, 1.0,
-        {FenceRect{
-            .box = {.lowerLeft = {.x = 10.0, .y = 0.0}, .upperRight = {.x = 30.0, .y = 10.0}},
-            .region = 1}});
+        {FenceRect{.box = BBox(Point(10.0, 0.0), Point(30.0, 10.0)), .region = 1}});
     BOOST_TEST_REQUIRE(q.size() == 1u);
     BOOST_TEST(q[0].xlo == 0.0);
     BOOST_TEST(q[0].xhi == 100.0);
@@ -371,7 +359,7 @@ BOOST_AUTO_TEST_CASE(fenced_subrows_label_each_piece_with_its_region) {
     const std::size_t cell = db.addCell("m0", 1.0, 10.0);
     (void)cell;
     constraintMgr mgr;
-    const int id = mgr.addRegion("f0", {Point{.x = 20.0, .y = 0.0}, Point{.x = 50.0, .y = 10.0}});
+    const int id = mgr.addRegion("f0", {Point(20.0, 0.0), Point(50.0, 10.0)});
     (void)mgr.assignByPrefix(id, "m", db.getGraph());
     db.setConstraints(std::move(mgr));
 
@@ -395,9 +383,8 @@ BOOST_AUTO_TEST_CASE(a_net_spreads_one_unit_evenly_over_its_bounding_box) {
     const std::vector<float> offsets{0.0F, 0.0F};
     const std::vector<float> x{0.5F, 3.5F};
     const std::vector<float> y{0.5F, 1.5F};
-    const RoutingDemand map = getRoutingDemand(
-        netPinStart, pinCell, offsets, offsets, x, y,
-        {.lowerLeft = {.x = 0.0, .y = 0.0}, .upperRight = {.x = 4.0, .y = 2.0}}, 2);
+    const RoutingDemand map = getRoutingDemand(netPinStart, pinCell, offsets, offsets, x, y,
+                                               BBox(Point(0.0, 0.0), Point(4.0, 2.0)), 2);
     BOOST_REQUIRE_EQUAL(map.nx, 2U);
     BOOST_REQUIRE_EQUAL(map.ny, 1U);
     BOOST_TEST(map.at(0, 0) == 0.5F, boost::test_tools::tolerance(1e-6F));
@@ -411,9 +398,8 @@ BOOST_AUTO_TEST_CASE(a_net_on_one_line_still_adds_its_whole_unit) {
     const std::vector<float> offsets{0.0F, 0.0F, 0.0F};
     const std::vector<float> x{1.0F, 1.0F};
     const std::vector<float> y{0.2F, 3.8F};
-    const RoutingDemand map = getRoutingDemand(
-        netPinStart, pinCell, offsets, offsets, x, y,
-        {.lowerLeft = {.x = 0.0, .y = 0.0}, .upperRight = {.x = 4.0, .y = 4.0}}, 4);
+    const RoutingDemand map = getRoutingDemand(netPinStart, pinCell, offsets, offsets, x, y,
+                                               BBox(Point(0.0, 0.0), Point(4.0, 4.0)), 4);
     double total = 0.0;
     for (const float value : map.demand) {
         total += value;

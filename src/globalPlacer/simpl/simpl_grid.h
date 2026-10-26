@@ -93,8 +93,8 @@ struct BinGrid {
         return vertical ? x0 + static_cast<double>(t) * dx : y0 + static_cast<double>(t) * dy;
     }
     [[nodiscard]] BBox getBox(const BinRect &r) const {
-        return {.lowerLeft = {.x = getEdge(true, r.x0), .y = getEdge(false, r.y0)},
-                .upperRight = {.x = getEdge(true, r.x1 + 1), .y = getEdge(false, r.y1 + 1)}};
+        return BBox(Point(getEdge(true, r.x0), getEdge(false, r.y0)),
+                    Point(getEdge(true, r.x1 + 1), getEdge(false, r.y1 + 1)));
     }
     [[nodiscard]] double sum(const std::vector<double> &field, const BinRect &r) const {
         double total = 0.0;

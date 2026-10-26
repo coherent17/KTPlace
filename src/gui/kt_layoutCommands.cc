@@ -223,8 +223,8 @@ void registerCommands() {
                               const double y1 = getCoordinate(words[1]);
                               const double x2 = getCoordinate(words[2]);
                               const double y2 = getCoordinate(words[3]);
-                              view.zoomTo({{std::min(x1, x2), std::min(y1, y2)},
-                                           {std::max(x1, x2), std::max(y1, y2)}});
+                              view.zoomTo(BBox(Point(std::min(x1, x2), std::min(y1, y2)),
+                                               Point(std::max(x1, x2), std::max(y1, y2))));
                               return tcl::Value{};
                           });
     registerLayoutCommand(

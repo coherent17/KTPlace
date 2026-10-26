@@ -283,10 +283,10 @@ Residuals solveBothAxes(const SparseSystem &sysX, std::vector<double> &x, const 
                 }
             });
         if (observe) {
-            observe(it + 1, Residuals{.x = ax.resid, .y = ay.resid}, !live(ax) && !live(ay));
+            observe(it + 1, Residuals(ax.resid, ay.resid), !live(ax) && !live(ay));
         }
     }
-    return Residuals{.x = ax.resid, .y = ay.resid};
+    return Residuals(ax.resid, ay.resid);
 }
 
 }  // namespace ktplace::simpl

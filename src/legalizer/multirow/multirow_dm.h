@@ -70,7 +70,7 @@ struct Design {
     Nets nets;
     std::vector<BBox> blockages;
     std::vector<RowInfo> rows;
-    BBox die{};
+    BBox die;
     FrameHook onFrame;
 };
 

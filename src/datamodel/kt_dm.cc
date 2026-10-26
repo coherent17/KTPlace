@@ -498,7 +498,7 @@ double ktDM::getHpwl() const {
         [this](std::size_t pinId) {
             const Pin &pin = graph.getPin(pinId);
             const Vertex &cell = graph.getCell(pin.cellId);
-            return Point{.x = cell.position.x + pin.offset.x, .y = cell.position.y + pin.offset.y};
+            return Point(cell.position.x + pin.offset.x, cell.position.y + pin.offset.y);
         });
 }
 

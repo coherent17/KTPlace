@@ -80,7 +80,7 @@ struct Design {
     std::vector<RowInfo> rows;
     std::vector<double> vertexX;
     std::vector<double> vertexY;
-    BBox die{};
+    BBox die;
     FrameHook onFrame;
 };
 

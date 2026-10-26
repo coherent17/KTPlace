@@ -162,7 +162,7 @@ private:
 
     BinGrid grid;
     FreeSpace freeSpace;
-    BBox die{};
+    BBox die;
     double densityLimit = 1.0;
 };
 
@@ -213,8 +213,7 @@ void simplPlacer::Impl::buildGrid(std::size_t perAxis) {
     freeSpace.build(std::move(rows), obstacles);
     for (const FreeSpace::Row &row : freeSpace.rows) {
         for (const auto &[lo, hi] : row.spans) {
-            grid.deposit(
-                {.lowerLeft = {.x = lo, .y = row.y0}, .upperRight = {.x = hi, .y = row.y1}}, 1.0);
+            grid.deposit(BBox(Point(lo, row.y0), Point(hi, row.y1)), 1.0);
         }
     }
     const double sliver =
@@ -287,7 +286,7 @@ std::vector<double> simplPlacer::Impl::getOccupancy(const std::vector<double> &x
                                                     const std::vector<double> &y) const {
     std::vector<double> occ(grid.size(), 0.0);
     for (std::uint32_t i = 0; i < netlist.numMovable; ++i) {
-        occ[grid.getBinOf({.x = getCentre(x, i, true), .y = getCentre(y, i, false)})] += area[i];
+        occ[grid.getBinOf(Point(getCentre(x, i, true), getCentre(y, i, false)))] += area[i];
     }
     return occ;
 }
@@ -318,7 +317,7 @@ void simplPlacer::Impl::enforceFences(std::vector<double> &x, std::vector<double
         return;
     }
     for (std::size_t i = 0; i < netlist.numMovable; ++i) {
-        Point p{.x = x[i], .y = y[i]};
+        Point p(x[i], y[i]);
         if (region[i] != Fences::noRegion) {
             result.fenceClamps += fences->clampToRegion(region[i], p) ? 1 : 0;
         } else {
@@ -569,7 +568,7 @@ void simplPlacer::Impl::finish(const Positions &lower, const Positions &upper) {
         std::vector<Point> positions;
         positions.reserve(netlist.numMovable);
         for (std::size_t i = 0; i < netlist.numMovable; ++i) {
-            positions.push_back({.x = upper.x[i], .y = upper.y[i]});
+            positions.push_back(Point(upper.x[i], upper.y[i]));
         }
         result.fenceViolations = fences->countViolations(positions, region);
     }

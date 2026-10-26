@@ -16,10 +16,9 @@ int constraintMgr::addRegion(std::string name, const std::vector<Point> &points)
     // upper-right of one rectangle. A trailing odd corner cannot form a
     // rectangle and is dropped.
     for (std::size_t i = 0; i + 1 < points.size(); i += 2) {
-        const BBox r{.lowerLeft = {.x = std::min(points[i].x, points[i + 1].x),
-                                   .y = std::min(points[i].y, points[i + 1].y)},
-                     .upperRight = {.x = std::max(points[i].x, points[i + 1].x),
-                                    .y = std::max(points[i].y, points[i + 1].y)}};
+        const BBox r(
+            Point(std::min(points[i].x, points[i + 1].x), std::min(points[i].y, points[i + 1].y)),
+            Point(std::max(points[i].x, points[i + 1].x), std::max(points[i].y, points[i + 1].y)));
         if (!(r.getArea() > 0.0)) {
             continue;  // degenerate rectangle
         }
@@ -106,7 +105,7 @@ void constraintMgr::clampToRegion(int id, Point &p) const {
     if (best == nullptr) {
         return;
     }
-    p = {.x = best->getX().getClamped(p.x), .y = best->getY().getClamped(p.y)};
+    p = Point(best->getX().getClamped(p.x), best->getY().getClamped(p.y));
 }
 
 double constraintMgr::getEscapeEpsilon() const {
@@ -155,10 +154,9 @@ bool constraintMgr::pushOutOfRegions(Point &p, const BBox &die) const {
         // per-rectangle epsilon can be far below the output resolution, and the
         // cell then lands back exactly on the (inclusive) boundary.
         const double eps = getEscapeEpsilon();
-        const Point exits[4] = {{.x = host->lowerLeft.x - eps, .y = p.y},
-                                {.x = host->upperRight.x + eps, .y = p.y},
-                                {.x = p.x, .y = host->lowerLeft.y - eps},
-                                {.x = p.x, .y = host->upperRight.y + eps}};
+        const Point exits[4] = {
+            Point(host->lowerLeft.x - eps, p.y), Point(host->upperRight.x + eps, p.y),
+            Point(p.x, host->lowerLeft.y - eps), Point(p.x, host->upperRight.y + eps)};
         const double dists[4] = {p.x - host->lowerLeft.x, host->upperRight.x - p.x,
                                  p.y - host->lowerLeft.y, host->upperRight.y - p.y};
 

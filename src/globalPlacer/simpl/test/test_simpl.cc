@@ -52,7 +52,7 @@ Built buildDesign(ktDM &db, bool withFence, bool pullOthersIn = false) {
     // Pads at the right edge, mid-height, outside the rows' x range.
     for (int p = 0; p < 4; ++p) {
         const std::size_t id = db.addCell("pad" + std::to_string(p), 1.0, 1.0, /*isTerminal=*/true);
-        db.setCellPosition(id, {.x = rowWidth + 5.0, .y = 150.0 + 30.0 * p});
+        db.setCellPosition(id, Point(rowWidth + 5.0, 150.0 + 30.0 * p));
         db.setCellFixed(id, true);
     }
     Built b;
@@ -68,8 +68,8 @@ Built buildDesign(ktDM &db, bool withFence, bool pullOthersIn = false) {
     const auto addNet = [&](const std::string &a, const std::string &c) {
         const std::string name = "n" + std::to_string(net++);
         (void)db.addNet(name);
-        (void)db.addPin(a, name, {.x = 0.0, .y = 0.0}, true);
-        (void)db.addPin(c, name, {.x = 0.0, .y = 0.0}, false);
+        (void)db.addPin(a, name, Point(0.0, 0.0), true);
+        (void)db.addPin(c, name, Point(0.0, 0.0), false);
     };
     for (int i = 0; i + 1 < 60; ++i) {
         addNet("m" + std::to_string(i), "m" + std::to_string(i + 1));
@@ -87,7 +87,7 @@ Built buildDesign(ktDM &db, bool withFence, bool pullOthersIn = false) {
     // nets pull them into the fence, which they must not enter.
     if (pullOthersIn) {
         const std::size_t id = db.addCell("padIn", 1.0, 1.0, /*isTerminal=*/true);
-        db.setCellPosition(id, {.x = 0.5 * (fx0 + fx1), .y = 0.5 * (fy0 + fy1)});
+        db.setCellPosition(id, Point(0.5 * (fx0 + fx1), 0.5 * (fy0 + fy1)));
         db.setCellFixed(id, true);
         for (int i = 5; i < 400; i += 10) {
             addNet("o" + std::to_string(i), "padIn");
@@ -97,7 +97,7 @@ Built buildDesign(ktDM &db, bool withFence, bool pullOthersIn = false) {
     addNet("m0", "o0");
     if (withFence) {
         constraintMgr mgr;
-        const int id = mgr.addRegion("f0", {Point{.x = fx0, .y = fy0}, Point{.x = fx1, .y = fy1}});
+        const int id = mgr.addRegion("f0", {Point(fx0, fy0), Point(fx1, fy1)});
         (void)mgr.assignByPrefix(id, "m", db.getGraph());
         db.setConstraints(std::move(mgr));
     }

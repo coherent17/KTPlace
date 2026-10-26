@@ -174,7 +174,7 @@ private:
     std::vector<double> targetY = design.cells.y;
     std::vector<double> liveX, liveY;
     const std::vector<BBox> &fixedBoxes = design.fixedBoxes;
-    BBox dieBox = {.lowerLeft = {.x = 0.0, .y = 0.0}, .upperRight = {.x = 0.0, .y = 0.0}};
+    BBox dieBox = BBox(Point(0.0, 0.0), Point(0.0, 0.0));
     double minSubrowSites = 1.0;
 };
 
@@ -329,7 +329,7 @@ double AbacusLegalizer::Impl::getHpwlOf(const std::vector<double> &x,
         [&](const NetPin &pin) {
             return pin.slot == noSlot
                        ? pin.fixedPosition
-                       : Point{.x = x[pin.slot] + pin.offset.x, .y = y[pin.slot] + pin.offset.y};
+                       : Point(x[pin.slot] + pin.offset.x, y[pin.slot] + pin.offset.y);
         });
 }
 
