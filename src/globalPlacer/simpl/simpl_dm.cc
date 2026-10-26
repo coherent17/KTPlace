@@ -95,7 +95,7 @@ std::vector<RowInfo> copyRows(const std::vector<ktplace::RowInfo> &rows) {
         info.subrows.reserve(row.subrows.size());
         for (const ktplace::SubrowInfo &subrow : row.subrows) {
             info.subrows.push_back(
-                Subrow{.xlo = subrow.getXlo(), .xhi = subrow.getXhi(row.getPitch())});
+                Subrow{.x = Interval(subrow.getXlo(), subrow.getXhi(row.getPitch()))});
         }
         out.push_back(std::move(info));
     }

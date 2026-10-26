@@ -26,53 +26,53 @@ struct FenceRect {
     int region = -1;
 };
 
-/// A labelled stretch of a row: [xlo, xhi) belonging to `region`, or to no
+/// A labelled stretch of a row: [x.start, x.end) belonging to `region`, or to no
 /// region (open space) when region is openSpace.
 struct RowPiece {
-    double xlo = 0.0, xhi = 0.0;
+    Interval x;
     int region = -1;
 };
 
 inline constexpr int openSpace = -1;
 
-/// Split [xlo, xhi) of the row band [y0, y1) by the fence rectangles.
+/// Split the row's x range within the row band by the fence rectangles.
 ///
 /// A rectangle covering the whole band makes its x-interval member space for its
 /// region. A rectangle reaching into the band only partly makes it unusable for
 /// everyone: a member there would stick out of its region, and any other cell
 /// would sit inside it. Edges made by a fence are snapped inward to the site
 /// grid, so a cell placed in a piece lies wholly on its side of the boundary;
-/// the piece's own ends (xlo, xhi) are kept as given. Unusable stretches and
+/// the row's own ends are kept as given. Unusable stretches and
 /// slivers narrower than a site are dropped.
-inline std::vector<RowPiece> splitRowByFences(double xlo, double xhi, double y0, double y1,
+inline std::vector<RowPiece> splitRowByFences(const Interval &row, const Interval &band,
                                               double grid, const std::vector<FenceRect> &rects) {
     constexpr double eps = 1e-9;
     constexpr int blocked = -2;
     struct Span {
-        double lo, hi;
+        Interval x;
         int region;  // member region, or blocked
     };
     std::vector<Span> spans;
     for (const FenceRect &rc : rects) {
-        if (!(rc.box.upperRight.y > y0 + eps && rc.box.lowerLeft.y < y1 - eps) ||
-            !(rc.box.upperRight.x > xlo && rc.box.lowerLeft.x < xhi)) {
+        const Interval x = rc.box.getX();
+        const Interval y = rc.box.getY();
+        if (!(y.end > band.start + eps && y.start < band.end - eps) ||
+            !(x.end > row.start && x.start < row.end)) {
             continue;
         }
-        const bool covers = rc.box.lowerLeft.y <= y0 + eps && rc.box.upperRight.y >= y1 - eps;
-        spans.push_back({.lo = rc.box.lowerLeft.x,
-                         .hi = rc.box.upperRight.x,
-                         .region = covers ? rc.region : blocked});
+        const bool covers = y.start <= band.start + eps && y.end >= band.end - eps;
+        spans.push_back(Span{.x = x, .region = covers ? rc.region : blocked});
     }
     if (spans.empty()) {
-        return {RowPiece{.xlo = xlo, .xhi = xhi, .region = openSpace}};
+        return {RowPiece{.x = row, .region = openSpace}};
     }
-    std::vector<double> cuts{xlo, xhi};
+    std::vector<double> cuts{row.start, row.end};
     for (const Span &sp : spans) {
-        if (sp.lo > xlo && sp.lo < xhi) {
-            cuts.push_back(sp.lo);
+        if (sp.x.start > row.start && sp.x.start < row.end) {
+            cuts.push_back(sp.x.start);
         }
-        if (sp.hi > xlo && sp.hi < xhi) {
-            cuts.push_back(sp.hi);
+        if (sp.x.end > row.start && sp.x.end < row.end) {
+            cuts.push_back(sp.x.end);
         }
     }
     std::sort(cuts.begin(), cuts.end());
@@ -82,7 +82,7 @@ inline std::vector<RowPiece> splitRowByFences(double xlo, double xhi, double y0,
     const auto labelOf = [&](double mid) {
         int label = openSpace;
         for (const Span &sp : spans) {
-            if (mid <= sp.lo || mid >= sp.hi) {
+            if (mid <= sp.x.start || mid >= sp.x.end) {
                 continue;
             }
             if (sp.region != blocked) {
@@ -93,10 +93,10 @@ inline std::vector<RowPiece> splitRowByFences(double xlo, double xhi, double y0,
         return label;
     };
     const auto snapLo = [&](double v) {
-        return (v == xlo || !(grid > 0.0)) ? v : std::ceil(v / grid - 1e-9) * grid;
+        return (v == row.start || !(grid > 0.0)) ? v : std::ceil(v / grid - 1e-9) * grid;
     };
     const auto snapHi = [&](double v) {
-        return (v == xhi || !(grid > 0.0)) ? v : std::floor(v / grid + 1e-9) * grid;
+        return (v == row.end || !(grid > 0.0)) ? v : std::floor(v / grid + 1e-9) * grid;
     };
     std::vector<RowPiece> out;
     std::size_t k = 0;
@@ -107,9 +107,9 @@ inline std::vector<RowPiece> splitRowByFences(double xlo, double xhi, double y0,
             ++e;
         }
         if (label != blocked) {
-            const double lo = snapLo(cuts[k]), hi = snapHi(cuts[e]);
-            if (hi > lo + eps) {
-                out.push_back(RowPiece{.xlo = lo, .xhi = hi, .region = label});
+            const Interval piece(snapLo(cuts[k]), snapHi(cuts[e]));
+            if (piece.end > piece.start + eps) {
+                out.push_back(RowPiece{.x = piece, .region = label});
             }
         }
         k = e;

@@ -59,8 +59,7 @@ private:
 };
 
 struct Subrow {
-    double xlo = 0.0;
-    double xhi = 0.0;
+    Interval x;
 };
 
 struct RowInfo {

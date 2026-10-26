@@ -24,7 +24,7 @@ std::vector<RowInfo> copyRows(const std::vector<ktplace::RowInfo> &rows,
                      .subrows = {}};
         info.subrows.reserve(pieces[i].size());
         for (const ktplace::RowPiece &p : pieces[i]) {
-            info.subrows.push_back(Subrow{.xlo = p.xlo, .xhi = p.xhi, .region = p.region});
+            info.subrows.push_back(Subrow{.x = p.x, .region = p.region});
         }
         out.push_back(std::move(info));
     }

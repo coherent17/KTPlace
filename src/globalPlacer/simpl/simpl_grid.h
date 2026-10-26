@@ -65,8 +65,7 @@ struct AxisProfile {
 };
 
 struct BinGrid {
-    double x0 = 0.0;
-    double y0 = 0.0;
+    Point origin;
     double dx = 1.0;
     double dy = 1.0;
     std::size_t nx = 1;
@@ -81,16 +80,17 @@ struct BinGrid {
         return iy * nx + ix;
     }
     [[nodiscard]] std::size_t getColumn(double x) const {
-        return clampIndex((x - x0) / dx, nx);
+        return clampIndex((x - origin.x) / dx, nx);
     }
     [[nodiscard]] std::size_t getRow(double y) const {
-        return clampIndex((y - y0) / dy, ny);
+        return clampIndex((y - origin.y) / dy, ny);
     }
     [[nodiscard]] std::size_t getBinOf(const Point &p) const {
         return at(getColumn(p.x), getRow(p.y));
     }
     [[nodiscard]] double getEdge(bool vertical, std::size_t t) const {
-        return vertical ? x0 + static_cast<double>(t) * dx : y0 + static_cast<double>(t) * dy;
+        return vertical ? origin.x + static_cast<double>(t) * dx
+                        : origin.y + static_cast<double>(t) * dy;
     }
     [[nodiscard]] BBox getBox(const BinRect &r) const {
         return BBox(Point(getEdge(true, r.x0), getEdge(false, r.y0)),
@@ -129,14 +129,13 @@ struct BinGrid {
 
 struct FreeSpace {
     struct Row {
-        double y0 = 0.0;
-        double y1 = 0.0;
-        std::vector<std::pair<double, double>> spans;
+        Interval y;
+        std::vector<Interval> spans;
 
-        [[nodiscard]] double getLength(double a, double b) const {
+        [[nodiscard]] double getLength(const Interval &x) const {
             double total = 0.0;
-            for (const auto &[s0, s1] : spans) {
-                total += std::max(0.0, std::min(b, s1) - std::max(a, s0));
+            for (const Interval &span : spans) {
+                total += std::max(0.0, std::min(x.end, span.end) - std::max(x.start, span.start));
             }
             return total;
         }
@@ -146,30 +145,31 @@ struct FreeSpace {
     void build(std::vector<Row> raw, const std::vector<BBox> &obstacles) {
         rows = std::move(raw);
         std::stable_sort(rows.begin(), rows.end(), [](const Row &a, const Row &b) {
-            return a.y0 < b.y0;
+            return a.y.start < b.y.start;
         });
         for (Row &row : rows) {
-            std::vector<std::pair<double, double>> cuts;
+            std::vector<Interval> cuts;
             for (const BBox &o : obstacles) {
-                if (o.upperRight.y > row.y0 && o.lowerLeft.y < row.y1) {
-                    cuts.emplace_back(o.lowerLeft.x, o.upperRight.x);
+                if (o.upperRight.y > row.y.start && o.lowerLeft.y < row.y.end) {
+                    cuts.push_back(o.getX());
                 }
             }
             std::stable_sort(cuts.begin(), cuts.end());
             std::stable_sort(row.spans.begin(), row.spans.end());
-            std::vector<std::pair<double, double>> open;
-            for (auto [a, b] : row.spans) {
-                for (const auto &[c0, c1] : cuts) {
-                    if (c1 <= a || c0 >= b) {
+            std::vector<Interval> open;
+            for (const Interval &span : row.spans) {
+                double a = span.start;
+                for (const Interval &cut : cuts) {
+                    if (cut.end <= a || cut.start >= span.end) {
                         continue;
                     }
-                    if (c0 > a) {
-                        open.emplace_back(a, c0);
+                    if (cut.start > a) {
+                        open.emplace_back(a, cut.start);
                     }
-                    a = std::max(a, c1);
+                    a = std::max(a, cut.end);
                 }
-                if (b > a) {
-                    open.emplace_back(a, b);
+                if (span.end > a) {
+                    open.emplace_back(a, span.end);
                 }
             }
             row.spans = std::move(open);
@@ -179,7 +179,7 @@ struct FreeSpace {
     [[nodiscard]] AxisProfile getProfile(const BBox &b, bool vertical) const {
         const auto first =
             std::upper_bound(rows.begin(), rows.end(), b.lowerLeft.y, [](double v, const Row &r) {
-                return v < r.y1;
+                return v < r.y.end;
             });
         const double lo = vertical ? b.lowerLeft.x : b.lowerLeft.y;
         const double hi = vertical ? b.upperRight.x : b.upperRight.y;
@@ -194,11 +194,12 @@ struct FreeSpace {
         };
         if (vertical) {
             std::vector<std::pair<double, double>> steps;
-            for (auto r = first; r != rows.end() && r->y0 < b.upperRight.y; ++r) {
-                const double h = std::min(b.upperRight.y, r->y1) - std::max(b.lowerLeft.y, r->y0);
-                for (const auto &[s0, s1] : r->spans) {
-                    const double a = std::max(s0, lo);
-                    const double z = std::min(s1, hi);
+            for (auto r = first; r != rows.end() && r->y.start < b.upperRight.y; ++r) {
+                const double h =
+                    std::min(b.upperRight.y, r->y.end) - std::max(b.lowerLeft.y, r->y.start);
+                for (const Interval &span : r->spans) {
+                    const double a = std::max(span.start, lo);
+                    const double z = std::min(span.end, hi);
                     if (h > 0.0 && z > a) {
                         steps.emplace_back(a, h);
                         steps.emplace_back(z, -h);
@@ -212,12 +213,12 @@ struct FreeSpace {
                 height += dh;
             }
         } else {
-            for (auto r = first; r != rows.end() && r->y0 < b.upperRight.y; ++r) {
-                const double a = std::max(lo, r->y0);
-                const double z = std::min(hi, r->y1);
+            for (auto r = first; r != rows.end() && r->y.start < b.upperRight.y; ++r) {
+                const double a = std::max(lo, r->y.start);
+                const double z = std::min(hi, r->y.end);
                 if (z > a) {
                     extend(a, 0.0);
-                    extend(z, r->getLength(b.lowerLeft.x, b.upperRight.x) * (z - a));
+                    extend(z, r->getLength(b.getX()) * (z - a));
                 }
             }
         }

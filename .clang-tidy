@@ -7,7 +7,8 @@ Checks: >
   -modernize-avoid-c-arrays,
   -modernize-use-nodiscard,
   -modernize-macro-to-enum,
-  -modernize-return-braced-init-list
+  -modernize-return-braced-init-list,
+  -modernize-use-designated-initializers
 HeaderFilterRegex: '/src/'
 CheckOptions:
   readability-identifier-naming.FunctionCase: camelBack

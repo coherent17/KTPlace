@@ -24,8 +24,7 @@ struct NetlistPins {
 struct RoutingDemand {
     std::size_t nx = 0;
     std::size_t ny = 0;
-    double x0 = 0.0;
-    double y0 = 0.0;
+    Point origin;
     double binW = 1.0;
     double binH = 1.0;
     std::vector<float> demand;

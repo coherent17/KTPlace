@@ -123,8 +123,8 @@ void RatioPlacer::Impl::build() {
     sideCount.assign(hyperNets.size(), {0, 0});
     gen = 0;
 
-    posX.assign(mov.size(), 0.5 * (rowBox.lowerLeft.x + rowBox.upperRight.x));
-    posY.assign(mov.size(), 0.5 * (rowBox.lowerLeft.y + rowBox.upperRight.y));
+    posX.assign(mov.size(), rowBox.getCenter().x);
+    posY.assign(mov.size(), rowBox.getCenter().y);
 }
 
 double RatioPlacer::Impl::getFreeAreaIn(const BBox &area) const {

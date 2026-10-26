@@ -189,12 +189,11 @@ std::size_t simplPlacer::Impl::getDefaultBinsPerAxis() const {
 
 void simplPlacer::Impl::buildGrid(std::size_t perAxis) {
     die = design.die;
-    grid.x0 = die.lowerLeft.x;
-    grid.y0 = die.lowerLeft.y;
+    grid.origin = die.lowerLeft;
     grid.nx = perAxis;
     grid.ny = perAxis;
-    grid.dx = std::max(die.upperRight.x - die.lowerLeft.x, 1e-9) / static_cast<double>(perAxis);
-    grid.dy = std::max(die.upperRight.y - die.lowerLeft.y, 1e-9) / static_cast<double>(perAxis);
+    grid.dx = std::max(die.getWidth(), 1e-9) / static_cast<double>(perAxis);
+    grid.dy = std::max(die.getHeight(), 1e-9) / static_cast<double>(perAxis);
     grid.avail.assign(grid.size(), 0.0);
 
     std::vector<FreeSpace::Row> rows;
@@ -204,16 +203,16 @@ void simplPlacer::Impl::buildGrid(std::size_t perAxis) {
             continue;
         }
         smallestSite = std::min(smallestSite, row.getPitch() * row.height);
-        FreeSpace::Row r{.y0 = row.coordinate, .y1 = row.coordinate + row.height, .spans = {}};
+        FreeSpace::Row r{.y = Interval(row.coordinate, row.coordinate + row.height), .spans = {}};
         for (const Subrow &sub : row.subrows) {
-            r.spans.emplace_back(sub.xlo, sub.xhi);
+            r.spans.push_back(sub.x);
         }
         rows.push_back(std::move(r));
     }
     freeSpace.build(std::move(rows), obstacles);
     for (const FreeSpace::Row &row : freeSpace.rows) {
-        for (const auto &[lo, hi] : row.spans) {
-            grid.deposit(BBox(Point(lo, row.y0), Point(hi, row.y1)), 1.0);
+        for (const Interval &span : row.spans) {
+            grid.deposit(BBox(Point(span.start, row.y.start), Point(span.end, row.y.end)), 1.0);
         }
     }
     const double sliver =
@@ -232,10 +231,8 @@ void simplPlacer::Impl::seedUniform(std::vector<double> &x, std::vector<double> 
     x.resize(netlist.numMovable);
     y.resize(netlist.numMovable);
     for (std::size_t i = 0; i < netlist.numMovable; ++i) {
-        x[i] =
-            die.lowerLeft.x + unit() * std::max(die.upperRight.x - die.lowerLeft.x - width[i], 0.0);
-        y[i] = die.lowerLeft.y +
-               unit() * std::max(die.upperRight.y - die.lowerLeft.y - height[i], 0.0);
+        x[i] = die.lowerLeft.x + unit() * std::max(die.getWidth() - width[i], 0.0);
+        y[i] = die.lowerLeft.y + unit() * std::max(die.getHeight() - height[i], 0.0);
     }
 }
 
@@ -414,8 +411,8 @@ void simplPlacer::Impl::initialRounds(Positions &lower, NetModel model, InitialR
         ScopedTimer timer("simpl-init");
         const std::size_t size = getLinearSystems().buildStar();
         extended = lower;
-        extended.x.resize(size, 0.5 * (die.lowerLeft.x + die.upperRight.x));
-        extended.y.resize(size, 0.5 * (die.lowerLeft.y + die.upperRight.y));
+        extended.x.resize(size, die.getCenter().x);
+        extended.y.resize(size, die.getCenter().y);
     }
     for (std::size_t round = 0; round < opts.initMaxIters; ++round) {
         ScopedTimer timer("simpl-init");

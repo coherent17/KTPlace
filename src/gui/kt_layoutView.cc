@@ -122,8 +122,7 @@ public:
     }
 
     [[nodiscard]] QRectF getRectOf(const BBox &box) const {
-        return getRectOf(box.lowerLeft.x, box.lowerLeft.y, box.upperRight.x - box.lowerLeft.x,
-                         box.upperRight.y - box.lowerLeft.y);
+        return getRectOf(box.lowerLeft.x, box.lowerLeft.y, box.getWidth(), box.getHeight());
     }
 
     [[nodiscard]] QPointF getPinOnScreen(std::uint32_t pin) const {
@@ -236,10 +235,10 @@ void LayoutView::Impl::paintCongestion(QPainter &painter) const {
         return;
     }
     const DemandMap &map = *demand;
-    const QPointF topLeft =
-        view.getWorldToScreen({map.x0, map.y0 + static_cast<double>(map.ny) * map.binH});
-    const QPointF bottomRight =
-        view.getWorldToScreen({map.x0 + static_cast<double>(map.nx) * map.binW, map.y0});
+    const QPointF topLeft = view.getWorldToScreen(
+        {map.origin.x, map.origin.y + static_cast<double>(map.ny) * map.binH});
+    const QPointF bottomRight = view.getWorldToScreen(
+        {map.origin.x + static_cast<double>(map.nx) * map.binW, map.origin.y});
     painter.drawImage(QRectF(topLeft, bottomRight), heat);
 
     const std::size_t peakX = map.peakBin % map.nx;
@@ -253,8 +252,8 @@ void LayoutView::Impl::paintCongestion(QPainter &painter) const {
             .arg(map.nets),
         QStringLiteral("peak %1 nets/bin at (%2, %3)")
             .arg(map.peak, 0, 'f', 2)
-            .arg(map.x0 + (static_cast<double>(peakX) + 0.5) * map.binW, 0, 'f', 0)
-            .arg(map.y0 + (static_cast<double>(peakY) + 0.5) * map.binH, 0, 'f', 0),
+            .arg(map.origin.x + (static_cast<double>(peakX) + 0.5) * map.binW, 0, 'f', 0)
+            .arg(map.origin.y + (static_cast<double>(peakY) + 0.5) * map.binH, 0, 'f', 0),
         QStringLiteral("mean %1, 99th pct %2, %3% of bins over 2x mean")
             .arg(map.mean, 0, 'f', 2)
             .arg(map.p99, 0, 'f', 2)
@@ -550,9 +549,8 @@ void LayoutView::Impl::render() {
     if (style.isShown(DisplayLayer::Die)) {
         painter.setPen(QPen(style[DisplayLayer::Die].color, 0));
         painter.setBrush(Qt::NoBrush);
-        painter.drawRect(getRectOf(die.lowerLeft.x, die.lowerLeft.y,
-                                   die.upperRight.x - die.lowerLeft.x,
-                                   die.upperRight.y - die.lowerLeft.y));
+        painter.drawRect(
+            getRectOf(die.lowerLeft.x, die.lowerLeft.y, die.getWidth(), die.getHeight()));
     }
 }
 
@@ -734,8 +732,8 @@ void LayoutView::zoomFit() {
 void LayoutView::zoomTo(const BBox &area) {
     const double floor =
         pImpl->frame.isDrawable() ? minZoomCells * pImpl->frame.geometry->typicalWidth : 1e-9;
-    const double w = std::max(area.upperRight.x - area.lowerLeft.x, floor);
-    const double h = std::max(area.upperRight.y - area.lowerLeft.y, floor);
+    const double w = std::max(area.getWidth(), floor);
+    const double h = std::max(area.getHeight(), floor);
     pImpl->scale = std::min(width() / w, height() / h) * fitMargin;
     if (!(pImpl->scale > 0.0) || !std::isfinite(pImpl->scale)) {
         pImpl->scale = 1.0;

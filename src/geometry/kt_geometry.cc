@@ -4,6 +4,10 @@
 
 namespace ktplace {
 
+double Interval::getLength() const noexcept {
+    return end - start;
+}
+
 double Interval::getCenter() const noexcept {
     return 0.5 * (start + end);
 }

@@ -98,7 +98,7 @@ void collectRows(const std::vector<ktplace::RowInfo> &rows, Design &design) {
                      });
     design.maxRowH = 0.0;
     for (const BBox &r : design.rowRects) {
-        design.maxRowH = std::max(design.maxRowH, r.upperRight.y - r.lowerLeft.y);
+        design.maxRowH = std::max(design.maxRowH, r.getHeight());
     }
 }
 

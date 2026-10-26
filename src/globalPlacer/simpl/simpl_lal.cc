@@ -20,8 +20,7 @@ struct Block {
 };
 
 struct Stripe {
-    double lo = 0.0;
-    double hi = 0.0;
+    Interval span;
     double capacity = 0.0;
     double used = 0.0;
     std::vector<std::uint32_t> cells;
@@ -304,8 +303,7 @@ std::vector<Stripe> LookAheadLegalizer::getStripes(const BBox &box, bool vertica
 
     std::vector<Stripe> out;
     for (std::size_t s = 0; s + 1 < cuts.size(); ++s) {
-        out.push_back({.lo = cuts[s],
-                       .hi = cuts[s + 1],
+        out.push_back({.span = Interval(cuts[s], cuts[s + 1]),
                        .capacity = fill * room.getBetween(cuts[s], cuts[s + 1]),
                        .used = 0.0,
                        .cells = {}});
@@ -328,7 +326,7 @@ void LookAheadLegalizer::nonlinearScale(const std::vector<std::uint32_t> &cells,
         return belowCut ? cutline - c : c - cutline;
     };
     std::stable_sort(strips.begin(), strips.end(), [&](const Stripe &a, const Stripe &b) {
-        return fromCut(0.5 * (a.lo + a.hi)) > fromCut(0.5 * (b.lo + b.hi));
+        return fromCut(a.span.getCenter()) > fromCut(b.span.getCenter());
     });
 
     std::vector<std::uint32_t> order = cells;
@@ -357,8 +355,9 @@ void LookAheadLegalizer::nonlinearScale(const std::vector<std::uint32_t> &cells,
         for (const std::uint32_t i : strip.cells) {
             const double t = hi > lo ? (getCentre(pos, i, vertical) - lo) / (hi - lo) : 0.5;
             const double size = vertical ? width[i] : height[i];
-            const double c = strip.lo + t * (strip.hi - strip.lo);
-            pos[i] = std::clamp(c - 0.5 * size, strip.lo, std::max(strip.lo, strip.hi - size));
+            const double c = strip.span.start + t * (strip.span.getLength());
+            pos[i] = std::clamp(c - 0.5 * size, strip.span.start,
+                                std::max(strip.span.start, strip.span.end - size));
         }
     }
 }

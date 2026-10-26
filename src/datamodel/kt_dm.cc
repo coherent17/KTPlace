@@ -347,8 +347,8 @@ std::vector<ktDM::Defect> ktDM::getDefects() const {
         }
         const double meanArea = nv > 0 ? bin / std::max<std::size_t>(1, nv - nTall) : 0.0;
         double cell = meanArea > 0.0 ? std::sqrt(meanArea) : 1.0;
-        const double dieW = std::max(box.upperRight.x - box.lowerLeft.x, 1.0);
-        const double dieH = std::max(box.upperRight.y - box.lowerLeft.y, 1.0);
+        const double dieW = std::max(box.getWidth(), 1.0);
+        const double dieH = std::max(box.getHeight(), 1.0);
         // A few cells per bucket: enough that the map does not dominate, coarse
         // enough that a standard cell does not span many bins (which is what made
         // the original miss pairs).
@@ -526,14 +526,12 @@ std::vector<std::vector<RowPiece>> ktDM::getFencedSubrows() const {
         const double grid = row.getPitch() > 0.0 ? row.getPitch() : 1.0;
         std::vector<RowPiece> &pieces = out.emplace_back();
         for (const SubrowInfo &s : row.subrows) {
-            const double xlo = s.getXlo();
-            const double xhi = s.getXhi(row.getPitch());
-            if (!(xhi > xlo)) {
+            const Interval x(s.getXlo(), s.getXhi(row.getPitch()));
+            if (!(x.end > x.start)) {
                 continue;
             }
-            std::ranges::copy(splitRowByFences(xlo, xhi, row.coordinate,
-                                               row.coordinate + row.height, grid, rects),
-                              std::back_inserter(pieces));
+            const Interval band(row.coordinate, row.coordinate + row.height);
+            std::ranges::copy(splitRowByFences(x, band, grid, rects), std::back_inserter(pieces));
         }
     }
     return out;

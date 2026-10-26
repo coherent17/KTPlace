@@ -1,5 +1,6 @@
 #pragma once
 
+#include <compare>
 #include <limits>
 
 namespace ktplace {
@@ -22,9 +23,12 @@ struct Interval {
     constexpr explicit Interval(double startValue, double endValue) noexcept
         : start(startValue), end(endValue) {}
 
+    [[nodiscard]] double getLength() const noexcept;
     [[nodiscard]] double getCenter() const noexcept;
     [[nodiscard]] bool contains(double v, double tolerance = 0.0) const noexcept;
     [[nodiscard]] double getClamped(double v) const noexcept;
+
+    friend constexpr auto operator<=>(const Interval &, const Interval &) = default;
 };
 
 struct BBox {

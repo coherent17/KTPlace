@@ -35,8 +35,7 @@ struct NetPin {
 using Nets = PackedLists<NetPin>;
 
 struct Subrow {
-    double xlo = 0.0;
-    double xhi = 0.0;
+    Interval x;
     int region = noRegion;
 };
 

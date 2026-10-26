@@ -458,7 +458,7 @@ std::string getSci(double v) {
 }
 
 struct ViewPort {
-    double minX = 0.0, minY = 0.0, maxX = 1.0, maxY = 1.0;
+    Point lowerLeft;
     double sx = 1.0, sy = 1.0;  // units -> px
     double offsetX = 0.0;
     double margin = margin;  // px, scaled by the frame's zoom
@@ -492,8 +492,8 @@ ViewPort makeViewPort(const Graph &g, const std::vector<float> &x, const std::ve
     const double spanY = std::max(box.getHeight(), 1.0);
     const double sc = fitScale(spanX, spanY, zoom);
     ViewPort vp;
-    vp.minX = box.lowerLeft.x - 0.01 * spanX;
-    vp.minY = box.lowerLeft.y - 0.01 * spanY;
+    vp.lowerLeft.x = box.lowerLeft.x - 0.01 * spanX;
+    vp.lowerLeft.y = box.lowerLeft.y - 0.01 * spanY;
     vp.sx = sc;
     vp.sy = sc;
     vp.margin = zoom * margin;
@@ -507,8 +507,8 @@ ViewPort getDieViewPort(const BBox &dieBox, double zoom) {
     const double spanX = std::max(dieBox.getWidth(), 1.0);
     const double spanY = std::max(dieBox.getHeight(), 1.0);
     const double sc = fitScale(spanX, spanY, zoom);
-    vp.minX = dieBox.lowerLeft.x - 0.01 * spanX;
-    vp.minY = dieBox.lowerLeft.y - 0.01 * spanY;
+    vp.lowerLeft.x = dieBox.lowerLeft.x - 0.01 * spanX;
+    vp.lowerLeft.y = dieBox.lowerLeft.y - 0.01 * spanY;
     vp.sx = sc;
     vp.sy = sc;
     vp.margin = zoom * margin;
@@ -517,11 +517,11 @@ ViewPort getDieViewPort(const BBox &dieBox, double zoom) {
 }
 
 double toPxX(const ViewPort &vp, double v) {
-    return vp.margin + vp.offsetX + (v - vp.minX) * vp.sx;
+    return vp.margin + vp.offsetX + (v - vp.lowerLeft.x) * vp.sx;
 }
 double toPxY(const ViewPort &vp, double v) {
     // Offset by the header so the die starts below the caption instead of under it.
-    return vp.height - vp.margin - (v - vp.minY) * vp.sy;
+    return vp.height - vp.margin - (v - vp.lowerLeft.y) * vp.sy;
 }
 
 // ---------------------------------------------------------------------------
@@ -1008,7 +1008,7 @@ CImg<unsigned char> renderFrameCImg(const Graph &g, const std::vector<float> &x,
     const std::size_t nv = g.getNumCells();
     ViewPort vp = fixedView ? getDieViewPort(dieBox, zoom) : makeViewPort(g, x, y, dieBox, zoom);
     if (fixedView) {
-        const double drawn = 1.02 * std::max(dieBox.upperRight.x - dieBox.lowerLeft.x, 1.0) * vp.sx;
+        const double drawn = 1.02 * std::max(dieBox.getWidth(), 1.0) * vp.sx;
         vp.offsetX = std::max(0.0, 0.5 * (zoom * imageW - 2.0 * vp.margin - drawn));
     }
 
@@ -1265,7 +1265,7 @@ CImg<unsigned char> renderDemandCImg(const Graph &g, const std::vector<float> &x
                                      GifPalette &pal, double zoom, std::size_t bins) {
     zoom = std::max(zoom, 1.0);
     ViewPort vp = getDieViewPort(dieBox, zoom);
-    const double drawn = 1.02 * std::max(dieBox.upperRight.x - dieBox.lowerLeft.x, 1.0) * vp.sx;
+    const double drawn = 1.02 * std::max(dieBox.getWidth(), 1.0) * vp.sx;
     vp.offsetX = std::max(0.0, 0.5 * (zoom * imageW - 2.0 * vp.margin - drawn));
     const int imgW = static_cast<int>(std::lround(zoom * imageW));
     const int imgH = static_cast<int>(std::lround(zoom * imageH));
@@ -1285,13 +1285,13 @@ CImg<unsigned char> renderDemandCImg(const Graph &g, const std::vector<float> &x
             pal.getPtr(blendOnBg(Rgb24{.r = c[0], .g = c[1], .b = c[2]}, c[3] / 255.0)), c[3] > 0);
     };
     for (std::size_t iy = 0; iy < map.ny; ++iy) {
-        const double y0 = map.y0 + static_cast<double>(iy) * map.binH;
+        const double y0 = map.origin.y + static_cast<double>(iy) * map.binH;
         for (std::size_t ix = 0; ix < map.nx; ++ix) {
             const auto [colour, visible] = heat(map.at(ix, iy) / top);
             if (!visible) {
                 continue;
             }
-            const double x0 = map.x0 + static_cast<double>(ix) * map.binW;
+            const double x0 = map.origin.x + static_cast<double>(ix) * map.binW;
             fillRectAA(img, toPxX(vp, x0), toPxY(vp, y0 + map.binH), toPxX(vp, x0 + map.binW),
                        toPxY(vp, y0), colour, 1.0);
         }
@@ -1657,10 +1657,10 @@ void writeFrameSvg(const std::string &path, const Graph &g, const std::vector<fl
     double vbX = 0.0, vbY = 0.0, vbW = imageW, vbH = imageH;
     int prec = 1;
     if (worldUnits) {
-        const double spanX = dieBox.upperRight.x - dieBox.lowerLeft.x;
-        const double spanY = dieBox.upperRight.y - dieBox.lowerLeft.y;
-        vp.minX = dieBox.lowerLeft.x;
-        vp.minY = dieBox.lowerLeft.y;
+        const double spanX = dieBox.getWidth();
+        const double spanY = dieBox.getHeight();
+        vp.lowerLeft.x = dieBox.lowerLeft.x;
+        vp.lowerLeft.y = dieBox.lowerLeft.y;
         vp.sx = 1.0;
         vp.sy = 1.0;
         vp.margin = 0.0;
@@ -1700,8 +1700,8 @@ void writeFrameSvg(const std::string &path, const Graph &g, const std::vector<fl
     // Die (fixed-pad) frame.
     out << "<rect x=\"" << getFmt(toPxX(vp, dieBox.lowerLeft.x), prec) << "\" y=\""
         << getFmt(toPxY(vp, dieBox.upperRight.y), prec) << "\" width=\""
-        << getFmt((dieBox.upperRight.x - dieBox.lowerLeft.x) * vp.sx) << "\" height=\""
-        << getFmt((dieBox.upperRight.y - dieBox.lowerLeft.y) * vp.sy)
+        << getFmt((dieBox.getWidth()) * vp.sx) << "\" height=\""
+        << getFmt((dieBox.getHeight()) * vp.sy)
         << "\" fill=\"none\" stroke=\"#bdbdbd\" stroke-width=\"1\"/>\n";
 
     // The rows, under the cells, as in the raster frame. Recovered from the cells
@@ -1734,8 +1734,8 @@ void writeFrameSvg(const std::string &path, const Graph &g, const std::vector<fl
             for (const BBox &r : reg.rects) {
                 out << "<rect x=\"" << getFmt(toPxX(vp, r.lowerLeft.x), prec) << "\" y=\""
                     << getFmt(toPxY(vp, r.upperRight.y), prec) << "\" width=\""
-                    << getFmt((r.upperRight.x - r.lowerLeft.x) * vp.sx) << "\" height=\""
-                    << getFmt((r.upperRight.y - r.lowerLeft.y) * vp.sy) << "\" fill=\"" << color
+                    << getFmt((r.getWidth()) * vp.sx) << "\" height=\""
+                    << getFmt((r.getHeight()) * vp.sy) << "\" fill=\"" << color
                     << R"(" fill-opacity="0.13" stroke=")" << color
                     << "\" stroke-width=\"1.5\" stroke-opacity=\"0.9\"/>\n";
             }

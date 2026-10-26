@@ -290,17 +290,17 @@ BOOST_AUTO_TEST_SUITE(row_fences)
 BOOST_AUTO_TEST_CASE(a_fence_covering_the_row_becomes_member_space) {
     // Row [0,100) x [0,10); fence 0 covers x 20..50 over the whole band.
     const std::vector<RowPiece> p = splitRowByFences(
-        0.0, 100.0, 0.0, 10.0, 1.0,
+        Interval(0.0, 100.0), Interval(0.0, 10.0), 1.0,
         {FenceRect{.box = BBox(Point(20.0, 0.0), Point(50.0, 10.0)), .region = 0}});
     BOOST_TEST_REQUIRE(p.size() == 3u);
-    BOOST_TEST(p[0].xlo == 0.0);
-    BOOST_TEST(p[0].xhi == 20.0);
+    BOOST_TEST(p[0].x.start == 0.0);
+    BOOST_TEST(p[0].x.end == 20.0);
     BOOST_TEST(p[0].region == openSpace);
-    BOOST_TEST(p[1].xlo == 20.0);
-    BOOST_TEST(p[1].xhi == 50.0);
+    BOOST_TEST(p[1].x.start == 20.0);
+    BOOST_TEST(p[1].x.end == 50.0);
     BOOST_TEST(p[1].region == 0);
-    BOOST_TEST(p[2].xlo == 50.0);
-    BOOST_TEST(p[2].xhi == 100.0);
+    BOOST_TEST(p[2].x.start == 50.0);
+    BOOST_TEST(p[2].x.end == 100.0);
     BOOST_TEST(p[2].region == openSpace);
 }
 
@@ -308,11 +308,11 @@ BOOST_AUTO_TEST_CASE(a_fence_reaching_partly_into_the_row_blocks_it_for_everyone
     // Covers only the top half of the band: a member would stick out, any other
     // cell would sit inside it, so the stretch is dropped.
     const std::vector<RowPiece> p = splitRowByFences(
-        0.0, 100.0, 0.0, 10.0, 1.0,
+        Interval(0.0, 100.0), Interval(0.0, 10.0), 1.0,
         {FenceRect{.box = BBox(Point(60.0, 5.0), Point(70.0, 20.0)), .region = 0}});
     BOOST_TEST_REQUIRE(p.size() == 2u);
-    BOOST_TEST(p[0].xhi == 60.0);
-    BOOST_TEST(p[1].xlo == 70.0);
+    BOOST_TEST(p[0].x.end == 60.0);
+    BOOST_TEST(p[1].x.start == 70.0);
     BOOST_TEST(p[0].region == openSpace);
     BOOST_TEST(p[1].region == openSpace);
 }
@@ -322,33 +322,33 @@ BOOST_AUTO_TEST_CASE(fence_edges_off_the_site_grid_are_snapped_inward) {
     // [21,49] and the open pieces stop at 20 and resume at 50, so no cell can sit
     // across the boundary.
     const std::vector<RowPiece> p = splitRowByFences(
-        0.0, 100.0, 0.0, 10.0, 1.0,
+        Interval(0.0, 100.0), Interval(0.0, 10.0), 1.0,
         {FenceRect{.box = BBox(Point(20.5, 0.0), Point(49.5, 10.0)), .region = 3}});
     BOOST_TEST_REQUIRE(p.size() == 3u);
-    BOOST_TEST(p[0].xhi == 20.0);
-    BOOST_TEST(p[1].xlo == 21.0);
-    BOOST_TEST(p[1].xhi == 49.0);
+    BOOST_TEST(p[0].x.end == 20.0);
+    BOOST_TEST(p[1].x.start == 21.0);
+    BOOST_TEST(p[1].x.end == 49.0);
     BOOST_TEST(p[1].region == 3);
-    BOOST_TEST(p[2].xlo == 50.0);
+    BOOST_TEST(p[2].x.start == 50.0);
 }
 
 BOOST_AUTO_TEST_CASE(adjacent_rectangles_of_one_region_merge_and_rows_without_fences_pass_through) {
     // An L-shaped region as two touching rectangles is one stretch of member space.
     const std::vector<RowPiece> p = splitRowByFences(
-        0.0, 100.0, 0.0, 10.0, 1.0,
+        Interval(0.0, 100.0), Interval(0.0, 10.0), 1.0,
         {FenceRect{.box = BBox(Point(10.0, 0.0), Point(30.0, 10.0)), .region = 1},
          FenceRect{.box = BBox(Point(30.0, 0.0), Point(40.0, 50.0)), .region = 1}});
     BOOST_TEST_REQUIRE(p.size() == 3u);
-    BOOST_TEST(p[1].xlo == 10.0);
-    BOOST_TEST(p[1].xhi == 40.0);
+    BOOST_TEST(p[1].x.start == 10.0);
+    BOOST_TEST(p[1].x.end == 40.0);
     BOOST_TEST(p[1].region == 1);
     // A row the fences do not reach is returned whole.
     const std::vector<RowPiece> q = splitRowByFences(
-        0.0, 100.0, 200.0, 210.0, 1.0,
+        Interval(0.0, 100.0), Interval(200.0, 210.0), 1.0,
         {FenceRect{.box = BBox(Point(10.0, 0.0), Point(30.0, 10.0)), .region = 1}});
     BOOST_TEST_REQUIRE(q.size() == 1u);
-    BOOST_TEST(q[0].xlo == 0.0);
-    BOOST_TEST(q[0].xhi == 100.0);
+    BOOST_TEST(q[0].x.start == 0.0);
+    BOOST_TEST(q[0].x.end == 100.0);
     BOOST_TEST(q[0].region == openSpace);
 }
 
@@ -367,8 +367,8 @@ BOOST_AUTO_TEST_CASE(fenced_subrows_label_each_piece_with_its_region) {
     BOOST_TEST_REQUIRE(rows.size() == 1u);
     BOOST_TEST_REQUIRE(rows[0].size() == 3u);
     BOOST_TEST(rows[0][0].region == openSpace);
-    BOOST_TEST(rows[0][1].xlo == 20.0);
-    BOOST_TEST(rows[0][1].xhi == 50.0);
+    BOOST_TEST(rows[0][1].x.start == 20.0);
+    BOOST_TEST(rows[0][1].x.end == 50.0);
     BOOST_TEST(rows[0][1].region == id);
     BOOST_TEST(rows[0][2].region == openSpace);
 }
