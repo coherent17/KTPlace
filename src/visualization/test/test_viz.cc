@@ -1229,9 +1229,9 @@ std::map<std::string, std::string> getFilesUnder(const std::filesystem::path &ro
 
 /// One short run's snapshots, made on either a Visualizer or a SnapshotWriter.
 template <class Sink>
-void getSampleRun(Sink &&frameTo, const std::function<void(StageVisual)> &beginStage,
-                  const std::function<void(std::size_t)> &holdBack,
-                  const std::function<void(std::span<const BoundsSample>)> &bounds) {
+void recordSampleRun(Sink &&frameTo, const std::function<void(StageVisual)> &beginStage,
+                     const std::function<void(std::size_t)> &holdBack,
+                     const std::function<void(std::span<const BoundsSample>)> &bounds) {
     const Graph g = getSampleGraph();
     std::vector<float> x = getSampleX(g);
     const std::vector<float> y = getSampleY(g);
@@ -1259,7 +1259,7 @@ BOOST_AUTO_TEST_CASE(replayed_snapshots_draw_the_files_drawing_directly_does) {
     freshAnimator();
     const ScratchDir direct("snapdirect");
     viz.configure(direct.getStr(), opts);
-    getSampleRun(
+    recordSampleRun(
         [&](const auto &x, const auto &y, const VisualFrame &f) {
             viz.frame(g, x, y, die, nullptr, f);
         },
@@ -1280,7 +1280,7 @@ BOOST_AUTO_TEST_CASE(replayed_snapshots_draw_the_files_drawing_directly_does) {
     const std::string path = replayed.getFile("snapshots.ktsnap").string();
     {
         SnapshotWriter snapshots(path);
-        getSampleRun(
+        recordSampleRun(
             [&](const auto &x, const auto &y, const VisualFrame &f) {
                 snapshots.frame(x, y, die, false, f);
             },

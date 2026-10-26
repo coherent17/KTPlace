@@ -1,8 +1,6 @@
 #pragma once
 
-#include <format>
 #include <string>
-#include <utility>
 #include <vector>
 
 namespace ktplace {
@@ -14,11 +12,6 @@ public:
     void setHeaders(std::vector<std::string> headers);
 
     void addRow(std::vector<std::string> cells);
-
-    template <typename... Args>
-    void getRow(std::format_string<Args...> fmtStr, Args &&...args) {
-        addRow({std::format(fmtStr, std::forward<Args>(args)...)});
-    }
 
     void add(std::string key, std::string value);
 

@@ -48,7 +48,7 @@ public:
         return true;
     }
 
-    void raw(void *p, std::size_t n) {
+    void read(void *p, std::size_t n) {
         auto *bytes = static_cast<unsigned char *>(p);
         while (n > 0) {
             const auto want = static_cast<unsigned>(std::min(n, chunkSize));
@@ -65,24 +65,24 @@ public:
     T get() {
         static_assert(std::is_trivially_copyable_v<T>);
         T v;
-        raw(&v, sizeof v);
+        read(&v, sizeof v);
         return v;
     }
 
-    std::size_t size() {
+    std::size_t getSize() {
         return static_cast<std::size_t>(get<std::uint64_t>());
     }
 
-    std::string getStr() {
+    std::string getString() {
         std::string s(get<std::uint32_t>(), '\0');
-        raw(s.data(), s.size());
+        read(s.data(), s.size());
         return s;
     }
 
     template <class T>
     std::vector<T> getVec() {
-        std::vector<T> v(size());
-        raw(v.data(), v.size() * sizeof(T));
+        std::vector<T> v(getSize());
+        read(v.data(), v.size() * sizeof(T));
         return v;
     }
 
@@ -116,7 +116,7 @@ public:
         f = nullptr;
     }
 
-    void raw(const void *p, std::size_t n) {
+    void write(const void *p, std::size_t n) {
         const auto *bytes = static_cast<const unsigned char *>(p);
         while (n > 0) {
             const auto len = static_cast<unsigned>(std::min(n, chunkSize));
@@ -131,22 +131,22 @@ public:
     template <class T>
     void put(T v) {
         static_assert(std::is_trivially_copyable_v<T>);
-        raw(&v, sizeof v);
+        write(&v, sizeof v);
     }
 
-    void size(std::size_t n) {
+    void putSize(std::size_t n) {
         put<std::uint64_t>(n);
     }
 
-    void str(std::string_view s) {
+    void putString(std::string_view s) {
         put<std::uint32_t>(static_cast<std::uint32_t>(s.size()));
-        raw(s.data(), s.size());
+        write(s.data(), s.size());
     }
 
     template <class T>
-    void getVec(std::span<const T> v) {
-        size(v.size());
-        raw(v.data(), v.size_bytes());
+    void putVec(std::span<const T> v) {
+        putSize(v.size());
+        write(v.data(), v.size_bytes());
     }
 
 private:
@@ -165,9 +165,9 @@ void SnapshotWriter::close() {
 
 void SnapshotWriter::beginStage(const StageVisual &stage) {
     out->put(Tag::Stage);
-    out->str(stage.stage);
-    out->str(stage.subdir);
-    out->size(stage.cadence);
+    out->putString(stage.stage);
+    out->putString(stage.subdir);
+    out->putSize(stage.cadence);
 }
 
 void SnapshotWriter::frame(const std::vector<float> &x, const std::vector<float> &y,
@@ -175,17 +175,17 @@ void SnapshotWriter::frame(const std::vector<float> &x, const std::vector<float>
                            const VisualFrame &what) {
     out->put(Tag::Frame);
     out->put<std::uint8_t>(withFences ? 1 : 0);
-    out->getVec<double>(die);
-    out->str(what.series);
-    out->size(what.step);
-    out->size(what.numSteps);
-    out->str(what.note);
+    out->putVec<double>(die);
+    out->putString(what.series);
+    out->putSize(what.step);
+    out->putSize(what.numSteps);
+    out->putString(what.note);
     out->put<double>(what.hpwl);
     out->put<double>(what.hpwlInitial);
     out->put<double>(what.overflow);
     out->put<std::uint8_t>(what.mandatory ? 1 : 0);
-    out->getVec<float>(x);
-    out->getVec<float>(y);
+    out->putVec<float>(x);
+    out->putVec<float>(y);
     ++frames;
 }
 
@@ -193,14 +193,14 @@ void SnapshotWriter::boundsCurve(std::string_view name, std::string_view title,
                                  std::span<const BoundsSample> curve) {
     static_assert(sizeof(BoundsSample) == 2 * sizeof(double));
     out->put(Tag::Bounds);
-    out->str(name);
-    out->str(title);
-    out->getVec(curve);
+    out->putString(name);
+    out->putString(title);
+    out->putVec(curve);
 }
 
 void SnapshotWriter::holdBack(std::size_t n) {
     out->put(Tag::HoldBack);
-    out->size(n);
+    out->putSize(n);
 }
 
 std::size_t replaySnapshots(const std::string &path, Visualizer &viz, const Graph &graph,
@@ -212,9 +212,9 @@ std::size_t replaySnapshots(const std::string &path, Visualizer &viz, const Grap
         switch (static_cast<Tag>(t)) {
             case Tag::Stage: {
                 StageVisual stage;
-                stage.stage = in.getStr();
-                stage.subdir = in.getStr();
-                stage.cadence = in.size();
+                stage.stage = in.getString();
+                stage.subdir = in.getString();
+                stage.cadence = in.getSize();
                 viz.beginStage(std::move(stage));
                 break;
             }
@@ -225,10 +225,10 @@ std::size_t replaySnapshots(const std::string &path, Visualizer &viz, const Grap
                     ktlog.fatal("snapshot file {}: a frame's die is not a box", path);
                 }
                 VisualFrame what;
-                what.series = in.getStr();
-                what.step = in.size();
-                what.numSteps = in.size();
-                what.note = in.getStr();
+                what.series = in.getString();
+                what.step = in.getSize();
+                what.numSteps = in.getSize();
+                what.note = in.getString();
                 what.hpwl = in.get<double>();
                 what.hpwlInitial = in.get<double>();
                 what.overflow = in.get<double>();
@@ -241,13 +241,13 @@ std::size_t replaySnapshots(const std::string &path, Visualizer &viz, const Grap
                 break;
             }
             case Tag::Bounds: {
-                const std::string name = in.getStr();
-                const std::string title = in.getStr();
+                const std::string name = in.getString();
+                const std::string title = in.getString();
                 viz.boundsCurve(name, title, in.getVec<BoundsSample>());
                 break;
             }
             case Tag::HoldBack:
-                viz.holdBack(in.size());
+                viz.holdBack(in.getSize());
                 break;
             default:
                 ktlog.fatal("snapshot file {}: unknown record '{}'", path, static_cast<char>(t));
