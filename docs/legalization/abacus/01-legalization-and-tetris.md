@@ -53,6 +53,12 @@ Paper Figure 1 shows seven cells: Tetris moves cells 1, 2 and 3 a little and cel
 7 a lot, for a total movement of 3.752. Abacus legalizes the same placement with a total
 of 2.915, by letting cells 1, 2 and 3 move a bit further so that 4 to 7 do not have to.
 
+
+<figure class="kt-figure" markdown="span">
+  [![Tetris versus Abacus](images/tetris-vs-abacus.svg)](images/tetris-vs-abacus.svg)
+  <figcaption>The same effect on the five cells of the worked row in chapter 3: Tetris (sites at integers) leaves the early cells alone and pushes the late ones far; Abacus shifts everyone a little.</figcaption>
+</figure>
+
 ```mermaid
 flowchart LR
     gp["global placement<br/>overlapping, between rows"]:::io --> sort["sort by x"]:::stage
@@ -119,6 +125,12 @@ change. As soon as that lower bound is larger than the best cost found so far, e
 row further out in that direction is worse too, and the search in that direction
 stops. In practice only a few rows are tried per cell, which "improves the CPU time of
 legalization drastically".
+
+
+<figure class="kt-figure" markdown="span">
+  [![Row search order](images/row-search.svg)](images/row-search.svg)
+  <figcaption>Rows are tried nearest first, then alternately above and below; a direction stops once the vertical distance alone exceeds the best cost.</figcaption>
+</figure>
 
 **Both sort directions.** The cells can be sorted by increasing x (inserting each at
 the right end of a row) or by decreasing x (inserting at the left end). The two give

@@ -76,6 +76,12 @@ would cost $2^2+5^2+10^2+3^2+8^2+5^2 = 227$: nothing like 10.
 The x and y graphs are built separately ($G_x$ and $G_y$): which pins are the
 bounds, and the lengths, differ in each direction.
 
+
+<figure class="kt-figure" markdown="span">
+  [![Clique, star and Bound2Bound](images/net-models.svg)](images/net-models.svg)
+  <figcaption>The 4-pin example net (x = 0, 2, 5, 10) under the three net models of §5.4.</figcaption>
+</figure>
+
 ### 5.4 B2B versus star and clique
 
 - **Clique**: an edge between every pair of pins, weight independent of placement.

@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 656 298" width="656" height="298" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" role="img" aria-label="A block of abutting cells is placed at the average of their wishes">
+<title>A block of abutting cells is placed at the average of their wishes</title>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#4f46e5"/></marker><marker id="arrowred" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#dc2626"/></marker></defs>
+<rect x="0.5" y="0.5" width="655" height="297" rx="12" fill="#ffffff" stroke="#c7d2fe"/>
+<text x="20.0" y="26.0" font-size="13" fill="#1e1b4b" text-anchor="start" font-weight="bold">Three abutting cells: the block's left end is the average of the cells' wishes</text>
+<rect x="232.0" y="44.0" width="128.0" height="14.0" rx="3" fill="none" stroke="#94a3b8" stroke-width="1" stroke-dasharray="4 3" opacity="1.0"/>
+<rect x="296.0" y="56.0" width="128.0" height="14.0" rx="3" fill="none" stroke="#94a3b8" stroke-width="1" stroke-dasharray="4 3" opacity="1.0"/>
+<rect x="360.0" y="68.0" width="128.0" height="14.0" rx="3" fill="none" stroke="#94a3b8" stroke-width="1" stroke-dasharray="4 3" opacity="1.0"/>
+<line x1="296.0" y1="58.0" x2="232.0" y2="98.0" stroke="#4f46e5" stroke-width="1.5" marker-end="url(#arrow)"/>
+<rect x="168.0" y="100.0" width="128.0" height="32.0" rx="4" fill="#dbeafe" stroke="#2563eb" stroke-width="1.5" opacity="1.0"/>
+<text x="232.0" y="121.0" font-size="12" fill="#1e1b4b" text-anchor="middle" font-weight="bold">cell 1</text>
+<text x="232.0" y="148.0" font-size="11" fill="#4f46e5" text-anchor="middle" font-weight="normal">moves −1</text>
+<rect x="296.0" y="100.0" width="128.0" height="32.0" rx="4" fill="#dbeafe" stroke="#2563eb" stroke-width="1.5" opacity="1.0"/>
+<text x="360.0" y="121.0" font-size="12" fill="#1e1b4b" text-anchor="middle" font-weight="bold">cell 2</text>
+<text x="360.0" y="148.0" font-size="11" fill="#4f46e5" text-anchor="middle" font-weight="normal">moves 0</text>
+<line x1="424.0" y1="82.0" x2="488.0" y2="98.0" stroke="#4f46e5" stroke-width="1.5" marker-end="url(#arrow)"/>
+<rect x="424.0" y="100.0" width="128.0" height="32.0" rx="4" fill="#dbeafe" stroke="#2563eb" stroke-width="1.5" opacity="1.0"/>
+<text x="488.0" y="121.0" font-size="12" fill="#1e1b4b" text-anchor="middle" font-weight="bold">cell 3</text>
+<text x="488.0" y="148.0" font-size="11" fill="#4f46e5" text-anchor="middle" font-weight="normal">moves +1</text>
+<text x="20.0" y="182.0" font-size="12" fill="#64748b" text-anchor="start" font-weight="normal">where each cell wants the block's left end:  x′ − (width of the cells to its left)</text>
+<line x1="40.0" y1="212.0" x2="616.0" y2="212.0" stroke="#94a3b8" stroke-width="1"/>
+<line x1="40.0" y1="212.0" x2="40.0" y2="216.0" stroke="#94a3b8" stroke-width="1"/>
+<text x="40.0" y="229.0" font-size="11" fill="#64748b" text-anchor="middle" font-weight="normal">−3</text>
+<line x1="104.0" y1="212.0" x2="104.0" y2="216.0" stroke="#94a3b8" stroke-width="1"/>
+<text x="104.0" y="229.0" font-size="11" fill="#64748b" text-anchor="middle" font-weight="normal">−2</text>
+<line x1="168.0" y1="212.0" x2="168.0" y2="216.0" stroke="#94a3b8" stroke-width="1"/>
+<text x="168.0" y="229.0" font-size="11" fill="#64748b" text-anchor="middle" font-weight="normal">−1</text>
+<line x1="232.0" y1="212.0" x2="232.0" y2="216.0" stroke="#94a3b8" stroke-width="1"/>
+<text x="232.0" y="229.0" font-size="11" fill="#64748b" text-anchor="middle" font-weight="normal">0</text>
+<line x1="296.0" y1="212.0" x2="296.0" y2="216.0" stroke="#94a3b8" stroke-width="1"/>
+<text x="296.0" y="229.0" font-size="11" fill="#64748b" text-anchor="middle" font-weight="normal">1</text>
+<line x1="360.0" y1="212.0" x2="360.0" y2="216.0" stroke="#94a3b8" stroke-width="1"/>
+<text x="360.0" y="229.0" font-size="11" fill="#64748b" text-anchor="middle" font-weight="normal">2</text>
+<line x1="424.0" y1="212.0" x2="424.0" y2="216.0" stroke="#94a3b8" stroke-width="1"/>
+<text x="424.0" y="229.0" font-size="11" fill="#64748b" text-anchor="middle" font-weight="normal">3</text>
+<line x1="488.0" y1="212.0" x2="488.0" y2="216.0" stroke="#94a3b8" stroke-width="1"/>
+<text x="488.0" y="229.0" font-size="11" fill="#64748b" text-anchor="middle" font-weight="normal">4</text>
+<line x1="552.0" y1="212.0" x2="552.0" y2="216.0" stroke="#94a3b8" stroke-width="1"/>
+<text x="552.0" y="229.0" font-size="11" fill="#64748b" text-anchor="middle" font-weight="normal">5</text>
+<line x1="616.0" y1="212.0" x2="616.0" y2="216.0" stroke="#94a3b8" stroke-width="1"/>
+<text x="616.0" y="229.0" font-size="11" fill="#64748b" text-anchor="middle" font-weight="normal">6</text>
+<circle cx="232.0" cy="212.0" r="6" fill="#2563eb"/>
+<text x="232.0" y="246.0" font-size="11" fill="#2563eb" text-anchor="middle" font-weight="normal">cell 1: 0 − 0</text>
+<circle cx="168.0" cy="212.0" r="6" fill="#2563eb"/>
+<text x="168.0" y="261.0" font-size="11" fill="#2563eb" text-anchor="middle" font-weight="normal">cell 2: 1 − 2</text>
+<circle cx="104.0" cy="212.0" r="6" fill="#2563eb"/>
+<text x="104.0" y="276.0" font-size="11" fill="#2563eb" text-anchor="middle" font-weight="normal">cell 3: 2 − 4</text>
+<circle cx="168.0" cy="212.0" r="9" fill="none" stroke="#db2777" stroke-width="2.5"/>
+<text x="334.4" y="246.0" font-size="12" fill="#db2777" text-anchor="start" font-weight="bold">average of the three wishes</text>
+<text x="334.4" y="264.0" font-size="13" fill="#db2777" text-anchor="start" font-weight="bold">= q_c / e_c = −3 / 3 = −1</text>
+</svg>

@@ -65,6 +65,12 @@ $$
 As α grows the cell moves smoothly from where the wire wants it (0) to where the
 legalizer put it (10). That is the force-modulation problem solved by a schedule.
 
+
+<figure class="kt-figure" markdown="span">
+  [![Anchor strength](images/anchors.svg)](images/anchors.svg)
+  <figcaption>The one-cell example: as α grows, the cell slides from where its wire wants it (0) to its anchor (10).</figcaption>
+</figure>
+
 ### 3.3 α as a Lagrange multiplier
 
 A **Lagrange multiplier** is the price you pay per unit of violating a constraint.

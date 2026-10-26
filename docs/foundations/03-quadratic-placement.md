@@ -180,6 +180,12 @@ $$
 
 which is the paper's $\vec x = [1.4762\ \ 1.9524\ \ 2.4286\ \ 3.1429]^T$.
 
+
+<figure class="kt-figure" markdown="span">
+  [![The worked example as springs](images/springs.svg)](images/springs.svg)
+  <figcaption>The solution of Eq. 4 drawn on the x-axis: every movable cell sits between the cells its springs pull it towards, closer to the stiffer ones.</figcaption>
+</figure>
+
 ### 3.6 Every cell sits at the weighted average of its neighbours
 
 Rearrange row 2: $x_2 = \frac{1\cdot x_1 + 1\cdot x_3}{1 + 1}$. Rearrange row 1:
@@ -237,6 +243,12 @@ cells. The more surplus, the "rounder" the bowl and the faster the solvers of
 > $Q\vec x = \vec b$ pulls almost all cells into a dense clump near the middle of the
 > chip. Wirelength is wonderful; overlap is enormous. Every quadratic placer must add
 > something that **spreads** cells out.
+
+
+<figure class="kt-figure" markdown="span">
+  [![Quadratic placement collapses](images/collapse.svg)](images/collapse.svg)
+  <figcaption>Without spreading, the pads hold the border and everything else is pulled into a clump in the middle.</figcaption>
+</figure>
 
 The two classic questions (paper §3) are:
 

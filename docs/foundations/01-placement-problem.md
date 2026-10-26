@@ -38,6 +38,12 @@ Placement is done in three stages:
 2. **Legalization**: snap every cell into a legal row position with no overlap.
 3. **Detailed placement**: small local improvements (swaps, shifts).
 
+
+<figure class="kt-figure" markdown="span">
+  [![The three placement stages](images/placement-stages.svg)](images/placement-stages.svg)
+  <figcaption>Global placement spreads cells roughly; legalization snaps them into rows without overlap; detailed placement makes local moves that shorten wires.</figcaption>
+</figure>
+
 SimPL is a global placer. For stages 2 and 3 the authors use an existing tool
 (FastPlace-DP).
 
@@ -67,6 +73,12 @@ $|x_1 - x_2| + |y_1 - y_2|$: the distance you walk on a city grid. Equation 1
 generalizes it to many pins. HPWL is cheap to compute and is a surprisingly good
 predictor of the final routed length, which is why every placement benchmark
 reports it.
+
+
+<figure class="kt-figure" markdown="span">
+  [![HPWL of a three-pin net](images/hpwl.svg)](images/hpwl.svg)
+  <figcaption>The example net: its bounding box is 3 wide and 4 tall, so HPWL = 7.</figcaption>
+</figure>
 
 > [!WARNING]
 > **The difficulty.** HPWL is built from `max`, `min` and absolute values. These

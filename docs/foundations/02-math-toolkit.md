@@ -255,6 +255,12 @@ and there is no single answer. The paper calls this **degenerate**. Physically: 
 cells tied to each other but to nothing fixed can slide anywhere together. That is
 why every group of cells must be wired, directly or indirectly, to something fixed.
 
+
+<figure class="kt-figure" markdown="span">
+  [![A bowl and a trough](images/bowl-and-trough.svg)](images/bowl-and-trough.svg)
+  <figcaption>Contour lines of the two example costs. With the fixed pin the cost is a bowl with one bottom at (1, 1), and the negative gradient points downhill towards it; without it, the whole line x₁ = x₂ is a minimum.</figcaption>
+</figure>
+
 **The name for "nice bowl".** For costs of the form $\tfrac12\vec x^TQ\vec x - \vec b^T\vec x$,
 the bowl curves upward in every direction exactly when $\vec x^TQ\vec x > 0$ for
 every list $\vec x$ that is not all zeros. A symmetric table with that property is
