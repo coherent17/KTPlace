@@ -14,7 +14,7 @@ struct Ntuplace1Options {
 
     std::size_t targetLeafCells = 100;
     std::size_t maxLevels = 32;
-    std::size_t maxRatioRetries = 4;
+    std::size_t maxRatioRetries = 16;
     bool verbose = false;
 
     static void fields(auto &self, auto &&visit) {
