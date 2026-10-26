@@ -89,6 +89,12 @@ exactly on its global position. The optimal left end is the **weighted average**
 those wishes. With all weights equal, the cells' displacements cancel out on average:
 some move left, some move right, and the mean movement is zero.
 
+
+<figure class="kt-figure" markdown="span">
+  [![Abutting block](images/abutting-block.svg)](images/abutting-block.svg)
+  <figcaption>The worked block below: each cell's wish for the block's left end, and their average, −1.</figcaption>
+</figure>
+
 ### 2.4 Computing $e_c$, $q_c$ and $w_c$ one cell at a time
 
 The sums in (5) can be built while walking the row from left to right (paper Table 2).
