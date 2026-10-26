@@ -3,12 +3,12 @@
 
 #include "adaptor/lefdefToKTAdaptor.h"
 
+#include "geometry/kt_geometry.h"
 #include "util/kt_gzipFile.h"
 #include "util/kt_log.h"
 #include "util/kt_scopedTimer.h"
 
 #include <algorithm>
-#include <array>
 #include <cctype>
 #include <filesystem>
 #include <sstream>
@@ -50,44 +50,44 @@ bool tryDouble(const std::string &s, double &out) {
     }
 }
 
-using Box = std::array<double, 4>;
-
-std::pair<double, double> getOriented(double x, double y, const std::string &orient) {
+Point getOriented(const Point &p, const std::string &orient) {
+    const auto [x, y] = p;
     if (orient == "S") {
-        return {-x, -y};
+        return Point(-x, -y);
     }
     if (orient == "W") {
-        return {-y, x};
+        return Point(-y, x);
     }
     if (orient == "E") {
-        return {y, -x};
+        return Point(y, -x);
     }
     if (orient == "FN") {
-        return {-x, y};
+        return Point(-x, y);
     }
     if (orient == "FS") {
-        return {x, -y};
+        return Point(x, -y);
     }
     if (orient == "FW") {
-        return {-y, -x};
+        return Point(-y, -x);
     }
     if (orient == "FE") {
-        return {y, x};
+        return Point(y, x);
     }
-    return {x, y};
+    return Point(x, y);
 }
 
-Box getOrientedBox(const Box &shape, const std::string &orient) {
-    const auto [ax, ay] = getOriented(shape[0], shape[1], orient);
-    const auto [bx, by] = getOriented(shape[2], shape[3], orient);
-    return {std::min(ax, bx), std::min(ay, by), std::max(ax, bx), std::max(ay, by)};
+BBox getOrientedBox(const BBox &shape, const std::string &orient) {
+    BBox box = BBox::getEmpty();
+    box.extend(getOriented(shape.lowerLeft, orient));
+    box.extend(getOriented(shape.upperRight, orient));
+    return box;
 }
 
-bool readPoint(const std::vector<std::string> &tokens, std::size_t &i, double &x, double &y) {
+bool readPoint(const std::vector<std::string> &tokens, std::size_t &i, Point &p) {
     if (i < tokens.size() && tokens[i] == "(") {
         ++i;
     }
-    if (i + 1 >= tokens.size() || !tryDouble(tokens[i], x) || !tryDouble(tokens[i + 1], y)) {
+    if (i + 1 >= tokens.size() || !tryDouble(tokens[i], p.x) || !tryDouble(tokens[i + 1], p.y)) {
         return false;
     }
     i += 2;
@@ -97,12 +97,12 @@ bool readPoint(const std::vector<std::string> &tokens, std::size_t &i, double &x
     return true;
 }
 
-void scanPinTokens(const std::vector<std::string> &tokens, bool &placed, double &x, double &y,
-                   std::string &orient, bool &shaped, Box &shape) {
+void scanPinTokens(const std::vector<std::string> &tokens, bool &placed, Point &position,
+                   std::string &orient, bool &shaped, BBox &shape) {
     for (std::size_t i = 0; i < tokens.size(); ++i) {
         if (tokens[i] == "PLACED" || tokens[i] == "FIXED") {
             std::size_t at = i + 1;
-            if (readPoint(tokens, at, x, y)) {
+            if (readPoint(tokens, at, position)) {
                 placed = true;
                 if (at < tokens.size() && tokens[at] != "+" && tokens[at] != ";") {
                     orient = tokens[at];
@@ -110,13 +110,13 @@ void scanPinTokens(const std::vector<std::string> &tokens, bool &placed, double 
             }
         } else if (tokens[i] == "LAYER" && !shaped) {
             std::size_t at = i + 2;
-            double x0 = 0.0;
-            double y0 = 0.0;
-            double x1 = 0.0;
-            double y1 = 0.0;
-            if (readPoint(tokens, at, x0, y0) && readPoint(tokens, at, x1, y1)) {
+            Point a;
+            Point b;
+            if (readPoint(tokens, at, a) && readPoint(tokens, at, b)) {
                 shaped = true;
-                shape = {std::min(x0, x1), std::min(y0, y1), std::max(x0, x1), std::max(y0, y1)};
+                shape = BBox::getEmpty();
+                shape.extend(a);
+                shape.extend(b);
             }
         }
     }
@@ -371,7 +371,7 @@ bool LefDefInputAdapter::parseLefFile(const std::string &filePath) {
             double x1 = 0.0, y1 = 0.0;
             tryDouble(tokens[1], x1);
             tryDouble(tokens[2], y1);
-            rec.pinOffset[pin] = {x1, y1};
+            rec.pinOffset[pin] = Point(x1, y1);
         } else if (tokens[0] == "END") {
             if (tokens.size() >= 2) {
                 if (inPin && sanitizeName(tokens[1]) == pin) {
@@ -420,11 +420,11 @@ bool LefDefInputAdapter::parseDefFile(const std::string &filePath) {
     std::string pinName;
     bool pinSeen = false;
     bool pinPlaced = false;
-    double pinX = 0.0, pinY = 0.0;
+    Point pinPosition;
     std::string pinOrient = "N";
     bool pinShaped = false;
-    std::array<double, 4> pinShape{};
-    std::unordered_map<std::string, std::pair<double, double>> ioPinOffset;
+    BBox pinShape;
+    std::unordered_map<std::string, Point> ioPinOffset;
 
     // Nets: assembled token stream for the section.
     std::vector<std::string> netTokens;
@@ -443,7 +443,7 @@ bool LefDefInputAdapter::parseDefFile(const std::string &filePath) {
         }
         (void)db->addCell(cname, w, h, false);
         if (compPlaced) {
-            db->setCellPosition(cname, compX, compY);
+            db->setCellPosition(cname, Point(compX, compY));
         }
         if (compFixed) {
             db->setCellFixed(cname, true);
@@ -465,18 +465,18 @@ bool LefDefInputAdapter::parseDefFile(const std::string &filePath) {
             w = mIt->second.widthMicrons * unitsPerMicron;
             h = mIt->second.heightMicrons * unitsPerMicron;
         } else if (pinShaped) {
-            const Box shape = getOrientedBox(pinShape, pinOrient);
-            lowX = shape[0];
-            lowY = shape[1];
-            w = shape[2] - shape[0];
-            h = shape[3] - shape[1];
+            const BBox shape = getOrientedBox(pinShape, pinOrient);
+            lowX = shape.lowerLeft.x;
+            lowY = shape.lowerLeft.y;
+            w = shape.getWidth();
+            h = shape.getHeight();
         }
         (void)db->addCell(pname, w, h, true);
         db->markIoPin(pname);
         if (pinPlaced) {
-            db->setCellPosition(pname, pinX + lowX, pinY + lowY);
+            db->setCellPosition(pname, Point(pinPosition.x + lowX, pinPosition.y + lowY));
         }
-        ioPinOffset[pname] = {-lowX, -lowY};
+        ioPinOffset[pname] = Point(-lowX, -lowY);
     };
 
     while (std::getline(file.getStream(), line)) {
@@ -523,7 +523,7 @@ bool LefDefInputAdapter::parseDefFile(const std::string &filePath) {
                 if (tokens[i] != "DO") {
                     continue;
                 }
-                Seg seg{0.0, dx, dy};
+                Seg seg{.numX = 0.0, .dx = dx, .dy = dy};
                 tryDouble(tokens[i + 1], seg.numX);
                 for (std::size_t j = i; j + 1 < tokens.size(); ++j) {
                     if (tokens[j] != "STEP") {
@@ -539,7 +539,7 @@ bool LefDefInputAdapter::parseDefFile(const std::string &filePath) {
                 segs.push_back(seg);
             }
             if (segs.empty()) {
-                segs.push_back(Seg{numX, dx, dy});
+                segs.push_back(Seg{.numX = numX, .dx = dx, .dy = dy});
             }
             const double h = segs.front().dy > 0.0 ? segs.front().dy : rowH;
             const std::size_t rowId = db->addRow(y, h, siteW, siteW);
@@ -574,7 +574,7 @@ bool LefDefInputAdapter::parseDefFile(const std::string &filePath) {
                 x1 = std::max(x1, x0 + 1.0);
                 y1 = std::max(y1, y0 + 1.0);
             }
-            db->setDieArea(x0, y0, x1, y1);
+            db->setDieArea(BBox(Point(x0, y0), Point(x1, y1)));
             continue;
         }
 
@@ -601,7 +601,7 @@ bool LefDefInputAdapter::parseDefFile(const std::string &filePath) {
                     std::vector<Point> polygon;
                     polygon.reserve(coords.size() / 2);
                     for (std::size_t i = 0; i + 1 < coords.size(); i += 2) {
-                        polygon.push_back(Point{coords[i], coords[i + 1]});
+                        polygon.push_back(Point(coords[i], coords[i + 1]));
                     }
                     if (fences.addRegion(name, std::move(polygon)) != constraintMgr::noRegion) {
                         ++numRegions;
@@ -749,13 +749,12 @@ bool LefDefInputAdapter::parseDefFile(const std::string &filePath) {
                 pinName = tokens[1];
                 pinSeen = true;
                 pinPlaced = false;
-                pinX = 0.0;
-                pinY = 0.0;
+                pinPosition = Point();
                 pinOrient = "N";
                 pinShaped = false;
             }
             if (pinSeen) {
-                scanPinTokens(tokens, pinPlaced, pinX, pinY, pinOrient, pinShaped, pinShape);
+                scanPinTokens(tokens, pinPlaced, pinPosition, pinOrient, pinShaped, pinShape);
             }
             continue;
         }
@@ -815,7 +814,7 @@ bool LefDefInputAdapter::parseDefFile(const std::string &filePath) {
         }
         for (const NetPinRef &ref : pins) {
             std::string cell;
-            double offsetX = 0.0, offsetY = 0.0;
+            Point offset;
             bool isInput = false;
             if (!ref.inst.empty()) {
                 cell = ref.inst;
@@ -826,8 +825,8 @@ bool LefDefInputAdapter::parseDefFile(const std::string &filePath) {
                         const MacroRec &mr = mIt->second;
                         auto pOff = mr.pinOffset.find(ref.pin);
                         if (pOff != mr.pinOffset.end()) {
-                            offsetX = pOff->second.first * unitsPerMicron;
-                            offsetY = pOff->second.second * unitsPerMicron;
+                            offset = Point(pOff->second.x * unitsPerMicron,
+                                           pOff->second.y * unitsPerMicron);
                         }
                         auto pIn = mr.pinIsInput.find(ref.pin);
                         if (pIn != mr.pinIsInput.end()) {
@@ -838,15 +837,14 @@ bool LefDefInputAdapter::parseDefFile(const std::string &filePath) {
             } else {
                 cell = ref.ioPin;
                 if (const auto off = ioPinOffset.find(cell); off != ioPinOffset.end()) {
-                    offsetX = off->second.first;
-                    offsetY = off->second.second;
+                    offset = off->second;
                 }
             }
             if (cell.empty() || !db->hasCell(cell)) {
                 continue;
             }
             try {
-                (void)db->addPin(cell, name, offsetX, offsetY, isInput);
+                (void)db->addPin(cell, name, offset, isInput);
             } catch (const std::exception &e) {
                 ktlog.warning("DEF net '{}' pin '{}' skipped: {}", name, cell, e.what());
             }

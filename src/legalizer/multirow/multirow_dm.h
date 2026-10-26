@@ -1,10 +1,10 @@
 #pragma once
 
 #include "datamodel/kt_solutionMgr.h"
+#include "geometry/kt_geometry.h"
 #include "legalizer/multirow/multirow_options.h"
 #include "util/kt_packedLists.h"
 
-#include <array>
 #include <cstddef>
 #include <functional>
 #include <string>
@@ -20,8 +20,7 @@ namespace ktplace::multirow {
 inline constexpr int noRegion = -1;
 
 struct Cell {
-    double x = 0.0;
-    double y = 0.0;
+    Point position;
     double width = 0.0;
     double height = 0.0;
     int region = noRegion;
@@ -30,22 +29,13 @@ struct Cell {
 
 struct NetPin {
     std::size_t cellId = 0;
-    double offX = 0.0;
-    double offY = 0.0;
+    Point offset;
 };
 
 using Nets = PackedLists<NetPin>;
 
-struct Box {
-    double x0 = 0.0;
-    double y0 = 0.0;
-    double x1 = 0.0;
-    double y1 = 0.0;
-};
-
 struct Subrow {
-    double xlo = 0.0;
-    double xhi = 0.0;
+    Interval x;
     int region = noRegion;
 };
 
@@ -59,8 +49,6 @@ struct RowInfo {
     }
     std::vector<Subrow> subrows;
 };
-
-using DieBox = std::array<double, 4>;
 
 struct FrameInfo {
     std::string note;
@@ -79,9 +67,9 @@ using FrameHook = std::function<void(const std::vector<float> &xs, const std::ve
 struct Design {
     std::vector<Cell> cells;
     Nets nets;
-    std::vector<Box> blockages;
+    std::vector<BBox> blockages;
     std::vector<RowInfo> rows;
-    DieBox die{};
+    BBox die;
     FrameHook onFrame;
 };
 

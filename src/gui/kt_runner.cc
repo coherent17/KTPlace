@@ -118,7 +118,7 @@ RunResult Runner::Impl::place(const RunRequest &request) {
     RunResult result;
     try {
         session->run(options);
-        result = {RunResult::Outcome::Placed, options.getOutputPath()};
+        result = {.outcome = RunResult::Outcome::Placed, .message = options.getOutputPath()};
         ktlog.echo("Placement completed successfully!");
     } catch (const StopRequested &) {
         result = {RunResult::Outcome::Stopped, "stopped"};
@@ -149,7 +149,7 @@ RunResult Runner::Impl::load(const RunRequest &request) {
     beginSession(request);
     try {
         session->readDesign(request.design);
-        return {RunResult::Outcome::Loaded, request.design};
+        return {.outcome = RunResult::Outcome::Loaded, .message = request.design};
     } catch (const FatalError &error) {
         return {RunResult::Outcome::Failed, error.what()};
     } catch (const std::exception &error) {

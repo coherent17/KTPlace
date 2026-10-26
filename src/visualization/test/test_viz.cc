@@ -63,8 +63,10 @@ private:
 
 /// A palette with enough flat colours for the drawing tests.
 std::vector<Rgb> getPalette() {
-    return {Rgb{0, 0, 0},       Rgb{255, 0, 0},     Rgb{0, 255, 0},   Rgb{0, 0, 255},
-            Rgb{255, 255, 255}, Rgb{128, 128, 128}, Rgb{255, 255, 0}, Rgb{0, 255, 255}};
+    return {Rgb{.r = 0, .g = 0, .b = 0},       Rgb{.r = 255, .g = 0, .b = 0},
+            Rgb{.r = 0, .g = 255, .b = 0},     Rgb{.r = 0, .g = 0, .b = 255},
+            Rgb{.r = 255, .g = 255, .b = 255}, Rgb{.r = 128, .g = 128, .b = 128},
+            Rgb{.r = 255, .g = 255, .b = 0},   Rgb{.r = 0, .g = 255, .b = 255}};
 }
 
 /// A graph with a few fixed cells forming a die and some movable ones.
@@ -73,8 +75,8 @@ Graph getSampleGraph() {
     const auto add = [&g](const char *name, double x, double y, double w, double h, bool fixed) {
         const std::size_t id = g.addCell(name);
         Vertex &v = g.getCell(id);
-        v.x = x;
-        v.y = y;
+        v.position.x = x;
+        v.position.y = y;
         v.width = w;
         v.height = h;
         v.isFixed = fixed;
@@ -94,7 +96,7 @@ Graph getSampleGraph() {
 std::vector<float> getSampleX(const Graph &g) {
     std::vector<float> v(g.getNumCells(), 0.0F);
     for (std::size_t i = 0; i < g.getNumCells(); ++i) {
-        v[i] = static_cast<float>(g.getCell(i).x);
+        v[i] = static_cast<float>(g.getCell(i).position.x);
     }
     return v;
 }
@@ -102,7 +104,7 @@ std::vector<float> getSampleX(const Graph &g) {
 std::vector<float> getSampleY(const Graph &g) {
     std::vector<float> v(g.getNumCells(), 0.0F);
     for (std::size_t i = 0; i < g.getNumCells(); ++i) {
-        v[i] = static_cast<float>(g.getCell(i).y);
+        v[i] = static_cast<float>(g.getCell(i).position.y);
     }
     return v;
 }
@@ -360,7 +362,7 @@ BOOST_AUTO_TEST_CASE(a_mismatched_palette_is_also_rejected) {
     // about it would render later frames with the wrong colours.
     const ScratchDir dir("mixedpal");
     Canvas a(8, 8, getPalette());
-    Canvas b(8, 8, std::vector<Rgb>{Rgb{1, 2, 3}});
+    Canvas b(8, 8, std::vector<Rgb>{Rgb{.r = 1, .g = 2, .b = 3}});
     const std::string out = (dir.getFile("a.gif")).string();
     BOOST_TEST(!writeGif(out, {a, b}, 5));
 }
@@ -401,10 +403,10 @@ BOOST_AUTO_TEST_CASE(the_die_box_comes_from_the_fixed_cells) {
     const BBox box = getFixedCellBBox(g);
     // The boxes include the cell extent, so a pad at the right rim is not
     // clipped out of the drawn die.
-    BOOST_TEST(box[0] == 0.0);
-    BOOST_TEST(box[1] == 0.0);
-    BOOST_TEST(box[2] == 100.0);
-    BOOST_TEST(box[3] == 100.0);
+    BOOST_TEST(box.lowerLeft.x == 0.0);
+    BOOST_TEST(box.lowerLeft.y == 0.0);
+    BOOST_TEST(box.upperRight.x == 100.0);
+    BOOST_TEST(box.upperRight.y == 100.0);
 }
 
 BOOST_AUTO_TEST_CASE(a_design_with_no_fixed_cells_still_gets_a_usable_box) {
@@ -412,16 +414,16 @@ BOOST_AUTO_TEST_CASE(a_design_with_no_fixed_cells_still_gets_a_usable_box) {
     // whole plot to a point, which is what happens if it is not guarded.
     Graph g;
     const std::size_t id = g.addCell("m1");
-    g.getCell(id).x = 10.0;
-    g.getCell(id).y = 20.0;
+    g.getCell(id).position.x = 10.0;
+    g.getCell(id).position.y = 20.0;
     g.getCell(id).width = 4.0;
     g.getCell(id).height = 4.0;
 
     const BBox box = getFixedCellBBox(g);
-    BOOST_TEST(box[0] <= box[2]);
-    BOOST_TEST(box[1] <= box[3]);
-    BOOST_TEST(box[2] > box[0]);
-    BOOST_TEST(box[3] > box[1]);
+    BOOST_TEST(box.lowerLeft.x <= box.upperRight.x);
+    BOOST_TEST(box.lowerLeft.y <= box.upperRight.y);
+    BOOST_TEST(box.upperRight.x > box.lowerLeft.x);
+    BOOST_TEST(box.upperRight.y > box.lowerLeft.y);
 }
 
 BOOST_AUTO_TEST_CASE(net_vertices_are_not_part_of_the_die) {
@@ -430,8 +432,8 @@ BOOST_AUTO_TEST_CASE(net_vertices_are_not_part_of_the_die) {
     Graph g = getSampleGraph();
     (void)g.addNet("n1");
     const BBox box = getFixedCellBBox(g);
-    BOOST_TEST(box[0] == 0.0);
-    BOOST_TEST(box[2] == 100.0);
+    BOOST_TEST(box.lowerLeft.x == 0.0);
+    BOOST_TEST(box.upperRight.x == 100.0);
 }
 
 // ---------------------------------------------------------------------------
@@ -488,7 +490,7 @@ BOOST_AUTO_TEST_CASE(an_svg_with_no_fences_and_one_with_fences_both_draw) {
     const ScratchDir dir("svgfence");
     const Graph g = getSampleGraph();
     constraintMgr cstr;
-    cstr.addRegion("er0", {Point{20.0, 20.0}, Point{50.0, 50.0}});
+    cstr.addRegion("er0", {Point(20.0, 20.0), Point(50.0, 50.0)});
 
     const std::string plain = (dir.getFile("plain.svg")).string();
     writeFrameSvg(plain, g, getSampleX(g), getSampleY(g), getFixedCellBBox(g), 1, 2, 1.0, 1.0, 0.0,
@@ -543,7 +545,7 @@ BOOST_AUTO_TEST_CASE(movable_cells_are_written_once_each_in_vertex_order) {
         x[first + i] = static_cast<float>(i);
         y[first + i] = 50.0F;
     }
-    const BBox die{0.0, 0.0, 20000.0, 100.0};
+    const BBox die(Point(0.0, 0.0), Point(20000.0, 100.0));
     const std::string path = dir.getFile("o.svg").string();
     writeFrameSvg(path, g, x, y, die, 0, 1, 0.0, 0.0, 0.0, "", nullptr, true, /*worldUnits=*/true);
 
@@ -739,8 +741,8 @@ BOOST_AUTO_TEST_CASE(a_legal_row_is_drawn_at_its_true_size_and_not_wider) {
     Graph g;
     const std::size_t id = g.addCell("anchor");
     Vertex &a = g.getCell(id);
-    a.x = 0.0;
-    a.y = 0.0;
+    a.position.x = 0.0;
+    a.position.y = 0.0;
     a.width = 400.0;
     a.height = 400.0;
     a.isFixed = true;
@@ -751,8 +753,8 @@ BOOST_AUTO_TEST_CASE(a_legal_row_is_drawn_at_its_true_size_and_not_wider) {
     for (int i = 0; i < cells; ++i) {
         const std::size_t c = g.addCell("c" + std::to_string(i));
         Vertex &v = g.getCell(c);
-        v.x = 20.0 + i * cellW;  // exactly edge to edge, no gap and no overlap
-        v.y = 20.0;
+        v.position.x = 20.0 + i * cellW;  // exactly edge to edge, no gap and no overlap
+        v.position.y = 20.0;
         v.width = cellW;
         v.height = cellH;
     }
@@ -836,8 +838,8 @@ BOOST_AUTO_TEST_CASE(the_rows_are_drawn_when_there_are_rows) {
     Graph g;
     const std::size_t id = g.addCell("anchor");
     Vertex &a = g.getCell(id);
-    a.x = 0.0;
-    a.y = 0.0;
+    a.position.x = 0.0;
+    a.position.y = 0.0;
     a.width = 200.0;
     a.height = 400.0;
     a.isFixed = true;
@@ -846,8 +848,8 @@ BOOST_AUTO_TEST_CASE(the_rows_are_drawn_when_there_are_rows) {
         for (int c = 0; c < 4; ++c) {
             const std::size_t v = g.addCell("c" + std::to_string(r * 4 + c));
             Vertex &vert = g.getCell(v);
-            vert.x = 20.0 + c * 8.0;
-            vert.y = 20.0 + r * 40.0;  // exactly row pitch apart
+            vert.position.x = 20.0 + c * 8.0;
+            vert.position.y = 20.0 + r * 40.0;  // exactly row pitch apart
             vert.width = 8.0;
             vert.height = 12.0;
         }
@@ -873,8 +875,8 @@ BOOST_AUTO_TEST_CASE(every_cell_reaches_every_frame) {
     for (int i = 0; i < 4000; ++i) {
         const std::size_t id = g.addCell("extra" + std::to_string(i));
         Vertex &v = g.getCell(id);
-        v.x = static_cast<double>(i % 50);
-        v.y = static_cast<double>(i / 50);
+        v.position.x = static_cast<double>(i % 50);
+        v.position.y = static_cast<double>(i / 50);
         v.width = 1.0;
         v.height = 1.0;
     }
@@ -1191,7 +1193,8 @@ BOOST_AUTO_TEST_CASE(bounds_curve_records_every_iteration_and_plots_both_bounds)
     const ScratchDir dir("bounds");
     freshAnimator();
     Visualizer::getInstance().configure(dir.getStr(), getStillsOnly());
-    const std::vector<BoundsSample> curve{{3.0, 1.0}, {2.0, 1.5}};
+    const std::vector<BoundsSample> curve{{.upper = 3.0, .lower = 1.0},
+                                          {.upper = 2.0, .lower = 1.5}};
     Visualizer::getInstance().boundsCurve("b", "the title", curve);
 
     const std::string png = readAll(dir.getFile("b.png"));
@@ -1205,7 +1208,7 @@ BOOST_AUTO_TEST_CASE(bounds_curve_with_drawing_off_writes_nothing) {
     freshAnimator();
     Visualizer::getInstance().configure("", getStillsOnly());
     BOOST_TEST(!Visualizer::getInstance().isEnabled());
-    const std::vector<BoundsSample> curve{{1.0, 0.5}};
+    const std::vector<BoundsSample> curve{{.upper = 1.0, .lower = 0.5}};
     BOOST_CHECK_NO_THROW(Visualizer::getInstance().boundsCurve("b", "t", curve));
     BOOST_TEST(!std::filesystem::exists("/b.png"));
     freshAnimator();
@@ -1236,22 +1239,46 @@ void recordSampleRun(Sink &&frameTo, const std::function<void(StageVisual)> &beg
     std::vector<float> x = getSampleX(g);
     const std::vector<float> y = getSampleY(g);
     holdBack(2);
-    beginStage({"simpl", "simpl", 0});
-    frameTo(x, y, VisualFrame{"LSS", 0, 3, "first", 3.0, 3.0, 0.5, true});
+    beginStage({.stage = "simpl", .subdir = "simpl", .cadence = 0});
+    frameTo(x, y,
+            VisualFrame{.series = "LSS",
+                        .step = 0,
+                        .numSteps = 3,
+                        .note = "first",
+                        .hpwl = 3.0,
+                        .hpwlInitial = 3.0,
+                        .overflow = 0.5,
+                        .mandatory = true});
     x[4] += 30.0F;
-    frameTo(x, y, VisualFrame{"LAL", 1, 3, "second", 2.0, 3.0, 0.25, false});
-    bounds(std::vector<BoundsSample>{{3.0, 1.0}, {2.0, 1.5}});
+    frameTo(x, y,
+            VisualFrame{.series = "LAL",
+                        .step = 1,
+                        .numSteps = 3,
+                        .note = "second",
+                        .hpwl = 2.0,
+                        .hpwlInitial = 3.0,
+                        .overflow = 0.25,
+                        .mandatory = false});
+    bounds(std::vector<BoundsSample>{{.upper = 3.0, .lower = 1.0}, {.upper = 2.0, .lower = 1.5}});
     holdBack(0);
-    beginStage({"legalize", "", 0});
+    beginStage({.stage = "legalize", .subdir = "", .cadence = 0});
     x[5] -= 10.0F;
-    frameTo(x, y, VisualFrame{"", 2, 3, "third", 1.5, 3.0, 0.0, true});
+    frameTo(x, y,
+            VisualFrame{.series = "",
+                        .step = 2,
+                        .numSteps = 3,
+                        .note = "third",
+                        .hpwl = 1.5,
+                        .hpwlInitial = 3.0,
+                        .overflow = 0.0,
+                        .mandatory = true});
 }
 
 }  // namespace
 
 BOOST_AUTO_TEST_CASE(replayed_snapshots_draw_the_files_drawing_directly_does) {
     const Graph g = getSampleGraph();
-    const std::array<double, 4> die = getFixedCellBBox(g);
+    const BBox die = getFixedCellBBox(g);
     PlotOptions opts = getAnimOptions(10, 5, 1);
     opts.svgFrames = true;
     Visualizer &viz = Visualizer::getInstance();

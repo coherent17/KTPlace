@@ -64,16 +64,17 @@ std::shared_ptr<const LayoutGeometry> LayoutGeometry::of(const ktDM &db) {
     }
 
     for (const RowInfo &row : db.getRows()) {
-        geometry->rows.push_back({static_cast<float>(row.coordinate),
-                                  static_cast<float>(row.height), static_cast<float>(row.getXlo()),
-                                  static_cast<float>(row.getXhi())});
+        geometry->rows.push_back({.y = static_cast<float>(row.coordinate),
+                                  .height = static_cast<float>(row.height),
+                                  .xlo = static_cast<float>(row.getXlo()),
+                                  .xhi = static_cast<float>(row.getXhi())});
     }
     geometry->die = db.getPlacementDieBox();
     for (const Region &region : db.getConstraints().getRegions()) {
         LayoutGeometry::Fence &fence = geometry->fences.emplace_back();
         fence.name = region.name;
-        for (const Rect &rect : region.rects) {
-            fence.rects.push_back({rect.lo.x, rect.lo.y, rect.hi.x, rect.hi.y});
+        for (const BBox &rect : region.rects) {
+            fence.rects.push_back(rect);
         }
     }
 
@@ -84,8 +85,8 @@ std::shared_ptr<const LayoutGeometry> LayoutGeometry::of(const ktDM &db) {
         for (const std::size_t pinId : graph.getNetPins(net)) {
             const Pin &pin = graph.getPin(pinId);
             geometry->pinCell.push_back(static_cast<std::uint32_t>(pin.cellId));
-            geometry->pinDx.push_back(static_cast<float>(pin.offsetX));
-            geometry->pinDy.push_back(static_cast<float>(pin.offsetY));
+            geometry->pinDx.push_back(static_cast<float>(pin.offset.x));
+            geometry->pinDy.push_back(static_cast<float>(pin.offset.y));
         }
         geometry->netPinStart.push_back(static_cast<std::uint32_t>(geometry->pinCell.size()));
     }
@@ -112,8 +113,8 @@ LayoutFrame LayoutFrame::getCommitted(std::shared_ptr<const LayoutGeometry> geom
     frame.x.reserve(n);
     frame.y.reserve(n);
     for (std::size_t v = 0; v < n; ++v) {
-        frame.x.push_back(static_cast<float>(graph.getCell(v).x));
-        frame.y.push_back(static_cast<float>(graph.getCell(v).y));
+        frame.x.push_back(static_cast<float>(graph.getCell(v).position.x));
+        frame.y.push_back(static_cast<float>(graph.getCell(v).position.y));
     }
     frame.geometry = std::move(geometry);
     frame.hpwl = db.getHpwl();
@@ -125,32 +126,17 @@ bool LayoutFrame::isDrawable() const {
     return geometry && x.size() == geometry->width.size() && y.size() == x.size();
 }
 
-void Bounds::include(double px, double py) {
-    xlo = std::min(xlo, px);
-    ylo = std::min(ylo, py);
-    xhi = std::max(xhi, px);
-    yhi = std::max(yhi, py);
+BBox LayoutFrame::getCellBounds(std::uint32_t cell) const {
+    return BBox(Point(x[cell], y[cell]),
+                Point(x[cell] + geometry->width[cell], y[cell] + geometry->height[cell]));
 }
 
-void Bounds::include(const Bounds &other) {
-    include(other.xlo, other.ylo);
-    include(other.xhi, other.yhi);
-}
-
-double Bounds::getHalfPerimeter() const {
-    return (xhi - xlo) + (yhi - ylo);
-}
-
-Bounds LayoutFrame::getCellBounds(std::uint32_t cell) const {
-    return {x[cell], y[cell], x[cell] + geometry->width[cell], y[cell] + geometry->height[cell]};
-}
-
-std::optional<Bounds> LayoutFrame::getCellsBounds(std::span<const std::uint32_t> cells) const {
-    std::optional<Bounds> box;
+std::optional<BBox> LayoutFrame::getCellsBounds(std::span<const std::uint32_t> cells) const {
+    std::optional<BBox> box;
     for (const std::uint32_t cell : cells) {
-        const Bounds own = getCellBounds(cell);
+        const BBox own = getCellBounds(cell);
         if (box) {
-            box->include(own);
+            box->extend(own);
         } else {
             box = own;
         }
@@ -158,28 +144,28 @@ std::optional<Bounds> LayoutFrame::getCellsBounds(std::span<const std::uint32_t>
     return box;
 }
 
-std::optional<Bounds> LayoutFrame::getNetBounds(std::uint32_t net) const {
+std::optional<BBox> LayoutFrame::getNetBounds(std::uint32_t net) const {
     const LayoutGeometry &g = *geometry;
-    std::optional<Bounds> box;
+    std::optional<BBox> box;
     for (std::uint32_t pin = g.netPinStart[net]; pin < g.netPinStart[net + 1]; ++pin) {
         const std::uint32_t owner = g.pinCell[pin];
         const double px = x[owner] + g.pinDx[pin];
         const double py = y[owner] + g.pinDy[pin];
         if (box) {
-            box->include(px, py);
+            box->extend(px, py);
         } else {
-            box = Bounds{px, py, px, py};
+            box = BBox(Point(px, py), Point(px, py));
         }
     }
     return box;
 }
 
-std::optional<Bounds> LayoutFrame::getNetsBounds(std::span<const std::uint32_t> nets) const {
-    std::optional<Bounds> box;
+std::optional<BBox> LayoutFrame::getNetsBounds(std::span<const std::uint32_t> nets) const {
+    std::optional<BBox> box;
     for (const std::uint32_t net : nets) {
-        if (const std::optional<Bounds> own = getNetBounds(net)) {
+        if (const std::optional<BBox> own = getNetBounds(net)) {
             if (box) {
-                box->include(*own);
+                box->extend(*own);
             } else {
                 box = own;
             }

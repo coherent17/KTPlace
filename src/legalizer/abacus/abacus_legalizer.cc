@@ -55,17 +55,16 @@ struct Trial {
 };
 
 struct Segment {
-    double xlo = 0.0;
-    double xhi = 0.0;
+    Interval x;
     int region = noRegion;
     std::vector<Cluster> clusters;
     double used = 0.0;
 
     [[nodiscard]] double getWidth() const {
-        return xhi - xlo;
+        return x.getLength();
     }
     [[nodiscard]] double getFree() const {
-        return xhi - used;
+        return x.end - used;
     }
 };
 
@@ -173,8 +172,8 @@ private:
     std::vector<double> targetX = design.cells.x;
     std::vector<double> targetY = design.cells.y;
     std::vector<double> liveX, liveY;
-    const std::vector<FixedBox> &fixedBoxes = design.fixedBoxes;
-    DieBox dieBox = {0.0, 0.0, 0.0, 0.0};
+    const std::vector<BBox> &fixedBoxes = design.fixedBoxes;
+    BBox dieBox = BBox(Point(0.0, 0.0), Point(0.0, 0.0));
     double minSubrowSites = 1.0;
 };
 
@@ -189,14 +188,14 @@ std::vector<RowTrack> AbacusLegalizer::Impl::buildRows(bool mirrored) const {
             r.siteWidth = 1.0;
         }
         for (const Subrow &si : ri.subrows) {
-            if (!(si.xhi > si.xlo)) {
+            if (!(si.x.end > si.x.start)) {
                 continue;
             }
             Segment sr;
-            sr.xlo = si.xlo;
-            sr.xhi = si.xhi;
+            sr.x.start = si.x.start;
+            sr.x.end = si.x.end;
             sr.region = si.region;
-            sr.used = sr.xlo;
+            sr.used = sr.x.start;
             r.subrows.push_back(sr);
         }
         if (r.subrows.empty()) {
@@ -204,7 +203,7 @@ std::vector<RowTrack> AbacusLegalizer::Impl::buildRows(bool mirrored) const {
         }
         std::stable_sort(r.subrows.begin(), r.subrows.end(),
                          [](const Segment &a, const Segment &b) {
-                             return a.xlo < b.xlo;
+                             return a.x.start < b.x.start;
                          });
         rows.push_back(r);
     }
@@ -215,32 +214,32 @@ std::vector<RowTrack> AbacusLegalizer::Impl::buildRows(bool mirrored) const {
     for (RowTrack &r : rows) {
         std::vector<Segment> pieces;
         for (const Segment &sr : r.subrows) {
-            std::vector<std::pair<double, double>> hit;
-            for (const FixedBox &f : fixedBoxes) {
-                if (f.y1 <= r.y + 1e-9 || f.y0 >= r.y + r.height - 1e-9) {
+            std::vector<Interval> hit;
+            for (const BBox &f : fixedBoxes) {
+                if (f.upperRight.y <= r.y + 1e-9 || f.lowerLeft.y >= r.y + r.height - 1e-9) {
                     continue;
                 }
-                const double a = std::max(f.x0, sr.xlo);
-                const double b = std::min(f.x1, sr.xhi);
+                const double a = std::max(f.lowerLeft.x, sr.x.start);
+                const double b = std::min(f.upperRight.x, sr.x.end);
                 if (b > a) {
                     hit.emplace_back(a, b);
                 }
             }
             std::stable_sort(hit.begin(), hit.end());
-            double cur = sr.xlo;
+            double cur = sr.x.start;
             for (const auto &iv : hit) {
-                if (iv.first > cur) {
+                if (iv.start > cur) {
                     Segment piece = sr;
-                    piece.xlo = cur;
-                    piece.xhi = iv.first;
+                    piece.x.start = cur;
+                    piece.x.end = iv.start;
                     piece.used = cur;
                     pieces.push_back(piece);
                 }
-                cur = std::max(cur, iv.second);
+                cur = std::max(cur, iv.end);
             }
-            if (cur < sr.xhi) {
+            if (cur < sr.x.end) {
                 Segment piece = sr;
-                piece.xlo = cur;
+                piece.x.start = cur;
                 piece.used = cur;
                 pieces.push_back(piece);
             }
@@ -250,9 +249,9 @@ std::vector<RowTrack> AbacusLegalizer::Impl::buildRows(bool mirrored) const {
     if (mirrored) {
         for (RowTrack &r : rows) {
             for (Segment &sr : r.subrows) {
-                const double lo = -sr.xhi;
-                sr.xhi = -sr.xlo;
-                sr.xlo = lo;
+                const double lo = -sr.x.end;
+                sr.x.end = -sr.x.start;
+                sr.x.start = lo;
                 sr.used = lo;
             }
             std::reverse(r.subrows.begin(), r.subrows.end());
@@ -273,20 +272,20 @@ std::vector<RowTrack> AbacusLegalizer::Impl::buildRows(bool mirrored) const {
 Trial AbacusLegalizer::Impl::getTrial(const Segment &sr, double grid, std::size_t i,
                                       const std::vector<double> &sortKey) const {
     const auto position = [&](const Span &span) {
-        double x = std::clamp(span.getIdeal(), sr.xlo, std::max(sr.xlo, sr.xhi - span.w));
+        double x = std::clamp(span.getIdeal(), sr.x.start, std::max(sr.x.start, sr.x.end - span.w));
         if (grid > 0.0) {
             x = std::round(x / grid) * grid;
-            if (x + span.w > sr.xhi + 1e-9) {
+            if (x + span.w > sr.x.end + 1e-9) {
                 x -= grid;
             }
-            if (x < sr.xlo - 1e-9) {
+            if (x < sr.x.start - 1e-9) {
                 x += grid;
             }
         }
         return x;
     };
 
-    Span span{1.0, cellW[i], -sortKey[i], sortKey[i] * sortKey[i]};
+    Span span{.n = 1.0, .w = cellW[i], .a = -sortKey[i], .b = sortKey[i] * sortKey[i]};
     std::size_t first = sr.clusters.size();
     double before = 0.0;
     double x = position(span);
@@ -299,10 +298,10 @@ Trial AbacusLegalizer::Impl::getTrial(const Segment &sr, double grid, std::size_
         --first;
         x = position(span);
     }
-    if (x < sr.xlo - 1e-9 || x + span.w > sr.xhi + 1e-9) {
+    if (x < sr.x.start - 1e-9 || x + span.w > sr.x.end + 1e-9) {
         return {};
     }
-    return {span.getCostAt(x) - before, first, x, span};
+    return {.delta = span.getCostAt(x) - before, .first = first, .x = x, .span = span};
 }
 
 void AbacusLegalizer::Impl::commit(Segment &sr, std::size_t i, const Trial &t) {
@@ -327,8 +326,9 @@ double AbacusLegalizer::Impl::getHpwlOf(const std::vector<double> &x,
             return design.nets[n];
         },
         [&](const NetPin &pin) {
-            return pin.slot == noSlot ? std::pair{pin.absX, pin.absY}
-                                      : std::pair{x[pin.slot] + pin.offX, y[pin.slot] + pin.offY};
+            return pin.slot == noSlot
+                       ? pin.fixedPosition
+                       : Point(x[pin.slot] + pin.offset.x, y[pin.slot] + pin.offset.y);
         });
 }
 
@@ -390,7 +390,7 @@ void AbacusLegalizer::Impl::selfCheck(Stats &res) const {
         }
         bool inside = false;
         for (const Segment &sr : inRow->subrows) {
-            if (liveX[i] >= sr.xlo - eps && liveX[i] + cellW[i] <= sr.xhi + eps) {
+            if (liveX[i] >= sr.x.start - eps && liveX[i] + cellW[i] <= sr.x.end + eps) {
                 inside = true;
                 break;
             }
@@ -415,7 +415,7 @@ void AbacusLegalizer::Impl::selfCheck(Stats &res) const {
         }
     }
 
-    const std::vector<FixedBox> &fixed = fixedBoxes;
+    const std::vector<BBox> &fixed = fixedBoxes;
     std::vector<std::size_t> byX(mov.size());
     std::iota(byX.begin(), byX.end(), 0u);
     std::stable_sort(byX.begin(), byX.end(), [&](std::size_t a, std::size_t b) {
@@ -423,14 +423,16 @@ void AbacusLegalizer::Impl::selfCheck(Stats &res) const {
     });
     std::size_t lo = 0;
     for (const std::size_t i : byX) {
-        while (lo < fixed.size() && fixed[lo].x1 <= liveX[i] + eps) {
+        while (lo < fixed.size() && fixed[lo].upperRight.x <= liveX[i] + eps) {
             ++lo;
         }
-        for (std::size_t f = lo; f < fixed.size() && fixed[f].x0 < liveX[i] + cellW[i]; ++f) {
-            if (fixed[f].x1 <= liveX[i] + eps) {
+        for (std::size_t f = lo; f < fixed.size() && fixed[f].lowerLeft.x < liveX[i] + cellW[i];
+             ++f) {
+            if (fixed[f].upperRight.x <= liveX[i] + eps) {
                 continue;  // sorted by x0, so a later box can still end earlier
             }
-            if (liveY[i] + cellH[i] > fixed[f].y0 + eps && liveY[i] < fixed[f].y1 - eps) {
+            if (liveY[i] + cellH[i] > fixed[f].lowerLeft.y + eps &&
+                liveY[i] < fixed[f].upperRight.y - eps) {
                 ++res.overFixed;
             }
         }
@@ -582,9 +584,9 @@ AbacusLegalizer::Impl::Pass AbacusLegalizer::Impl::legalizePass(const AbacusOpti
                     cellW[i] > sr.getWidth() + 1e-9) {
                     continue;
                 }
-                const double dx = (sortKey[i] < sr.xlo) ? (sr.xlo - sortKey[i])
-                                  : (sortKey[i] > sr.xhi - cellW[i])
-                                      ? (sortKey[i] - (sr.xhi - cellW[i]))
+                const double dx = (sortKey[i] < sr.x.start) ? (sr.x.start - sortKey[i])
+                                  : (sortKey[i] > sr.x.end - cellW[i])
+                                      ? (sortKey[i] - (sr.x.end - cellW[i]))
                                       : 0.0;
                 if (dx * dx + dy * dy >= bestCost) {
                     continue;

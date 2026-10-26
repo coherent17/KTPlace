@@ -16,11 +16,9 @@ int constraintMgr::addRegion(std::string name, const std::vector<Point> &points)
     // upper-right of one rectangle. A trailing odd corner cannot form a
     // rectangle and is dropped.
     for (std::size_t i = 0; i + 1 < points.size(); i += 2) {
-        Rect r;
-        r.lo.x = std::min(points[i].x, points[i + 1].x);
-        r.lo.y = std::min(points[i].y, points[i + 1].y);
-        r.hi.x = std::max(points[i].x, points[i + 1].x);
-        r.hi.y = std::max(points[i].y, points[i + 1].y);
+        const BBox r(
+            Point(std::min(points[i].x, points[i + 1].x), std::min(points[i].y, points[i + 1].y)),
+            Point(std::max(points[i].x, points[i + 1].x), std::max(points[i].y, points[i + 1].y)));
         if (!(r.getArea() > 0.0)) {
             continue;  // degenerate rectangle
         }
@@ -31,16 +29,12 @@ int constraintMgr::addRegion(std::string name, const std::vector<Point> &points)
     }
 
     region.area = 0.0;
-    for (const Rect &r : region.rects) {
+    for (const BBox &r : region.rects) {
         region.area += r.getArea();
     }
-    region.minX = region.maxX = region.rects.front().lo.x;
-    region.minY = region.maxY = region.rects.front().lo.y;
-    for (const Rect &r : region.rects) {
-        region.minX = std::min(region.minX, r.lo.x);
-        region.maxX = std::max(region.maxX, r.hi.x);
-        region.minY = std::min(region.minY, r.lo.y);
-        region.maxY = std::max(region.maxY, r.hi.y);
+    region.bounds = BBox::getEmpty();
+    for (const BBox &r : region.rects) {
+        region.bounds.extend(r);
     }
 
     const int id = static_cast<int>(regionList.size());
@@ -53,56 +47,55 @@ namespace {
 
 constexpr double areaTolerance = 1e-6;
 
-double getOverlapArea(const Rect &a, const Rect &b) {
-    const double width = std::min(a.hi.x, b.hi.x) - std::max(a.lo.x, b.lo.x);
-    const double height = std::min(a.hi.y, b.hi.y) - std::max(a.lo.y, b.lo.y);
+double getOverlapArea(const BBox &a, const BBox &b) {
+    const BBox overlap = a.getIntersection(b);
+    const double width = overlap.getWidth();
+    const double height = overlap.getHeight();
     return width > 0.0 && height > 0.0 ? width * height : 0.0;
 }
 
 }  // namespace
 
-bool constraintMgr::containsBox(int id, const Rect &box) const {
+bool constraintMgr::containsBox(int id, const BBox &box) const {
     const Region *r = getRegion(id);
     if (r == nullptr) {
         return false;
     }
     double covered = 0.0;
-    for (const Rect &rect : r->rects) {
+    for (const BBox &rect : r->rects) {
         covered += getOverlapArea(rect, box);
     }
     return covered >= box.getArea() * (1.0 - areaTolerance);
 }
 
-bool constraintMgr::overlapsAnyRegion(const Rect &box) const {
+bool constraintMgr::overlapsAnyRegion(const BBox &box) const {
     return std::ranges::any_of(regionList, [&](const Region &r) {
-        return std::ranges::any_of(r.rects, [&](const Rect &rect) {
+        return std::ranges::any_of(r.rects, [&](const BBox &rect) {
             return getOverlapArea(rect, box) > areaTolerance * box.getArea();
         });
     });
 }
 
-bool constraintMgr::contains(int id, double x, double y) const {
+bool constraintMgr::contains(int id, const Point &p) const {
     if (id == noRegion) {
         return true;  // unconstrained cells are always legal
     }
     const Region *r = getRegion(id);
-    return r != nullptr && r->contains(x, y);
+    return r != nullptr && r->contains(p);
 }
 
-void constraintMgr::clampToRegion(int id, double &x, double &y) const {
+void constraintMgr::clampToRegion(int id, Point &p) const {
     const Region *r = getRegion(id);
-    if (r == nullptr || r->contains(x, y)) {
+    if (r == nullptr || r->contains(p)) {
         return;
     }
     // Snap into the rectangle that is nearest, measured as the distance still
     // to travel along each axis.
-    const Rect *best = nullptr;
+    const BBox *best = nullptr;
     double bestDist = std::numeric_limits<double>::max();
-    for (const Rect &cand : r->rects) {
-        const double cx = std::clamp(x, cand.lo.x, cand.hi.x);
-        const double cy = std::clamp(y, cand.lo.y, cand.hi.y);
-        const double dx = cx - x;
-        const double dy = cy - y;
+    for (const BBox &cand : r->rects) {
+        const double dx = cand.getX().getClamped(p.x) - p.x;
+        const double dy = cand.getY().getClamped(p.y) - p.y;
         const double dist = dx * dx + dy * dy;
         if (dist < bestDist) {
             bestDist = dist;
@@ -112,29 +105,27 @@ void constraintMgr::clampToRegion(int id, double &x, double &y) const {
     if (best == nullptr) {
         return;
     }
-    x = std::clamp(x, best->lo.x, best->hi.x);
-    y = std::clamp(y, best->lo.y, best->hi.y);
+    p = Point(best->getX().getClamped(p.x), best->getY().getClamped(p.y));
 }
 
 double constraintMgr::getEscapeEpsilon() const {
     double scale = 0.0;
     for (const Region &r : regionList) {
-        scale = std::max(scale, std::max(r.maxX - r.minX, r.maxY - r.minY));
+        scale = std::max(scale, std::max(r.bounds.getWidth(), r.bounds.getHeight()));
     }
     return std::max(scale, 1.0) * 1e-6;
 }
 
-bool constraintMgr::isInsideAnyRegion(double x, double y) const {
+bool constraintMgr::isInsideAnyRegion(const Point &p) const {
     for (const Region &r : regionList) {
-        if (r.contains(x, y)) {
+        if (r.contains(p)) {
             return true;
         }
     }
     return false;
 }
 
-bool constraintMgr::pushOutOfRegions(double &x, double &y, double dieMinX, double dieMinY,
-                                     double dieMaxX, double dieMaxY) const {
+bool constraintMgr::pushOutOfRegions(Point &p, const BBox &die) const {
     // Escaping has to be planned against the *union* of the fences, not one
     // rectangle at a time. The ISPD fences are often rings or combs of
     // abutting rectangles, so stepping to the nearest edge of the rectangle that
@@ -143,11 +134,11 @@ bool constraintMgr::pushOutOfRegions(double &x, double &y, double dieMinX, doubl
     // actually lands outside every region, which makes progress monotone.
     const std::size_t maxPasses = 4 * (regionList.size() + 1) + 8;
     for (std::size_t pass = 0; pass < maxPasses; ++pass) {
-        const Rect *host = nullptr;
+        const BBox *host = nullptr;
         double hostArea = std::numeric_limits<double>::max();
         for (const Region &r : regionList) {
-            for (const Rect &cand : r.rects) {
-                if (cand.contains(x, y) && cand.getArea() < hostArea) {
+            for (const BBox &cand : r.rects) {
+                if (cand.contains(p) && cand.getArea() < hostArea) {
                     hostArea = cand.getArea();
                     host = &cand;
                 }
@@ -163,19 +154,17 @@ bool constraintMgr::pushOutOfRegions(double &x, double &y, double dieMinX, doubl
         // per-rectangle epsilon can be far below the output resolution, and the
         // cell then lands back exactly on the (inclusive) boundary.
         const double eps = getEscapeEpsilon();
-        const double exits[4][2] = {{host->lo.x - eps, y},
-                                    {host->hi.x + eps, y},
-                                    {x, host->lo.y - eps},
-                                    {x, host->hi.y + eps}};
-        const double dists[4] = {x - host->lo.x, host->hi.x - x, y - host->lo.y, host->hi.y - y};
+        const Point exits[4] = {
+            Point(host->lowerLeft.x - eps, p.y), Point(host->upperRight.x + eps, p.y),
+            Point(p.x, host->lowerLeft.y - eps), Point(p.x, host->upperRight.y + eps)};
+        const double dists[4] = {p.x - host->lowerLeft.x, host->upperRight.x - p.x,
+                                 p.y - host->lowerLeft.y, host->upperRight.y - p.y};
 
         int best = -1;
         double bestDist = std::numeric_limits<double>::max();
         bool bestLegal = false;
         for (int k = 0; k < 4; ++k) {
-            const bool onDie = exits[k][0] >= dieMinX && exits[k][0] <= dieMaxX &&
-                               exits[k][1] >= dieMinY && exits[k][1] <= dieMaxY;
-            const bool legal = onDie && !isInsideAnyRegion(exits[k][0], exits[k][1]);
+            const bool legal = die.contains(exits[k]) && !isInsideAnyRegion(exits[k]);
             if (legal && (!bestLegal || dists[k] < bestDist)) {
                 best = k;
                 bestDist = dists[k];
@@ -188,8 +177,7 @@ bool constraintMgr::pushOutOfRegions(double &x, double &y, double dieMinX, doubl
             // let the next pass continue from there.
             best = static_cast<int>(std::min_element(dists, dists + 4) - dists);
         }
-        x = exits[best][0];
-        y = exits[best][1];
+        p = exits[best];
     }
     return true;
 }
@@ -216,12 +204,12 @@ std::size_t constraintMgr::assignByPrefix(int regionId, const std::string &prefi
     return assigned;
 }
 
-std::size_t constraintMgr::countViolations(const std::vector<double> &positions,
+std::size_t constraintMgr::countViolations(const std::vector<Point> &positions,
                                            const std::vector<int> &regionIds) const {
     std::size_t violations = 0;
-    const std::size_t count = std::min(positions.size() / 2, regionIds.size());
+    const std::size_t count = std::min(positions.size(), regionIds.size());
     for (std::size_t i = 0; i < count; ++i) {
-        if (!contains(regionIds[i], positions[2 * i], positions[2 * i + 1])) {
+        if (!contains(regionIds[i], positions[i])) {
             ++violations;
         }
     }

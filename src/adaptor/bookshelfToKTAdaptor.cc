@@ -74,8 +74,7 @@ struct NodeRec {
 // Parsed pin record produced by the parallel parsing phase.
 struct PinRec {
     std::string cellName;
-    double offsetX = 0.0;
-    double offsetY = 0.0;
+    Point offset;
     bool isInput = false;
 };
 
@@ -396,8 +395,8 @@ bool BookshelfInputAdapter::parseNetsFile(const std::string &filePath) {
                                       rec.cellName = std::move(tokens[0]);
                                       rec.isInput = (tokens[1] == "I");
                                       if (tokens.size() >= 5 && tokens[2] == ":") {
-                                          rec.offsetX = std::stod(tokens[3]);
-                                          rec.offsetY = std::stod(tokens[4]);
+                                          rec.offset.x = std::stod(tokens[3]);
+                                          rec.offset.y = std::stod(tokens[4]);
                                       }
                                   } catch (const std::exception &e) {
                                       ktlog.warning("cannot parse pin line {}: {} ({})",
@@ -426,8 +425,10 @@ bool BookshelfInputAdapter::parseNetsFile(const std::string &filePath) {
         for (const PinRec &pin : netPins[i]) {
             try {
                 const Vertex &cell = db->getGraph().getCell(db->getCellId(pin.cellName));
-                (void)db->addPin(pin.cellName, netName, pin.offsetX + 0.5 * cell.width,
-                                 pin.offsetY + 0.5 * cell.height, pin.isInput);
+                (void)db->addPin(
+                    pin.cellName, netName,
+                    Point(pin.offset.x + 0.5 * cell.width, pin.offset.y + 0.5 * cell.height),
+                    pin.isInput);
             } catch (const std::exception &e) {
                 ktlog.warning("cannot add pin: {}", e.what());
             }
@@ -485,7 +486,7 @@ bool BookshelfInputAdapter::parsePlacementLine(const std::string &line) {
     }
 
     try {
-        db->setCellPosition(cellName, x, y);
+        db->setCellPosition(cellName, Point(x, y));
         if (fixed) {
             db->setCellFixed(cellName, true);
         }
@@ -591,7 +592,8 @@ bool BookshelfInputAdapter::parseSclRow(const std::vector<std::string> &tokens) 
                 // subrow's first site and anchors the site grid; dropping it
                 // left rows with no origin and no capacity.
                 if (haveOrigin && pendingNumSites > 0.0) {
-                    subrows.push_back(Subrow{pendingOrigin, pendingNumSites});
+                    subrows.push_back(
+                        Subrow{.originX = pendingOrigin, .numSites = pendingNumSites});
                 }
                 pendingOrigin = std::stod(parts[valIdx]);
                 haveOrigin = true;
@@ -616,7 +618,7 @@ bool BookshelfInputAdapter::parseSclRow(const std::vector<std::string> &tokens) 
     }
 
     if (haveOrigin && pendingNumSites > 0.0) {
-        subrows.push_back(Subrow{pendingOrigin, pendingNumSites});
+        subrows.push_back(Subrow{.originX = pendingOrigin, .numSites = pendingNumSites});
     }
     if (subrows.empty()) {
         return true;  // a row with no subrow has no placeable sites

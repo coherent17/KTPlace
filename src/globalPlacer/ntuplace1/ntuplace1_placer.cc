@@ -18,14 +18,15 @@ namespace ktplace::ntuplace1 {
 namespace {
 
 struct RatioRegion {
-    double x0 = 0.0, y0 = 0.0, x1 = 0.0, y1 = 0.0;
+    BBox box;
     std::vector<std::uint32_t> cells;  // indices into the placer's movable array
     std::size_t depth = 0;
 };
 
-double getOverlap(const AreaRect &a, double x0, double y0, double x1, double y1) {
-    const double w = std::min(a.x1, x1) - std::max(a.x0, x0);
-    const double h = std::min(a.y1, y1) - std::max(a.y0, y0);
+double getOverlap(const BBox &a, const BBox &b) {
+    const BBox overlap = a.getIntersection(b);
+    const double w = overlap.getWidth();
+    const double h = overlap.getHeight();
     return (w > 0.0 && h > 0.0) ? w * h : 0.0;
 }
 
@@ -75,7 +76,7 @@ public:
 
 private:
     void build();
-    double getFreeAreaIn(double x0, double y0, double x1, double y1) const;
+    double getFreeAreaIn(const BBox &area) const;
     double getMovableArea(const std::vector<std::uint32_t> &) const;
     void divide(RatioRegion r);
     [[nodiscard]] int getForcedSide(int region, const RatioRegion &r0, const RatioRegion &r1) const;
@@ -93,10 +94,10 @@ private:
     const std::vector<int> &cellRegion = design.cells.region;
     const std::vector<HyperNet> &hyperNets = design.hyperNets;
     const std::vector<std::vector<std::uint32_t>> &cellNets = design.cellNets;
-    const std::vector<AreaRect> &rowRects = design.rowRects;
+    const std::vector<BBox> &rowRects = design.rowRects;
     const double &maxRowH = design.maxRowH;
-    const std::vector<AreaRect> &fixedRects = design.fixedRects;
-    const std::array<double, 4> &rowBox = design.rowBox;
+    const std::vector<BBox> &fixedRects = design.fixedRects;
+    const BBox &rowBox = design.rowBox;
     std::vector<double> posX, posY;
     Ntuplace1Options opts;
     const constraintMgr *fences = nullptr;
@@ -122,28 +123,27 @@ void RatioPlacer::Impl::build() {
     sideCount.assign(hyperNets.size(), {0, 0});
     gen = 0;
 
-    posX.assign(mov.size(), 0.5 * (rowBox[0] + rowBox[2]));
-    posY.assign(mov.size(), 0.5 * (rowBox[1] + rowBox[3]));
+    posX.assign(mov.size(), rowBox.getCenter().x);
+    posY.assign(mov.size(), rowBox.getCenter().y);
 }
 
-double RatioPlacer::Impl::getFreeAreaIn(double x0, double y0, double x1, double y1) const {
+double RatioPlacer::Impl::getFreeAreaIn(const BBox &area) const {
     if (rowRects.empty()) {
-        return std::max(0.0, (x1 - x0) * (y1 - y0));
+        return std::max(0.0, area.getArea());
     }
     double rows = 0.0;
-    auto it = std::lower_bound(rowRects.begin(), rowRects.end(), y0 - maxRowH,
-                               [](const AreaRect &r, double y) {
-                                   return r.y0 < y;
+    auto it = std::lower_bound(rowRects.begin(), rowRects.end(), area.lowerLeft.y - maxRowH,
+                               [](const BBox &r, double y) {
+                                   return r.lowerLeft.y < y;
                                });
-    for (; it != rowRects.end() && it->y0 < y1; ++it) {
-        rows += getOverlap(*it, x0, y0, x1, y1);
+    for (; it != rowRects.end() && it->lowerLeft.y < area.upperRight.y; ++it) {
+        rows += getOverlap(*it, area);
     }
-    const double cx0 = std::max(x0, rowBox[0]), cy0 = std::max(y0, rowBox[1]);
-    const double cx1 = std::min(x1, rowBox[2]), cy1 = std::min(y1, rowBox[3]);
+    const BBox clipped = area.getIntersection(rowBox);
     double fixed = 0.0;
-    if (cx1 > cx0 && cy1 > cy0) {
-        for (const AreaRect &f : fixedRects) {
-            fixed += getOverlap(f, cx0, cy0, cx1, cy1);
+    if (clipped.upperRight.x > clipped.lowerLeft.x && clipped.upperRight.y > clipped.lowerLeft.y) {
+        for (const BBox &f : fixedRects) {
+            fixed += getOverlap(f, clipped);
         }
     }
     return std::max(0.0, rows - fixed);
@@ -187,8 +187,9 @@ std::size_t RatioPlacer::Impl::getBipartition(const std::vector<std::uint32_t> &
                 mask |= (p < cut) ? 1 : (p > cut) ? 2 : 0;
             }
             if (net.fixedPins > 0) {
-                const double lo = vertical ? net.fx0 : net.fy0;
-                const double hi = vertical ? net.fx1 : net.fy1;
+                const Interval span = vertical ? net.fixedPinBox.getX() : net.fixedPinBox.getY();
+                const double lo = span.start;
+                const double hi = span.end;
                 mask |= (hi < cut) ? 1 : (lo > cut) ? 2 : 3;
             }
             anchor[e] = mask;
@@ -363,7 +364,7 @@ std::size_t RatioPlacer::Impl::getBipartition(const std::vector<std::uint32_t> &
 }
 
 void RatioPlacer::Impl::setRegionCentre(const RatioRegion &r) {
-    const double cx = 0.5 * (r.x0 + r.x1), cy = 0.5 * (r.y0 + r.y1);
+    const auto [cx, cy] = r.box.getCenter();
     for (const std::uint32_t c : r.cells) {
         posX[c] = cx;
         posY[c] = cy;
@@ -375,14 +376,16 @@ void RatioPlacer::Impl::placeLeaf(const RatioRegion &r) {
     if (k == 0) {
         return;
     }
-    const double w = std::max(r.x1 - r.x0, 1e-9), h = std::max(r.y1 - r.y0, 1e-9);
+    const double w = std::max(r.box.getWidth(), 1e-9), h = std::max(r.box.getHeight(), 1e-9);
     const std::size_t cols =
         std::max<std::size_t>(1, static_cast<std::size_t>(std::ceil(std::sqrt(k * w / h))));
     const std::size_t rowsN = (k + cols - 1) / cols;
     for (std::size_t q = 0; q < k; ++q) {
         const std::size_t cx = q % cols, cy = q / cols;
-        posX[r.cells[q]] = r.x0 + w * (static_cast<double>(cx) + 0.5) / static_cast<double>(cols);
-        posY[r.cells[q]] = r.y0 + h * (static_cast<double>(cy) + 0.5) / static_cast<double>(rowsN);
+        posX[r.cells[q]] =
+            r.box.lowerLeft.x + w * (static_cast<double>(cx) + 0.5) / static_cast<double>(cols);
+        posY[r.cells[q]] =
+            r.box.lowerLeft.y + h * (static_cast<double>(cy) + 0.5) / static_cast<double>(rowsN);
     }
 }
 
@@ -400,7 +403,7 @@ void RatioPlacer::Impl::writeFrame(std::size_t depth, const char *note) const {
         xs[mov[i]] = static_cast<float>(posX[i] - 0.5 * design.cells.width[i]);
         ys[mov[i]] = static_cast<float>(posY[i] - 0.5 * design.cells.height[i]);
     }
-    design.onFrame(xs, ys, FrameInfo{note, depth, opts.maxLevels});
+    design.onFrame(xs, ys, FrameInfo{.note = note, .step = depth, .numSteps = opts.maxLevels});
 }
 
 int RatioPlacer::Impl::getForcedSide(int region, const RatioRegion &r0,
@@ -411,12 +414,8 @@ int RatioPlacer::Impl::getForcedSide(int region, const RatioRegion &r0,
     }
     const auto overlapArea = [&](const RatioRegion &b) {
         double a = 0.0;
-        for (const Rect &rc : reg->rects) {
-            const double w = std::min(rc.hi.x, b.x1) - std::max(rc.lo.x, b.x0);
-            const double h = std::min(rc.hi.y, b.y1) - std::max(rc.lo.y, b.y0);
-            if (w > 0.0 && h > 0.0) {
-                a += w * h;
-            }
+        for (const BBox &rc : reg->rects) {
+            a += getOverlap(rc, b.box);
         }
         return a;
     };
@@ -436,14 +435,15 @@ std::size_t RatioPlacer::Impl::applyFences() {
     }
     std::size_t outside = 0;
     for (std::size_t i = 0; i < mov.size(); ++i) {
-        double &x = design.cells.x[i];
-        double &y = design.cells.y[i];
+        Point p(design.cells.x[i], design.cells.y[i]);
         if (cellRegion[i] != constraintMgr::noRegion) {
-            fences->clampToRegion(cellRegion[i], x, y);
-            outside += fences->contains(cellRegion[i], x, y) ? 0u : 1u;
+            fences->clampToRegion(cellRegion[i], p);
+            outside += fences->contains(cellRegion[i], p) ? 0u : 1u;
         } else {
-            (void)fences->pushOutOfRegions(x, y, rowBox[0], rowBox[1], rowBox[2], rowBox[3]);
+            (void)fences->pushOutOfRegions(p, rowBox);
         }
+        design.cells.x[i] = p.x;
+        design.cells.y[i] = p.y;
     }
     return outside;
 }
@@ -460,22 +460,19 @@ void RatioPlacer::Impl::divide(RatioRegion r) {
         return;
     }
 
-    const double w = r.x1 - r.x0;
-    const double h = r.y1 - r.y0;
+    const double w = r.box.getWidth();
+    const double h = r.box.getHeight();
     const bool vertical = (w >= h);
-    const double cut = vertical ? r.x0 + 0.5 * w : r.y0 + 0.5 * h;
+    const double cut = vertical ? r.box.lowerLeft.x + 0.5 * w : r.box.lowerLeft.y + 0.5 * h;
 
     RatioRegion r0, r1;
-    r0.x0 = r1.x0 = r.x0;
-    r0.y0 = r1.y0 = r.y0;
-    r0.x1 = r1.x1 = r.x1;
-    r0.y1 = r1.y1 = r.y1;
+    r0.box = r1.box = r.box;
     r0.depth = r1.depth = r.depth + 1;
-    (vertical ? r0.x1 : r0.y1) = cut;
-    (vertical ? r1.x0 : r1.y0) = cut;
+    (vertical ? r0.box.upperRight.x : r0.box.upperRight.y) = cut;
+    (vertical ? r1.box.lowerLeft.x : r1.box.lowerLeft.y) = cut;
 
-    const double free0 = getFreeAreaIn(r0.x0, r0.y0, r0.x1, r0.y1);
-    const double free1 = getFreeAreaIn(r1.x0, r1.y0, r1.x1, r1.y1);
+    const double free0 = getFreeAreaIn(r0.box);
+    const double free1 = getFreeAreaIn(r1.box);
     if (free0 <= 0.0 || free1 <= 0.0) {
         RatioRegion &keep = (free0 > 0.0) ? r0 : r1;
         if (free0 <= 0.0 && free1 <= 0.0) {
@@ -552,10 +549,7 @@ Stats RatioPlacer::Impl::place(const Ntuplace1Options &params) {
                 result.numFixed, result.nets);
 
     RatioRegion root;
-    root.x0 = rowBox[0];
-    root.y0 = rowBox[1];
-    root.x1 = rowBox[2];
-    root.y1 = rowBox[3];
+    root.box = rowBox;
     root.cells.resize(mov.size());
     std::iota(root.cells.begin(), root.cells.end(), 0u);
     divide(std::move(root));
@@ -563,30 +557,22 @@ Stats RatioPlacer::Impl::place(const Ntuplace1Options &params) {
     for (std::size_t i = 0; i < mov.size(); ++i) {
         const double w = design.cells.width[i];
         const double h = design.cells.height[i];
-        design.cells.x[i] =
-            std::clamp(posX[i] - 0.5 * w, rowBox[0], std::max(rowBox[0], rowBox[2] - w));
-        design.cells.y[i] =
-            std::clamp(posY[i] - 0.5 * h, rowBox[1], std::max(rowBox[1], rowBox[3] - h));
+        design.cells.x[i] = std::clamp(posX[i] - 0.5 * w, rowBox.lowerLeft.x,
+                                       std::max(rowBox.lowerLeft.x, rowBox.upperRight.x - w));
+        design.cells.y[i] = std::clamp(posY[i] - 0.5 * h, rowBox.lowerLeft.y,
+                                       std::max(rowBox.lowerLeft.y, rowBox.upperRight.y - h));
     }
     result.fenceRegions = fences != nullptr ? fences->getNumRegions() : 0;
     result.fenceViolations = applyFences();
 
     double total = 0.0;
     for (const HyperNet &n : hyperNets) {
-        double ax = std::numeric_limits<double>::max(), bx = -ax, ay = ax, by = -ax;
+        BBox box = BBox::getEmpty();
         for (const std::uint32_t c : n.cells) {
-            ax = std::min(ax, posX[c]);
-            bx = std::max(bx, posX[c]);
-            ay = std::min(ay, posY[c]);
-            by = std::max(by, posY[c]);
+            box.extend(posX[c], posY[c]);
         }
-        if (n.fixedPins > 0) {
-            ax = std::min(ax, n.fx0);
-            bx = std::max(bx, n.fx1);
-            ay = std::min(ay, n.fy0);
-            by = std::max(by, n.fy1);
-        }
-        total += (bx - ax) + (by - ay);
+        box.extend(n.fixedPinBox);
+        total += box.getHalfPerimeter();
     }
     result.hpwlFinal = total;
     result.meanImbalance = result.cuts > 0 ? static_cast<double>(result.ratioRetries) /

@@ -18,12 +18,12 @@ constexpr std::uint32_t noIndex = 0xFFFFFFFFu;
 std::size_t collectCells(const ktplace::Graph &graph, Design &design) {
     for (std::size_t v = 0; v < graph.getNumCells(); ++v) {
         const ktplace::Vertex &vert = graph.getCell(v);
-        design.vertexX.push_back(vert.x);
-        design.vertexY.push_back(vert.y);
+        design.vertexX.push_back(vert.position.x);
+        design.vertexY.push_back(vert.position.y);
         if (vert.isFixed || vert.isTerminal) {
             if (vert.width > 0.0 && vert.height > 0.0) {
                 design.fixedRects.push_back(
-                    {vert.x, vert.y, vert.x + vert.width, vert.y + vert.height});
+                    BBox::of(vert.position.x, vert.position.y, vert.width, vert.height));
             }
             continue;
         }
@@ -33,8 +33,8 @@ std::size_t collectCells(const ktplace::Graph &graph, Design &design) {
         cells.height.push_back(vert.height);
         cells.area.push_back(vert.width * vert.height);
         cells.region.push_back(vert.regionId);
-        cells.x.push_back(vert.x);
-        cells.y.push_back(vert.y);
+        cells.x.push_back(vert.position.x);
+        cells.y.push_back(vert.position.y);
     }
     return design.cells.size();
 }
@@ -60,17 +60,9 @@ void collectHyperNets(const ktplace::Graph &graph, Design &design) {
                 continue;
             }
             const ktplace::Vertex &pin = graph.getCell(e.cellId);
-            const double px = pin.x + e.offsetX;
-            const double py = pin.y + e.offsetY;
-            if (n.fixedPins == 0) {
-                n.fx0 = n.fx1 = px;
-                n.fy0 = n.fy1 = py;
-            } else {
-                n.fx0 = std::min(n.fx0, px);
-                n.fx1 = std::max(n.fx1, px);
-                n.fy0 = std::min(n.fy0, py);
-                n.fy1 = std::max(n.fy1, py);
-            }
+            const double px = pin.position.x + e.offset.x;
+            const double py = pin.position.y + e.offset.y;
+            n.fixedPinBox.extend(px, py);
             ++n.fixedPins;
         }
         if (n.cells.empty() || n.cells.size() + n.fixedPins < 2) {
@@ -85,32 +77,28 @@ void collectHyperNets(const ktplace::Graph &graph, Design &design) {
 }
 
 void collectRows(const std::vector<ktplace::RowInfo> &rows, Design &design) {
-    design.rowBox = {std::numeric_limits<double>::max(), std::numeric_limits<double>::max(),
-                     -std::numeric_limits<double>::max(), -std::numeric_limits<double>::max()};
+    design.rowBox = BBox::getEmpty();
     for (const ktplace::RowInfo &r : rows) {
         for (const ktplace::SubrowInfo &s : r.subrows) {
-            const AreaRect rr{s.getXlo(), r.coordinate, s.getXhi(r.getPitch()),
-                              r.coordinate + r.height};
-            if (rr.x1 <= rr.x0) {
+            const BBox rr(Point(s.getXlo(), r.coordinate),
+                          Point(s.getXhi(r.getPitch()), r.coordinate + r.height));
+            if (rr.upperRight.x <= rr.lowerLeft.x) {
                 continue;
             }
             design.rowRects.push_back(rr);
-            design.rowBox[0] = std::min(design.rowBox[0], rr.x0);
-            design.rowBox[1] = std::min(design.rowBox[1], rr.y0);
-            design.rowBox[2] = std::max(design.rowBox[2], rr.x1);
-            design.rowBox[3] = std::max(design.rowBox[3], rr.y1);
+            design.rowBox.extend(rr);
         }
     }
     if (design.rowRects.empty()) {
         design.rowBox = design.die;
     }
     std::stable_sort(design.rowRects.begin(), design.rowRects.end(),
-                     [](const AreaRect &a, const AreaRect &b) {
-                         return a.y0 < b.y0;
+                     [](const BBox &a, const BBox &b) {
+                         return a.lowerLeft.y < b.lowerLeft.y;
                      });
     design.maxRowH = 0.0;
-    for (const AreaRect &r : design.rowRects) {
-        design.maxRowH = std::max(design.maxRowH, r.y1 - r.y0);
+    for (const BBox &r : design.rowRects) {
+        design.maxRowH = std::max(design.maxRowH, r.getHeight());
     }
 }
 
@@ -126,11 +114,12 @@ void ntuplace1DM::run() {
 
 ntuplace1Solution ntuplace1DM::getSolution() const {
     ntuplace1Solution out;
-    out.xs = d.vertexX;
-    out.ys = d.vertexY;
+    out.positions.reserve(d.vertexX.size());
+    for (std::size_t v = 0; v < d.vertexX.size(); ++v) {
+        out.positions.push_back(Point(d.vertexX[v], d.vertexY[v]));
+    }
     for (std::size_t i = 0; i < d.cells.size(); ++i) {
-        out.xs[d.cells.id[i]] = d.cells.x[i];
-        out.ys[d.cells.id[i]] = d.cells.y[i];
+        out.positions[d.cells.id[i]] = Point(d.cells.x[i], d.cells.y[i]);
     }
     return out;
 }
@@ -144,8 +133,11 @@ ntuplace1DM buildNtuplace1DM(const ktDM &db) {
     collectRows(db.getRows(), design);
     design.fences = db.getConstraints();
 
-    const StageCounts counts{graph.getNumCells(), movable, graph.getNumNets(), graph.getNumPins(),
-                             db.getRows().size()};
+    const StageCounts counts{.cells = graph.getNumCells(),
+                             .movable = movable,
+                             .nets = graph.getNumNets(),
+                             .pins = graph.getNumPins(),
+                             .rows = db.getRows().size()};
     ntuplace1DM dm(std::move(design), loadOptions<Ntuplace1Options>());
     reportStageBuild(counts, db.getChecksum(), dm.getOptions());
     return dm;

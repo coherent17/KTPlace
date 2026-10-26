@@ -4,7 +4,9 @@
 #pragma once
 
 #include "datamodel/kt_graph.h"
+#include "geometry/kt_geometry.h"
 
+#include <algorithm>
 #include <cstddef>
 #include <string>
 #include <unordered_map>
@@ -12,51 +14,20 @@
 
 namespace ktplace {
 
-/// A 2D point in database units.
-struct Point {
-    double x = 0.0;
-    double y = 0.0;
-};
-
-/// One axis-aligned rectangle piece of a region; a region is a union of these.
-struct Rect {
-    Point lo;  ///< lower-left corner
-    Point hi;  ///< upper-right corner
-
-    /// @return true when (x, y) lies inside, bounds included
-    [[nodiscard]] bool contains(double x, double y) const {
-        return x >= lo.x && x <= hi.x && y >= lo.y && y <= hi.y;
-    }
-
-    /// @return area in database units squared
-    [[nodiscard]] double getArea() const {
-        return (hi.x - lo.x) * (hi.y - lo.y);
-    }
-};
-
 // One placement region: a name plus the rectangles that make it up.// A region is disconnected in general, so the rectangles are kept separately// rather than merged into a single outline. The rectangles of the ISPD 2015// fences do not overlap, so the area is their sum.
 
 struct Region {
-    std::string name;         ///< DEF region name, e.g. "er0"
-    std::vector<Rect> rects;  ///< union of rectangles forming the region
-    double area = 0.0;        ///< total area, database units squared
-    double minX = 0.0;        ///< bounding box, used for cheap rejection
-    double minY = 0.0;
-    double maxX = 0.0;
-    double maxY = 0.0;
+    std::string name;           ///< DEF region name, e.g. "er0"
+    std::vector<BBox> rects;    ///< union of rectangles forming the region
+    double area = 0.0;          ///< total area, database units squared
+    BBox bounds;                ///< bounding box, used for cheap rejection
     std::size_t cellCount = 0;  ///< instances assigned to this region
 
     /// @return true when (x, y) is inside any of the rectangles
-    [[nodiscard]] bool contains(double x, double y) const {
-        if (x < minX || x > maxX || y < minY || y > maxY) {
-            return false;  // outside the bounding box
-        }
-        for (const Rect &r : rects) {
-            if (r.contains(x, y)) {
-                return true;
-            }
-        }
-        return false;
+    [[nodiscard]] bool contains(const Point &p) const {
+        return bounds.contains(p) && std::ranges::any_of(rects, [&](const BBox &r) {
+                   return r.contains(p);
+               });
     }
 };
 
@@ -95,27 +66,26 @@ public:
 
     // Is (x, y) inside the region?
 
-    [[nodiscard]] bool contains(int id, double x, double y) const;
-    [[nodiscard]] bool containsBox(int id, const Rect &box) const;
-    [[nodiscard]] bool overlapsAnyRegion(const Rect &box) const;
+    [[nodiscard]] bool contains(int id, const Point &p) const;
+    [[nodiscard]] bool containsBox(int id, const BBox &box) const;
+    [[nodiscard]] bool overlapsAnyRegion(const BBox &box) const;
 
     // Move (x, y) to the nearest position inside its region.// Inside positions are returned unchanged. Positions outside are clamped// into the nearest rectangle of the region, so a caller can use this as a// hard fence.
 
-    void clampToRegion(int id, double &x, double &y) const;
+    void clampToRegion(int id, Point &p) const;
 
     // Move (x, y) out of every region it happens to sit in.// A fence is reserved for the cells assigned to it, so a cell belonging to// no region has to stay out. Positions already outside every region are// returned unchanged; a position inside is moved to the nearest point of the// boundary of the smallest region rectangle containing it, which for// touching fences may take a few passes.// Fences frequently hug the die border, so an exit that leaves the die is// no use: the caller would clamp the cell straight back in. Passing the die// bounds makes the search prefer an escape that stays on-chip.
 
-    bool pushOutOfRegions(double &x, double &y, double dieMinX, double dieMinY, double maxX,
-                          double maxY) const;
+    bool pushOutOfRegions(Point &p, const BBox &die) const;
 
     // Count instances currently outside their region.
 
-    [[nodiscard]] std::size_t countViolations(const std::vector<double> &positions,
+    [[nodiscard]] std::size_t countViolations(const std::vector<Point> &positions,
                                               const std::vector<int> &regionIds) const;
 
 private:
     /// @return true when (x, y) is inside any region
-    [[nodiscard]] bool isInsideAnyRegion(double x, double y) const;
+    [[nodiscard]] bool isInsideAnyRegion(const Point &p) const;
 
     /// @return step used to land just outside a fence, scaled to the geometry
     [[nodiscard]] double getEscapeEpsilon() const;

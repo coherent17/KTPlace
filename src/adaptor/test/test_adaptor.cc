@@ -296,18 +296,18 @@ BOOST_AUTO_TEST_CASE(an_io_pin_takes_its_oriented_layer_shape) {
     BOOST_TEST(east.isIoPin);
     BOOST_TEST(east.width == 510.0);
     BOOST_TEST(east.height == 100.0);
-    BOOST_TEST(east.x == 9490.0);
-    BOOST_TEST(east.y == 300.0);
+    BOOST_TEST(east.position.x == 9490.0);
+    BOOST_TEST(east.position.y == 300.0);
 
     const std::size_t southId = db.getCellId("south");
     const Vertex &south = db.getGraph().getCell(southId);
     BOOST_TEST(south.width == 510.0);
     BOOST_TEST(south.height == 100.0);
-    BOOST_TEST(south.x == 3490.0);
-    BOOST_TEST(south.y == 500.0);
+    BOOST_TEST(south.position.x == 3490.0);
+    BOOST_TEST(south.position.y == 500.0);
     const Pin &pin = db.getGraph().getPin(db.getCellPins(southId).front());
-    BOOST_TEST(south.x + pin.offsetX == 4000.0);
-    BOOST_TEST(south.y + pin.offsetY == 600.0);
+    BOOST_TEST(south.position.x + pin.offset.x == 4000.0);
+    BOOST_TEST(south.position.y + pin.offset.y == 600.0);
 }
 
 BOOST_AUTO_TEST_CASE(scales_lef_microns_by_the_def_units) {
@@ -363,11 +363,11 @@ BOOST_AUTO_TEST_CASE(reads_die_area_and_rows) {
     BOOST_REQUIRE(adapter.readFromDirectory(dir.getStr()));
 
     ktDM &db = adapter.getDM();
-    const auto [lo, hi] = db.getDieArea();
-    BOOST_TEST(lo.first == 0.0);
-    BOOST_TEST(lo.second == 0.0);
-    BOOST_TEST(hi.first == 10000.0);
-    BOOST_TEST(hi.second == 20000.0);
+    const BBox &die = db.getDieArea();
+    BOOST_TEST(die.lowerLeft.x == 0.0);
+    BOOST_TEST(die.lowerLeft.y == 0.0);
+    BOOST_TEST(die.upperRight.x == 10000.0);
+    BOOST_TEST(die.upperRight.y == 20000.0);
     // ROW ... STEP 100 0 carries no row height, so the LEF SITE size is used.
     BOOST_TEST(db.getNumRows() == 1);
 }

@@ -313,9 +313,9 @@ BOOST_AUTO_TEST_CASE(reset_clears_statistics_but_keeps_names_known) {
 BOOST_AUTO_TEST_CASE(parallelism_of_an_unrun_timer_is_zero_not_a_division) {
     const TimerStats fresh;
     BOOST_TEST(fresh.getParallelism() == 0.0);
-    const TimerStats serial{1.0, 1.0, 1};
+    const TimerStats serial{.wallSeconds = 1.0, .cpuSeconds = 1.0, .calls = 1};
     BOOST_TEST(serial.getParallelism() == 1.0);
-    const TimerStats parallel{1.0, 4.0, 1};
+    const TimerStats parallel{.wallSeconds = 1.0, .cpuSeconds = 4.0, .calls = 1};
     BOOST_TEST(parallel.getParallelism() == 4.0);
 }
 
