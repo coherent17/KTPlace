@@ -9,6 +9,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <format>
 #include <limits>
 #include <memory>
 #include <numeric>
@@ -83,13 +84,62 @@ struct RowTrack {
     }
 };
 
+struct Stats {
+    std::size_t cellsPlaced = 0;
+    std::size_t unplaced = 0;
+    double totalSquaredDisplacement = 0.0;
+    double maxDisplacement = 0.0;
+    double hpwlBefore = 0.0;
+    double hpwlAfter = 0.0;
+    double seconds = 0.0;
+    std::size_t overlappingPairs = 0;
+    std::size_t offRow = 0;
+    std::size_t offSite = 0;
+    std::size_t overFixed = 0;
+    std::size_t outOfRows = 0;
+    std::size_t commitFailures = 0;
+};
+
+void report(const Stats &r) {
+    ktReportTable t("Legalization (Abacus)");
+    t.setHeaders({"metric", "value"});
+    t.addRow({"cells placed", std::format("{}", r.cellsPlaced)});
+    t.addRow({"cells unplaced", std::format("{}", r.unplaced)});
+    t.addRow({"squared displacement", std::format("{:.6e}", r.totalSquaredDisplacement)});
+    t.addRow({"max displacement", std::format("{:.1f}", r.maxDisplacement)});
+    t.addRow({"HPWL before", std::format("{:.6e}", r.hpwlBefore)});
+    t.addRow({"HPWL after", std::format("{:.6e}", r.hpwlAfter)});
+    t.addRow(
+        {"HPWL change", std::format("{:+.2f}%", 100.0 * (r.hpwlAfter - r.hpwlBefore) /
+                                                    (r.hpwlBefore > 0.0 ? r.hpwlBefore : 1.0))});
+    t.addRow({"seconds", std::format("{:.3f}", r.seconds)});
+    t.addRow({"overlapping pairs", std::format("{}", r.overlappingPairs)});
+    t.addRow({"cells off row", std::format("{}", r.offRow)});
+    t.addRow({"cells off site", std::format("{}", r.offSite)});
+    t.addRow({"cells over macro", std::format("{}", r.overFixed)});
+    t.addRow({"cells out of rows", std::format("{}", r.outOfRows)});
+    t.addRow({"commit failures", std::format("{}", r.commitFailures)});
+    t.emit();
+
+    if (r.overlappingPairs != 0 || r.offRow != 0 || r.overFixed != 0) {
+        ktlog.warning("legalization is not legal; see the counts above");
+    }
+    if (r.outOfRows > 0) {
+        ktlog.warning(
+            "{} cell(s) could not be placed in any row and are still at their global placement "
+            "positions (no room within 'abacus max_row_dist' rows, or taller than a row). "
+            "The placement is not legal; see \"cells out of rows\" above.",
+            r.outOfRows);
+    }
+}
+
 }  // namespace
 
 class AbacusLegalizer::Impl {
 public:
     explicit Impl(Design &d) : design(d) {}
 
-    AbacusResult run(const AbacusOptions &params);
+    Stats run(const AbacusOptions &params);
 
 private:
     [[nodiscard]] std::vector<RowTrack> buildRows(bool mirrored) const;
@@ -110,7 +160,7 @@ private:
                                    const std::vector<double> &y) const;
     void writeFrame(const std::vector<double> &xs, const std::vector<double> &ys,
                     const std::string &note, std::size_t step, std::size_t total) const;
-    void selfCheck(AbacusResult &res) const;
+    void selfCheck(Stats &res) const;
 
     static constexpr std::size_t noRow = std::numeric_limits<std::size_t>::max();
 
@@ -307,7 +357,7 @@ void AbacusLegalizer::Impl::writeFrame(const std::vector<double> &xs, const std:
     }
 }
 
-void AbacusLegalizer::Impl::selfCheck(AbacusResult &res) const {
+void AbacusLegalizer::Impl::selfCheck(Stats &res) const {
     const double eps = 1e-6;
     res.overlappingPairs = 0;
     res.commitFailures = 0;
@@ -387,8 +437,8 @@ void AbacusLegalizer::Impl::selfCheck(AbacusResult &res) const {
     }
 }
 
-AbacusResult AbacusLegalizer::Impl::run(const AbacusOptions &params) {
-    AbacusResult res;
+Stats AbacusLegalizer::Impl::run(const AbacusOptions &params) {
+    Stats res;
     minSubrowSites = static_cast<double>(params.minSubrowSites);
     ScopedTimer timer("abacus");
 
@@ -601,8 +651,8 @@ AbacusLegalizer::AbacusLegalizer(Design &design) : pImpl(std::make_unique<Impl>(
 
 AbacusLegalizer::~AbacusLegalizer() = default;
 
-AbacusResult AbacusLegalizer::legalize(const AbacusOptions &options) {
-    return pImpl->run(options);
+void AbacusLegalizer::legalize(const AbacusOptions &options) {
+    report(pImpl->run(options));
 }
 
 }  // namespace ktplace::abacus

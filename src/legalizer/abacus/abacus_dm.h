@@ -2,12 +2,12 @@
 
 #include "datamodel/kt_solutionMgr.h"
 #include "legalizer/abacus/abacus_options.h"
+#include "util/kt_packedLists.h"
 
 #include <array>
 #include <cstddef>
 #include <functional>
 #include <limits>
-#include <span>
 #include <string>
 #include <utility>
 #include <vector>
@@ -42,23 +42,7 @@ struct NetPin {
     double absY = 0.0;
 };
 
-class Nets {
-public:
-    [[nodiscard]] std::size_t size() const noexcept {
-        return firstPin.size() - 1;
-    }
-    [[nodiscard]] std::span<const NetPin> operator[](std::size_t net) const {
-        return std::span(pins).subspan(firstPin[net], firstPin[net + 1] - firstPin[net]);
-    }
-    void add(std::span<const NetPin> netPins) {
-        pins.insert(pins.end(), netPins.begin(), netPins.end());
-        firstPin.push_back(pins.size());
-    }
-
-private:
-    std::vector<std::size_t> firstPin{0};
-    std::vector<NetPin> pins;
-};
+using Nets = PackedLists<NetPin>;
 
 struct FixedBox {
     double y0 = 0.0;
@@ -111,22 +95,6 @@ struct Design {
     FrameHook onFrame;
 };
 
-struct AbacusResult {
-    std::size_t cellsPlaced = 0;
-    std::size_t unplaced = 0;
-    double totalSquaredDisplacement = 0.0;
-    double maxDisplacement = 0.0;
-    double hpwlBefore = 0.0;
-    double hpwlAfter = 0.0;
-    double seconds = 0.0;
-    std::size_t overlappingPairs = 0;
-    std::size_t offRow = 0;
-    std::size_t offSite = 0;
-    std::size_t overFixed = 0;
-    std::size_t outOfRows = 0;
-    std::size_t commitFailures = 0;
-};
-
 class abacusDM {
 public:
     abacusDM(Design design, AbacusOptions options);
@@ -145,7 +113,7 @@ public:
         d.onFrame = std::move(hook);
     }
 
-    AbacusResult run();
+    void run();
     [[nodiscard]] abacusSolution getSolution() const;
 
 private:

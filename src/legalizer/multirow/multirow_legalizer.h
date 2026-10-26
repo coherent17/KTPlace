@@ -17,7 +17,7 @@ public:
     MultiRowLegalizer(MultiRowLegalizer &&) noexcept;
     MultiRowLegalizer &operator=(MultiRowLegalizer &&) noexcept;
 
-    MultiRowResult legalize(const MultiRowOptions &options = {});
+    void legalize(const MultiRowOptions &options = {});
 
 private:
     class Impl;

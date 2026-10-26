@@ -129,7 +129,7 @@ struct Design {
     std::vector<double> width;
     std::vector<double> height;
     std::vector<double> area;
-    std::vector<int> regionOf;
+    std::vector<int> region;
     std::vector<Box> obstacles;
     std::size_t numFixed = 0;
     std::vector<double> x;
@@ -139,36 +139,6 @@ struct Design {
     Fences fences;
     FrameHook onFrame;
     BoundsHook onBounds;
-};
-
-struct SimplResult {
-    std::size_t numMovable = 0;
-    std::size_t numFixed = 0;
-    std::size_t nets = 0;
-
-    std::size_t initIters = 0;
-    std::size_t globalIters = 0;
-
-    std::size_t binsX = 0;
-    std::size_t binsY = 0;
-
-    double hpwlSeed = 0.0;
-    double hpwlInit = 0.0;
-    double hpwlLower = 0.0;
-    double hpwlFinal = 0.0;
-    double gap = 0.0;
-
-    double overflowLower = 0.0;
-    double overflowFinal = 0.0;
-
-    std::size_t fenceRegions = 0;
-    std::size_t fenceClamps = 0;
-    std::size_t fencePushes = 0;
-    std::size_t fenceViolations = 0;
-
-    double spreadSeconds = 0.0;
-    double buildSeconds = 0.0;
-    double solveSeconds = 0.0;
 };
 
 
@@ -193,7 +163,7 @@ public:
         d.onBounds = std::move(hook);
     }
 
-    SimplResult run();
+    void run();
     [[nodiscard]] simplSolution getSolution() const;
 
 private:

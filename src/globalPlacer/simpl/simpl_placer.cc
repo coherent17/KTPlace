@@ -48,13 +48,66 @@ struct Convergence {
     bool update(std::size_t iteration, double gap, double upperHpwl, const SimplOptions &opts);
 };
 
+std::string getScientific(double value) {
+    return std::format("{:.6e}", value);
+}
+
+struct Stats {
+    std::size_t numMovable = 0;
+    std::size_t numFixed = 0;
+    std::size_t nets = 0;
+
+    std::size_t initIters = 0;
+    std::size_t globalIters = 0;
+
+    std::size_t binsX = 0;
+    std::size_t binsY = 0;
+
+    double hpwlSeed = 0.0;
+    double hpwlInit = 0.0;
+    double hpwlLower = 0.0;
+    double hpwlFinal = 0.0;
+    double gap = 0.0;
+
+    double overflowLower = 0.0;
+    double overflowFinal = 0.0;
+
+    std::size_t fenceRegions = 0;
+    std::size_t fenceClamps = 0;
+    std::size_t fencePushes = 0;
+    std::size_t fenceViolations = 0;
+
+    double spreadSeconds = 0.0;
+    double buildSeconds = 0.0;
+    double solveSeconds = 0.0;
+};
+
+void report(const Stats &res) {
+    ktReportTable table("SimPL solver results");
+    table.setHeaders({"metric", "initial", "final"});
+    table.addRow({"HPWL", getScientific(res.hpwlSeed), getScientific(res.hpwlFinal)});
+    table.addRow({"lower bound", "", getScientific(res.hpwlLower)});
+    table.addRow({"gap", "", getScientific(res.gap)});
+    table.addRow({"scaled overflow (lower)", "", getScientific(res.overflowLower)});
+    table.addRow({"scaled overflow (final)", "", getScientific(res.overflowFinal)});
+    table.addRow({"init iterations", "", std::to_string(res.initIters)});
+    table.addRow({"global iterations", "", std::to_string(res.globalIters)});
+    if (res.fenceRegions > 0) {
+        table.addRow({"fence regions", "", std::to_string(res.fenceRegions)});
+        table.addRow({"fence clamps", "", std::to_string(res.fenceClamps)});
+        table.addRow({"fence pushes", "", std::to_string(res.fencePushes)});
+        table.addRow({"fence violations", "", std::to_string(res.fenceViolations)});
+    }
+    table.emit();
+}
+
 }  // namespace
 
 class simplPlacer::Impl {
 public:
     explicit Impl(Design &d) : design(d) {}
 
-    SimplResult run(const SimplOptions &params);
+    Stats run(const SimplOptions &params);
 
 private:
     Positions getInitialPlacement();
@@ -93,13 +146,13 @@ private:
     const Fences *fences = nullptr;
 
     SimplOptions opts;
-    SimplResult result;
+    Stats result;
 
     const Netlist &netlist = design.netlist;
     const std::vector<double> &width = design.width;
     const std::vector<double> &height = design.height;
     const std::vector<double> &area = design.area;
-    const std::vector<int> &regionOf = design.regionOf;
+    const std::vector<int> &region = design.region;
     const std::vector<Box> &obstacles = design.obstacles;
 
     SparseSystem sysX;
@@ -270,8 +323,8 @@ void simplPlacer::Impl::enforceFences(std::vector<double> &x, std::vector<double
         return;
     }
     for (std::size_t i = 0; i < netlist.numMovable; ++i) {
-        if (regionOf[i] != Fences::noRegion) {
-            result.fenceClamps += fences->clampToRegion(regionOf[i], x[i], y[i]) ? 1 : 0;
+        if (region[i] != Fences::noRegion) {
+            result.fenceClamps += fences->clampToRegion(region[i], x[i], y[i]) ? 1 : 0;
         } else {
             result.fencePushes +=
                 fences->pushOutOfRegions(x[i], y[i], die[0], die[1], die[2], die[3]) ? 1 : 0;
@@ -309,7 +362,7 @@ void simplPlacer::Impl::writeBounds(std::span<const BoundsPoint> bounds) const {
     }
 }
 
-SimplResult simplPlacer::Impl::run(const SimplOptions &params) {
+Stats simplPlacer::Impl::run(const SimplOptions &params) {
     opts = params;
     densityLimit = std::clamp(opts.densityLimit, 0.05, 1.0);
     fences = params.fences ? &design.fences : nullptr;
@@ -522,7 +575,7 @@ void simplPlacer::Impl::finish(const Positions &lower, const Positions &upper) {
             flat.push_back(upper.x[i]);
             flat.push_back(upper.y[i]);
         }
-        result.fenceViolations = fences->countViolations(flat, regionOf);
+        result.fenceViolations = fences->countViolations(flat, region);
     }
 
     for (std::size_t i = 0; i < netlist.numMovable; ++i) {
@@ -539,8 +592,8 @@ simplPlacer::~simplPlacer() = default;
 simplPlacer::simplPlacer(simplPlacer &&) noexcept = default;
 simplPlacer &simplPlacer::operator=(simplPlacer &&) noexcept = default;
 
-SimplResult simplPlacer::place(const SimplOptions &options) {
-    return pImpl->run(options);
+void simplPlacer::place(const SimplOptions &options) {
+    report(pImpl->run(options));
 }
 
 }  // namespace ktplace::simpl

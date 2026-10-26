@@ -13,7 +13,7 @@ public:
         return multirowDb;
     }
 
-    MultiRowResult run();
+    void run();
     [[nodiscard]] multiRowSolution getSolution() const;
 
 private:

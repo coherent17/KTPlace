@@ -15,7 +15,7 @@ public:
     AbacusLegalizer(const AbacusLegalizer &) = delete;
     AbacusLegalizer &operator=(const AbacusLegalizer &) = delete;
 
-    AbacusResult legalize(const AbacusOptions &options = {});
+    void legalize(const AbacusOptions &options = {});
 
 private:
     class Impl;

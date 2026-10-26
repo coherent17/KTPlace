@@ -3,12 +3,10 @@
 #include "datamodel/kt_dm.h"
 #include "datamodel/kt_stageReport.h"
 #include "globalPlacer/simpl/simpl_placer.h"
-#include "util/kt_reportTable.h"
 
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
-#include <format>
 #include <limits>
 #include <numeric>
 
@@ -38,7 +36,7 @@ void collectCells(const ktplace::Graph &graph, Design &design) {
         design.width.push_back(cell.width);
         design.height.push_back(cell.height);
         design.area.push_back(cell.width * cell.height);
-        design.regionOf.push_back(cell.regionId);
+        design.region.push_back(cell.regionId);
         design.x.push_back(cell.x);
         design.y.push_back(cell.y);
     }
@@ -117,29 +115,6 @@ Fences copyFences(const ktplace::constraintMgr &constraints) {
         out.addRegion(std::move(region));
     }
     return out;
-}
-
-std::string getScientific(double value) {
-    return std::format("{:.6e}", value);
-}
-
-void reportRun(const SimplResult &res) {
-    ktReportTable table("SimPL solver results");
-    table.setHeaders({"metric", "initial", "final"});
-    table.addRow({"HPWL", getScientific(res.hpwlSeed), getScientific(res.hpwlFinal)});
-    table.addRow({"lower bound", "", getScientific(res.hpwlLower)});
-    table.addRow({"gap", "", getScientific(res.gap)});
-    table.addRow({"scaled overflow (lower)", "", getScientific(res.overflowLower)});
-    table.addRow({"scaled overflow (final)", "", getScientific(res.overflowFinal)});
-    table.addRow({"init iterations", "", std::to_string(res.initIters)});
-    table.addRow({"global iterations", "", std::to_string(res.globalIters)});
-    if (res.fenceRegions > 0) {
-        table.addRow({"fence regions", "", std::to_string(res.fenceRegions)});
-        table.addRow({"fence clamps", "", std::to_string(res.fenceClamps)});
-        table.addRow({"fence pushes", "", std::to_string(res.fencePushes)});
-        table.addRow({"fence violations", "", std::to_string(res.fenceViolations)});
-    }
-    table.emit();
 }
 
 }  // namespace
@@ -290,11 +265,9 @@ std::size_t Fences::countViolations(const std::vector<double> &positions,
 simplDM::simplDM(Design design, SimplOptions options)
     : d(std::move(design)), opts(std::move(options)) {}
 
-SimplResult simplDM::run() {
+void simplDM::run() {
     simplPlacer placer(d);
-    const SimplResult result = placer.place(opts);
-    reportRun(result);
-    return result;
+    placer.place(opts);
 }
 
 simplSolution simplDM::getSolution() const {

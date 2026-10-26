@@ -13,7 +13,7 @@ public:
         return abacusDb;
     }
 
-    AbacusResult run();
+    void run();
     [[nodiscard]] abacusSolution getSolution() const;
 
 private:

@@ -19,7 +19,7 @@ class ktDM;
 namespace ktplace::ntuplace1 {
 
 struct Cells {
-    std::vector<std::uint32_t> id;
+    std::vector<std::size_t> id;
     std::vector<double> width;
     std::vector<double> height;
     std::vector<double> area;
@@ -74,20 +74,6 @@ struct Design {
     FrameHook onFrame;
 };
 
-struct Ntuplace1Result {
-    std::size_t numMovable = 0;
-    std::size_t numFixed = 0;
-    std::size_t nets = 0;
-    std::size_t cuts = 0;
-    std::size_t ratioRetries = 0;
-    std::size_t maxDepth = 0;
-    std::size_t minLeafCells = 0;
-    double hpwlFinal = 0.0;
-    double meanImbalance = 0.0;
-    std::size_t fenceRegions = 0;
-    std::size_t fenceViolations = 0;
-};
-
 class ntuplace1DM {
 public:
     ntuplace1DM(Design design, Ntuplace1Options options);
@@ -106,7 +92,7 @@ public:
         d.onFrame = std::move(hook);
     }
 
-    Ntuplace1Result run();
+    void run();
     [[nodiscard]] ntuplace1Solution getSolution() const;
 
 private:

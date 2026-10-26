@@ -36,13 +36,13 @@ public:
         std::size_t count = 0;
     };
 
-    [[nodiscard]] std::vector<Defect> verify() const;
+    [[nodiscard]] std::vector<Defect> getDefects() const;
 
     // Checks the placement as it now stands and reports it. Called where a stage
     // commits its solution, so whoever hands a placement on is the one that says
     // whether it is legal, and each stage's own self-check has something
     // independent to disagree with.
-    void isLegalizePlacement() const;
+    void checkPlacement() const;
 
     [[nodiscard]] double getHpwl() const;
 

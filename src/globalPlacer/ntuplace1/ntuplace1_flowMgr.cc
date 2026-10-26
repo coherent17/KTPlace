@@ -4,8 +4,8 @@ namespace ktplace::ntuplace1 {
 
 flowMgr::flowMgr(const ktDM &db) : ntuplace1Db(buildNtuplace1DM(db)) {}
 
-Ntuplace1Result flowMgr::run() {
-    return ntuplace1Db.run();
+void flowMgr::run() {
+    ntuplace1Db.run();
 }
 
 ntuplace1Solution flowMgr::getSolution() const {

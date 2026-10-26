@@ -13,7 +13,7 @@ public:
         return ntuplace1Db;
     }
 
-    Ntuplace1Result run();
+    void run();
     [[nodiscard]] ntuplace1Solution getSolution() const;
 
 private:

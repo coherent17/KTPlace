@@ -4,8 +4,8 @@ namespace ktplace::simpl {
 
 flowMgr::flowMgr(const ktDM &db) : simplDb(buildSimplDM(db)) {}
 
-SimplResult flowMgr::run() {
-    return simplDb.run();
+void flowMgr::run() {
+    simplDb.run();
 }
 
 simplSolution flowMgr::getSolution() const {

@@ -141,7 +141,7 @@ void registerCommands() {
                   .usage = "check_placement",
                   .summary = "check overlaps, die and fences; returns 1 if the placement is legal"},
                  {}, Needs::Design, [](FlowMgr &flow, const Words &) {
-                     return tcl::Value::boolean(flow.checkPlacement());
+                     return tcl::Value::boolean(flow.isPlacementLegal());
                  });
 }
 

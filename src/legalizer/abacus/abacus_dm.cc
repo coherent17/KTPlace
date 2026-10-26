@@ -4,10 +4,7 @@
 #include "datamodel/kt_dm.h"
 #include "datamodel/kt_stageReport.h"
 #include "legalizer/abacus/abacus_legalizer.h"
-#include "util/kt_log.h"
-#include "util/kt_reportTable.h"
 
-#include <format>
 
 namespace ktplace::abacus {
 
@@ -75,49 +72,14 @@ void collectNets(const ktplace::Graph &graph, Design &design) {
     }
 }
 
-void reportRun(const AbacusResult &r) {
-    ktReportTable t("Legalization (Abacus)");
-    t.setHeaders({"metric", "value"});
-    t.addRow({"cells placed", std::format("{}", r.cellsPlaced)});
-    t.addRow({"cells unplaced", std::format("{}", r.unplaced)});
-    t.addRow({"squared displacement", std::format("{:.6e}", r.totalSquaredDisplacement)});
-    t.addRow({"max displacement", std::format("{:.1f}", r.maxDisplacement)});
-    t.addRow({"HPWL before", std::format("{:.6e}", r.hpwlBefore)});
-    t.addRow({"HPWL after", std::format("{:.6e}", r.hpwlAfter)});
-    t.addRow(
-        {"HPWL change", std::format("{:+.2f}%", 100.0 * (r.hpwlAfter - r.hpwlBefore) /
-                                                    (r.hpwlBefore > 0.0 ? r.hpwlBefore : 1.0))});
-    t.addRow({"seconds", std::format("{:.3f}", r.seconds)});
-    t.addRow({"overlapping pairs", std::format("{}", r.overlappingPairs)});
-    t.addRow({"cells off row", std::format("{}", r.offRow)});
-    t.addRow({"cells off site", std::format("{}", r.offSite)});
-    t.addRow({"cells over macro", std::format("{}", r.overFixed)});
-    t.addRow({"cells out of rows", std::format("{}", r.outOfRows)});
-    t.addRow({"commit failures", std::format("{}", r.commitFailures)});
-    t.emit();
-
-    if (r.overlappingPairs != 0 || r.offRow != 0 || r.overFixed != 0) {
-        ktlog.warning("legalization is not legal; see the counts above");
-    }
-    if (r.outOfRows > 0) {
-        ktlog.warning(
-            "{} cell(s) could not be placed in any row and are still at their global placement "
-            "positions (no room within 'abacus max_row_dist' rows, or taller than a row). "
-            "The placement is not legal; see \"cells out of rows\" above.",
-            r.outOfRows);
-    }
-}
-
 }  // namespace
 
 abacusDM::abacusDM(Design design, AbacusOptions options)
     : d(std::move(design)), opts(std::move(options)) {}
 
-AbacusResult abacusDM::run() {
+void abacusDM::run() {
     AbacusLegalizer legalizer(d);
-    const AbacusResult result = legalizer.legalize(opts);
-    reportRun(result);
-    return result;
+    legalizer.legalize(opts);
 }
 
 abacusSolution abacusDM::getSolution() const {

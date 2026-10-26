@@ -2,12 +2,12 @@
 
 #include "datamodel/kt_solutionMgr.h"
 #include "detailPlacer/fastdp/fastdp_options.h"
+#include "util/kt_packedLists.h"
 
 #include <array>
 #include <cstddef>
 #include <functional>
 #include <limits>
-#include <span>
 #include <string>
 #include <utility>
 #include <vector>
@@ -43,23 +43,7 @@ struct NetPin {
     double absY = 0.0;
 };
 
-class Nets {
-public:
-    [[nodiscard]] std::size_t size() const noexcept {
-        return firstPin.size() - 1;
-    }
-    [[nodiscard]] std::span<const NetPin> operator[](std::size_t net) const {
-        return std::span(pins).subspan(firstPin[net], firstPin[net + 1] - firstPin[net]);
-    }
-    void add(std::span<const NetPin> netPins) {
-        pins.insert(pins.end(), netPins.begin(), netPins.end());
-        firstPin.push_back(pins.size());
-    }
-
-private:
-    std::vector<std::size_t> firstPin{0};
-    std::vector<NetPin> pins;
-};
+using Nets = PackedLists<NetPin>;
 
 struct FixedBox {
     double y0 = 0.0;

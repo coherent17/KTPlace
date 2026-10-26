@@ -5,8 +5,6 @@
 #include "datamodel/kt_optionDb.h"
 #include "datamodel/kt_stageReport.h"
 #include "legalizer/multirow/multirow_legalizer.h"
-#include "util/kt_log.h"
-#include "util/kt_reportTable.h"
 
 #include <algorithm>
 
@@ -67,38 +65,14 @@ void collectNets(const ktplace::Graph &graph, Design &design) {
 }
 
 
-void reportRun(const MultiRowResult &res) {
-    ktReportTable table("Legalization (multi-row)");
-    table.setHeaders({"metric", "value"});
-    table.addRow({"movable cells", std::format("{}", res.movable)});
-    table.addRow({"cells placed", std::format("{}", res.placed)});
-    table.addRow({"cells unplaced", std::format("{}", res.unplaced)});
-    table.addRow({"cells taller than a row", std::format("{}", res.multiRow)});
-    table.addRow({"of those, placed", std::format("{}", res.multiRowPlaced)});
-    table.addRow({"macros legalized first", std::format("{}", res.macros)});
-    table.addRow({"macros placed", std::format("{}", res.macrosPlaced)});
-    table.addRow({"total displacement", std::format("{:.6e}", res.displacement)});
-    table.addRow({"max displacement", std::format("{:.1f}", res.maxDisplacement)});
-    table.addRow({"HPWL before", std::format("{:.6e}", res.hpwlBefore)});
-    table.addRow({"HPWL after", std::format("{:.6e}", res.hpwlAfter)});
-    table.addRow({"seconds", std::format("{:.3f}", res.seconds)});
-    table.emit();
-    if (res.unplaced > 0) {
-        ktlog.warning("{} cell(s) found no legal position and kept their global placement",
-                      res.unplaced);
-    }
-}
-
 }  // namespace
 
 multirowDM::multirowDM(Design design, MultiRowOptions options)
     : d(std::move(design)), opts(std::move(options)) {}
 
-MultiRowResult multirowDM::run() {
+void multirowDM::run() {
     MultiRowLegalizer legalizer(d);
-    const MultiRowResult result = legalizer.legalize(opts);
-    reportRun(result);
-    return result;
+    legalizer.legalize(opts);
 }
 
 multiRowSolution multirowDM::getSolution() const {

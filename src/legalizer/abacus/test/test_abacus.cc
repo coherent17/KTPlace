@@ -19,6 +19,7 @@
 #include "legalizer/abacus/abacus_flowMgr.h"
 
 #include <boost/test/unit_test.hpp>
+#include <cmath>
 #include <string>
 #include <vector>
 
@@ -56,13 +57,35 @@ void addFence(ktDM &db, double x0, double y0, double x1, double y1, const std::s
     db.setConstraints(std::move(mgr));
 }
 
-/// Legalize and commit, returning the legalizer's own result.
-abacus::AbacusResult legalize(ktDM &db) {
+void legalize(ktDM &db) {
     abacus::flowMgr flow(db);
     flow.getDm().getOptions() = AbacusOptions{};
-    const abacus::AbacusResult res = flow.run();
+    flow.run();
     db.setAbacusSolution(flow.getSolution());
-    return res;
+}
+
+bool isEveryCellOnARow(const ktDM &db) {
+    for (std::size_t id = 0; id < db.getNumCells(); ++id) {
+        const auto [x, y] = db.getCellPosition(id);
+        const double row = std::round(y / rowHeight);
+        if (std::abs(y - row * rowHeight) > 1e-9 || row < 0.0 || row >= rowCount || x < -1e-9 ||
+            x + 1.0 > rowWidth + 1e-9) {
+            return false;
+        }
+    }
+    return true;
+}
+
+std::size_t getOverlappingPairs(const ktDM &db) {
+    std::size_t pairs = 0;
+    for (std::size_t a = 0; a < db.getNumCells(); ++a) {
+        for (std::size_t b = a + 1; b < db.getNumCells(); ++b) {
+            const auto [ax, ay] = db.getCellPosition(a);
+            const auto [bx, by] = db.getCellPosition(b);
+            pairs += std::abs(ax - bx) < 1.0 - 1e-9 && std::abs(ay - by) < rowHeight - 1e-9;
+        }
+    }
+    return pairs;
 }
 
 bool isInsideBox(const ktDM &db, std::size_t id, double x0, double y0, double x1, double y1) {
@@ -97,8 +120,8 @@ BOOST_AUTO_TEST_CASE(members_far_outside_are_brought_into_their_fence) {
     const auto members = addCells(db, "m", 40, 90.0, 85.0);
     addFence(db, 20.0, 20.0, 50.0, 60.0, "m");
 
-    const abacus::AbacusResult res = legalize(db);
-    BOOST_TEST(res.unplaced == 0u);
+    legalize(db);
+    BOOST_TEST(isEveryCellOnARow(db));
     for (const std::size_t id : members) {
         BOOST_TEST(isInsideBox(db, id, 20.0, 20.0, 50.0, 60.0), "member " << id << " outside");
     }
@@ -111,8 +134,8 @@ BOOST_AUTO_TEST_CASE(non_members_inside_a_fence_are_moved_out) {
     const auto others = addCells(db, "o", 30, 30.0, 30.0);  // dropped inside the fence
     addFence(db, 20.0, 20.0, 50.0, 60.0, "m");
 
-    const abacus::AbacusResult res = legalize(db);
-    BOOST_TEST(res.unplaced == 0u);
+    legalize(db);
+    BOOST_TEST(isEveryCellOnARow(db));
     for (const std::size_t id : others) {
         BOOST_TEST(!overlapsBox(db, id, 20.0, 20.0, 50.0, 60.0), "non-member " << id << " inside");
     }
@@ -130,9 +153,9 @@ BOOST_AUTO_TEST_CASE(a_fence_whose_edge_overflows_is_filled_from_the_left) {
     const auto members = addCells(db, "m", 12, 95.0, 40.0);
     addFence(db, 10.0, 40.0, 22.0, 50.0, "m");
 
-    const abacus::AbacusResult res = legalize(db);
-    BOOST_TEST(res.unplaced == 0u);
-    BOOST_TEST(res.overlappingPairs == 0u);
+    legalize(db);
+    BOOST_TEST(isEveryCellOnARow(db));
+    BOOST_TEST(getOverlappingPairs(db) == 0u);
     for (const std::size_t id : members) {
         BOOST_TEST(isInsideBox(db, id, 10.0, 40.0, 22.0, 50.0), "member " << id << " outside");
     }
@@ -143,9 +166,9 @@ BOOST_AUTO_TEST_CASE(an_unfenced_design_is_legalized_as_before) {
     ktDM db;
     addRows(db);
     const auto cells = addCells(db, "c", 50, 50.0, 50.0);
-    const abacus::AbacusResult res = legalize(db);
-    BOOST_TEST(res.unplaced == 0u);
-    BOOST_TEST(res.overlappingPairs == 0u);
+    legalize(db);
+    BOOST_TEST(isEveryCellOnARow(db));
+    BOOST_TEST(getOverlappingPairs(db) == 0u);
     (void)cells;
 }
 
@@ -160,7 +183,7 @@ BOOST_AUTO_TEST_CASE(frame_count_is_abacus_own_option) {
                                   const abacus::FrameInfo &) {
             ++frames;
         });
-        (void)dm.run();
+        dm.run();
         return frames;
     };
     {

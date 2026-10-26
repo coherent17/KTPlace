@@ -293,7 +293,7 @@ void ktDM::report() const {
                getNumTerminals(), numNets, getNumPins(), getNumRows());
 }
 
-std::vector<ktDM::Defect> ktDM::verify() const {
+std::vector<ktDM::Defect> ktDM::getDefects() const {
     std::vector<Defect> defects;
     const Graph &g = getGraph();
 
@@ -490,17 +490,17 @@ void commitCells(Graph &graph, const Solution &solution) {
 
 void ktDM::setAbacusSolution(const abacusSolution &solution) {
     commitCells(graph, solution);
-    isLegalizePlacement();
+    checkPlacement();
 }
 
 void ktDM::setMultiRowSolution(const multiRowSolution &solution) {
     commitCells(graph, solution);
-    isLegalizePlacement();
+    checkPlacement();
 }
 
 void ktDM::setFastdpSolution(const fastdpSolution &solution) {
     commitCells(graph, solution);
-    isLegalizePlacement();
+    checkPlacement();
 }
 
 solutionMgr ktDM::getPlacementSolution() const {
@@ -565,11 +565,11 @@ std::size_t ktDM::getMultiRowCells() const {
     return n;
 }
 
-void ktDM::isLegalizePlacement() const {
+void ktDM::checkPlacement() const {
     // Timed on its own: it reads the whole placement, changes nothing, and is
     // the phase that goes quadratic if the spatial index degrades.
     const ScopedTimer checkTimer("place-check");
-    const std::vector<Defect> defects = verify();
+    const std::vector<Defect> defects = getDefects();
     ktReportTable check("Placement check (independent)");
     check.setHeaders({"check", "result"});
     if (defects.empty()) {

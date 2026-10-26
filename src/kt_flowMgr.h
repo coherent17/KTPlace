@@ -47,7 +47,7 @@ public:
     void writePlots();
     [[nodiscard]] double getHpwl() const;
     void reportDesign() const;
-    [[nodiscard]] bool checkPlacement() const;
+    [[nodiscard]] bool isPlacementLegal() const;
 
 private:
     class Impl;

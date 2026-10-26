@@ -1,11 +1,13 @@
 #include "globalPlacer/ntuplace1/ntuplace1_placer.h"
 
 #include "util/kt_log.h"
+#include "util/kt_reportTable.h"
 
 #include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstdint>
+#include <format>
 #include <limits>
 #include <numeric>
 #include <queue>
@@ -30,13 +32,46 @@ double getOverlap(const AreaRect &a, double x0, double y0, double x1, double y1)
 constexpr int maxPasses = 8;
 constexpr double balanceSlack = 0.02;
 
+struct Stats {
+    std::size_t numMovable = 0;
+    std::size_t numFixed = 0;
+    std::size_t nets = 0;
+    std::size_t cuts = 0;
+    std::size_t ratioRetries = 0;
+    std::size_t maxDepth = 0;
+    std::size_t minLeafCells = 0;
+    double hpwlFinal = 0.0;
+    double meanImbalance = 0.0;
+    std::size_t fenceRegions = 0;
+    std::size_t fenceViolations = 0;
+};
+
+void report(const Stats &r) {
+    ktReportTable t("NTUplace1 solver results");
+    t.setHeaders({"metric", "value"});
+    t.addRow({"movable cells", std::format("{}", r.numMovable)});
+    t.addRow({"fixed blocks", std::format("{}", r.numFixed)});
+    t.addRow({"hypergraph nets", std::format("{}", r.nets)});
+    t.addRow({"cuts accepted", std::format("{}", r.cuts)});
+    t.addRow({"look-ahead retries", std::format("{}", r.ratioRetries)});
+    t.addRow({"retries per cut", std::format("{:.3}", r.meanImbalance)});
+    t.addRow({"recursion depth reached", std::format("{}", r.maxDepth)});
+    t.addRow({"smallest leaf", std::format("{}", r.minLeafCells)});
+    t.addRow({"HPWL estimate (pre-legalization)", std::format("{:.6}", r.hpwlFinal)});
+    if (r.fenceRegions > 0) {
+        t.addRow({"fence regions", std::format("{}", r.fenceRegions)});
+        t.addRow({"cells outside their fence", std::format("{}", r.fenceViolations)});
+    }
+    t.emit();
+}
+
 }  // namespace
 
 class RatioPlacer::Impl {
 public:
     explicit Impl(Design &target) : design(target) {}
 
-    Ntuplace1Result place(const Ntuplace1Options &params);
+    Stats place(const Ntuplace1Options &params);
 
 private:
     void build();
@@ -53,7 +88,7 @@ private:
     void writeFrame(std::size_t depth, const char *note) const;
 
     Design &design;
-    const std::vector<std::uint32_t> &mov = design.cells.id;
+    const std::vector<std::size_t> &mov = design.cells.id;
     const std::vector<double> &cellArea = design.cells.area;
     const std::vector<int> &cellRegion = design.cells.region;
     const std::vector<HyperNet> &hyperNets = design.hyperNets;
@@ -65,7 +100,7 @@ private:
     std::vector<double> posX, posY;
     Ntuplace1Options opts;
     const constraintMgr *fences = nullptr;
-    Ntuplace1Result result;
+    Stats result;
 
     std::uint32_t gen = 0;
     std::vector<std::uint32_t> localGen, localOf;         // per movable
@@ -506,7 +541,7 @@ void RatioPlacer::Impl::divide(RatioRegion r) {
     divide(std::move(r1));
 }
 
-Ntuplace1Result RatioPlacer::Impl::place(const Ntuplace1Options &params) {
+Stats RatioPlacer::Impl::place(const Ntuplace1Options &params) {
     opts = params;
     fences = &design.fences;
     build();
@@ -567,8 +602,8 @@ RatioPlacer::~RatioPlacer() = default;
 RatioPlacer::RatioPlacer(RatioPlacer &&) noexcept = default;
 RatioPlacer &RatioPlacer::operator=(RatioPlacer &&) noexcept = default;
 
-Ntuplace1Result RatioPlacer::place(const Ntuplace1Options &options) {
-    return pImpl->place(options);
+void RatioPlacer::place(const Ntuplace1Options &options) {
+    report(pImpl->place(options));
 }
 
 }  // namespace ktplace::ntuplace1

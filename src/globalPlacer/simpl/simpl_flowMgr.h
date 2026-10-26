@@ -13,7 +13,7 @@ public:
         return simplDb;
     }
 
-    SimplResult run();
+    void run();
     [[nodiscard]] simplSolution getSolution() const;
 
 private:

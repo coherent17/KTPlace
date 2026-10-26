@@ -104,16 +104,21 @@ Built buildDesign(ktDM &db, bool withFence, bool pullOthersIn = false) {
     return b;
 }
 
-/// Run SimPL and commit its answer.
-SimplResult place(ktDM &db, bool useFences) {
-    // No plots: this checks the solver, not what it draws.
+double place(ktDM &db, bool useFences) {
     simpl::flowMgr flow(db);
     flow.getDm().getOptions() = SimplOptions{};
     flow.getDm().getOptions().maxIters = 30;
     flow.getDm().getOptions().fences = useFences;
-    const SimplResult res = flow.run();
+    double warmUpHpwl = 0.0;
+    flow.getDm().setFrameHook([&warmUpHpwl](const std::vector<float> &, const std::vector<float> &,
+                                            const simpl::FrameInfo &info) {
+        if (info.series.starts_with("LSS_init")) {
+            warmUpHpwl = info.hpwl;
+        }
+    });
+    flow.run();
     db.setSimplSolution(flow.getSolution());
-    return res;
+    return warmUpHpwl;
 }
 
 bool isInFence(double x, double y) {
@@ -151,7 +156,7 @@ Offered getOffered() {
         n.bounds = curve.size();
     });
     dm.getOptions().maxIters = 30;
-    (void)dm.run();
+    dm.run();
     return n;
 }
 
@@ -160,10 +165,8 @@ BOOST_AUTO_TEST_SUITE(ktplace_simpl)
 BOOST_AUTO_TEST_CASE(the_returned_placement_keeps_members_in_their_fence) {
     ktDM db;
     const Built b = buildDesign(db, /*withFence=*/true);
-    const SimplResult res = place(db, /*useFences=*/true);
+    (void)place(db, /*useFences=*/true);
 
-    BOOST_TEST(res.fenceRegions == 1u);
-    BOOST_TEST(res.fenceViolations == 0u);
     std::size_t outside = 0;
     for (const std::size_t id : b.members) {
         const auto [x, y] = db.getCellPosition(id);
@@ -194,15 +197,15 @@ BOOST_AUTO_TEST_CASE(the_wirelength_solve_is_not_fenced) {
     // HPWL on the fenced ISPD 2015 designs.
     ktDM fenced;
     (void)buildDesign(fenced, /*withFence=*/true, /*pullOthersIn=*/true);
-    const SimplResult on = place(fenced, /*useFences=*/true);
+    const double on = place(fenced, /*useFences=*/true);
     ktDM open;
     (void)buildDesign(open, /*withFence=*/true, /*pullOthersIn=*/true);
-    const SimplResult off = place(open, /*useFences=*/false);
+    const double off = place(open, /*useFences=*/false);
 
-    BOOST_TEST(on.fenceRegions == 1u);
+    BOOST_TEST(on > 0.0);
     // A relative tolerance far below what a projection moves (about 35% here),
     // so a change in summation order can never fail it.
-    BOOST_TEST(on.hpwlInit == off.hpwlInit, boost::test_tools::tolerance(1e-9));
+    BOOST_TEST(on == off, boost::test_tools::tolerance(1e-9));
 }
 
 BOOST_AUTO_TEST_CASE(fences_can_still_be_turned_off_to_measure_their_cost) {
@@ -210,8 +213,7 @@ BOOST_AUTO_TEST_CASE(fences_can_still_be_turned_off_to_measure_their_cost) {
     // members are then free to follow their nets out of the fence.
     ktDM db;
     const Built b = buildDesign(db, /*withFence=*/true);
-    const SimplResult res = place(db, /*useFences=*/false);
-    BOOST_TEST(res.fenceRegions == 0u);
+    (void)place(db, /*useFences=*/false);
     std::size_t outside = 0;
     for (const std::size_t id : b.members) {
         const auto [x, y] = db.getCellPosition(id);

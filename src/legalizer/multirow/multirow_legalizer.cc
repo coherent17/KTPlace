@@ -1,11 +1,14 @@
 #include "legalizer/multirow/multirow_legalizer.h"
 
 #include "datamodel/kt_hpwl.h"
+#include "util/kt_log.h"
+#include "util/kt_reportTable.h"
 #include "util/kt_scopedTimer.h"
 
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <format>
 #include <limits>
 #include <numeric>
 #include <ranges>
@@ -91,19 +94,56 @@ struct Slot {
     double hi = 0.0;
 };
 
+struct Stats {
+    std::size_t movable = 0;
+    std::size_t placed = 0;
+    std::size_t unplaced = 0;
+    std::size_t multiRow = 0;
+    std::size_t multiRowPlaced = 0;
+    std::size_t macros = 0;
+    std::size_t macrosPlaced = 0;
+    double displacement = 0.0;
+    double maxDisplacement = 0.0;
+    double hpwlBefore = 0.0;
+    double hpwlAfter = 0.0;
+    double seconds = 0.0;
+};
+
+void report(const Stats &res) {
+    ktReportTable table("Legalization (multi-row)");
+    table.setHeaders({"metric", "value"});
+    table.addRow({"movable cells", std::format("{}", res.movable)});
+    table.addRow({"cells placed", std::format("{}", res.placed)});
+    table.addRow({"cells unplaced", std::format("{}", res.unplaced)});
+    table.addRow({"cells taller than a row", std::format("{}", res.multiRow)});
+    table.addRow({"of those, placed", std::format("{}", res.multiRowPlaced)});
+    table.addRow({"macros legalized first", std::format("{}", res.macros)});
+    table.addRow({"macros placed", std::format("{}", res.macrosPlaced)});
+    table.addRow({"total displacement", std::format("{:.6e}", res.displacement)});
+    table.addRow({"max displacement", std::format("{:.1f}", res.maxDisplacement)});
+    table.addRow({"HPWL before", std::format("{:.6e}", res.hpwlBefore)});
+    table.addRow({"HPWL after", std::format("{:.6e}", res.hpwlAfter)});
+    table.addRow({"seconds", std::format("{:.3f}", res.seconds)});
+    table.emit();
+    if (res.unplaced > 0) {
+        ktlog.warning("{} cell(s) found no legal position and kept their global placement",
+                      res.unplaced);
+    }
+}
+
 }  // namespace
 
 class MultiRowLegalizer::Impl {
 public:
     explicit Impl(Design &d) : design(d) {}
 
-    MultiRowResult run(const MultiRowOptions &params);
+    Stats run(const MultiRowOptions &params);
 
     std::vector<double> xs;
     std::vector<double> ys;
 
 private:
-    void legalizeMacros(const std::vector<std::uint32_t> &macros, MultiRowResult &res);
+    void legalizeMacros(const std::vector<std::uint32_t> &macros, Stats &res);
     void buildLanes();
     [[nodiscard]] std::vector<Slot> getSlots(std::size_t bottom, std::size_t span, int region,
                                              double width) const;
@@ -245,8 +285,7 @@ std::size_t MultiRowLegalizer::Impl::getSpanOf(double height) const {
     return static_cast<std::size_t>(std::max(1.0, std::ceil(height / rowHeight - 1e-6)));
 }
 
-void MultiRowLegalizer::Impl::legalizeMacros(const std::vector<std::uint32_t> &macros,
-                                             MultiRowResult &res) {
+void MultiRowLegalizer::Impl::legalizeMacros(const std::vector<std::uint32_t> &macros, Stats &res) {
     std::vector<std::uint32_t> order = macros;
     std::stable_sort(order.begin(), order.end(), [&](std::uint32_t a, std::uint32_t b) {
         const Cell &ca = design.cells[a];
@@ -608,9 +647,9 @@ std::uint32_t MultiRowLegalizer::Impl::insert(std::uint32_t cell, const Slot &sl
     }
 }
 
-MultiRowResult MultiRowLegalizer::Impl::run(const MultiRowOptions &params) {
+Stats MultiRowLegalizer::Impl::run(const MultiRowOptions &params) {
     ScopedTimer timer("multirow");
-    MultiRowResult res;
+    Stats res;
 
     rowHeight = std::numeric_limits<double>::max();
     for (const RowInfo &r : rows) {
@@ -628,7 +667,7 @@ MultiRowResult MultiRowLegalizer::Impl::run(const MultiRowOptions &params) {
         const Cell &c = design.cells[v];
         xs[v] = c.x;
         ys[v] = c.y;
-        if (!c.movable) {
+        if (!c.isMovable) {
             continue;
         }
         ++res.movable;
@@ -776,7 +815,7 @@ MultiRowResult MultiRowLegalizer::Impl::run(const MultiRowOptions &params) {
     res.unplaced = res.movable - res.placed;
     for (std::uint32_t v = 0; v < n; ++v) {
         const Cell &c = design.cells[v];
-        if (c.movable) {
+        if (c.isMovable) {
             const double moved =
                 std::sqrt((xs[v] - c.x) * (xs[v] - c.x) + (ys[v] - c.y) * (ys[v] - c.y));
             res.displacement += moved;
@@ -853,8 +892,8 @@ MultiRowLegalizer::MultiRowLegalizer(MultiRowLegalizer &&) noexcept = default;
 
 MultiRowLegalizer &MultiRowLegalizer::operator=(MultiRowLegalizer &&) noexcept = default;
 
-MultiRowResult MultiRowLegalizer::legalize(const MultiRowOptions &options) {
-    return pImpl->run(options);
+void MultiRowLegalizer::legalize(const MultiRowOptions &options) {
+    report(pImpl->run(options));
 }
 
 }  // namespace ktplace::multirow

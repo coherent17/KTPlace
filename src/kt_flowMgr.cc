@@ -236,10 +236,10 @@ void FlowMgr::reportDesign() const {
     pImpl->reportDesign();
 }
 
-bool FlowMgr::checkPlacement() const {
+bool FlowMgr::isPlacementLegal() const {
     const ktDM &db = pImpl->getDesign();
-    db.isLegalizePlacement();
-    return db.verify().empty();
+    db.checkPlacement();
+    return db.getDefects().empty();
 }
 
 void FlowMgr::Impl::begin(const kt_option &sessionOptions) {

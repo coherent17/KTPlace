@@ -2,11 +2,11 @@
 
 #include "datamodel/kt_solutionMgr.h"
 #include "legalizer/multirow/multirow_options.h"
+#include "util/kt_packedLists.h"
 
 #include <array>
 #include <cstddef>
 #include <functional>
-#include <span>
 #include <string>
 #include <utility>
 #include <vector>
@@ -25,7 +25,7 @@ struct Cell {
     double width = 0.0;
     double height = 0.0;
     int region = noRegion;
-    bool movable = false;
+    bool isMovable = false;
 };
 
 struct NetPin {
@@ -34,23 +34,7 @@ struct NetPin {
     double offY = 0.0;
 };
 
-class Nets {
-public:
-    [[nodiscard]] std::size_t size() const noexcept {
-        return firstPin.size() - 1;
-    }
-    [[nodiscard]] std::span<const NetPin> operator[](std::size_t net) const {
-        return std::span(pins).subspan(firstPin[net], firstPin[net + 1] - firstPin[net]);
-    }
-    void add(std::span<const NetPin> netPins) {
-        pins.insert(pins.end(), netPins.begin(), netPins.end());
-        firstPin.push_back(pins.size());
-    }
-
-private:
-    std::vector<std::size_t> firstPin{0};
-    std::vector<NetPin> pins;
-};
+using Nets = PackedLists<NetPin>;
 
 struct Box {
     double x0 = 0.0;
@@ -101,21 +85,6 @@ struct Design {
     FrameHook onFrame;
 };
 
-struct MultiRowResult {
-    std::size_t movable = 0;
-    std::size_t placed = 0;
-    std::size_t unplaced = 0;
-    std::size_t multiRow = 0;
-    std::size_t multiRowPlaced = 0;
-    std::size_t macros = 0;
-    std::size_t macrosPlaced = 0;
-    double displacement = 0.0;
-    double maxDisplacement = 0.0;
-    double hpwlBefore = 0.0;
-    double hpwlAfter = 0.0;
-    double seconds = 0.0;
-};
-
 class multirowDM {
 public:
     multirowDM(Design design, MultiRowOptions options);
@@ -134,7 +103,7 @@ public:
         d.onFrame = std::move(hook);
     }
 
-    MultiRowResult run();
+    void run();
     [[nodiscard]] multiRowSolution getSolution() const;
 
 private:

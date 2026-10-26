@@ -4,8 +4,8 @@ namespace ktplace::multirow {
 
 flowMgr::flowMgr(const ktDM &db) : multirowDb(buildMultiRowDM(db)) {}
 
-MultiRowResult flowMgr::run() {
-    return multirowDb.run();
+void flowMgr::run() {
+    multirowDb.run();
 }
 
 multiRowSolution flowMgr::getSolution() const {
