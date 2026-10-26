@@ -105,34 +105,12 @@ Fences copyFences(const ktplace::constraintMgr &constraints) {
         if (source == nullptr) {
             continue;
         }
-        Region region;
-        region.name = source->name;
-        region.rects.reserve(source->rects.size());
-        for (const ktplace::Rect &rect : source->rects) {
-            region.rects.push_back(Rect{rect.lo.x, rect.lo.y, rect.hi.x, rect.hi.y});
-        }
-        region.seal();
-        out.addRegion(std::move(region));
+        out.addRegion(Region{source->name, source->rects, source->bounds});
     }
     return out;
 }
 
 }  // namespace
-
-void Region::seal() {
-    if (rects.empty()) {
-        minX = minY = maxX = maxY = 0.0;
-        return;
-    }
-    minX = minY = std::numeric_limits<double>::max();
-    maxX = maxY = std::numeric_limits<double>::lowest();
-    for (const Rect &r : rects) {
-        minX = std::min(minX, r.xlo);
-        minY = std::min(minY, r.ylo);
-        maxX = std::max(maxX, r.xhi);
-        maxY = std::max(maxY, r.yhi);
-    }
-}
 
 bool Fences::clampToRegion(int id, double &x, double &y) const {
     if (id < 0 || static_cast<std::size_t>(id) >= regions.size()) {
@@ -144,9 +122,9 @@ bool Fences::clampToRegion(int id, double &x, double &y) const {
     }
     // Snap into the rectangle that is nearest, measured as the distance still
     // to travel along each axis.
-    const Rect *best = nullptr;
+    const BBox *best = nullptr;
     double bestDist = std::numeric_limits<double>::max();
-    for (const Rect &cand : r.rects) {
+    for (const BBox &cand : r.rects) {
         const double cx = std::clamp(x, cand.xlo, cand.xhi);
         const double cy = std::clamp(y, cand.ylo, cand.yhi);
         const double dx = cx - x;
@@ -179,15 +157,14 @@ bool isInsideAnyRegion(const std::vector<Region> &regions, double x, double y) {
 double getEscapeEpsilon(const std::vector<Region> &regions) {
     double scale = 0.0;
     for (const Region &r : regions) {
-        scale = std::max(scale, std::max(r.maxX - r.minX, r.maxY - r.minY));
+        scale = std::max(scale, std::max(r.bounds.getWidth(), r.bounds.getHeight()));
     }
     return std::max(scale, 1.0) * 1e-6;
 }
 
 }  // namespace
 
-bool Fences::pushOutOfRegions(double &x, double &y, double dieMinX, double dieMinY, double dieMaxX,
-                              double dieMaxY) const {
+bool Fences::pushOutOfRegions(double &x, double &y, const BBox &die) const {
     // Escaping is planned against the *union* of the fences, not one rectangle
     // at a time. Fences are often rings or combs of abutting rectangles, so
     // stepping to the nearest edge of the rectangle that caught the point can
@@ -196,10 +173,10 @@ bool Fences::pushOutOfRegions(double &x, double &y, double dieMinX, double dieMi
     // which makes progress monotone.
     const std::size_t maxPasses = 4 * (regions.size() + 1) + 8;
     for (std::size_t pass = 0; pass < maxPasses; ++pass) {
-        const Rect *host = nullptr;
+        const BBox *host = nullptr;
         double hostArea = std::numeric_limits<double>::max();
         for (const Region &r : regions) {
-            for (const Rect &cand : r.rects) {
+            for (const BBox &cand : r.rects) {
                 const double area = cand.getWidth() * cand.getHeight();
                 if (cand.contains(x, y) && area < hostArea) {
                     hostArea = area;
@@ -224,8 +201,7 @@ bool Fences::pushOutOfRegions(double &x, double &y, double dieMinX, double dieMi
         double bestDist = std::numeric_limits<double>::max();
         bool bestLegal = false;
         for (int k = 0; k < 4; ++k) {
-            const bool onDie = exits[k][0] >= dieMinX && exits[k][0] <= dieMaxX &&
-                               exits[k][1] >= dieMinY && exits[k][1] <= dieMaxY;
+            const bool onDie = die.contains(exits[k][0], exits[k][1]);
             const bool legal = onDie && !isInsideAnyRegion(regions, exits[k][0], exits[k][1]);
             if (legal && (!bestLegal || dists[k] < bestDist)) {
                 best = k;

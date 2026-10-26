@@ -18,13 +18,13 @@ struct Stripe;
 struct LookAheadLegalizer {
     const BinGrid &grid;
     const FreeSpace &freeSpace;
-    const std::vector<Box> &obstacles;
+    const std::vector<BBox> &obstacles;
     const std::vector<double> &width;
     const std::vector<double> &height;
     const std::vector<double> &area;
     const SimplOptions &opts;
     double densityLimit;
-    DieBox die;
+    BBox die;
 
     void legalize(std::vector<double> &x, std::vector<double> &y) const;
 
@@ -41,10 +41,10 @@ private:
     [[nodiscard]] std::optional<std::pair<Block, Block>> split(Block &region,
                                                                std::vector<double> &x,
                                                                std::vector<double> &y) const;
-    void nonlinearScale(const std::vector<std::uint32_t> &cells, const Box &box, bool vertical,
+    void nonlinearScale(const std::vector<std::uint32_t> &cells, const BBox &box, bool vertical,
                         double cutline, bool belowCut, std::vector<double> &pos,
                         double regionRoom) const;
-    [[nodiscard]] std::vector<Stripe> getStripes(const Box &box, bool vertical, double cellArea,
+    [[nodiscard]] std::vector<Stripe> getStripes(const BBox &box, bool vertical, double cellArea,
                                                  double regionRoom) const;
     void clampToDie(std::vector<double> &x, std::vector<double> &y) const;
 };

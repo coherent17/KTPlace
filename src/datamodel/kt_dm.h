@@ -8,8 +8,8 @@
 #include "datamodel/kt_graph.h"
 #include "datamodel/kt_rowFence.h"
 #include "datamodel/kt_solutionMgr.h"
+#include "geometry/kt_bbox.h"
 
-#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <string>
@@ -103,11 +103,10 @@ public:
         return dieInfo;
     }
 
-    void setDieArea(double xMin, double yMin, double xMax, double yMax);
-    [[nodiscard]] std::pair<std::pair<double, double>, std::pair<double, double>> getDieArea()
-        const;
+    void setDieArea(const BBox &box);
+    [[nodiscard]] const BBox &getDieArea() const;
 
-    [[nodiscard]] std::array<double, 4> getPlacementDieBox() const;
+    [[nodiscard]] BBox getPlacementDieBox() const;
 
     // Movable cells too tall for any single row, against the shortest row that has
     // a subrow. These are what a single-row legalizer cannot place, so the count is

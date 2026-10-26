@@ -180,16 +180,13 @@ void addNet(ktDM &db, const std::string &net, const std::string &a, const std::s
         // the caller's mistake, so say so rather than reading rows.front().
         return db.getNumCells() == 0;
     }
-    struct Box {
-        double x0, x1, y0, y1;
-    };
-    std::vector<Box> boxes;
+    std::vector<BBox> boxes;
     for (std::size_t i = 0; i < db.getNumCells(); ++i) {
         const auto [x, y] = db.getCellPosition(i);
         const double w = getWidthOf(i);
         const double h = rowHeight;
         if (db.isCellFixed(i)) {
-            boxes.push_back({x, x + w, y, y + h});
+            boxes.push_back(BBox::of(x, y, w, h));
             continue;
         }
         // On a site, to within floating point.
@@ -214,13 +211,11 @@ void addNet(ktDM &db, const std::string &net, const std::string &a, const std::s
         if (!withinRow) {
             return false;
         }
-        boxes.push_back({x, x + w, y, y + h});
+        boxes.push_back(BBox::of(x, y, w, h));
     }
     for (std::size_t i = 0; i < boxes.size(); ++i) {
         for (std::size_t j = i + 1; j < boxes.size(); ++j) {
-            const bool disjoint = boxes[i].x1 <= boxes[j].x0 || boxes[j].x1 <= boxes[i].x0 ||
-                                  boxes[i].y1 <= boxes[j].y0 || boxes[j].y1 <= boxes[i].y0;
-            if (!disjoint) {
+            if (boxes[i].isOverlapping(boxes[j])) {
                 return false;
             }
         }

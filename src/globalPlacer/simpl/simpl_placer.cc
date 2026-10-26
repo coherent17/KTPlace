@@ -153,7 +153,7 @@ private:
     const std::vector<double> &height = design.height;
     const std::vector<double> &area = design.area;
     const std::vector<int> &region = design.region;
-    const std::vector<Box> &obstacles = design.obstacles;
+    const std::vector<BBox> &obstacles = design.obstacles;
 
     SparseSystem sysX;
     SparseSystem sysY;
@@ -162,7 +162,7 @@ private:
 
     BinGrid grid;
     FreeSpace freeSpace;
-    DieBox die{};
+    BBox die{};
     double densityLimit = 1.0;
 };
 
@@ -189,12 +189,12 @@ std::size_t simplPlacer::Impl::getDefaultBinsPerAxis() const {
 
 void simplPlacer::Impl::buildGrid(std::size_t perAxis) {
     die = design.die;
-    grid.x0 = die[0];
-    grid.y0 = die[1];
+    grid.x0 = die.xlo;
+    grid.y0 = die.ylo;
     grid.nx = perAxis;
     grid.ny = perAxis;
-    grid.dx = std::max(die[2] - die[0], 1e-9) / static_cast<double>(perAxis);
-    grid.dy = std::max(die[3] - die[1], 1e-9) / static_cast<double>(perAxis);
+    grid.dx = std::max(die.xhi - die.xlo, 1e-9) / static_cast<double>(perAxis);
+    grid.dy = std::max(die.yhi - die.ylo, 1e-9) / static_cast<double>(perAxis);
     grid.avail.assign(grid.size(), 0.0);
 
     std::vector<FreeSpace::Row> rows;
@@ -232,8 +232,8 @@ void simplPlacer::Impl::seedUniform(std::vector<double> &x, std::vector<double> 
     x.resize(netlist.numMovable);
     y.resize(netlist.numMovable);
     for (std::size_t i = 0; i < netlist.numMovable; ++i) {
-        x[i] = die[0] + unit() * std::max(die[2] - die[0] - width[i], 0.0);
-        y[i] = die[1] + unit() * std::max(die[3] - die[1] - height[i], 0.0);
+        x[i] = die.xlo + unit() * std::max(die.xhi - die.xlo - width[i], 0.0);
+        y[i] = die.ylo + unit() * std::max(die.yhi - die.ylo - height[i], 0.0);
     }
 }
 
@@ -267,19 +267,11 @@ double simplPlacer::Impl::getHpwl(const std::vector<double> &x,
         if (net.cells.size() < 2) {
             return 0.0;
         }
-        double x0 = std::numeric_limits<double>::max();
-        double x1 = -x0;
-        double y0 = x0;
-        double y1 = -x0;
+        BBox box = BBox::getEmpty();
         for (std::size_t q = 0; q < net.cells.size(); ++q) {
-            const double pxq = px[net.cells[q]] + net.offX[q];
-            const double pyq = py[net.cells[q]] + net.offY[q];
-            x0 = std::min(x0, pxq);
-            x1 = std::max(x1, pxq);
-            y0 = std::min(y0, pyq);
-            y1 = std::max(y1, pyq);
+            box.extend(px[net.cells[q]] + net.offX[q], py[net.cells[q]] + net.offY[q]);
         }
-        return (x1 - x0) + (y1 - y0);
+        return box.getHalfPerimeter();
     });
 }
 
@@ -326,8 +318,7 @@ void simplPlacer::Impl::enforceFences(std::vector<double> &x, std::vector<double
         if (region[i] != Fences::noRegion) {
             result.fenceClamps += fences->clampToRegion(region[i], x[i], y[i]) ? 1 : 0;
         } else {
-            result.fencePushes +=
-                fences->pushOutOfRegions(x[i], y[i], die[0], die[1], die[2], die[3]) ? 1 : 0;
+            result.fencePushes += fences->pushOutOfRegions(x[i], y[i], die) ? 1 : 0;
         }
     }
 }
@@ -418,8 +409,8 @@ void simplPlacer::Impl::initialRounds(Positions &lower, NetModel model, InitialR
         ScopedTimer timer("simpl-init");
         const std::size_t size = getLinearSystems().buildStar();
         extended = lower;
-        extended.x.resize(size, 0.5 * (die[0] + die[2]));
-        extended.y.resize(size, 0.5 * (die[1] + die[3]));
+        extended.x.resize(size, 0.5 * (die.xlo + die.xhi));
+        extended.y.resize(size, 0.5 * (die.ylo + die.yhi));
     }
     for (std::size_t round = 0; round < opts.initMaxIters; ++round) {
         ScopedTimer timer("simpl-init");

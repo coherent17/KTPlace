@@ -121,7 +121,7 @@ public:
         return {view.getWorldToScreen({x, y + h}), QSizeF(w * scale, h * scale)};
     }
 
-    [[nodiscard]] QRectF getRectOf(const Bounds &box) const {
+    [[nodiscard]] QRectF getRectOf(const BBox &box) const {
         return getRectOf(box.xlo, box.ylo, box.xhi - box.xlo, box.yhi - box.ylo);
     }
 
@@ -214,7 +214,7 @@ void LayoutView::Impl::paintFences(QPainter &painter) const {
     painter.setPen(QPen(color, 1.0));
     painter.setBrush(withAlpha(color, fenceFillAlpha));
     for (const LayoutGeometry::Fence &fence : fences) {
-        for (const Bounds &rect : fence.rects) {
+        for (const BBox &rect : fence.rects) {
             painter.drawRect(getRectOf(rect));
         }
         if (fence.rects.empty()) {
@@ -296,7 +296,7 @@ void LayoutView::Impl::paintMarkedNets(QPainter &painter) const {
     const bool boxed = nets.size() <= maxBoxedNets;
     painter.setRenderHint(QPainter::Antialiasing, detailed);
     for (const std::uint32_t net : nets) {
-        const std::optional<Bounds> box = frame.getNetBounds(net);
+        const std::optional<BBox> box = frame.getNetBounds(net);
         if (!box) {
             continue;
         }
@@ -335,7 +335,7 @@ void LayoutView::Impl::paintSelection(QPainter &painter) const {
     std::vector<QRectF> outlines;
     outlines.reserve(std::min(cells.size(), outlinedMacroLimit));
     for (const std::uint32_t cell : cells) {
-        const Bounds box = frame.getCellBounds(cell);
+        const BBox box = frame.getCellBounds(cell);
         if (box.xlo > hi.x() || box.xhi < lo.x() || box.ylo > hi.y() || box.yhi < lo.y()) {
             continue;
         }
@@ -548,7 +548,7 @@ void LayoutView::Impl::render() {
     if (style.isShown(DisplayLayer::Die)) {
         painter.setPen(QPen(style[DisplayLayer::Die].color, 0));
         painter.setBrush(Qt::NoBrush);
-        painter.drawRect(getRectOf(die[0], die[1], die[2] - die[0], die[3] - die[1]));
+        painter.drawRect(getRectOf(die.xlo, die.ylo, die.xhi - die.xlo, die.yhi - die.ylo));
     }
 }
 
@@ -724,10 +724,10 @@ void LayoutView::zoomFit() {
         return;
     }
     const auto &die = pImpl->frame.geometry->die;
-    zoomTo({die[0], die[1], die[2], die[3]});
+    zoomTo({die.xlo, die.ylo, die.xhi, die.yhi});
 }
 
-void LayoutView::zoomTo(const Bounds &area) {
+void LayoutView::zoomTo(const BBox &area) {
     const double floor =
         pImpl->frame.isDrawable() ? minZoomCells * pImpl->frame.geometry->typicalWidth : 1e-9;
     const double w = std::max(area.xhi - area.xlo, floor);
@@ -744,10 +744,10 @@ bool LayoutView::zoomToSelection() {
     if (!pImpl->frame.isDrawable()) {
         return false;
     }
-    std::optional<Bounds> area = pImpl->frame.getCellsBounds(pImpl->selection.getCells());
-    if (const std::optional<Bounds> nets = pImpl->frame.getNetsBounds(pImpl->selection.getNets())) {
+    std::optional<BBox> area = pImpl->frame.getCellsBounds(pImpl->selection.getCells());
+    if (const std::optional<BBox> nets = pImpl->frame.getNetsBounds(pImpl->selection.getNets())) {
         if (area) {
-            area->include(*nets);
+            area->extend(*nets);
         } else {
             area = nets;
         }

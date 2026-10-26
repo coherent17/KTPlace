@@ -41,7 +41,7 @@ QString getNumber(double value) {
     return QString::number(value, 'f', 1);
 }
 
-QString getBoundsText(const Bounds &box) {
+QString getBoundsText(const BBox &box) {
     return QStringLiteral("(%1, %2) to (%3, %4)")
         .arg(getNumber(box.xlo), getNumber(box.ylo), getNumber(box.xhi), getNumber(box.yhi));
 }
@@ -84,7 +84,7 @@ public:
 
     void updateNetValues(const LayoutFrame &frame) {
         for (int row = 0; row < nets->rowCount(); ++row) {
-            const std::optional<Bounds> box = frame.getNetBounds(getNetInRow(row));
+            const std::optional<BBox> box = frame.getNetBounds(getNetInRow(row));
             const double hpwl = box ? box->getHalfPerimeter() : 0.0;
             if (auto *item = dynamic_cast<NumericItem *>(nets->item(row, 2))) {
                 item->setValue(hpwl, getNumber(hpwl));
@@ -127,7 +127,7 @@ public:
         for (int row = 0; row < static_cast<int>(ids.size()); ++row) {
             const std::uint32_t net = ids[static_cast<std::size_t>(row)];
             const std::uint32_t pins = geometry.netPinStart[net + 1] - geometry.netPinStart[net];
-            const std::optional<Bounds> box = frame.getNetBounds(net);
+            const std::optional<BBox> box = frame.getNetBounds(net);
             const double hpwl = box ? box->getHalfPerimeter() : 0.0;
             auto *name = new QTableWidgetItem(QString::fromStdString(geometry.netName[net]));
             name->setData(netIdRole, net);
@@ -185,7 +185,7 @@ public:
             area += static_cast<double>(geometry.width[cell]) * geometry.height[cell];
         }
         heading->setText(QStringLiteral("%1 cells selected").arg(cells.size()));
-        const std::optional<Bounds> box = frame.getCellsBounds(cells);
+        const std::optional<BBox> box = frame.getCellsBounds(cells);
         const auto count = [&counts](CellKind kind) {
             return QString::number(counts[static_cast<std::size_t>(kind)]);
         };
@@ -195,7 +195,7 @@ public:
             {getKindName(CellKind::Macro), count(CellKind::Macro)},
             {getKindName(CellKind::Pad), count(CellKind::Pad)},
             {QStringLiteral("Total area"), getNumber(area)},
-            {QStringLiteral("Bounds"), box ? getBoundsText(*box) : QString()},
+            {QStringLiteral("BBox"), box ? getBoundsText(*box) : QString()},
         }};
         setProperties(rows);
         setNets(frame, {});
@@ -209,15 +209,15 @@ public:
         double hpwl = 0.0;
         for (const std::uint32_t net : ids) {
             pins += geometry.netPinStart[net + 1] - geometry.netPinStart[net];
-            if (const std::optional<Bounds> box = frame.getNetBounds(net)) {
+            if (const std::optional<BBox> box = frame.getNetBounds(net)) {
                 hpwl += box->getHalfPerimeter();
             }
         }
-        const std::optional<Bounds> box = frame.getNetsBounds(ids);
+        const std::optional<BBox> box = frame.getNetsBounds(ids);
         const std::array<std::pair<QString, QString>, 3> rows{{
             {QStringLiteral("Pins"), QString::number(pins)},
             {QStringLiteral("HPWL"), getNumber(hpwl)},
-            {QStringLiteral("Bounds"), box ? getBoundsText(*box) : QString()},
+            {QStringLiteral("BBox"), box ? getBoundsText(*box) : QString()},
         }};
         setProperties(rows);
         setNets(frame, ids);

@@ -1,10 +1,10 @@
 #pragma once
 
 #include "datamodel/kt_solutionMgr.h"
+#include "geometry/kt_bbox.h"
 #include "legalizer/abacus/abacus_options.h"
 #include "util/kt_packedLists.h"
 
-#include <array>
 #include <cstddef>
 #include <functional>
 #include <limits>
@@ -44,13 +44,6 @@ struct NetPin {
 
 using Nets = PackedLists<NetPin>;
 
-struct FixedBox {
-    double y0 = 0.0;
-    double y1 = 0.0;
-    double x0 = 0.0;
-    double x1 = 0.0;
-};
-
 struct Subrow {
     double xlo = 0.0;
     double xhi = 0.0;
@@ -67,8 +60,6 @@ struct RowInfo {
     }
     std::vector<Subrow> subrows;
 };
-
-using DieBox = std::array<double, 4>;
 
 struct FrameInfo {
     std::string note;
@@ -87,11 +78,11 @@ using FrameHook = std::function<void(const std::vector<float> &xs, const std::ve
 struct Design {
     Cells cells;
     Nets nets;
-    std::vector<FixedBox> fixedBoxes;
+    std::vector<BBox> fixedBoxes;
     std::vector<RowInfo> rows;
     std::vector<double> vertexX;
     std::vector<double> vertexY;
-    DieBox die{};
+    BBox die{};
     FrameHook onFrame;
 };
 

@@ -62,15 +62,7 @@ void collectHyperNets(const ktplace::Graph &graph, Design &design) {
             const ktplace::Vertex &pin = graph.getCell(e.cellId);
             const double px = pin.x + e.offsetX;
             const double py = pin.y + e.offsetY;
-            if (n.fixedPins == 0) {
-                n.fx0 = n.fx1 = px;
-                n.fy0 = n.fy1 = py;
-            } else {
-                n.fx0 = std::min(n.fx0, px);
-                n.fx1 = std::max(n.fx1, px);
-                n.fy0 = std::min(n.fy0, py);
-                n.fy1 = std::max(n.fy1, py);
-            }
+            n.fixedPinBox.extend(px, py);
             ++n.fixedPins;
         }
         if (n.cells.empty() || n.cells.size() + n.fixedPins < 2) {
@@ -85,32 +77,28 @@ void collectHyperNets(const ktplace::Graph &graph, Design &design) {
 }
 
 void collectRows(const std::vector<ktplace::RowInfo> &rows, Design &design) {
-    design.rowBox = {std::numeric_limits<double>::max(), std::numeric_limits<double>::max(),
-                     -std::numeric_limits<double>::max(), -std::numeric_limits<double>::max()};
+    design.rowBox = BBox::getEmpty();
     for (const ktplace::RowInfo &r : rows) {
         for (const ktplace::SubrowInfo &s : r.subrows) {
-            const AreaRect rr{s.getXlo(), r.coordinate, s.getXhi(r.getPitch()),
-                              r.coordinate + r.height};
-            if (rr.x1 <= rr.x0) {
+            const BBox rr{s.getXlo(), r.coordinate, s.getXhi(r.getPitch()),
+                          r.coordinate + r.height};
+            if (rr.xhi <= rr.xlo) {
                 continue;
             }
             design.rowRects.push_back(rr);
-            design.rowBox[0] = std::min(design.rowBox[0], rr.x0);
-            design.rowBox[1] = std::min(design.rowBox[1], rr.y0);
-            design.rowBox[2] = std::max(design.rowBox[2], rr.x1);
-            design.rowBox[3] = std::max(design.rowBox[3], rr.y1);
+            design.rowBox.extend(rr);
         }
     }
     if (design.rowRects.empty()) {
         design.rowBox = design.die;
     }
     std::stable_sort(design.rowRects.begin(), design.rowRects.end(),
-                     [](const AreaRect &a, const AreaRect &b) {
-                         return a.y0 < b.y0;
+                     [](const BBox &a, const BBox &b) {
+                         return a.ylo < b.ylo;
                      });
     design.maxRowH = 0.0;
-    for (const AreaRect &r : design.rowRects) {
-        design.maxRowH = std::max(design.maxRowH, r.y1 - r.y0);
+    for (const BBox &r : design.rowRects) {
+        design.maxRowH = std::max(design.maxRowH, r.yhi - r.ylo);
     }
 }
 

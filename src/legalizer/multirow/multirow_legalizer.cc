@@ -175,7 +175,7 @@ private:
     double hpwlInput = 0.0;
     double rowHeight = 0.0;
     const std::vector<RowInfo> &rows = design.rows;
-    std::vector<Box> blocked = design.blockages;
+    std::vector<BBox> blocked = design.blockages;
     std::vector<Lane> lanes;
     std::vector<std::vector<std::uint32_t>> lanesOfRow;
     std::vector<Cluster> clusters;
@@ -301,7 +301,7 @@ void MultiRowLegalizer::Impl::legalizeMacros(const std::vector<std::uint32_t> &m
         });
         const std::size_t span = getSpanOf(cell.height);
         double bestCost = std::numeric_limits<double>::max();
-        Box best;
+        BBox best;
         for (const std::size_t r : byDistance) {
             const double dy = rows[r].coordinate - cell.y;
             if (dy * dy >= bestCost) {
@@ -342,9 +342,9 @@ void MultiRowLegalizer::Impl::legalizeMacros(const std::vector<std::uint32_t> &m
             }
             const double y0 = rows[r].coordinate;
             const double y1 = y0 + cell.height;
-            for (const Box &b : blocked) {
-                if (b.y1 > y0 + eps && b.y0 < y1 - eps) {
-                    free = subtract(free, b.x0, b.x1);
+            for (const BBox &b : blocked) {
+                if (b.yhi > y0 + eps && b.ylo < y1 - eps) {
+                    free = subtract(free, b.xlo, b.xhi);
                 }
             }
             const double pitch = rows[r].getPitch();
@@ -372,8 +372,8 @@ void MultiRowLegalizer::Impl::legalizeMacros(const std::vector<std::uint32_t> &m
         if (bestCost == std::numeric_limits<double>::max()) {
             continue;
         }
-        xs[v] = best.x0;
-        ys[v] = best.y0;
+        xs[v] = best.xlo;
+        ys[v] = best.ylo;
         blocked.push_back(best);
         ++res.macrosPlaced;
     }
@@ -391,9 +391,9 @@ void MultiRowLegalizer::Impl::buildLanes() {
                 continue;
             }
             Intervals free{{s.xlo, s.xhi}};
-            for (const Box &b : blocked) {
-                if (b.y1 > y0 + eps && b.y0 < y1 - eps) {
-                    free = subtract(free, b.x0, b.x1);
+            for (const BBox &b : blocked) {
+                if (b.yhi > y0 + eps && b.ylo < y1 - eps) {
+                    free = subtract(free, b.xlo, b.xhi);
                 }
             }
             for (const auto &[lo, hi] : free) {

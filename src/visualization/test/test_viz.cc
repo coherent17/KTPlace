@@ -401,10 +401,10 @@ BOOST_AUTO_TEST_CASE(the_die_box_comes_from_the_fixed_cells) {
     const BBox box = getFixedCellBBox(g);
     // The boxes include the cell extent, so a pad at the right rim is not
     // clipped out of the drawn die.
-    BOOST_TEST(box[0] == 0.0);
-    BOOST_TEST(box[1] == 0.0);
-    BOOST_TEST(box[2] == 100.0);
-    BOOST_TEST(box[3] == 100.0);
+    BOOST_TEST(box.xlo == 0.0);
+    BOOST_TEST(box.ylo == 0.0);
+    BOOST_TEST(box.xhi == 100.0);
+    BOOST_TEST(box.yhi == 100.0);
 }
 
 BOOST_AUTO_TEST_CASE(a_design_with_no_fixed_cells_still_gets_a_usable_box) {
@@ -418,10 +418,10 @@ BOOST_AUTO_TEST_CASE(a_design_with_no_fixed_cells_still_gets_a_usable_box) {
     g.getCell(id).height = 4.0;
 
     const BBox box = getFixedCellBBox(g);
-    BOOST_TEST(box[0] <= box[2]);
-    BOOST_TEST(box[1] <= box[3]);
-    BOOST_TEST(box[2] > box[0]);
-    BOOST_TEST(box[3] > box[1]);
+    BOOST_TEST(box.xlo <= box.xhi);
+    BOOST_TEST(box.ylo <= box.yhi);
+    BOOST_TEST(box.xhi > box.xlo);
+    BOOST_TEST(box.yhi > box.ylo);
 }
 
 BOOST_AUTO_TEST_CASE(net_vertices_are_not_part_of_the_die) {
@@ -430,8 +430,8 @@ BOOST_AUTO_TEST_CASE(net_vertices_are_not_part_of_the_die) {
     Graph g = getSampleGraph();
     (void)g.addNet("n1");
     const BBox box = getFixedCellBBox(g);
-    BOOST_TEST(box[0] == 0.0);
-    BOOST_TEST(box[2] == 100.0);
+    BOOST_TEST(box.xlo == 0.0);
+    BOOST_TEST(box.xhi == 100.0);
 }
 
 // ---------------------------------------------------------------------------
@@ -1251,7 +1251,7 @@ void recordSampleRun(Sink &&frameTo, const std::function<void(StageVisual)> &beg
 
 BOOST_AUTO_TEST_CASE(replayed_snapshots_draw_the_files_drawing_directly_does) {
     const Graph g = getSampleGraph();
-    const std::array<double, 4> die = getFixedCellBBox(g);
+    const BBox die = getFixedCellBBox(g);
     PlotOptions opts = getAnimOptions(10, 5, 1);
     opts.svgFrames = true;
     Visualizer &viz = Visualizer::getInstance();

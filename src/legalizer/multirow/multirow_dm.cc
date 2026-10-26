@@ -46,7 +46,7 @@ std::size_t collectCells(const ktplace::Graph &graph, std::size_t numRegions, De
             ++movable;
         } else if (cell.width > 0.0 && cell.height > 0.0) {
             design.blockages.push_back(
-                Box{cell.x, cell.y, cell.x + cell.width, cell.y + cell.height});
+                BBox{cell.x, cell.y, cell.x + cell.width, cell.y + cell.height});
         }
     }
     return movable;

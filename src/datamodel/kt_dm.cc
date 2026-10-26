@@ -158,11 +158,11 @@ const std::vector<RowInfo> &ktDM::getRows() const {
     return dieInfo.getRows();
 }
 
-void ktDM::setDieArea(double xMin, double yMin, double xMax, double yMax) {
-    dieInfo.setDieArea(xMin, yMin, xMax, yMax);
+void ktDM::setDieArea(const BBox &box) {
+    dieInfo.setDieArea(box);
 }
 
-std::pair<std::pair<double, double>, std::pair<double, double>> ktDM::getDieArea() const {
+const BBox &ktDM::getDieArea() const {
     return dieInfo.getDieArea();
 }
 
@@ -178,7 +178,7 @@ const constraintMgr &ktDM::getConstraints() const {
     return fences;
 }
 
-std::array<double, 4> ktDM::getPlacementDieBox() const {
+BBox ktDM::getPlacementDieBox() const {
     return ktplace::getPlacementDieBox(dieInfo, graph);
 }
 
@@ -273,22 +273,16 @@ void ktDM::report() const {
     // degenerate every placer silently falls back to its own seed, which looks
     // like a placer bug and is not one.
     std::size_t moved = 0;
-    double lo = 1e300;
-    double hi = -1e300;
-    double loY = 1e300;
-    double hiY = -1e300;
+    BBox box = BBox::getEmpty();
     const Graph &g = getGraph();
     for (std::size_t v = 0; v < g.getNumCells(); ++v) {
         const Vertex &vert = g.getCell(v);
-        lo = std::min(lo, vert.x);
-        hi = std::max(hi, vert.x);
-        loY = std::min(loY, vert.y);
-        hiY = std::max(hiY, vert.y);
+        box.extend(vert.x, vert.y);
         moved += (vert.x != 0.0 || vert.y != 0.0) ? 1 : 0;
     }
     ktlog.echo(
         "Loaded placement: {}/{} cells carry a position, bbox x[{:.1f},{:.1f}] y[{:.1f},{:.1f}]",
-        moved, g.getNumCells(), lo, hi, loY, hiY);
+        moved, g.getNumCells(), box.xlo, box.xhi, box.ylo, box.yhi);
     ktlog.echo("Loaded: {} cells ({} terminals), {} nets, {} pins, {} rows", numCells,
                getNumTerminals(), numNets, getNumPins(), getNumRows());
 }
@@ -301,7 +295,7 @@ std::vector<ktDM::Defect> ktDM::getDefects() const {
     // a legal placement: the placer spreads over the union of the fixed geometry
     // and the rows, so a checker built from the
     // fixed geometry alone fails every cell in a row that reaches past the pads.
-    const std::array<double, 4> box = getPlacementDieBox();
+    const BBox box = getPlacementDieBox();
     std::size_t outOfDie = 0;
     std::size_t offFence = 0;
     std::size_t inForeignFence = 0;
@@ -316,14 +310,14 @@ std::vector<ktDM::Defect> ktDM::getDefects() const {
     for (std::size_t v = 0; v < nv; ++v) {
         const Vertex &vert = g.getCell(v);
         const double eps = 1e-6;
-        if (vert.x < box[0] - eps || vert.y < box[1] - eps || vert.x + vert.width > box[2] + eps ||
-            vert.y + vert.height > box[3] + eps) {
+        if (vert.x < box.xlo - eps || vert.y < box.ylo - eps ||
+            vert.x + vert.width > box.xhi + eps || vert.y + vert.height > box.yhi + eps) {
             ++outOfDie;
         }
         if (!hasFences()) {
             continue;
         }
-        const Rect footprint{{vert.x, vert.y}, {vert.x + vert.width, vert.y + vert.height}};
+        const BBox footprint{vert.x, vert.y, vert.x + vert.width, vert.y + vert.height};
         if (vert.regionId != constraintMgr::noRegion) {
             offFence += getConstraints().containsBox(vert.regionId, footprint) ? 0 : 1;
         } else if (!vert.isFixed && !vert.isTerminal) {
@@ -354,8 +348,8 @@ std::vector<ktDM::Defect> ktDM::getDefects() const {
         }
         const double meanArea = nv > 0 ? bin / std::max<std::size_t>(1, nv - nTall) : 0.0;
         double cell = meanArea > 0.0 ? std::sqrt(meanArea) : 1.0;
-        const double dieW = std::max(box[2] - box[0], 1.0);
-        const double dieH = std::max(box[3] - box[1], 1.0);
+        const double dieW = std::max(box.xhi - box.xlo, 1.0);
+        const double dieH = std::max(box.yhi - box.ylo, 1.0);
         // A few cells per bucket: enough that the map does not dominate, coarse
         // enough that a standard cell does not span many bins (which is what made
         // the original miss pairs).
@@ -529,8 +523,8 @@ std::vector<std::vector<RowPiece>> ktDM::getFencedSubrows() const {
     std::vector<FenceRect> rects;
     const constraintMgr &mgr = getConstraints();
     for (int id = 0; id < static_cast<int>(mgr.getNumRegions()); ++id) {
-        for (const Rect &rc : mgr.getRegion(id)->rects) {
-            rects.push_back(FenceRect{rc.lo.x, rc.lo.y, rc.hi.x, rc.hi.y, id});
+        for (const BBox &rc : mgr.getRegion(id)->rects) {
+            rects.push_back(FenceRect{rc, id});
         }
     }
     std::vector<std::vector<RowPiece>> out;
@@ -663,13 +657,13 @@ void ktDM::reportStatistics() const {
             sites += static_cast<std::size_t>(sub.numSites);
         }
     }
-    const std::array<double, 4> box = getPlacementDieBox();
+    const BBox box = getPlacementDieBox();
     const double nets = static_cast<double>(std::max<std::size_t>(g.getNumNets(), 1));
 
     ktReportTable t("Design statistics");
     t.setHeaders({"measure", "value"});
-    t.addRow({"placement area",
-              std::format("({:.0f}, {:.0f}) - ({:.0f}, {:.0f})", box[0], box[1], box[2], box[3])});
+    t.addRow({"placement area", std::format("({:.0f}, {:.0f}) - ({:.0f}, {:.0f})", box.xlo, box.ylo,
+                                            box.xhi, box.yhi)});
     t.addRow({"rows / sites", std::format("{} / {}", getNumRows(), sites)});
     t.addRow({"site width", std::format("{:.3}", siteWidth)});
     t.addRow(

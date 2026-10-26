@@ -2,9 +2,9 @@
 
 #include "datamodel/kt_constraintMgr.h"
 #include "datamodel/kt_solutionMgr.h"
+#include "geometry/kt_bbox.h"
 #include "globalPlacer/ntuplace1/ntuplace1_options.h"
 
-#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <functional>
@@ -34,21 +34,9 @@ struct Cells {
 
 struct HyperNet {
     std::vector<std::uint32_t> cells;
-    double fx0 = 0.0;
-    double fx1 = 0.0;
-    double fy0 = 0.0;
-    double fy1 = 0.0;
+    BBox fixedPinBox = BBox::getEmpty();
     std::size_t fixedPins = 0;
 };
-
-struct AreaRect {
-    double x0 = 0.0;
-    double y0 = 0.0;
-    double x1 = 0.0;
-    double y1 = 0.0;
-};
-
-using DieBox = std::array<double, 4>;
 
 struct FrameInfo {
     std::string note;
@@ -63,13 +51,13 @@ struct Design {
     Cells cells;
     std::vector<HyperNet> hyperNets;
     std::vector<std::vector<std::uint32_t>> cellNets;
-    std::vector<AreaRect> fixedRects;
-    std::vector<AreaRect> rowRects;
-    std::array<double, 4> rowBox{};
+    std::vector<BBox> fixedRects;
+    std::vector<BBox> rowRects;
+    BBox rowBox{};
     double maxRowH = 0.0;
     std::vector<double> vertexX;
     std::vector<double> vertexY;
-    DieBox die{};
+    BBox die{};
     constraintMgr fences;
     FrameHook onFrame;
 };

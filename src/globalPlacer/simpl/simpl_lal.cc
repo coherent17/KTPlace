@@ -12,7 +12,7 @@
 namespace ktplace::simpl {
 
 struct Block {
-    Box box;
+    BBox box;
     std::size_t level = 1;
     bool vertical = true;
     std::vector<std::uint32_t> cells;
@@ -227,18 +227,18 @@ std::optional<std::pair<Block, Block>> LookAheadLegalizer::split(Block &region,
     std::vector<std::uint32_t> low(cells.begin(), cells.begin() + static_cast<long>(m));
     std::vector<std::uint32_t> high(cells.begin() + static_cast<long>(m), cells.end());
 
-    const Box &box = region.box;
-    const double lo = vertical ? box.x0 : box.y0;
-    const double hi = vertical ? box.x1 : box.y1;
+    const BBox &box = region.box;
+    const double lo = vertical ? box.xlo : box.ylo;
+    const double hi = vertical ? box.xhi : box.yhi;
     const AxisProfile room = freeSpace.getProfile(box, vertical);
     const double share = cellArea > 0.0 ? lowArea / cellArea : 0.5;
     const double cutline = room.getTotal() > 0.0 ? room.getCoordinateAt(share * room.getTotal())
                                                  : lo + share * (hi - lo);
 
-    Box lowBox = box;
-    Box highBox = box;
-    (vertical ? lowBox.x1 : lowBox.y1) = cutline;
-    (vertical ? highBox.x0 : highBox.y0) = cutline;
+    BBox lowBox = box;
+    BBox highBox = box;
+    (vertical ? lowBox.xhi : lowBox.yhi) = cutline;
+    (vertical ? highBox.xlo : highBox.ylo) = cutline;
 
     nonlinearScale(low, lowBox, vertical, cutline, true, pos, region.regionRoom);
     nonlinearScale(high, highBox, vertical, cutline, false, pos, region.regionRoom);
@@ -248,18 +248,18 @@ std::optional<std::pair<Block, Block>> LookAheadLegalizer::split(Block &region,
         Block{highBox, region.level + 1, !vertical, std::move(high), region.regionRoom}};
 }
 
-std::vector<Stripe> LookAheadLegalizer::getStripes(const Box &box, bool vertical, double cellArea,
+std::vector<Stripe> LookAheadLegalizer::getStripes(const BBox &box, bool vertical, double cellArea,
                                                    double regionRoom) const {
-    const double lo = vertical ? box.x0 : box.y0;
-    const double hi = vertical ? box.x1 : box.y1;
+    const double lo = vertical ? box.xlo : box.ylo;
+    const double hi = vertical ? box.xhi : box.yhi;
     const AxisProfile room = freeSpace.getProfile(box, vertical);
 
     std::vector<double> cuts{lo, hi};
-    for (const Box &o : obstacles) {
-        if (o.x1 <= box.x0 || o.x0 >= box.x1 || o.y1 <= box.y0 || o.y0 >= box.y1) {
+    for (const BBox &o : obstacles) {
+        if (o.xhi <= box.xlo || o.xlo >= box.xhi || o.yhi <= box.ylo || o.ylo >= box.yhi) {
             continue;
         }
-        for (const double edge : {vertical ? o.x0 : o.y0, vertical ? o.x1 : o.y1}) {
+        for (const double edge : {vertical ? o.xlo : o.ylo, vertical ? o.xhi : o.yhi}) {
             if (edge > lo && edge < hi) {
                 cuts.push_back(edge);
             }
@@ -292,7 +292,7 @@ std::vector<Stripe> LookAheadLegalizer::getStripes(const Box &box, bool vertical
     return out;
 }
 
-void LookAheadLegalizer::nonlinearScale(const std::vector<std::uint32_t> &cells, const Box &box,
+void LookAheadLegalizer::nonlinearScale(const std::vector<std::uint32_t> &cells, const BBox &box,
                                         bool vertical, double cutline, bool belowCut,
                                         std::vector<double> &pos, double regionRoom) const {
     if (cells.empty()) {
@@ -344,8 +344,8 @@ void LookAheadLegalizer::nonlinearScale(const std::vector<std::uint32_t> &cells,
 
 void LookAheadLegalizer::clampToDie(std::vector<double> &x, std::vector<double> &y) const {
     for (std::size_t i = 0; i < getNumMovable(); ++i) {
-        x[i] = std::clamp(x[i], die[0], std::max(die[0], die[2] - width[i]));
-        y[i] = std::clamp(y[i], die[1], std::max(die[1], die[3] - height[i]));
+        x[i] = std::clamp(x[i], die.xlo, std::max(die.xlo, die.xhi - width[i]));
+        y[i] = std::clamp(y[i], die.ylo, std::max(die.ylo, die.yhi - height[i]));
     }
 }
 

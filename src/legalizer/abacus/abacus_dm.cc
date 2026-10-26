@@ -33,8 +33,7 @@ std::size_t collectCells(const ktplace::Graph &graph, std::size_t numRegions, De
         design.vertexX.push_back(cell.x);
         design.vertexY.push_back(cell.y);
         if (cell.isFixed) {
-            design.fixedBoxes.push_back(
-                FixedBox{cell.y, cell.y + cell.height, cell.x, cell.x + cell.width});
+            design.fixedBoxes.push_back(BBox::of(cell.x, cell.y, cell.width, cell.height));
         }
         if (cell.isFixed || cell.isTerminal) {
             continue;

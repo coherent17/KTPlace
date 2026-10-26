@@ -2,6 +2,8 @@
 
 #include "datamodel/kt_hpwl.h"
 #include "detailPlacer/fastdp/fastdp_options.h"
+#include "geometry/kt_bbox.h"
+#include "geometry/kt_interval.h"
 #include "util/kt_log.h"
 #include "util/kt_reportTable.h"
 #include "util/kt_scopedTimer.h"
@@ -54,18 +56,6 @@ struct CellPin {
     double offY = 0.0;
 };
 
-struct Interval {
-    double lo = 0.0;
-    double hi = 0.0;
-
-    [[nodiscard]] bool contains(double v) const noexcept {
-        return v >= lo - eps && v <= hi + eps;
-    }
-    [[nodiscard]] double getCenter() const noexcept {
-        return 0.5 * (lo + hi);
-    }
-};
-
 struct OptimalRegion {
     Interval x;
     Interval y;
@@ -77,25 +67,8 @@ struct Move {
     double y = 0.0;
 };
 
-struct BoundingBox {
-    double xlo = inf;
-    double xhi = -inf;
-    double ylo = inf;
-    double yhi = -inf;
-
-    void add(double x, double y) noexcept {
-        xlo = std::min(xlo, x);
-        xhi = std::max(xhi, x);
-        ylo = std::min(ylo, y);
-        yhi = std::max(yhi, y);
-    }
-    [[nodiscard]] double getHalfPerimeter() const noexcept {
-        return xlo > xhi ? 0.0 : (xhi - xlo) + (yhi - ylo);
-    }
-};
-
 struct NetBox {
-    BoundingBox box;
+    BBox box = BBox::getEmpty();
     std::uint32_t atXlo = 0;
     std::uint32_t atXhi = 0;
     std::uint32_t atYlo = 0;
@@ -103,7 +76,7 @@ struct NetBox {
 };
 
 struct NetChange {
-    BoundingBox moved;
+    BBox moved = BBox::getEmpty();
     std::uint32_t fromXlo = 0;
     std::uint32_t fromXhi = 0;
     std::uint32_t fromYlo = 0;
@@ -316,7 +289,7 @@ private:
     mutable std::vector<NetBox> netBox;
     mutable std::vector<char> netStale;
     mutable std::vector<std::size_t> staleNets;
-    const std::vector<FixedBox> &fixedBoxes = design.fixedBoxes;
+    const std::vector<BBox> &fixedBoxes = design.fixedBoxes;
     std::vector<std::vector<std::size_t>> fixedByBand;
     double bandY = inf;
     double bandY0 = 0.0;
@@ -344,8 +317,8 @@ void FastDetailedPlacer::Impl::buildSpans() {
                 blocked[static_cast<std::size_t>(r - rows.begin())].emplace_back(x0, x1);
             }
         };
-        for (const FixedBox &b : design.blockages) {
-            block(b.x0, b.x1, b.y0, b.y1);
+        for (const BBox &b : design.blockages) {
+            block(b.xlo, b.xhi, b.ylo, b.yhi);
         }
         for (std::size_t i = 0; i < mov.size(); ++i) {
             if (stranded[i]) {
@@ -444,7 +417,7 @@ void FastDetailedPlacer::Impl::indexFixed() {
                                 static_cast<long>(bands) - 1);
     };
     for (std::size_t i = 0; i < fixedBoxes.size(); ++i) {
-        for (long b = band(fixedBoxes[i].y0); b <= band(fixedBoxes[i].y1); ++b) {
+        for (long b = band(fixedBoxes[i].ylo); b <= band(fixedBoxes[i].yhi); ++b) {
             fixedByBand[static_cast<std::size_t>(b)].push_back(i);
         }
     }
@@ -484,7 +457,7 @@ NetBox FastDetailedPlacer::Impl::measure(std::size_t n) const {
     };
     for (const NetPin &p : netPins[n]) {
         const auto [x, y] = at(p);
-        out.box.add(x, y);
+        out.box.extend(x, y);
     }
     for (const NetPin &p : netPins[n]) {
         const auto [x, y] = at(p);
@@ -590,19 +563,19 @@ double FastDetailedPlacer::Impl::getWirelengthDelta(std::span<const Move> moves)
 
 double FastDetailedPlacer::Impl::getNetDelta(std::size_t n, std::span<const Move> moves,
                                              const std::vector<std::size_t> &moveOf) const {
-    BoundingBox before;
-    BoundingBox after;
+    BBox before = BBox::getEmpty();
+    BBox after = BBox::getEmpty();
     for (const NetPin &p : netPins[n]) {
         if (p.slot == noSlot) {
-            before.add(p.absX, p.absY);
-            after.add(p.absX, p.absY);
+            before.extend(p.absX, p.absY);
+            after.extend(p.absX, p.absY);
             continue;
         }
-        before.add(cellX[p.slot] + p.offX, cellY[p.slot] + p.offY);
+        before.extend(cellX[p.slot] + p.offX, cellY[p.slot] + p.offY);
         if (const std::size_t k = moveOf[p.slot]; k != noSlot) {
-            after.add(moves[k].x + p.offX, moves[k].y + p.offY);
+            after.extend(moves[k].x + p.offX, moves[k].y + p.offY);
         } else {
-            after.add(cellX[p.slot] + p.offX, cellY[p.slot] + p.offY);
+            after.extend(cellX[p.slot] + p.offX, cellY[p.slot] + p.offY);
         }
     }
     return after.getHalfPerimeter() - before.getHalfPerimeter();
@@ -644,7 +617,7 @@ double FastDetailedPlacer::Impl::getWirelengthDelta(std::span<const Move> moves,
             change.fromXhi += ox == b.box.xhi ? 1 : 0;
             change.fromYlo += oy == b.box.ylo ? 1 : 0;
             change.fromYhi += oy == b.box.yhi ? 1 : 0;
-            change.moved.add(m.x + pin.offX, m.y + pin.offY);
+            change.moved.extend(m.x + pin.offX, m.y + pin.offY);
         }
     }
     double delta = 0.0;
@@ -663,9 +636,9 @@ double FastDetailedPlacer::Impl::getWirelengthDelta(std::span<const Move> moves,
                 delta += getNetDelta(n, moves, sc.moveOf);
                 continue;
             }
-            BoundingBox after = b.box;
-            after.add(change.moved.xlo, change.moved.ylo);
-            after.add(change.moved.xhi, change.moved.yhi);
+            BBox after = b.box;
+            after.extend(change.moved.xlo, change.moved.ylo);
+            after.extend(change.moved.xhi, change.moved.yhi);
             delta += after.getHalfPerimeter() - b.box.getHalfPerimeter();
         }
     }
@@ -679,15 +652,15 @@ OptimalRegion FastDetailedPlacer::Impl::getOptimalRegion(std::size_t c) const {
     std::vector<double> xs;
     std::vector<double> ys;
     for (const std::size_t n : cellNets[c]) {
-        BoundingBox others;
+        BBox others = BBox::getEmpty();
         const NetPin *own = nullptr;
         for (const NetPin &p : netPins[n]) {
             if (p.slot == c) {
                 own = own != nullptr ? own : &p;
             } else if (p.slot == noSlot) {
-                others.add(p.absX, p.absY);
+                others.extend(p.absX, p.absY);
             } else {
-                others.add(cellX[p.slot] + p.offX, cellY[p.slot] + p.offY);
+                others.extend(cellX[p.slot] + p.offX, cellY[p.slot] + p.offY);
             }
         }
         if (own == nullptr || others.xlo > others.xhi) {
@@ -809,7 +782,7 @@ FastDetailedPlacer::Impl::Plan FastDetailedPlacer::Impl::getGlobalPlan(std::size
         return {};
     }
     const OptimalRegion region = getOptimalRegion(i);
-    if (region.x.contains(cellX[i]) && region.y.contains(cellY[i])) {
+    if (region.x.contains(cellX[i], eps) && region.y.contains(cellY[i], eps)) {
         return {};
     }
     const double cx = region.x.getCenter();
@@ -853,7 +826,7 @@ FastDetailedPlacer::Impl::Plan FastDetailedPlacer::Impl::getGlobalPlan(std::size
             const std::size_t last = std::min(cells.size(), at + budget);
             items.clear();
             for (std::size_t k = first; k < last; ++k) {
-                if (region.x.contains(cellX[cells[k]])) {
+                if (region.x.contains(cellX[cells[k]], eps)) {
                     items.push_back({std::abs(cellX[cells[k]] - cx), k, false});
                 }
             }
@@ -1518,9 +1491,9 @@ void FastDetailedPlacer::Impl::selfCheck(Stats &res) const {
         const long b = std::clamp<long>(static_cast<long>(std::floor((cellY[i] - bandY0) / bandY)),
                                         0, static_cast<long>(fixedByBand.size()) - 1);
         for (const std::size_t fi : fixedByBand[static_cast<std::size_t>(b)]) {
-            const FixedBox &f = fixedBoxes[fi];
-            if (cellX[i] + cellW[i] > f.x0 + eps && cellX[i] < f.x1 - eps &&
-                cellY[i] + cellH[i] > f.y0 + eps && cellY[i] < f.y1 - eps) {
+            const BBox &f = fixedBoxes[fi];
+            if (cellX[i] + cellW[i] > f.xlo + eps && cellX[i] < f.xhi - eps &&
+                cellY[i] + cellH[i] > f.ylo + eps && cellY[i] < f.yhi - eps) {
                 ++res.overFixed;
                 break;
             }

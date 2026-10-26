@@ -3,12 +3,12 @@
 
 #include "adaptor/lefdefToKTAdaptor.h"
 
+#include "geometry/kt_bbox.h"
 #include "util/kt_gzipFile.h"
 #include "util/kt_log.h"
 #include "util/kt_scopedTimer.h"
 
 #include <algorithm>
-#include <array>
 #include <cctype>
 #include <filesystem>
 #include <sstream>
@@ -50,8 +50,6 @@ bool tryDouble(const std::string &s, double &out) {
     }
 }
 
-using Box = std::array<double, 4>;
-
 std::pair<double, double> getOriented(double x, double y, const std::string &orient) {
     if (orient == "S") {
         return {-x, -y};
@@ -77,9 +75,9 @@ std::pair<double, double> getOriented(double x, double y, const std::string &ori
     return {x, y};
 }
 
-Box getOrientedBox(const Box &shape, const std::string &orient) {
-    const auto [ax, ay] = getOriented(shape[0], shape[1], orient);
-    const auto [bx, by] = getOriented(shape[2], shape[3], orient);
+BBox getOrientedBox(const BBox &shape, const std::string &orient) {
+    const auto [ax, ay] = getOriented(shape.xlo, shape.ylo, orient);
+    const auto [bx, by] = getOriented(shape.xhi, shape.yhi, orient);
     return {std::min(ax, bx), std::min(ay, by), std::max(ax, bx), std::max(ay, by)};
 }
 
@@ -98,7 +96,7 @@ bool readPoint(const std::vector<std::string> &tokens, std::size_t &i, double &x
 }
 
 void scanPinTokens(const std::vector<std::string> &tokens, bool &placed, double &x, double &y,
-                   std::string &orient, bool &shaped, Box &shape) {
+                   std::string &orient, bool &shaped, BBox &shape) {
     for (std::size_t i = 0; i < tokens.size(); ++i) {
         if (tokens[i] == "PLACED" || tokens[i] == "FIXED") {
             std::size_t at = i + 1;
@@ -423,7 +421,7 @@ bool LefDefInputAdapter::parseDefFile(const std::string &filePath) {
     double pinX = 0.0, pinY = 0.0;
     std::string pinOrient = "N";
     bool pinShaped = false;
-    std::array<double, 4> pinShape{};
+    BBox pinShape;
     std::unordered_map<std::string, std::pair<double, double>> ioPinOffset;
 
     // Nets: assembled token stream for the section.
@@ -465,11 +463,11 @@ bool LefDefInputAdapter::parseDefFile(const std::string &filePath) {
             w = mIt->second.widthMicrons * unitsPerMicron;
             h = mIt->second.heightMicrons * unitsPerMicron;
         } else if (pinShaped) {
-            const Box shape = getOrientedBox(pinShape, pinOrient);
-            lowX = shape[0];
-            lowY = shape[1];
-            w = shape[2] - shape[0];
-            h = shape[3] - shape[1];
+            const BBox shape = getOrientedBox(pinShape, pinOrient);
+            lowX = shape.xlo;
+            lowY = shape.ylo;
+            w = shape.getWidth();
+            h = shape.getHeight();
         }
         (void)db->addCell(pname, w, h, true);
         db->markIoPin(pname);
@@ -574,7 +572,7 @@ bool LefDefInputAdapter::parseDefFile(const std::string &filePath) {
                 x1 = std::max(x1, x0 + 1.0);
                 y1 = std::max(y1, y0 + 1.0);
             }
-            db->setDieArea(x0, y0, x1, y1);
+            db->setDieArea({x0, y0, x1, y1});
             continue;
         }
 

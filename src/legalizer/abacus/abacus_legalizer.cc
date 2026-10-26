@@ -173,8 +173,8 @@ private:
     std::vector<double> targetX = design.cells.x;
     std::vector<double> targetY = design.cells.y;
     std::vector<double> liveX, liveY;
-    const std::vector<FixedBox> &fixedBoxes = design.fixedBoxes;
-    DieBox dieBox = {0.0, 0.0, 0.0, 0.0};
+    const std::vector<BBox> &fixedBoxes = design.fixedBoxes;
+    BBox dieBox = {0.0, 0.0, 0.0, 0.0};
     double minSubrowSites = 1.0;
 };
 
@@ -216,12 +216,12 @@ std::vector<RowTrack> AbacusLegalizer::Impl::buildRows(bool mirrored) const {
         std::vector<Segment> pieces;
         for (const Segment &sr : r.subrows) {
             std::vector<std::pair<double, double>> hit;
-            for (const FixedBox &f : fixedBoxes) {
-                if (f.y1 <= r.y + 1e-9 || f.y0 >= r.y + r.height - 1e-9) {
+            for (const BBox &f : fixedBoxes) {
+                if (f.yhi <= r.y + 1e-9 || f.ylo >= r.y + r.height - 1e-9) {
                     continue;
                 }
-                const double a = std::max(f.x0, sr.xlo);
-                const double b = std::min(f.x1, sr.xhi);
+                const double a = std::max(f.xlo, sr.xlo);
+                const double b = std::min(f.xhi, sr.xhi);
                 if (b > a) {
                     hit.emplace_back(a, b);
                 }
@@ -415,7 +415,7 @@ void AbacusLegalizer::Impl::selfCheck(Stats &res) const {
         }
     }
 
-    const std::vector<FixedBox> &fixed = fixedBoxes;
+    const std::vector<BBox> &fixed = fixedBoxes;
     std::vector<std::size_t> byX(mov.size());
     std::iota(byX.begin(), byX.end(), 0u);
     std::stable_sort(byX.begin(), byX.end(), [&](std::size_t a, std::size_t b) {
@@ -423,14 +423,14 @@ void AbacusLegalizer::Impl::selfCheck(Stats &res) const {
     });
     std::size_t lo = 0;
     for (const std::size_t i : byX) {
-        while (lo < fixed.size() && fixed[lo].x1 <= liveX[i] + eps) {
+        while (lo < fixed.size() && fixed[lo].xhi <= liveX[i] + eps) {
             ++lo;
         }
-        for (std::size_t f = lo; f < fixed.size() && fixed[f].x0 < liveX[i] + cellW[i]; ++f) {
-            if (fixed[f].x1 <= liveX[i] + eps) {
+        for (std::size_t f = lo; f < fixed.size() && fixed[f].xlo < liveX[i] + cellW[i]; ++f) {
+            if (fixed[f].xhi <= liveX[i] + eps) {
                 continue;  // sorted by x0, so a later box can still end earlier
             }
-            if (liveY[i] + cellH[i] > fixed[f].y0 + eps && liveY[i] < fixed[f].y1 - eps) {
+            if (liveY[i] + cellH[i] > fixed[f].ylo + eps && liveY[i] < fixed[f].yhi - eps) {
                 ++res.overFixed;
             }
         }

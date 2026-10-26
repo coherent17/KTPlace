@@ -285,6 +285,9 @@ TEST_BINS := $(BIN_DIR)/test_datamodel $(BIN_DIR)/test_adaptor $(BIN_DIR)/test_f
 TEST_simpl := globalPlacer/simpl/test/test_simpl.cc
 TEST_BINS += $(BIN_DIR)/test_simpl
 
+TEST_geometry := geometry/test/test_geometry.cc
+TEST_BINS += $(BIN_DIR)/test_geometry
+
 # Builds the test binaries without running them. `make coverage` needs this:
 # the coverage driver wants to run the binaries itself, once, under the
 # instrumented build, rather than have make run them before gcov is ready.
@@ -305,6 +308,10 @@ test check: $(TEST_BINS)
 $(BIN_DIR)/test_simpl: $(TEST_simpl) $(LIB_OBJS) $(BUNDLED_LIBS) | dirs
 	@echo "  Building test_simpl..."
 	@$(CXX) $(CXXFLAGS) $(INCLUDES) $(TEST_INCLUDES) -o $@ $(TEST_simpl) $(LIB_OBJS) $(LIBS) $(COVERAGE_LDFLAGS) $(TEST_LIBS)
+
+$(BIN_DIR)/test_geometry: $(TEST_geometry) | dirs
+	@echo "  Building test_geometry..."
+	@$(CXX) $(CXXFLAGS) $(INCLUDES) $(TEST_INCLUDES) -o $@ $(TEST_geometry) $(COVERAGE_LDFLAGS) $(TEST_LIBS)
 
 $(BIN_DIR)/test_datamodel: $(TEST_datamodel) $(LIB_OBJS) $(BUNDLED_LIBS) | dirs
 	@echo "  Building test_datamodel..."

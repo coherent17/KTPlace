@@ -1,18 +1,13 @@
 #pragma once
 
+#include "geometry/kt_bbox.h"
+
 #include <algorithm>
 #include <cstddef>
 #include <utility>
 #include <vector>
 
 namespace ktplace::simpl {
-
-struct Box {
-    double x0 = 0.0;
-    double y0 = 0.0;
-    double x1 = 0.0;
-    double y1 = 0.0;
-};
 
 struct BinRect {
     std::size_t x0 = 0;
@@ -94,7 +89,7 @@ struct BinGrid {
     [[nodiscard]] double getEdge(bool vertical, std::size_t t) const {
         return vertical ? x0 + static_cast<double>(t) * dx : y0 + static_cast<double>(t) * dy;
     }
-    [[nodiscard]] Box getBox(const BinRect &r) const {
+    [[nodiscard]] BBox getBox(const BinRect &r) const {
         return {getEdge(true, r.x0), getEdge(false, r.y0), getEdge(true, r.x1 + 1),
                 getEdge(false, r.y1 + 1)};
     }
@@ -107,16 +102,16 @@ struct BinGrid {
         }
         return total;
     }
-    void deposit(const Box &b, double sign) {
-        if (!(b.x1 > b.x0) || !(b.y1 > b.y0)) {
+    void deposit(const BBox &b, double sign) {
+        if (!(b.xhi > b.xlo) || !(b.yhi > b.ylo)) {
             return;
         }
-        for (std::size_t iy = getRow(b.y0); iy <= getRow(b.y1); ++iy) {
+        for (std::size_t iy = getRow(b.ylo); iy <= getRow(b.yhi); ++iy) {
             const double oy =
-                std::min(b.y1, getEdge(false, iy + 1)) - std::max(b.y0, getEdge(false, iy));
-            for (std::size_t ix = getColumn(b.x0); ix <= getColumn(b.x1); ++ix) {
+                std::min(b.yhi, getEdge(false, iy + 1)) - std::max(b.ylo, getEdge(false, iy));
+            for (std::size_t ix = getColumn(b.xlo); ix <= getColumn(b.xhi); ++ix) {
                 const double ox =
-                    std::min(b.x1, getEdge(true, ix + 1)) - std::max(b.x0, getEdge(true, ix));
+                    std::min(b.xhi, getEdge(true, ix + 1)) - std::max(b.xlo, getEdge(true, ix));
                 if (ox > 0.0 && oy > 0.0) {
                     avail[at(ix, iy)] += sign * ox * oy;
                 }
@@ -145,16 +140,16 @@ struct FreeSpace {
     };
     std::vector<Row> rows;
 
-    void build(std::vector<Row> raw, const std::vector<Box> &obstacles) {
+    void build(std::vector<Row> raw, const std::vector<BBox> &obstacles) {
         rows = std::move(raw);
         std::stable_sort(rows.begin(), rows.end(), [](const Row &a, const Row &b) {
             return a.y0 < b.y0;
         });
         for (Row &row : rows) {
             std::vector<std::pair<double, double>> cuts;
-            for (const Box &o : obstacles) {
-                if (o.y1 > row.y0 && o.y0 < row.y1) {
-                    cuts.emplace_back(o.x0, o.x1);
+            for (const BBox &o : obstacles) {
+                if (o.yhi > row.y0 && o.ylo < row.y1) {
+                    cuts.emplace_back(o.xlo, o.xhi);
                 }
             }
             std::stable_sort(cuts.begin(), cuts.end());
@@ -178,13 +173,13 @@ struct FreeSpace {
         }
     }
 
-    [[nodiscard]] AxisProfile getProfile(const Box &b, bool vertical) const {
+    [[nodiscard]] AxisProfile getProfile(const BBox &b, bool vertical) const {
         const auto first =
-            std::upper_bound(rows.begin(), rows.end(), b.y0, [](double v, const Row &r) {
+            std::upper_bound(rows.begin(), rows.end(), b.ylo, [](double v, const Row &r) {
                 return v < r.y1;
             });
-        const double lo = vertical ? b.x0 : b.y0;
-        const double hi = vertical ? b.x1 : b.y1;
+        const double lo = vertical ? b.xlo : b.ylo;
+        const double hi = vertical ? b.xhi : b.yhi;
         AxisProfile out;
         out.edges.push_back(lo);
         out.prefix.push_back(0.0);
@@ -196,8 +191,8 @@ struct FreeSpace {
         };
         if (vertical) {
             std::vector<std::pair<double, double>> steps;
-            for (auto r = first; r != rows.end() && r->y0 < b.y1; ++r) {
-                const double h = std::min(b.y1, r->y1) - std::max(b.y0, r->y0);
+            for (auto r = first; r != rows.end() && r->y0 < b.yhi; ++r) {
+                const double h = std::min(b.yhi, r->y1) - std::max(b.ylo, r->y0);
                 for (const auto &[s0, s1] : r->spans) {
                     const double a = std::max(s0, lo);
                     const double z = std::min(s1, hi);
@@ -214,12 +209,12 @@ struct FreeSpace {
                 height += dh;
             }
         } else {
-            for (auto r = first; r != rows.end() && r->y0 < b.y1; ++r) {
+            for (auto r = first; r != rows.end() && r->y0 < b.yhi; ++r) {
                 const double a = std::max(lo, r->y0);
                 const double z = std::min(hi, r->y1);
                 if (z > a) {
                     extend(a, 0.0);
-                    extend(z, r->getLength(b.x0, b.x1) * (z - a));
+                    extend(z, r->getLength(b.xlo, b.xhi) * (z - a));
                 }
             }
         }

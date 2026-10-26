@@ -18,6 +18,7 @@
 
 #include "datamodel/kt_constraintMgr.h"
 #include "datamodel/kt_graph.h"
+#include "geometry/kt_bbox.h"
 #include "visualization/kt_plotOptions.h"
 
 #include <array>
@@ -35,8 +36,6 @@
 namespace ktplace {
 
 /// Bounding box of a region: {xmin, ymin, xmax, ymax}.
-using BBox = std::array<double, 4>;
-
 /// 24-bit colour, matching the format GIF's palette stores.
 struct Rgb24 {
     std::uint8_t r = 0, g = 0, b = 0;
@@ -175,8 +174,7 @@ public:
     /// Draw one snapshot: a vector still, and a frame for the run's animation.
     /// `x` and `y` hold one entry per cell.
     void frame(const Graph &graph, const std::vector<float> &x, const std::vector<float> &y,
-               const std::array<double, 4> &die, const constraintMgr *fences,
-               const VisualFrame &what);
+               const BBox &die, const constraintMgr *fences, const VisualFrame &what);
 
     void boundsCurve(std::string_view name, std::string_view title,
                      std::span<const BoundsSample> curve);
@@ -189,16 +187,15 @@ public:
     /// not one entry per cell. The cap is checked before the work, not after, so
     /// a capped run costs nothing.
     void recordFrame(const Graph &graph, const std::vector<float> &x, const std::vector<float> &y,
-                     const std::array<double, 4> &die, std::size_t step, std::size_t total,
-                     double hpwl, double hpwlInitial, double resid, const std::string &note,
+                     const BBox &die, std::size_t step, std::size_t total, double hpwl,
+                     double hpwlInitial, double resid, const std::string &note,
                      const constraintMgr *fences = nullptr, bool mandatory = false);
 
     /// Hold the finished placement on screen, then assemble the animation.
     /// Called once every stage has contributed, because an animation closed at
     /// the end of global placement stops exactly where it gets interesting.
     bool finish(const Graph &graph, const std::vector<float> &x, const std::vector<float> &y,
-                const std::array<double, 4> &die, const constraintMgr *fences = nullptr,
-                double hpwl = 0.0);
+                const BBox &die, const constraintMgr *fences = nullptr, double hpwl = 0.0);
 
     /// Reserve frames for the stages that come later. The stages that follow get
     /// first call on the budget, so the animation always reaches past the placer.
@@ -237,7 +234,7 @@ private:
     [[nodiscard]] bool ensureDir(const std::string &where) const;
     void render(std::function<void()> job);
     void record(const Graph &graph, const std::vector<float> &x, const std::vector<float> &y,
-                const std::array<double, 4> &die, std::size_t step, std::size_t total, double hpwl,
+                const BBox &die, std::size_t step, std::size_t total, double hpwl,
                 double hpwlInitial, double resid, const std::string &note,
                 const constraintMgr *fences, bool mandatory, bool inBackground);
 

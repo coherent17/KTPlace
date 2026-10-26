@@ -40,7 +40,7 @@ public:
     [[nodiscard]] bool isShowingCongestion() const;
 
     void zoomFit();
-    void zoomTo(const Bounds &area);
+    void zoomTo(const BBox &area);
     bool zoomToSelection();
     void zoomBy(double factor, QPointF anchor);
     void onCursorMoved(std::function<void(std::optional<QPointF>)> listener);

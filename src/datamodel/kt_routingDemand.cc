@@ -4,7 +4,6 @@
 
 #include <algorithm>
 #include <cmath>
-#include <limits>
 
 namespace ktplace {
 
@@ -35,17 +34,16 @@ NetlistPins NetlistPins::of(const Graph &graph) {
 RoutingDemand getRoutingDemand(std::span<const std::uint32_t> netPinStart,
                                std::span<const std::uint32_t> pinCell, std::span<const float> pinDx,
                                std::span<const float> pinDy, std::span<const float> x,
-                               std::span<const float> y, const std::array<double, 4> &die,
-                               std::size_t binsAcross) {
+                               std::span<const float> y, const BBox &die, std::size_t binsAcross) {
     RoutingDemand map;
-    const double spanX = std::max(die[2] - die[0], 1e-9);
-    const double spanY = std::max(die[3] - die[1], 1e-9);
+    const double spanX = std::max(die.xhi - die.xlo, 1e-9);
+    const double spanY = std::max(die.yhi - die.ylo, 1e-9);
     const double bin =
         std::max(spanX, spanY) / static_cast<double>(std::max<std::size_t>(binsAcross, 1));
     map.nx = std::max<std::size_t>(1, static_cast<std::size_t>(std::ceil(spanX / bin)));
     map.ny = std::max<std::size_t>(1, static_cast<std::size_t>(std::ceil(spanY / bin)));
-    map.x0 = die[0];
-    map.y0 = die[1];
+    map.x0 = die.xlo;
+    map.y0 = die.ylo;
     map.binW = bin;
     map.binH = bin;
     map.demand.assign(map.nx * map.ny, 0.0F);
@@ -58,19 +56,15 @@ RoutingDemand getRoutingDemand(std::span<const std::uint32_t> netPinStart,
         if (last - first < 2) {
             continue;
         }
-        double xl = std::numeric_limits<double>::max();
-        double xh = std::numeric_limits<double>::lowest();
-        double yl = xl;
-        double yh = xh;
+        BBox box = BBox::getEmpty();
         for (std::uint32_t p = first; p < last; ++p) {
             const std::uint32_t cell = pinCell[p];
-            const double px = x[cell] + pinDx[p];
-            const double py = y[cell] + pinDy[p];
-            xl = std::min(xl, px);
-            xh = std::max(xh, px);
-            yl = std::min(yl, py);
-            yh = std::max(yh, py);
+            box.extend(x[cell] + pinDx[p], y[cell] + pinDy[p]);
         }
+        double xl = box.xlo;
+        double xh = box.xhi;
+        double yl = box.ylo;
+        double yh = box.yhi;
         if (xh - xl < minExtent) {
             const double c = (xl + xh) / 2.0;
             xl = c - minExtent / 2.0;

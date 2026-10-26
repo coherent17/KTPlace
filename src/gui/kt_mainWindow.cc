@@ -215,7 +215,7 @@ void MainWindow::Impl::buildPanels() {
     details->onNetChosen([this](std::uint32_t net, bool zoom) {
         view->getSelection().markNets({net});
         if (zoom) {
-            if (const std::optional<Bounds> area = view->getFrame().getNetBounds(net)) {
+            if (const std::optional<BBox> area = view->getFrame().getNetBounds(net)) {
                 view->zoomTo(*area);
             }
         }

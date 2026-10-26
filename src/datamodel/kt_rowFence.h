@@ -12,6 +12,8 @@
 
 #pragma once
 
+#include "geometry/kt_bbox.h"
+
 #include <algorithm>
 #include <cmath>
 #include <vector>
@@ -20,7 +22,7 @@ namespace ktplace {
 
 /// One rectangle of a fence region, with the region's id.
 struct FenceRect {
-    double xlo = 0.0, ylo = 0.0, xhi = 0.0, yhi = 0.0;
+    BBox box;
     int region = -1;
 };
 
@@ -52,11 +54,12 @@ inline std::vector<RowPiece> splitRowByFences(double xlo, double xhi, double y0,
     };
     std::vector<Span> spans;
     for (const FenceRect &rc : rects) {
-        if (!(rc.yhi > y0 + eps && rc.ylo < y1 - eps) || !(rc.xhi > xlo && rc.xlo < xhi)) {
+        if (!(rc.box.yhi > y0 + eps && rc.box.ylo < y1 - eps) ||
+            !(rc.box.xhi > xlo && rc.box.xlo < xhi)) {
             continue;
         }
-        const bool covers = rc.ylo <= y0 + eps && rc.yhi >= y1 - eps;
-        spans.push_back({rc.xlo, rc.xhi, covers ? rc.region : blocked});
+        const bool covers = rc.box.ylo <= y0 + eps && rc.box.yhi >= y1 - eps;
+        spans.push_back({rc.box.xlo, rc.box.xhi, covers ? rc.region : blocked});
     }
     if (spans.empty()) {
         return {RowPiece{xlo, xhi, openSpace}};
