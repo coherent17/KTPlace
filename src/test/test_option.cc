@@ -321,23 +321,6 @@ BOOST_AUTO_TEST_CASE(help_and_version_stop_before_anything_else) {
                }).output.find("Usage:") != std::string::npos);
 }
 
-BOOST_AUTO_TEST_CASE(the_parser_can_be_copied) {
-    const kt_option src = parse({"ktplace", design, "-v"});
-    kt_option copy = src;
-    BOOST_TEST(copy.inputPath == design);
-    BOOST_TEST(copy.verbose);
-
-    copy.verbose = false;
-    BOOST_TEST(src.verbose);
-}
-
-BOOST_AUTO_TEST_CASE(the_parser_can_be_moved) {
-    kt_option src = parse({"ktplace", design, "-v"});
-    const kt_option dst = std::move(src);
-    BOOST_TEST(dst.inputPath == design);
-    BOOST_TEST(dst.verbose);
-}
-
 BOOST_AUTO_TEST_CASE(parsing_twice_uses_the_second_command_line) {
     kt_option opt;
     std::vector<std::string> first{"ktplace", design};

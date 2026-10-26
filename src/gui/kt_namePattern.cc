@@ -43,10 +43,6 @@ bool NamePattern::isLiteral() const {
     return literal;
 }
 
-const std::string &NamePattern::getText() const {
-    return glob;
-}
-
 std::vector<std::uint32_t> matchNames(const std::vector<std::string> &names,
                                       const NamePattern &pattern, std::size_t limit) {
     std::vector<std::uint32_t> found;

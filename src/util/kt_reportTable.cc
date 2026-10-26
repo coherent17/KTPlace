@@ -67,11 +67,6 @@ void ktReportTable::add(std::string key, std::string value) {
     rows.push_back({std::move(key), std::move(value)});
 }
 
-void ktReportTable::clear() {
-    headers.clear();
-    rows.clear();
-}
-
 std::string ktReportTable::render() const {
     std::size_t columns = headers.size();
     for (const auto &row : rows) {

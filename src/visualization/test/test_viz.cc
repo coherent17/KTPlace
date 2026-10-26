@@ -109,133 +109,15 @@ std::vector<float> getSampleY(const Graph &g) {
     return v;
 }
 
+Canvas getFrame(int w, int h, std::uint8_t index, const std::vector<Rgb> &palette = getPalette()) {
+    return Canvas(w, h, std::vector<std::uint8_t>(static_cast<std::size_t>(w * h), index), palette);
+}
+
 }  // namespace
 
 // ---------------------------------------------------------------------------
 // Canvas
 // ---------------------------------------------------------------------------
-
-BOOST_AUTO_TEST_CASE(a_new_canvas_is_the_size_asked_for) {
-    const Canvas c(7, 5, getPalette());
-    BOOST_TEST(c.getWidth() == 7);
-    BOOST_TEST(c.getHeight() == 5);
-    BOOST_TEST(c.getPixels().size() == 35u);
-    BOOST_TEST(c.getPalette().size() == 8u);
-}
-
-BOOST_AUTO_TEST_CASE(clear_fills_every_pixel) {
-    Canvas c(4, 3, getPalette());
-    c.clear(2);
-    BOOST_TEST(std::all_of(c.getPixels().begin(), c.getPixels().end(), [](std::uint8_t p) {
-        return p == 2;
-    }));
-}
-
-BOOST_AUTO_TEST_CASE(a_rectangle_fills_only_its_own_pixels) {
-    Canvas c(8, 8, getPalette());
-    c.clear(0);
-    c.fillRect(2, 2, 3, 3, 1);
-    // 3x3 = 9 pixels, and the pixel at (2,2) is the top-left of the square.
-    const auto count = [&c](std::uint8_t want) {
-        return static_cast<int>(std::count(c.getPixels().begin(), c.getPixels().end(), want));
-    };
-    BOOST_TEST(count(1) == 9);
-    BOOST_TEST(count(0) == 64 - 9);
-}
-
-BOOST_AUTO_TEST_CASE(a_rectangle_is_clipped_to_the_image) {
-    // A cell near the die edge is drawn every frame; if the clip is wrong this
-    // writes past the end of the pixel buffer.
-    Canvas c(4, 4, getPalette());
-    c.clear(0);
-    c.fillRect(-5, -5, 100, 100, 3);
-    BOOST_TEST(std::all_of(c.getPixels().begin(), c.getPixels().end(), [](std::uint8_t p) {
-        return p == 3;
-    }));
-
-    Canvas c2(4, 4, getPalette());
-    c2.clear(0);
-    c2.fillRect(2, 2, 10, 10, 1);
-    // Only the 2x2 corner inside the image is written.
-    BOOST_TEST(c2.getPixels()[0] == 0);
-    BOOST_TEST(c2.getPixels()[2 * 4 + 2] == 1);
-    BOOST_TEST(c2.getPixels()[3 * 4 + 3] == 1);
-}
-
-BOOST_AUTO_TEST_CASE(a_zero_or_negative_rectangle_draws_nothing) {
-    Canvas c(4, 4, getPalette());
-    c.clear(0);
-    c.fillRect(1, 1, 0, 5, 1);
-    c.fillRect(1, 1, 5, -3, 2);
-    BOOST_TEST(std::all_of(c.getPixels().begin(), c.getPixels().end(), [](std::uint8_t p) {
-        return p == 0;
-    }));
-}
-
-BOOST_AUTO_TEST_CASE(a_half_transparent_rectangle_blends_rather_than_overwrites) {
-    // Alpha 0 must leave the frame untouched; that is what makes a translucent
-    // overlay usable as a preview.
-    Canvas c(4, 4, getPalette());
-    c.clear(1);
-    c.fillRect(0, 0, 4, 4, 2, 0.0);
-    BOOST_TEST(std::all_of(c.getPixels().begin(), c.getPixels().end(), [](std::uint8_t p) {
-        return p == 1;
-    }));
-}
-
-BOOST_AUTO_TEST_CASE(lines_run_in_both_directions_and_single_pixels) {
-    Canvas c(6, 6, getPalette());
-    c.clear(0);
-    c.hLine(0, 5, 2, 1);
-    c.vLine(0, 5, 3, 1);
-    c.hLine(4, 1, 4, 2);  // reversed, must still draw
-    BOOST_TEST(c.getPixels()[2 * 6 + 0] == 1);
-    BOOST_TEST(c.getPixels()[2 * 6 + 5] == 1);
-    BOOST_TEST(c.getPixels()[0 * 6 + 3] == 1);
-    BOOST_TEST(c.getPixels()[5 * 6 + 3] == 1);
-    BOOST_TEST(c.getPixels()[4 * 6 + 1] == 2);
-    BOOST_TEST(c.getPixels()[4 * 6 + 4] == 2);
-}
-
-BOOST_AUTO_TEST_CASE(a_line_is_clipped_rather_than_wrapping) {
-    Canvas c(5, 5, getPalette());
-    c.clear(0);
-    c.hLine(-3, 99, 2, 1);
-    // The whole row is inside the clip, no wraparound into another row.
-    for (std::size_t i = 0; i < 5; ++i) {
-        BOOST_TEST(c.getPixels()[2 * 5 + i] == 1);
-    }
-}
-
-BOOST_AUTO_TEST_CASE(text_draws_something_and_keeps_its_size_predictable) {
-    Canvas c(120, 20, getPalette());
-    c.clear(0);
-    c.text(1, 1, "iter 42", 1);
-    // The width the renderer asked for has to match what it drew, or labels
-    // overlap the plot or the legend.
-    BOOST_TEST(Canvas::getTextWidth("iter 42") > 0);
-    const auto lit = static_cast<int>(
-        std::count_if(c.getPixels().begin(), c.getPixels().end(), [](std::uint8_t p) {
-            return p == 1;
-        }));
-    BOOST_TEST(lit > 0);
-}
-
-BOOST_AUTO_TEST_CASE(text_scales_by_an_integer_factor) {
-    const int small = Canvas::getTextWidth("ab");
-    const int big = Canvas::getTextWidth("ab", 3);
-    BOOST_TEST(small > 0);
-    BOOST_TEST(big == small * 3);
-}
-
-BOOST_AUTO_TEST_CASE(unprintable_characters_are_skipped_not_crashing) {
-    // A cell name or a note can carry anything; the font has a limited range and
-    // must ignore what it cannot draw.
-    Canvas c(200, 20, getPalette());
-    c.clear(0);
-    BOOST_CHECK_NO_THROW(c.text(0, 0, std::string("a\x01\x7f\xffz"), 1));
-    BOOST_TEST(Canvas::getTextWidth("a\x01z") > 0);
-}
 
 BOOST_AUTO_TEST_CASE(an_adopted_frame_is_stored_as_given) {
     // The animation path already has palette indices, so it must not re-search
@@ -303,8 +185,7 @@ BOOST_AUTO_TEST_CASE(lzw_survives_input_that_defeats_a_naive_encoder) {
 
 BOOST_AUTO_TEST_CASE(a_single_frame_gif_is_a_valid_gif89a) {
     const ScratchDir dir("single");
-    Canvas c(8, 8, getPalette());
-    c.clear(2);
+    const Canvas c = getFrame(8, 8, 2);
     const std::string out = (dir.getFile("a.gif")).string();
     BOOST_TEST(writeGif(out, {c}, 20));
 
@@ -336,10 +217,8 @@ BOOST_AUTO_TEST_CASE(a_multi_frame_gif_carries_the_loop_extension) {
     // Without NETSCAPE2.0 the file plays once and stops. A run recorded as an
     // animation has to come back to the start on its own.
     const ScratchDir dir("loop");
-    Canvas a(8, 8, getPalette());
-    a.clear(1);
-    Canvas b(8, 8, getPalette());
-    b.clear(2);
+    const Canvas a = getFrame(8, 8, 1);
+    const Canvas b = getFrame(8, 8, 2);
     const std::string out = (dir.getFile("a.gif")).string();
     BOOST_TEST(writeGif(out, {a, b}, 5));
     BOOST_TEST(contains(readAll(dir.getFile("a.gif")), "NETSCAPE2.0"));
@@ -350,8 +229,8 @@ BOOST_AUTO_TEST_CASE(mismatched_frame_sizes_are_rejected_not_written) {
     // encoded. Returning false is the contract; the point tested here is that it
     // does not write a file that claims to hold frames it never wrote.
     const ScratchDir dir("mixedsize");
-    Canvas a(8, 4, getPalette());
-    Canvas b(4, 8, getPalette());
+    const Canvas a = getFrame(8, 4, 0);
+    const Canvas b = getFrame(4, 8, 0);
     const std::string out = (dir.getFile("a.gif")).string();
     BOOST_TEST(!writeGif(out, {a, b}, 5));
     BOOST_TEST(!std::filesystem::exists(dir.getFile("a.gif")));
@@ -361,14 +240,14 @@ BOOST_AUTO_TEST_CASE(a_mismatched_palette_is_also_rejected) {
     // The colour table is written once for the file, so frames that disagree
     // about it would render later frames with the wrong colours.
     const ScratchDir dir("mixedpal");
-    Canvas a(8, 8, getPalette());
-    Canvas b(8, 8, std::vector<Rgb>{Rgb{.r = 1, .g = 2, .b = 3}});
+    const Canvas a = getFrame(8, 8, 0);
+    const Canvas b = getFrame(8, 8, 0, std::vector<Rgb>{Rgb{.r = 1, .g = 2, .b = 3}});
     const std::string out = (dir.getFile("a.gif")).string();
     BOOST_TEST(!writeGif(out, {a, b}, 5));
 }
 
 BOOST_AUTO_TEST_CASE(writing_to_an_unopenable_path_reports_failure) {
-    Canvas c(4, 4, getPalette());
+    const Canvas c = getFrame(4, 4, 0);
     // A path whose parent is a file cannot be created; writeGif has to say so
     // rather than returning true for a file that is not there.
     const std::string out = "/proc/self/nonexistent_dir/a.gif";

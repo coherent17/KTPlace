@@ -21,10 +21,6 @@ void TimerRegistry::record(std::string name, double wallSeconds, double cpuSecon
         return;
     }
     std::lock_guard<std::mutex> lock(mutex);
-    const auto it = enabled.find(name);
-    if (it != enabled.end() && !it->second) {
-        return;
-    }
     TimerStats &entry = stats[name];
     entry.wallSeconds += wallSeconds;
     entry.cpuSeconds += cpuSeconds > 0.0 ? cpuSeconds : 0.0;
@@ -42,12 +38,6 @@ void TimerRegistry::stopped() {
     depth -= depth > 0 ? 1 : 0;
 }
 
-bool TimerRegistry::isEnabled(const std::string &name) const {
-    std::lock_guard<std::mutex> lock(mutex);
-    const auto it = enabled.find(name);
-    return it == enabled.end() || it->second;
-}
-
 const TimerStats *TimerRegistry::find(const std::string &name) const {
     std::lock_guard<std::mutex> lock(mutex);
     const auto it = stats.find(name);
@@ -62,24 +52,6 @@ std::vector<std::pair<std::string, TimerStats>> TimerRegistry::getSnapshot() con
         out.emplace_back(name, entry);
     }
     return out;
-}
-
-double TimerRegistry::getTotalWallSeconds() const {
-    std::lock_guard<std::mutex> lock(mutex);
-    double sum = 0.0;
-    for (const auto &[name, entry] : stats) {
-        sum += entry.wallSeconds;
-    }
-    return sum;
-}
-
-double TimerRegistry::getTotalCpuSeconds() const {
-    std::lock_guard<std::mutex> lock(mutex);
-    double sum = 0.0;
-    for (const auto &[name, entry] : stats) {
-        sum += entry.cpuSeconds;
-    }
-    return sum;
 }
 
 void TimerRegistry::reset() {
@@ -147,18 +119,6 @@ std::size_t getPeakResidentBytes() {
 #endif
 }
 
-void ScopedTimer::lap() {
-    const double wall = getElapsedSeconds();
-    const double cpu = getCpuElapsedSeconds();
-    stopwatch.restart();
-    TimerRegistry::getInstance().record(timerName, wall, cpu);
-}
-
-void Stopwatch::restart() {
-    start = std::chrono::steady_clock::now();
-    cpuStart = std::clock();
-}
-
 double Stopwatch::getElapsedSeconds() const {
     using clock = std::chrono::steady_clock;
     return std::chrono::duration<double>(clock::now() - start).count();
@@ -178,10 +138,6 @@ double ScopedTimer::getElapsedSeconds() const {
 
 double ScopedTimer::getCpuElapsedSeconds() const {
     return stopwatch.getCpuElapsedSeconds();
-}
-
-const std::string &ScopedTimer::getName() const {
-    return timerName;
 }
 
 }  // namespace ktplace

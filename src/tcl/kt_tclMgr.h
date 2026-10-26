@@ -44,15 +44,6 @@ public:
     // read a variable the script left behind.
     tcl::Interpreter interpreter;
 
-    // What the store holds, for a report or a test.
-    [[nodiscard]] const OptionDb &getDb() const noexcept {
-        return OptionDb::getInstance();
-    }
-
-    [[nodiscard]] std::size_t getOptionCount() const noexcept {
-        return OptionDb::getInstance().size();
-    }
-
 private:
     // Every command a script may call without the run asking for it. One method
     // so adding a command is one entry here rather than a constructor edit.

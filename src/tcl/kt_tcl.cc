@@ -239,18 +239,6 @@ private:
         }
     }
 
-    bool accept(const char *token) {
-        skip();
-        const std::size_t n = std::strlen(token);
-        if (source.compare(cursor, n, token) != 0) {
-            return false;
-        }
-        // A longer operator that starts the same way must not be truncated:
-        // `==` is not a prefix-match for `=`.
-        cursor += n;
-        return true;
-    }
-
     bool peek(const char *token) {
         skip();
         return source.compare(cursor, std::strlen(token), token) == 0;
@@ -567,10 +555,6 @@ Value runShellCommand(const std::string &command) {
 // Value
 // --------------------------------------------------------------------------
 
-bool operator==(const Value &left, const Value &right) {
-    return left.asString() == right.asString();
-}
-
 Value Value::integer(std::int64_t v) {
     Value out;
     out.kindOf = Kind::Int;
@@ -692,13 +676,6 @@ std::string Value::asString() const {
         }
     }
     return {};
-}
-
-bool Value::isNumeric() const noexcept {
-    if (kindOf == Kind::String) {
-        return isIntegerLiteral(stringValue) || isDoubleLiteral(stringValue);
-    }
-    return kindOf != Kind::List;
 }
 
 // --------------------------------------------------------------------------
@@ -1209,40 +1186,28 @@ std::string Interpreter::getHelpText(const std::string &name) const {
                        builtins);
 }
 
-bool Interpreter::hasCommand(const std::string &name) const {
-    return commandTable.count(name) != 0;
-}
-
 const std::map<std::string, Command> &Interpreter::getCommands() const noexcept {
     return commandTable;
 }
 
 void Interpreter::setVariable(const std::string &name, Value value) {
-    variableTable.assign(name, std::move(value));
+    variableTable.insert_or_assign(name, std::move(value));
 }
 
 void Interpreter::unsetVariable(const std::string &name) {
-    variableTable.remove(name);
+    variableTable.erase(name);
 }
 
 Value Interpreter::getVariable(const std::string &name) const {
     const auto found = variableTable.find(name);
-    if (!found) {
+    if (found == variableTable.end()) {
         throw Error("can't read \"" + name + "\": no such variable");
     }
-    return *found;
+    return found->second;
 }
 
 bool Interpreter::hasVariable(const std::string &name) const noexcept {
     return variableTable.contains(name);
-}
-
-std::string Interpreter::getScriptPath() const {
-    return scriptStack.empty() ? std::string() : scriptStack.back();
-}
-
-Variables Interpreter::getVariables() const {
-    return Variables(variableTable.getAll());
 }
 
 // Replaces $name, ${name}, [command] and backslash escapes. Braced words never
@@ -1421,16 +1386,7 @@ Value Interpreter::evalFile(const std::string &path) {
     }
     std::ostringstream buffer;
     buffer << in.rdbuf();
-    scriptStack.push_back(path);
-    Value result;
-    try {
-        result = eval(buffer.str(), 0);
-    } catch (...) {
-        scriptStack.pop_back();
-        throw;
-    }
-    scriptStack.pop_back();
-    return result;
+    return eval(buffer.str(), 0);
 }
 
 Value Interpreter::eval(const std::string &script, int depth) {
@@ -1495,10 +1451,6 @@ Value Interpreter::eval(const std::string &script, int depth) {
         }
     }
     return result;
-}
-
-Value Interpreter::invoke(const Arguments &args) {
-    return run(args, 0);
 }
 
 Value Interpreter::run(const Arguments &words, int depth) {

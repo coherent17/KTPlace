@@ -110,11 +110,11 @@ BOOST_AUTO_TEST_CASE(tracks_positions_and_fixed_flag) {
     BOOST_TEST(x == 12.0);
     BOOST_TEST(y == 34.0);
 
-    BOOST_TEST(!db.isCellFixed("c0"));
+    BOOST_TEST(!db.getGraph().getCell(db.getCellId("c0")).isFixed);
     db.setCellFixed("c0", true);
-    BOOST_TEST(db.isCellFixed("c0"));
+    BOOST_TEST(db.getGraph().getCell(db.getCellId("c0")).isFixed);
     db.setCellFixed("c0", false);
-    BOOST_TEST(!db.isCellFixed("c0"));
+    BOOST_TEST(!db.getGraph().getCell(db.getCellId("c0")).isFixed);
 }
 
 BOOST_AUTO_TEST_SUITE_END()
@@ -132,7 +132,7 @@ BOOST_AUTO_TEST_CASE(two_pin_net_creates_two_edges) {
     BOOST_TEST(db.getNumNets() == 1);
     BOOST_TEST(db.getNumPins() == 2);
     BOOST_TEST(db.getGraph().getNumPins() == 2);
-    BOOST_TEST(db.getNetPins(db.getNetId("n0")).size() == 2);
+    BOOST_TEST(db.getGraph().getNetPins(db.getNetId("n0")).size() == 2);
 }
 
 BOOST_AUTO_TEST_CASE(net_and_cell_pin_lists_are_consistent) {
@@ -140,8 +140,8 @@ BOOST_AUTO_TEST_CASE(net_and_cell_pin_lists_are_consistent) {
     addCell(db, "c0", 1.0, 1.0);
     addNet(db, "n0");
     const std::size_t pin = addPin(db, "c0", "n0", 0.0, 0.0, true);
-    BOOST_TEST(db.getCellPins(db.getCellId("c0")).size() == 1);
-    BOOST_TEST(db.getNetPins(db.getNetId("n0")).front() == pin);
+    BOOST_TEST(db.getGraph().getCellPins(db.getCellId("c0")).size() == 1);
+    BOOST_TEST(db.getGraph().getNetPins(db.getNetId("n0")).front() == pin);
 }
 
 BOOST_AUTO_TEST_CASE(rejects_pins_on_unknown_vertices) {
@@ -182,7 +182,7 @@ BOOST_AUTO_TEST_CASE(counts_rows) {
 BOOST_AUTO_TEST_CASE(round_trips_die_area) {
     ktDM db;
     db.setDieArea(BBox(Point(0.0, 0.0), Point(100.0, 50.0)));
-    const BBox &die = db.getDieArea();
+    const BBox &die = db.getDie().getDieArea();
     BOOST_TEST(die.lowerLeft.x == 0.0);
     BOOST_TEST(die.lowerLeft.y == 0.0);
     BOOST_TEST(die.upperRight.x == 100.0);

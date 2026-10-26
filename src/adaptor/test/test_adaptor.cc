@@ -201,8 +201,8 @@ BOOST_AUTO_TEST_CASE(placement_file_marks_pads_fixed) {
 
     ktDM &db = adapter.getDM();
     // The pad is anchored, the standard cell is free to move.
-    BOOST_TEST(db.isCellFixed("pad0"));
-    BOOST_TEST(!db.isCellFixed("c0"));
+    BOOST_TEST(db.getGraph().getCell(db.getCellId("pad0")).isFixed);
+    BOOST_TEST(!db.getGraph().getCell(db.getCellId("c0")).isFixed);
 }
 
 BOOST_AUTO_TEST_CASE(terminals_are_fixed_even_without_a_pl_file) {
@@ -216,8 +216,8 @@ BOOST_AUTO_TEST_CASE(terminals_are_fixed_even_without_a_pl_file) {
 
     ktDM &db = adapter.getDM();
     // "terminal" in .nodes alone makes a pad immovable.
-    BOOST_TEST(db.isCellFixed("pad0"));
-    BOOST_TEST(!db.isCellFixed("c0"));
+    BOOST_TEST(db.getGraph().getCell(db.getCellId("pad0")).isFixed);
+    BOOST_TEST(!db.getGraph().getCell(db.getCellId("c0")).isFixed);
 }
 
 BOOST_AUTO_TEST_CASE(reads_row_structure) {
@@ -305,7 +305,7 @@ BOOST_AUTO_TEST_CASE(an_io_pin_takes_its_oriented_layer_shape) {
     BOOST_TEST(south.height == 100.0);
     BOOST_TEST(south.position.x == 3490.0);
     BOOST_TEST(south.position.y == 500.0);
-    const Pin &pin = db.getGraph().getPin(db.getCellPins(southId).front());
+    const Pin &pin = db.getGraph().getPin(db.getGraph().getCellPins(southId).front());
     BOOST_TEST(south.position.x + pin.offset.x == 4000.0);
     BOOST_TEST(south.position.y + pin.offset.y == 600.0);
 }
@@ -345,12 +345,12 @@ BOOST_AUTO_TEST_CASE(keeps_macro_and_placed_component_coordinates) {
     const auto [mx, my] = db.getCellPosition("m1");
     BOOST_TEST(mx == 5000.0);
     BOOST_TEST(my == 5000.0);
-    BOOST_TEST(db.isCellFixed("m1"));
+    BOOST_TEST(db.getGraph().getCell(db.getCellId("m1")).isFixed);
 
     const auto [ux, uy] = db.getCellPosition("u1");
     BOOST_TEST(ux == 1000.0);
     BOOST_TEST(uy == 2000.0);
-    BOOST_TEST(!db.isCellFixed("u1"));
+    BOOST_TEST(!db.getGraph().getCell(db.getCellId("u1")).isFixed);
 }
 
 BOOST_AUTO_TEST_CASE(reads_die_area_and_rows) {
@@ -363,7 +363,7 @@ BOOST_AUTO_TEST_CASE(reads_die_area_and_rows) {
     BOOST_REQUIRE(adapter.readFromDirectory(dir.getStr()));
 
     ktDM &db = adapter.getDM();
-    const BBox &die = db.getDieArea();
+    const BBox &die = db.getDie().getDieArea();
     BOOST_TEST(die.lowerLeft.x == 0.0);
     BOOST_TEST(die.lowerLeft.y == 0.0);
     BOOST_TEST(die.upperRight.x == 10000.0);

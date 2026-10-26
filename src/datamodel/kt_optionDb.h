@@ -98,9 +98,6 @@ class ComponentOptions {
 public:
     explicit ComponentOptions(Component component, OptionMap configured = {});
 
-    [[nodiscard]] Component getComponent() const noexcept {
-        return id;
-    }
     [[nodiscard]] bool empty() const noexcept {
         return values.empty();
     }
@@ -110,7 +107,6 @@ public:
     [[nodiscard]] bool contains(std::string_view key) const {
         return values.contains(key);
     }
-    [[nodiscard]] std::optional<OptionValue> find(std::string_view key) const;
 
     template <OptionType T>
     [[nodiscard]] std::optional<T> get(std::string_view key) const {

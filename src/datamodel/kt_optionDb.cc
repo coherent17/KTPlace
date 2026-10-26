@@ -39,14 +39,6 @@ std::optional<Component> getComponentFromName(std::string_view name) noexcept {
 ComponentOptions::ComponentOptions(Component component, OptionMap configured)
     : id(component), values(std::move(configured)) {}
 
-std::optional<OptionValue> ComponentOptions::find(std::string_view key) const {
-    const auto found = values.find(key);
-    if (found == values.end()) {
-        return std::nullopt;
-    }
-    return found->second;
-}
-
 void ComponentOptions::warnWrongType(std::string_view key, const OptionValue &value,
                                      std::string_view expected) const {
     ktlog.warning("option {} {}: expected {}, got '{}'; the default is used", toString(id), key,

@@ -73,14 +73,6 @@ struct RowTrack {
     double height = 0.0;
     double siteWidth = 1.0;
     std::vector<Segment> subrows;
-
-    [[nodiscard]] double getCapacity() const {
-        double t = 0.0;
-        for (const Segment &sr : subrows) {
-            t += sr.getFree();
-        }
-        return t;
-    }
 };
 
 struct Stats {

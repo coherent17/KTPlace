@@ -15,7 +15,6 @@ public:
 
     void add(std::string key, std::string value);
 
-    void clear();
 
     [[nodiscard]] std::string render() const;
 

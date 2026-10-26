@@ -104,8 +104,8 @@ jobs:
           done
           exit $fail
 
-  smoke-adaptec1:
-    name: Linux / Smoke placement (adaptec1)
+  placement:
+    name: Linux / Placement and determinism (adaptec1, ibm01)
     needs: build
     runs-on: ubuntu-latest
 
@@ -119,53 +119,40 @@ jobs:
       - name: Unpack the binaries
         run: tar -xzf binaries.tar.gz
 
-      - name: Smoke placement
-        # adaptec1: 211,447 cells / 221,142 nets in Bookshelf form, the design the
-        # ISPD 2005 table in the README is written against. Unlike the LEF/DEF
-        # design this replaces it also runs the
-        # whole downstream flow -- legalization, detailed placement and the
-        # independent legality check -- so the smoke test now covers a legal
-        # placement end to end rather than just the reader and the solver, and it
-        # is the design the image assertions below are measured against.
+      - name: Place each design twice
+        # Run "a" is the smoke placement the checks below read; run "b" exists only
+        # to be compared with it. ktplace is invoked through the documented wrapper.
         run: |
           set -euo pipefail
-
-          # The binary is invoked by name, through the same wrapper a person uses,
-          # so the smoke test exercises the documented entry point rather than a
-          # path only CI knows about. Sourcing it is what puts build/bin on PATH;
-          # it is written into the repository root by the build.
           source ktplace.sh
 
-          cat > smoke.tcl <<'TCL'
+          cat > adaptec1.tcl <<'TCL'
           add_option visualizer anim 1
           add_option visualizer anim_max_frames 40
           add_option visualizer anim_blend 1
           TCL
+          cat > ibm01.tcl <<'TCL'
+          add_option visualizer anim_zoom 1
+          add_option visualizer final_zoom 1
+          TCL
 
-          ktplace ./benchmark/bookshelf/ISPD_2005/adaptec1 \
-            -w output/adaptec1 -tcl smoke.tcl 2>&1 | tee smoke.log
+          for run in a b; do
+            ktplace ./benchmark/bookshelf/ISPD_2005/adaptec1 -w "out/adaptec1-$run" \
+              -tcl adaptec1.tcl > "adaptec1-$run.log" 2>&1
+            ktplace ./benchmark/bookshelf/ICCAD04/ibm01 -w "out/ibm01-$run" \
+              -tcl ibm01.tcl > "ibm01-$run.log" 2>&1
+          done
 
-          # Everything a run writes goes under the work directory, so the .pl is
-          # output/adaptec1/placed.pl and the plots are output/adaptec1/plots.
-          PL=output/adaptec1/placed.pl
-
-          # The netlist must match the benchmark exactly.
-          grep -q "Loaded: 211447 cells (543 terminals), 221142 nets, 944053 pins, 890 rows" \
-            smoke.log
-
-          # The run must finish cleanly and write one record per cell. `pipefail`
-          # above already turns a crash or a nonzero exit into a failed step, so
-          # this is the flow's own confirmation that it reached the end.
-          test "$(grep -c 'Placement completed successfully' smoke.log)" -eq 1
-          test "$(wc -l < "$PL")" -eq 211447
-
-          # Coarse quality gate: spreading must actually reduce the overflow.
-          # The threshold is deliberately loose because the CG solve is
-          # parallel, so the last digits move between machines.
-          # The report names this row "scaled overflow (final)"; matching the
-          # old wording silently made the gate read an empty string, and awk
-          # treats that as zero, so the gate passed without ever measuring.
-          final=$(awk -F'|' '/scaled overflow \(final\)/ {gsub(/ /, "", $4); print $4}' smoke.log)
+      - name: adaptec1 smoke checks
+        run: |
+          set -euo pipefail
+          log=adaptec1-a.log
+          grep -q "Loaded: 211447 cells (543 terminals), 221142 nets, 944053 pins, 890 rows" "$log"
+          test "$(grep -c 'Placement completed successfully' "$log")" -eq 1
+          test "$(wc -l < out/adaptec1-a/placed.pl)" -eq 211447
+          # Spreading must reduce the overflow; loose because the parallel CG moves
+          # the last digits between machines.
+          final=$(awk -F'|' '/scaled overflow \(final\)/ {gsub(/ /, "", $4); print $4}' "$log")
           echo "final scaled overflow: $final"
           test -n "$final"
           awk -v v="$final" 'BEGIN { exit !(v < 0.5) }'
@@ -174,128 +161,37 @@ jobs:
         run: |
           set -euo pipefail
           benchmark/bookshelf/ISPD_2005/evaluator/evaluate.sh \
-            benchmark/bookshelf/ISPD_2005/adaptec1 output/adaptec1/placed.pl | tee evaluate.log
+            benchmark/bookshelf/ISPD_2005/adaptec1 out/adaptec1-a/placed.pl | tee evaluate.log
           official=$(sed -n 's/.*Total HPWL: *//p' evaluate.log)
-          logged=$(awk -F'|' '/^\| detailed placement \(/ {gsub(/ /, "", $3); print $3}' smoke.log)
+          logged=$(awk -F'|' '/^\| detailed placement \(/ {gsub(/ /, "", $3); print $3}' adaptec1-a.log)
           echo "official HPWL $official, ktplace HPWL $logged"
           awk -v a="$official" -v b="$logged" 'BEGIN { d = a - b; if (d < 0) d = -d; exit !(d <= 1e-6 * a) }'
 
-      - name: Upload the smoke placement
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: smoke-placement
-          path: |
-            output/adaptec1/placed.pl
-            smoke.log
-            evaluate.log
-            output/adaptec1/plots/placement.png
-            output/adaptec1/plots/placement.gif
-            output/adaptec1/plots/simpl_convergence.png
-          if-no-files-found: ignore
-
-  smoke-multirow:
-    name: Linux / Multi-row smoke placement (ibm01)
-    needs: build
-    runs-on: ubuntu-latest
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/download-artifact@v4
-        with:
-          name: binaries
-
-      - name: Unpack the binaries
-        run: tar -xzf binaries.tar.gz
-
-      - name: Multi-row legalization smoke placement
-        # ibm01 is the only benchmark in the tree with cells taller than a row --
-        # 246 of its 12,506 movable cells -- so it is the only design that reaches
-        # MultiRowLegalizer. It is vendored (see .gitignore) because it is what
-        # holds that path to its contract, and it is small enough to assert on:
-        # adaptec1's verdict moves with the machine, so the step above declines to
-        # gate on it, whereas ibm01 legalizes in well under a second and lands on
-        # zero overlapping pairs every run. Unlike the adaptec1 step, the legality
-        # verdict *is* asserted here, and so is that the tall cells were placed at
-        # all -- a multi-row legalizer that quietly skipped them would leave the
-        # design illegal but could still report zero overlaps among what it placed.
+      - name: ibm01 multi-row checks
+        # ibm01 is the only design with cells taller than a row (246 of 12,506
+        # movable), so it is the only one that reaches the multi-row legalizer.
         run: |
           set -euo pipefail
+          log=ibm01-a.log
+          grep -q "Loaded: 12752 cells (246 terminals), 14111 nets, 50566 pins, 144 rows" "$log"
+          test "$(grep -c 'Placement completed successfully' "$log")" -eq 1
+          test "$(wc -l < out/ibm01-a/placed.pl)" -eq 12752
+          grep -q "multi-row legalization (246 cell(s) taller than a row)" "$log"
+          test "$(awk -F'|' '/^\| cells placed/ {gsub(/ /,"",$3); print $3}' "$log")" -eq 12506
+          test "$(awk -F'|' '/^\| cells unplaced/ {gsub(/ /,"",$3); print $3}' "$log")" -eq 0
+          test "$(awk -F'|' '/^\| of those, placed/ {gsub(/ /,"",$3); print $3}' "$log")" -eq 246
+          test "$(grep -c 'verdict *| *PASS' "$log")" -eq 2
+          test "$(grep -c 'verdict *| *FAIL' "$log" || true)" -eq 0
 
-          source ktplace.sh
-
-          cat > smoke-multirow.tcl <<'TCL'
-          add_option visualizer anim 0
-          TCL
-
-          ktplace ./benchmark/bookshelf/ICCAD04/ibm01 \
-            -w output/ibm01 -tcl smoke-multirow.tcl 2>&1 | tee smoke-multirow.log
-
-          PL=output/ibm01/placed.pl
-
-          grep -q "Loaded: 12752 cells (246 terminals), 14111 nets, 50566 pins, 144 rows"             smoke-multirow.log
-          test "$(grep -c 'Placement completed successfully' smoke-multirow.log)" -eq 1
-          test "$(wc -l < "$PL")" -eq 12752
-
-          # The multi-row legalizer must be the path taken, not Abacus.
-          grep -q "multi-row legalization (246 cell(s) taller than a row)" \
-            smoke-multirow.log
-
-          # Every cell placed, and the 246 tall ones among them.
-          test "$(awk -F'|' '/^\| cells placed/ {gsub(/ /,"",$3); print $3}' \
-            smoke-multirow.log)" -eq 12506
-          test "$(awk -F'|' '/^\| cells unplaced/ {gsub(/ /,"",$3); print $3}' \
-            smoke-multirow.log)" -eq 0
-          test "$(awk -F'|' '/^\| of those, placed/ {gsub(/ /,"",$3); print $3}' \
-            smoke-multirow.log)" -eq 246
-
-          # Both stage checks must pass: legalization on its own, and the
-          # placement that actually gets written.
-          test "$(grep -c 'verdict *| *PASS' smoke-multirow.log)" -eq 2
-          test "$(grep -c 'verdict *| *FAIL' smoke-multirow.log || true)" -eq 0
-
-  determinism:
-    name: Linux / Determinism (ibm01 and adaptec1 run twice)
-    needs: build
-    runs-on: ubuntu-latest
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/download-artifact@v4
-        with:
-          name: binaries
-
-      - name: Unpack the binaries
-        run: tar -xzf binaries.tar.gz
-
-      - name: Two runs of one design write the same files
+      - name: Both runs wrote the same files
         run: |
           set -euo pipefail
-
-          source ktplace.sh
-
-          cat > anim.tcl <<'TCL'
-          add_option visualizer anim_zoom 1
-          add_option visualizer final_zoom 1
-          TCL
-          echo 'add_option visualizer plot 0' > noplot.tcl
-
-          for run in a b; do
-            ktplace ./benchmark/bookshelf/ICCAD04/ibm01 -w "det/ibm01-$run" -tcl anim.tcl \
-              > /dev/null 2>&1
-            ktplace ./benchmark/bookshelf/ISPD_2005/adaptec1 -w "det/adaptec1-$run" -tcl noplot.tcl \
-              > /dev/null 2>&1
-          done
-
-          cmp det/ibm01-a/placed.pl det/ibm01-b/placed.pl
-          diff -r det/ibm01-a/plots det/ibm01-b/plots
-          cmp det/adaptec1-a/placed.pl det/adaptec1-b/placed.pl
-
+          cmp out/adaptec1-a/placed.pl out/adaptec1-b/placed.pl
+          cmp out/ibm01-a/placed.pl out/ibm01-b/placed.pl
+          diff -r out/ibm01-a/plots out/ibm01-b/plots
           mkdir -p placements
-          cp det/ibm01-a/placed.pl placements/ibm01.pl
-          cp det/adaptec1-a/placed.pl placements/adaptec1.pl
+          cp out/adaptec1-a/placed.pl placements/adaptec1.pl
+          cp out/ibm01-a/placed.pl placements/ibm01.pl
 
       - uses: actions/upload-artifact@v4
         with:
@@ -303,8 +199,23 @@ jobs:
           path: placements
           retention-days: 1
 
+      - name: Upload the smoke placement
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-placement
+          path: |
+            out/adaptec1-a/placed.pl
+            adaptec1-a.log
+            evaluate.log
+            out/adaptec1-a/plots/placement.png
+            out/adaptec1-a/plots/placement.gif
+            out/adaptec1-a/plots/simpl_convergence.png
+          if-no-files-found: ignore
+
   macos:
-    name: macOS / Build, unit tests and placement (Apple clang)
+    # One GUI=1 build serves the command-line flow, the unit tests and the GUI tests.
+    name: macOS / Build, tests, GUI and placement (Apple clang)
     runs-on: macos-15
 
     steps:
@@ -312,14 +223,30 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Install Boost.Test
-        run: brew install boost
+      - name: Install Boost.Test and Qt
+        run: brew install boost qt
 
       - name: Build
-        run: make -j"$(sysctl -n hw.ncpu)"
+        run: make -j"$(sysctl -n hw.ncpu)" GUI=1
 
       - name: Unit tests
         run: make -j"$(sysctl -n hw.ncpu)" test
+
+      - name: GUI tests
+        run: make gui-test
+
+      - name: ktplace --gui places a design
+        run: |
+          QT_QPA_PLATFORM=offscreen build/bin/ktplace --gui \
+            benchmark/bookshelf/ICCAD04/ibm01 -w out/gui > gui.log 2>&1 &
+          window=$!
+          for _ in $(seq 1 120); do
+            grep -qs 'Placement completed successfully' out/gui/ktplace.log && break
+            grep -qs 'fatal' out/gui/ktplace.log gui.log && break
+            sleep 1
+          done
+          kill "$window"
+          test "$(wc -l < out/gui/placed.pl)" -eq 12752
 
       - name: Place ibm01 and adaptec1
         run: |
@@ -343,7 +270,7 @@ jobs:
 
   cross-platform:
     name: Linux vs macOS / Identical placed.pl
-    needs: [determinism, macos]
+    needs: [placement, macos]
     runs-on: ubuntu-latest
 
     steps:
@@ -366,25 +293,17 @@ jobs:
           done
 
   gui:
-    # Its own job, so nothing else needs Qt. Headless on Qt's offscreen platform.
-    name: ${{ matrix.name }} / GUI build and tests
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - name: Linux
-            os: ubuntu-latest
-          - name: macOS
-            os: macos-15
-    runs-on: ${{ matrix.os }}
+    # Its own job, so the other Linux jobs never need Qt. Headless on Qt's
+    # offscreen platform.
+    name: Linux / GUI build and tests
+    runs-on: ubuntu-latest
 
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
 
-      - name: Install dependencies (Linux)
-        if: runner.os == 'Linux'
+      - name: Install dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
@@ -394,12 +313,8 @@ jobs:
             pkg-config \
             fonts-dejavu-core
 
-      - name: Install dependencies (macOS)
-        if: runner.os == 'macOS'
-        run: brew install boost qt
-
       - name: Build ktplace with the GUI
-        run: make -j"$(getconf _NPROCESSORS_ONLN)" GUI=1
+        run: make -j"$(nproc)" GUI=1
 
       - name: GUI tests
         run: make gui-test

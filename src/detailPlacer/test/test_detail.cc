@@ -146,7 +146,7 @@ void addNet(ktDM &db, const std::string &net, const std::string &a, const std::s
     }
     std::size_t off = 0;
     for (std::size_t i = 0; i < db.getNumCells(); ++i) {
-        if (db.isCellFixed(i)) {
+        if (db.getGraph().getCell(i).isFixed) {
             continue;
         }
         const auto [x, y] = db.getCellPosition(i);
@@ -185,7 +185,7 @@ void addNet(ktDM &db, const std::string &net, const std::string &a, const std::s
         const auto [x, y] = db.getCellPosition(i);
         const double w = getWidthOf(i);
         const double h = rowHeight;
-        if (db.isCellFixed(i)) {
+        if (db.getGraph().getCell(i).isFixed) {
             boxes.push_back(BBox::of(x, y, w, h));
             continue;
         }

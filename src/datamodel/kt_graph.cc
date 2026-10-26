@@ -36,10 +36,6 @@ std::size_t Graph::getCellId(const std::string &name) const {
     return it->second;
 }
 
-const std::vector<Vertex> &Graph::getCells() const {
-    return cells;
-}
-
 Vertex &Graph::getCell(std::size_t id) {
     if (id >= cells.size() || cells[id].id != id) {
         throw std::runtime_error("Invalid vertex ID");
@@ -82,10 +78,6 @@ std::size_t Graph::getNetId(const std::string &name) const {
         throw std::runtime_error("Net " + name + " not found");
     }
     return it->second;
-}
-
-const std::vector<Net> &Graph::getNets() const {
-    return nets;
 }
 
 const Net &Graph::getNet(std::size_t id) const {

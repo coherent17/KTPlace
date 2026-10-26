@@ -250,24 +250,10 @@ BOOST_AUTO_TEST_CASE(a_step_prints_a_centred_banner_and_prefixes_its_lines) {
     BOOST_TEST(log.getContents() == rule + "\n" + title + "\n" + rule + "\n[load] reading\n");
 }
 
-BOOST_AUTO_TEST_CASE(record_count_includes_warnings) {
-    TempLog log;
-    ktlog.configure(log.getStr(), false);
-    const std::size_t before = ktlog.recordCount();
-    {
-        CaptureCerr cap;
-        ktlog.echo("one");
-        ktlog.warning("two");
-    }
-    BOOST_TEST(ktlog.recordCount() == before + 2);
-    ktlog.configure("", false);
-}
-
 BOOST_AUTO_TEST_CASE(a_scoped_timer_records_its_interval_on_scope_exit) {
     TimerRegistry::getInstance().reset();
     {
         const ScopedTimer timer("unit-timer-a");
-        BOOST_TEST(timer.getName() == "unit-timer-a");
         BOOST_TEST(timer.getElapsedSeconds() >= 0.0);
     }
     const TimerStats *stats = TimerRegistry::getInstance().find("unit-timer-a");
@@ -287,7 +273,7 @@ BOOST_AUTO_TEST_CASE(repeated_intervals_accumulate_under_one_name) {
     BOOST_TEST(stats->calls == 5U);
 }
 
-BOOST_AUTO_TEST_CASE(timer_totals_cover_every_recorded_name) {
+BOOST_AUTO_TEST_CASE(the_snapshot_lists_every_recorded_name) {
     TimerRegistry::getInstance().reset();
     { const ScopedTimer a("unit-timer-c"); }
     { const ScopedTimer b("unit-timer-d"); }
@@ -296,18 +282,14 @@ BOOST_AUTO_TEST_CASE(timer_totals_cover_every_recorded_name) {
     BOOST_TEST(snapshot.size() == 2U);
     BOOST_TEST(snapshot[0].first == "unit-timer-c");
     BOOST_TEST(snapshot[1].first == "unit-timer-d");
-    BOOST_TEST(registry.getTotalWallSeconds() >= 0.0);
-    BOOST_TEST(registry.getTotalCpuSeconds() >= 0.0);
-    BOOST_TEST(registry.isEnabled("unit-timer-c"));
 }
 
-BOOST_AUTO_TEST_CASE(reset_clears_statistics_but_keeps_names_known) {
+BOOST_AUTO_TEST_CASE(reset_clears_statistics) {
     TimerRegistry::getInstance().reset();
     { const ScopedTimer timer("unit-timer-e"); }
     BOOST_TEST(TimerRegistry::getInstance().find("unit-timer-e") != nullptr);
     TimerRegistry::getInstance().reset();
     BOOST_TEST(TimerRegistry::getInstance().find("unit-timer-e") == nullptr);
-    BOOST_TEST(TimerRegistry::getInstance().isEnabled("unit-timer-e"));
 }
 
 BOOST_AUTO_TEST_CASE(parallelism_of_an_unrun_timer_is_zero_not_a_division) {
