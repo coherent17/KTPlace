@@ -71,6 +71,14 @@ legalizer put it (10). That is the force-modulation problem solved by a schedule
   <figcaption>The one-cell example: as α grows, the cell slides from where its wire wants it (0) to its anchor (10).</figcaption>
 </figure>
 
+Move the slider to change α, or press *Play* to grow it. The two arrows are the
+wire's pull toward the pin and the anchor's pull toward the legalized position. They
+are always equal, because the cell sits where they balance, but the balance point
+slides toward the anchor as α grows. The scale is logarithmic, so each third of the
+slider is ten times more α.
+
+<div class="kt-widget" data-widget="anchor"></div>
+
 ### 3.3 α as a Lagrange multiplier
 
 A **Lagrange multiplier** is the price you pay per unit of violating a constraint.

@@ -13,6 +13,10 @@ papers themselves are not part of this repository; follow the links.
   Original version: "SimPL: An Effective Placement Algorithm", *IEEE Transactions on
   Computer-Aided Design* 31(1), January 2012. Guide:
   [SimPL](global-placement/simpl/README.md).
+- **GORDIAN** (quadratic placement with springs). J. M. Kleinhans, G. Sigl,
+  F. M. Johannes, K. J. Antreich. "GORDIAN: VLSI Placement by Quadratic Programming
+  and Slicing Optimization." *IEEE TCAD* 10(3), 356–365, 1991. Guide:
+  [Quadratic placement](foundations/03-quadratic-placement.md).
 - **Kraftwerk2** (origin of the Bound2Bound net model). P. Spindler, U. Schlichtmann,
   F. M. Johannes. "Kraftwerk2 – A Fast Force-Directed Quadratic Placement Approach
   Using an Accurate Net Model." *IEEE TCAD* 27(8), 1398–1411, 2008.

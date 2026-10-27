@@ -184,17 +184,108 @@
 
 .md-typeset .kt-widget {
   margin: 1.4em 0;
+  overflow: hidden;
+  background: #ffffff;
+  border: 1px solid #c7d2fe;
+  border-radius: 12px;
+  box-shadow: 0 1px 3px rgba(30, 27, 75, 0.08);
 }
 
 .md-typeset .kt-widget svg {
   display: block;
-  border-radius: 12px;
-  box-shadow: 0 1px 3px rgba(30, 27, 75, 0.12);
 }
 
-.md-typeset .kt-widget-button {
-  margin-top: 0.6em;
-  font-size: 0.7rem;
+.md-typeset .kt-widget-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.55rem 1rem;
+  border-top: 1px solid #e0e7ff;
+  background: #f8faff;
+  font-size: 0.68rem;
+  color: #475569;
+}
+
+.md-typeset .kt-widget-controls + .kt-widget-controls {
+  border-top: none;
+  padding-top: 0;
+}
+
+.md-typeset .kt-btn {
+  flex: none;
+  padding: 0.3em 0.95em;
+  font: inherit;
+  font-weight: 600;
+  line-height: 1.6;
+  white-space: nowrap;
+  color: #4338ca;
+  background: #ffffff;
+  border: 1px solid #c7d2fe;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.md-typeset .kt-btn:hover {
+  background: #eef2ff;
+  border-color: #a5b4fc;
+}
+
+.md-typeset .kt-btn-primary,
+.md-typeset .kt-btn-primary:hover {
+  color: #ffffff;
+  background: #4f46e5;
+  border-color: #4f46e5;
+}
+
+.md-typeset .kt-segmented {
+  display: inline-flex;
+  flex: none;
+}
+
+.md-typeset .kt-segmented .kt-btn {
+  border-radius: 0;
+  margin-left: -1px;
+}
+
+.md-typeset .kt-segmented .kt-btn:first-child {
+  border-radius: 999px 0 0 999px;
+  margin-left: 0;
+}
+
+.md-typeset .kt-segmented .kt-btn:last-child {
+  border-radius: 0 999px 999px 0;
+}
+
+.md-typeset .kt-caption {
+  flex: none;
+  white-space: nowrap;
+}
+
+.md-typeset .kt-spacer {
+  flex: 1;
+}
+
+.md-typeset .kt-slider {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 0.5em;
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.md-typeset .kt-slider input {
+  flex: 1;
+  min-width: 4rem;
+  accent-color: #4f46e5;
+}
+
+.md-typeset .kt-slider output {
+  min-width: 3.2em;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: #1e1b4b;
 }
 
 .md-typeset img.kt-step {
@@ -218,6 +309,10 @@
   }
 
   .md-typeset .kt-widget svg {
+    min-width: 640px;
+  }
+
+  .md-typeset .kt-widget-controls {
     min-width: 640px;
   }
 }

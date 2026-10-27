@@ -239,6 +239,17 @@ four cells.
   costs, the table in $Q\vec x = \vec b$ *is* the curvature of the cost (up to a
   factor 2, which never matters, see [§3.4](03-quadratic-placement.md#34-matrix-form-equation-3)).
 
+**See it.** Below is the terrain of the example as contour lines (each line joins
+points of equal height, like a hiking map). Drag the white dot. The orange dashes
+are the slope you feel stepping east, $\partial f/\partial x_1$; the teal dashes
+the slope stepping north, $\partial f/\partial x_2$. Put together they give the
+red arrow, $-\nabla f$, which always crosses the contour lines at a right angle:
+straight downhill. *Step downhill* walks along it as far as the ground keeps
+falling; at the bottom, $(1, 1)$, both slopes are zero. Then remove the fixed pin
+and see the bowl turn into the trough of §2.6.
+
+<div class="kt-widget" data-widget="gradient"></div>
+
 ### 2.6 Bowls: why there is exactly one best answer
 
 > [!NOTE]
@@ -268,6 +279,17 @@ called **symmetric positive definite (SPD)**. The example table in §2.4 gave 18
 [§3.7](03-quadratic-placement.md) shows why placement tables are always SPD. When you read "SPD" or
 "nondegenerate" in the paper, think: **a real bowl with one bottom**.
 
+**Play with the shape.** Set the three numbers of $Q = \begin{bmatrix} a & b\\ b & c \end{bmatrix}$
+and watch $\vec x^TQ\vec x$. While both diagonal entries are positive and $b$ is
+small, the lines are closed ovals around the origin: a bowl. As $b^2$ approaches
+$ac$ the ovals stretch out, and at $b^2 = ac$ (the *Trough* example) they become
+straight lines: a flat direction. Push further and some directions go negative (orange): a saddle, with
+no bottom at all. The two "curvatures" shown are the steepest and the flattest
+bend of the surface (the matrix's *eigenvalues*): both positive means a bowl.
+Click the plot to test any vector $\vec x$.
+
+<div class="kt-widget" data-widget="shape"></div>
+
 ### 2.7 Big-O: how running time grows
 
 > [!NOTE]
@@ -289,6 +311,11 @@ doing about $10^9$ simple steps per second ($\log_2 n \approx 20$):
 Real implementations have bigger constants than this, but the gap between the rows
 is the point: SimPL's steps are all in the first three rows, and textbook
 elimination for solving equations is in the last row. That is why [Chapter 4](04-solving-linear-systems.md) exists.
+
+Slide $n$ to feel the difference. The time axis is logarithmic (equal distances
+mean equal factors), and the gaps between the rows grow as $n$ does.
+
+<div class="kt-widget" data-widget="big-o"></div>
 
 > [!IMPORTANT]
 > **Key takeaways**
