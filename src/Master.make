@@ -288,6 +288,9 @@ TEST_BINS += $(BIN_DIR)/test_simpl
 TEST_geometry := geometry/test/test_geometry.cc
 TEST_BINS += $(BIN_DIR)/test_geometry
 
+TEST_tetris := legalizer/tetris/test/test_tetris.cc
+TEST_BINS += $(BIN_DIR)/test_tetris
+
 TEST_kraftwerk2 := globalPlacer/kraftwerk2/test/test_kraftwerk2.cc
 TEST_BINS += $(BIN_DIR)/test_kraftwerk2
 
@@ -355,6 +358,10 @@ $(BIN_DIR)/test_ntuplace1: $(TEST_ntuplace1) $(LIB_OBJS) $(BUNDLED_LIBS) | dirs
 $(BIN_DIR)/test_abacus: $(TEST_abacus) $(LIB_OBJS) $(BUNDLED_LIBS) | dirs
 	@echo "  Building test_abacus..."
 	@$(CXX) $(CXXFLAGS) $(INCLUDES) $(TEST_INCLUDES) -o $@ $(TEST_abacus) $(LIB_OBJS) $(LIBS) $(COVERAGE_LDFLAGS) $(TEST_LIBS)
+
+$(BIN_DIR)/test_tetris: $(TEST_tetris) $(LIB_OBJS) $(BUNDLED_LIBS) | dirs
+	@echo "  Building test_tetris..."
+	@$(CXX) $(CXXFLAGS) $(INCLUDES) $(TEST_INCLUDES) -o $@ $(TEST_tetris) $(LIB_OBJS) $(LIBS) $(COVERAGE_LDFLAGS) $(TEST_LIBS)
 
 $(BIN_DIR)/test_kraftwerk2: $(TEST_kraftwerk2) $(LIB_OBJS) $(BUNDLED_LIBS) | dirs
 	@echo "  Building test_kraftwerk2..."

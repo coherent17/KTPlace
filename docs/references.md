@@ -19,7 +19,8 @@ papers themselves are not part of this repository; follow the links.
   [Quadratic placement](foundations/03-quadratic-placement.md).
 - **Kraftwerk2** (origin of the Bound2Bound net model). P. Spindler, U. Schlichtmann,
   F. M. Johannes. "Kraftwerk2 – A Fast Force-Directed Quadratic Placement Approach
-  Using an Accurate Net Model." *IEEE TCAD* 27(8), 1398–1411, 2008. Guide:
+  Using an Accurate Net Model." *IEEE TCAD* 27(8), 1398–1411, 2008.
+  [doi:10.1109/TCAD.2008.925783](https://doi.org/10.1109/TCAD.2008.925783). Guide:
   [Kraftwerk2](global-placement/kraftwerk2/README.md).
 - **NTUplace.** T.-C. Chen, T.-C. Hsu, Z.-W. Jiang, Y.-W. Chang. "NTUplace: A Ratio
   Partitioning Based Placement Algorithm for Large-Scale Mixed-Size Designs."
@@ -33,6 +34,7 @@ papers themselves are not part of this repository; follow the links.
   [Abacus](legalization/abacus/README.md).
 - **Tetris.** D. Hill. "Method and System for High Speed Detailed Placement of Cells
   Within Integrated Circuit Designs." US Patent 6,370,673, 2002.
+  [Google Patents](https://patents.google.com/patent/US6370673B1/en).
 
 ## Detailed placement
 
@@ -49,6 +51,11 @@ papers themselves are not part of this repository; follow the links.
 
 ## Background
 
+- C. Chu. "Placement." Chapter 11 of L.-T. Wang, Y.-W. Chang, K.-T. Cheng (eds.),
+  *Electronic Design Automation: Synthesis, Verification, and Test.* Morgan Kaufmann,
+  2009, 635–685.
+  [doi:10.1016/B978-0-12-374364-0.50018-7](https://doi.org/10.1016/B978-0-12-374364-0.50018-7).
+  A survey of the whole placement problem, by one of the FastDP authors.
 - A. B. Kahng, J. Lienig, I. L. Markov, J. Hu. *VLSI Physical Design: From Graph
   Partitioning to Timing Closure.* Springer, 2011. Chapter 4 covers placement.
 - Y. Saad. *Iterative Methods for Sparse Linear Systems.* SIAM, 2003. Conjugate

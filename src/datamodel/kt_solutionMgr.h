@@ -35,6 +35,10 @@ struct multiRowSolution {
     std::vector<Point> positions;
 };
 
+struct tetrisSolution {
+    std::vector<Point> positions;
+};
+
 /// What a detailed placer hands back.
 struct fastdpSolution {
     std::vector<Point> positions;

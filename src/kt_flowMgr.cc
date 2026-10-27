@@ -18,6 +18,8 @@
 #include "legalizer/abacus/abacus_flowMgr.h"
 #include "legalizer/multirow/multirow_dm.h"
 #include "legalizer/multirow/multirow_flowMgr.h"
+#include "legalizer/tetris/tetris_dm.h"
+#include "legalizer/tetris/tetris_flowMgr.h"
 #include "tcl/kt_tclMgr.h"
 #include "util/kt_log.h"
 #include "util/kt_reportTable.h"
@@ -42,6 +44,7 @@ namespace ktplace {
 namespace {
 
 enum class GlobalPlacer { Simpl, Ntuplace1, Kraftwerk2 };
+enum class Legalizer { Abacus, Tetris };
 
 std::string getSnapshotFile(const std::string &plotDir) {
     return (std::filesystem::path(plotDir) / "snapshots.ktsnap").string();
@@ -62,6 +65,20 @@ GlobalPlacer getChosenGlobalPlacer() {
         return GlobalPlacer::Kraftwerk2;
     }
     ktlog.fatal("unknown placer '{}'; expected simpl, ntuplace1 or kraftwerk2", algorithm);
+}
+
+Legalizer getChosenLegalizer() {
+    const std::string legalizer = OptionDb::getInstance()
+                                      .getComponentOption(Component::Flow)
+                                      .get<std::string>("legalizer")
+                                      .value_or("abacus");
+    if (legalizer == "abacus") {
+        return Legalizer::Abacus;
+    }
+    if (legalizer == "tetris") {
+        return Legalizer::Tetris;
+    }
+    ktlog.fatal("unknown legalizer '{}'; expected abacus or tetris", legalizer);
 }
 
 std::vector<float> getCellCoordinates(const Graph &graph, double Point::*axis) {
@@ -447,20 +464,36 @@ void FlowMgr::Impl::runLegalization() {
     if (snapshots) {
         snapshots->holdBack(0);
     }
+    const Legalizer legalizer = getChosenLegalizer();
 
     if (const std::size_t tall = db->getMultiRowCells(); tall > 0) {
         multirow::flowMgr stage(*db);
         ktlog.echo("multi-row legalization ({} cell(s) taller than a row)", tall);
+        if (legalizer == Legalizer::Tetris) {
+            ktlog.echo("Tetris places cells of one row height only; using the multi-row legalizer");
+        }
         recordStage(stage.getDm(), snapshots.get(), observer,
                     {.stage = "legalize_multi", .subdir = "", .cadence = 0});
         runStage(stage, &ktDM::setMultiRowSolution, "legalization");
         return;
     }
 
-    abacus::flowMgr stage(*db);
-    recordStage(stage.getDm(), snapshots.get(), observer,
-                {.stage = "legalize", .subdir = "", .cadence = 0});
-    runStage(stage, &ktDM::setAbacusSolution, "legalization");
+    switch (legalizer) {
+        case Legalizer::Abacus: {
+            abacus::flowMgr stage(*db);
+            recordStage(stage.getDm(), snapshots.get(), observer,
+                        {.stage = "legalize", .subdir = "", .cadence = 0});
+            runStage(stage, &ktDM::setAbacusSolution, "legalization");
+            break;
+        }
+        case Legalizer::Tetris: {
+            tetris::flowMgr stage(*db);
+            recordStage(stage.getDm(), snapshots.get(), observer,
+                        {.stage = "legalize_tetris", .subdir = "", .cadence = 0});
+            runStage(stage, &ktDM::setTetrisSolution, "legalization");
+            break;
+        }
+    }
 }
 
 void FlowMgr::Impl::runDetailedPlacement() {

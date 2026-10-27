@@ -465,6 +465,11 @@ void ktDM::setMultiRowSolution(const multiRowSolution &solution) {
     checkPlacement();
 }
 
+void ktDM::setTetrisSolution(const tetrisSolution &solution) {
+    commitCells(graph, solution);
+    checkPlacement();
+}
+
 void ktDM::setFastdpSolution(const fastdpSolution &solution) {
     commitCells(graph, solution);
     checkPlacement();
