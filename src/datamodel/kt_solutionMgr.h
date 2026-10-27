@@ -20,6 +20,10 @@ struct ntuplace1Solution {
     std::vector<Point> positions;
 };
 
+struct kraftwerk2Solution {
+    std::vector<Point> positions;
+};
+
 /// What a legalizer hands back: where every cell ended up, indexed by cell id.
 struct abacusSolution {
     std::vector<Point> positions;

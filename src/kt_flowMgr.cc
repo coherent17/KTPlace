@@ -8,6 +8,8 @@
 #include "datamodel/kt_optionDb.h"
 #include "detailPlacer/fastdp/fastdp_dm.h"
 #include "detailPlacer/fastdp/fastdp_flowMgr.h"
+#include "globalPlacer/kraftwerk2/kraftwerk2_dm.h"
+#include "globalPlacer/kraftwerk2/kraftwerk2_flowMgr.h"
 #include "globalPlacer/ntuplace1/ntuplace1_dm.h"
 #include "globalPlacer/ntuplace1/ntuplace1_flowMgr.h"
 #include "globalPlacer/simpl/simpl_dm.h"
@@ -41,7 +43,7 @@ namespace ktplace {
 
 namespace {
 
-enum class GlobalPlacer { Simpl, Ntuplace1 };
+enum class GlobalPlacer { Simpl, Ntuplace1, Kraftwerk2 };
 enum class Legalizer { Abacus, Tetris };
 
 std::string getSnapshotFile(const std::string &plotDir) {
@@ -59,7 +61,10 @@ GlobalPlacer getChosenGlobalPlacer() {
     if (algorithm == "ntuplace1") {
         return GlobalPlacer::Ntuplace1;
     }
-    ktlog.fatal("unknown placer '{}'; expected simpl or ntuplace1", algorithm);
+    if (algorithm == "kraftwerk2") {
+        return GlobalPlacer::Kraftwerk2;
+    }
+    ktlog.fatal("unknown placer '{}'; expected simpl, ntuplace1 or kraftwerk2", algorithm);
 }
 
 Legalizer getChosenLegalizer() {
@@ -441,6 +446,13 @@ void FlowMgr::Impl::runGlobalPlacement() {
         case GlobalPlacer::Ntuplace1: {
             ntuplace1::flowMgr stage(*db);
             runStage(stage, &ktDM::setNtuplace1Solution, "global placement");
+            break;
+        }
+        case GlobalPlacer::Kraftwerk2: {
+            kraftwerk2::flowMgr stage(*db);
+            recordStage(stage.getDm(), snapshots.get(), observer,
+                        {.stage = "kraftwerk2", .subdir = "kraftwerk2", .cadence = 0});
+            runStage(stage, &ktDM::setKraftwerk2Solution, "global placement");
             break;
         }
     }

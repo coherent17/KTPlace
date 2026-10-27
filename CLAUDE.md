@@ -22,7 +22,7 @@ make docs               # live preview of docs/ at http://127.0.0.1:8000/KTPlace
 make docs-build         # mkdocs build --strict into site/, as the Docs workflow runs it
 ```
 
-Each component has its own test binary: `test_datamodel`, `test_adaptor`, `test_flow`, `test_util`, `test_constraint`, `test_option`, `test_viz`, `test_detail`, `test_ntuplace1`, `test_abacus`, `test_tetris`, `test_tcl`, `test_simpl` and `test_geometry`. To run one suite or one case, build the tests and then call Boost.Test directly:
+Each component has its own test binary: `test_datamodel`, `test_adaptor`, `test_flow`, `test_util`, `test_constraint`, `test_option`, `test_viz`, `test_detail`, `test_ntuplace1`, `test_abacus`, `test_tetris`, `test_tcl`, `test_simpl`, `test_geometry` and `test_kraftwerk2`. To run one suite or one case, build the tests and then call Boost.Test directly:
 
 ```sh
 make -C src -f Master.make ../build/bin/test_abacus   # path is relative to src/
@@ -57,7 +57,7 @@ add_option simpl grid 64
 add_option visualizer anim 0
 ```
 
-- `datamodel/kt_optionDb.h`: `OptionDb` is a process-wide store of `Component -> key -> std::variant<int,bool,double,string>`. Valid components are the `Component` enum and its `componentNames` (`simpl`, `ntuplace1`, `abacus`, `multirow`, `tetris`, `fastdp`, `visualizer`, `flow`), and `add_option` rejects any other name. A new component needs an enumerator and a name.
+- `datamodel/kt_optionDb.h`: `OptionDb` is a process-wide store of `Component -> key -> std::variant<int,bool,double,string>`. Valid components are the `Component` enum and its `componentNames` (`simpl`, `ntuplace1`, `kraftwerk2`, `abacus`, `multirow`, `tetris`, `fastdp`, `visualizer`, `flow`), and `add_option` rejects any other name. A new component needs an enumerator and a name.
 - Each stage has one `<stage>_options.h` struct (`SimplOptions`, `AbacusOptions`, ...) that is the stage's whole configuration: its field initializers are the defaults, `component` names its component, and `getConfigurableOptions()` lists only the keys a script may set, each as `option("tcl_key", &XOptions::member)`. Constants nobody should change are plain members left out of `getConfigurableOptions()`. There are no separate `*Params` structs: the algorithm takes the options struct.
 - `build<Stage>DM` calls `loadOptions<XOptions>()`, which overwrites each listed member the script set, and stores the struct in the DM. The DM's `run()` reports it with `reportOptions(opts)` and hands it to the algorithm. Nothing keeps the `ComponentOptions` that `OptionDb::getComponentOption` returns.
 - Lookup order: the script value, then the default. **The environment is not read.** `ComponentOptions::get<T>(key)` returns `std::optional<T>`; a value of the wrong type is not converted: it logs a warning and the default is used. A misspelled key is stored and never read.
@@ -77,12 +77,13 @@ load → report → global place → legalize → detailed place → final image
   3. `flowMgr::run()` runs the algorithm, which modifies the DM's own design (the cells' positions). The algorithm keeps its run statistics private and prints its own table when it ends; `run()` returns nothing.
   4. `flowMgr::getSolution()` hands the DM's positions to the flow, which commits them with `ktDM::set<Stage>Solution` (`setSimplSolution`, ...). That is the only place the shared design is written, and the flow then runs the legality check and reports the checksum.
 
-  Every stage follows this shape: `simpl`, `ntuplace1`, `abacus`, `tetris`, `multirow` and `fastdp`, committed with `setSimplSolution`, `setNtuplace1Solution`, `setAbacusSolution`, `setTetrisSolution`, `setMultiRowSolution` and `setFastdpSolution`. A stage never reads ktDM after building its DM.
+  Every stage follows this shape: `simpl`, `ntuplace1`, `kraftwerk2`, `abacus`, `tetris`, `multirow` and `fastdp`, committed with `setSimplSolution`, `setNtuplace1Solution`, `setKraftwerk2Solution`, `setAbacusSolution`, `setTetrisSolution`, `setMultiRowSolution` and `setFastdpSolution`. A stage never reads ktDM after building its DM.
 
   SimPL's files: `simpl_dm` (data model: the solver's netlist, cell sizes, obstacles, fences, result, `buildSimplDM`), `simpl_flowMgr` (the four steps), `simpl_placer` (the iteration loop), `simpl_lss` (linear system solve: B2B and star systems, conjugate gradient), `simpl_lal` (look-ahead legalization), `simpl_grid` (bin grid and free space), `simpl_parallel.h` (TBB helpers with deterministic reductions), `simpl_options`.
 - **Stages:**
   - `globalPlacer/simpl`: default quadratic placer with B2B net model and look-ahead legalization, fence-aware. `docs/global-placement/simpl/` is a step-by-step guide to the SimPL paper.
   - `globalPlacer/ntuplace1`: alternative global placer, ratio partitioning (Chen, Hsu, Jiang, Chang, ISPD 2005).
+  - `globalPlacer/kraftwerk2`: force-directed quadratic placer (Spindler, Schlichtmann, Johannes, TCAD 2008): Bound2Bound springs plus a hold force and a move force toward target points on a Poisson potential, one system $(C + \mathring C)\Delta x = -\mathring C\Phi_x$ per axis per iteration. `kraftwerk2_potential` solves Poisson's equation with a DCT built as separable matrix products (cosine tables from half-angle `sqrt`s, so platform-independent); `kraftwerk2_placer` has the loop, quality control and the overlap measure. Selected with `add_option flow algorithm kraftwerk2`. `docs/global-placement/kraftwerk2/` is a guide to the paper.
   - `legalizer/abacus`: single-row legalizer, fence-aware.
   - `legalizer/tetris`: the greedy legalizer of D. Hill's patent (US 6,370,673): cells sorted by x minus a width term, each put once at the cheapest row's left-most vacant site right of a boundary and never moved again. Chosen with `add_option flow legalizer tetris` or `legalize_placement tetris`.
   - `legalizer/multirow`: used instead of Abacus or Tetris when the design has cells taller than one row.

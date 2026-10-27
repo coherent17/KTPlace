@@ -106,6 +106,7 @@ nav:
       - 3. Quadratic placement: foundations/03-quadratic-placement.md
       - 4. Solving linear systems: foundations/04-solving-linear-systems.md
       - 5. Net models: foundations/05-net-models.md
+      - 6. Density and potentials: foundations/06-density-and-potentials.md
   - Global placement:
       - SimPL:
           - Overview: global-placement/simpl/README.md
@@ -113,6 +114,12 @@ nav:
           - 2. Look-ahead legalization: global-placement/simpl/02-look-ahead-legalization.md
           - 3. Anchors and convergence: global-placement/simpl/03-anchors-and-convergence.md
           - 4. Speed, results, parallelism: global-placement/simpl/04-speed-results-parallelism.md
+      - Kraftwerk2:
+          - Overview: global-placement/kraftwerk2/README.md
+          - 1. Three forces: global-placement/kraftwerk2/01-forces.md
+          - 2. Density and potential: global-placement/kraftwerk2/02-density-and-potential.md
+          - 3. Quality control: global-placement/kraftwerk2/03-quality-control.md
+          - 4. Results: global-placement/kraftwerk2/04-results.md
   - Legalization:
       - Abacus:
           - Overview: legalization/abacus/README.md

@@ -201,6 +201,7 @@ std::string Visualizer::getHeading(const std::string &note) const {
     static const std::map<std::string, std::string> titles{
         {"simpl", "Global placement - SimPL"},
         {"ntuplace1", "Global placement - NTUPlace"},
+        {"kraftwerk2", "Global placement - Kraftwerk2"},
         {"legalize", "Legalization - Abacus"},
         {"legalize_multi", "Legalization - multi-row"},
         {"legalize_tetris", "Legalization - Tetris"},

@@ -6,7 +6,7 @@ placement. A run goes through three stages, each a separate algorithm:
 
 ```mermaid
 flowchart LR
-    read[read design]:::io --> gp["global placement<br/>SimPL or NTUplace"]:::stage
+    read[read design]:::io --> gp["global placement<br/>SimPL, Kraftwerk2 or NTUplace"]:::stage
     gp --> lg["legalization<br/>Abacus or multi-row"]:::stage
     lg --> dp["detailed placement<br/>FastDP"]:::stage
     dp --> out[placed.pl]:::io
@@ -28,13 +28,14 @@ readers who know basic calculus but no linear algebra and nothing about chip des
 - **[Foundations](foundations/README.md)**
 
     The background every algorithm guide relies on: the placement problem, the math
-    toolkit, quadratic placement, solving large linear systems, net models. Read it
+    toolkit, quadratic placement, solving large linear systems, net models, density
+    and potentials. Read it
     once; the guides link back into it.
 
 - **Global placement**
 
-    One guide per global placer, starting with
-    [SimPL](global-placement/simpl/README.md).
+    One guide per global placer: [SimPL](global-placement/simpl/README.md) and
+    [Kraftwerk2](global-placement/kraftwerk2/README.md).
 
 - **Legalization**
 
@@ -60,6 +61,7 @@ readers who know basic calculus but no linear algebra and nothing about chip des
 | Stage | Algorithm | Guide |
 | --- | --- | --- |
 | Global placement | SimPL (Kim, Lee, Markov) | [SimPL](global-placement/simpl/README.md) |
+| Global placement | Kraftwerk2 (Spindler, Schlichtmann, Johannes) | [Kraftwerk2](global-placement/kraftwerk2/README.md) |
 | Global placement | NTUplace (Chen, Hsu, Jiang, Chang) | planned |
 | Legalization | Abacus (Spindler, Schlichtmann, Johannes) | [Abacus](legalization/abacus/README.md) |
 | Legalization | Multi-row legalization | planned |

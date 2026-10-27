@@ -1455,7 +1455,127 @@
     draw();
   }
 
-  const WIDGETS = {placerow: placeRowWidget, "optimal-region": optimalRegionWidget, spring: springWidget,
+  // ------------------------------------------------------------------ 1-D Poisson spreading
+
+  function poissonWidget(host) {
+    const W = 760, H = 420, length = 30, bins = 60, binLength = length / bins;
+    const X = (v) => 40 + v * (560 / length);
+    const starts = {
+      one: () => Array.from({length: 20}, (_, i) => 13 + (4 * i) / 19),
+      two: () => Array.from({length: 20}, (_, i) => (i < 10 ? 6 + (3 * i) / 9 : 20 + (3 * (i - 10)) / 9)),
+    };
+    let start = "one";
+    let centers = starts[start]();
+    let steps = 0;
+    let timer = null;
+    function getField() {
+      const demand = new Array(bins).fill(0);
+      for (const c of centers) {
+        for (let b = 0; b < bins; b++) {
+          const lo = Math.max(c - 0.5, b * binLength), hi = Math.min(c + 0.5, (b + 1) * binLength);
+          if (hi > lo) demand[b] += (hi - lo) / binLength;
+        }
+      }
+      const supply = centers.length / length;
+      const charge = demand.map((v) => v - supply);
+      const edge = [0];
+      for (let b = 0; b < bins; b++) edge.push(edge[b] - charge[b] * binLength);
+      const slopeAt = (x) => {
+        const f = Math.min(Math.max(x / binLength, 0), bins);
+        const k = Math.min(Math.floor(f), bins - 1);
+        return edge[k] + (edge[k + 1] - edge[k]) * (f - k);
+      };
+      return {charge, edge, slopeAt};
+    }
+    function getOverlap() {
+      const spans = centers.map((c) => [c - 0.5, c + 0.5]).sort((a, b) => a[0] - b[0]);
+      let union = 0, reach = -Infinity;
+      for (const [lo, hi] of spans) {
+        if (hi > reach) {
+          union += hi - Math.max(lo, reach);
+          reach = hi;
+        }
+      }
+      return 1 - union / centers.length;
+    }
+    host.innerHTML = "";
+    const svg = card(host, W, H, "Interactive Poisson spreading");
+    const scene = el("g", {}, svg);
+    function draw() {
+      scene.replaceChildren();
+      const {charge, edge, slopeAt} = getField();
+      heading(scene, "A pile of cells rolling down its own potential",
+        "Red arrows: each cell's way to its target x − Φ′(x). Step moves every cell halfway there.");
+      const order = centers.map((c, i) => i).sort((a, b) => centers[a] - centers[b]);
+      const lanes = [];
+      const laneOf = new Array(centers.length);
+      for (const i of order) {
+        let lane = 0;
+        while (lanes[lane] !== undefined && lanes[lane] > centers[i] - 0.5 + 1e-9) lane++;
+        lanes[lane] = centers[i] + 0.5;
+        laneOf[i] = lane;
+      }
+      const base = 150;
+      label(scene, 40, 78, "cells", 11, C.muted, "start", "bold");
+      el("line", {x1: X(0), y1: base, x2: X(length), y2: base, stroke: "#cbd5e1"}, scene);
+      centers.forEach((c, i) => {
+        el("rect", {x: X(c - 0.5) + 0.5, y: base - 12 * (laneOf[i] + 1), width: X(1) - X(0) - 1, height: 11, rx: 2,
+          fill: C.movF, stroke: C.movS, "stroke-width": 1.2}, scene);
+        arrow(scene, X(c), base + 14 + (i % 2) * 6, -slopeAt(c) * (X(1) - X(0)), C.red, 120);
+      });
+      const zeroD = 255, scaleD = 48 / Math.max(1.5, ...charge.map(Math.abs));
+      label(scene, 40, 200, "D = demand − supply", 11, C.muted, "start", "bold");
+      el("line", {x1: X(0), y1: zeroD, x2: X(length), y2: zeroD, stroke: "#cbd5e1"}, scene);
+      charge.forEach((v, b) => {
+        const h = v * scaleD;
+        el("rect", {x: X(b * binLength), y: h > 0 ? zeroD - h : zeroD, width: X(binLength) - X(0) - 0.5,
+          height: Math.abs(h), fill: v > 0 ? C.hiS : C.arrow, opacity: 0.7}, scene);
+      });
+      const zeroS = 345, scaleS = 38 / Math.max(2, ...edge.map(Math.abs));
+      label(scene, 40, 305, "slope Φ′", 11, C.muted, "start", "bold");
+      el("line", {x1: X(0), y1: zeroS, x2: X(length), y2: zeroS, stroke: "#cbd5e1"}, scene);
+      el("polyline", {points: edge.map((v, k) => `${X(k * binLength)},${zeroS - v * scaleS}`).join(" "),
+        fill: "none", stroke: C.tealS, "stroke-width": 2.5}, scene);
+      for (let v = 0; v <= length; v += 5) label(scene, X(v), 400, String(v), 11, C.muted, "middle");
+      const tx = 625;
+      let y = 90;
+      y = stat(scene, tx, y, "step", String(steps));
+      y = stat(scene, tx, y, "overlap Ω", getOverlap().toFixed(2), C.hiS);
+      stat(scene, tx, y, "largest |Φ′|", Math.max(...edge.map(Math.abs)).toFixed(2), C.tealS);
+    }
+    function step() {
+      const {slopeAt} = getField();
+      centers = centers.map((c) => Math.min(length - 0.5, Math.max(0.5, c - 0.5 * slopeAt(c))));
+      steps += 1;
+    }
+    function stop() {
+      if (timer !== null) clearInterval(timer);
+      timer = null;
+      play.textContent = "Play";
+    }
+    button(host, "Step", () => { stop(); step(); draw(); }, true);
+    const play = button(host, "Play", () => {
+      if (timer !== null) { stop(); return; }
+      play.textContent = "Pause";
+      timer = setInterval(() => {
+        step();
+        draw();
+        if (getOverlap() < 0.005 || steps > 300) stop();
+      }, 150);
+    });
+    spacer(host);
+    caption(host, "start");
+    choice(host, [["one", "One pile"], ["two", "Two piles"]], start, (key) => {
+      stop();
+      start = key;
+      centers = starts[key]();
+      steps = 0;
+      draw();
+    });
+    draw();
+  }
+
+  const WIDGETS = {poisson: poissonWidget, placerow: placeRowWidget, "optimal-region": optimalRegionWidget, spring: springWidget,
     "spring-network": springNetworkWidget, collapse: collapseWidget, anchor: anchorWidget, hpwl: hpwlWidget,
     gradient: gradientWidget, shape: shapeWidget, "big-o": bigOWidget, stamp: stampWidget, jacobi: jacobiWidget,
     descent: descentWidget, "net-model": netModelWidget};
