@@ -21,7 +21,9 @@ OBJ_DIR ?= ../../build/obj/globalPlacer
 SRCS := simpl/simpl_placer.cc simpl/simpl_dm.cc simpl/simpl_flowMgr.cc \
         simpl/simpl_lal.cc simpl/simpl_lss.cc \
         ntuplace1/ntuplace1_placer.cc \
-        ntuplace1/ntuplace1_dm.cc ntuplace1/ntuplace1_flowMgr.cc
+        ntuplace1/ntuplace1_dm.cc ntuplace1/ntuplace1_flowMgr.cc \
+        kraftwerk2/kraftwerk2_placer.cc kraftwerk2/kraftwerk2_potential.cc \
+        kraftwerk2/kraftwerk2_dm.cc kraftwerk2/kraftwerk2_flowMgr.cc
 
 # Only include files that exist
 EXISTING_SRCS := $(foreach src,$(SRCS),$(if $(wildcard $(src)),$(src),))

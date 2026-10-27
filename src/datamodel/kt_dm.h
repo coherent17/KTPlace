@@ -49,6 +49,7 @@ public:
 
     void setSimplSolution(const simplSolution &solution);
     void setNtuplace1Solution(const ntuplace1Solution &solution);
+    void setKraftwerk2Solution(const kraftwerk2Solution &solution);
 
     /// The same, for a legalization stage. Kept as its own name so a reader can
     /// tell which stage produced the placement.

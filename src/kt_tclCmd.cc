@@ -89,7 +89,7 @@ void registerCommands() {
             return tcl::Value::string(dir);
         });
     registerStep({.name = "gplace_design",
-                  .usage = "gplace_design [simpl|ntuplace1]",
+                  .usage = "gplace_design [simpl|ntuplace1|kraftwerk2]",
                   .summary = "global placement (default: the flow algorithm option)"},
                  {.min = 0, .max = 1}, Needs::Design, [](FlowMgr &flow, const Words &words) {
                      if (!words.empty()) {

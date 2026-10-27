@@ -1,4 +1,4 @@
-[← 4. Solving a million equations](04-solving-linear-systems.md) · [Foundations contents](README.md)
+[← 4. Solving a million equations](04-solving-linear-systems.md) · [Foundations contents](README.md) · [6. Density and potentials →](06-density-and-potentials.md)
 
 # 5. Net models: clique, star and Bound2Bound
 
@@ -139,4 +139,4 @@ Its weights depend on the current edge lengths, and which pins are the extremes 
 
 ---
 
-[← 4. Solving a million equations](04-solving-linear-systems.md) · [Foundations contents](README.md)
+[← 4. Solving a million equations](04-solving-linear-systems.md) · [Foundations contents](README.md) · [6. Density and potentials →](06-density-and-potentials.md)

@@ -451,7 +451,8 @@ BOOST_AUTO_TEST_CASE(help_lists_every_command_and_explains_one) {
     BOOST_CHECK_THROW((void)flow.evaluate("help no_such_command"), tcl::Error);
     BOOST_TEST(all.find("foreach") > all.find("Tcl builtins:"));
     BOOST_TEST(flow.evaluate("place_design -h") == flow.evaluate("help place_design"));
-    BOOST_TEST(flow.evaluate("gplace_design -h").starts_with("gplace_design [simpl|ntuplace1]"));
+    BOOST_TEST(flow.evaluate("gplace_design -h")
+                   .starts_with("gplace_design [simpl|ntuplace1|kraftwerk2]"));
     BOOST_CHECK_THROW((void)flow.evaluate("read_design a b c"), tcl::Error);
 }
 

@@ -451,6 +451,10 @@ void ktDM::setNtuplace1Solution(const ntuplace1Solution &solution) {
     commitCells(graph, solution);
 }
 
+void ktDM::setKraftwerk2Solution(const kraftwerk2Solution &solution) {
+    commitCells(graph, solution);
+}
+
 void ktDM::setAbacusSolution(const abacusSolution &solution) {
     commitCells(graph, solution);
     checkPlacement();

@@ -67,7 +67,7 @@ everything it does, and why.
 
 ## Highlights
 
-- **A complete flow.** SimPL (B2B net model, look-ahead legalization) or NTUPlace for global
+- **A complete flow.** SimPL (B2B net model, look-ahead legalization), Kraftwerk2 or NTUPlace for global
   placement, Abacus or a multi-row legalizer, FastDP detailed placement, and an independent
   legality check (overlaps, die, fences) after every stage.
 - **Fences and multi-row cells.** Region constraints from ISPD 2015 and cells taller than a row.
@@ -132,7 +132,7 @@ write_placement                ;# <work-dir>/placed.pl, or write_placement <file
 | command | does |
 | --- | --- |
 | `read_design [dir]` | load a Bookshelf or LEF/DEF design (default: the opened or given design) |
-| `gplace_design [simpl\|ntuplace1]` | global placement (default: `flow algorithm`) |
+| `gplace_design [simpl\|ntuplace1\|kraftwerk2]` | global placement (default: `flow algorithm`) |
 | `legalize_placement` | Abacus, or the multi-row legalizer when cells span rows |
 | `detail_place` | FastDP |
 | `place_design` | the three above, in order |
@@ -224,7 +224,7 @@ keys and defaults are in its `*_options.h`.
 
 | component | key | effect (default) |
 | --- | --- | --- |
-| `flow` | `algorithm` | global placer: `simpl` or `ntuplace1` (`simpl`) |
+| `flow` | `algorithm` | global placer: `simpl`, `ntuplace1` or `kraftwerk2` (`simpl`) |
 | `visualizer` | `plot` | draw anything at all: frames, GIF, final still; `0` draws nothing (`1`) |
 | `visualizer` | `anim` | record frames and assemble the GIF (`1`) |
 | `visualizer` | `anim_max_frames` | frame budget for the run (`1200`) |
@@ -243,6 +243,9 @@ keys and defaults are in its `*_options.h`.
 | `simpl` | `init_net` | initial placement net model: `star` (placement-independent star model), `b2b` (the paper's Bound2Bound), or `star_b2b` (`star`) |
 | `simpl` | `grid`, `cg_tol`, `init_iters`, `iters`, `seed`, `fences`, `density`, `alpha_base` | solver settings |
 | `ntuplace1` | `leaf_cells`, `max_levels`, `retries`, `verbose` | partitioner settings |
+| `kraftwerk2` | `movement` | target movement per iteration, the paper's quality/runtime knob; `0` uses the average module size (`0`) |
+| `kraftwerk2` | `overlap`, `density`, `large_area` | stop below this overlap (`0.2`); target density, `0` spreads over the whole chip (`1`); large-module area in average module areas (`50`) |
+| `kraftwerk2` | `grid`, `init_iters`, `iters`, `cg_tol`, `cg_iters`, `trace_every`, `report_every` | potential grid (`0` = automatic), initial-placement rounds, iteration limit, solver and reporting settings |
 | `abacus` | `max_row_dist`, `min_subrow_sites` | legalizer settings |
 | `abacus`, `multirow` | `frames` | frames while legalizing, showing the cells placed so far at their legal positions; `0` keeps only the first and last (`24`) |
 | `multirow` | `macro_rows` | cells spanning more rows than this are legalized first as blocks, before the standard cells are legalized around them (`3`) |
@@ -256,7 +259,7 @@ Each stage follows a published paper; [`docs/`](docs/README.md) explains them fr
 
 | stage | algorithm |
 | --- | --- |
-| Global placement | SimPL (Kim, Lee, Markov, CACM 2013; IEEE TCAD 2012), or NTUPlace (Chen, Hsu, Jiang, Chang, ISPD 2005); [`docs/global-placement/simpl/`](docs/global-placement/simpl/README.md) is a step-by-step guide to the paper |
+| Global placement | SimPL (Kim, Lee, Markov, CACM 2013; IEEE TCAD 2012), Kraftwerk2 (Spindler, Schlichtmann, Johannes, IEEE TCAD 2008), or NTUPlace (Chen, Hsu, Jiang, Chang, ISPD 2005); [`docs/global-placement/`](docs/README.md) has step-by-step guides to SimPL and Kraftwerk2 |
 | Legalization | Abacus (Spindler, Schlichtmann, Johannes, ISPD 2008), and a multi-row legalizer for cells taller than a row |
 | Detailed placement | FastDP (Pan, Viswanathan, Chu, ICCAD 2005) |
 | Checking | an independent placement check (overlaps, die, fences) after every stage |

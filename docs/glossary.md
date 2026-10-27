@@ -42,6 +42,36 @@ for iteration = 0, 1, 2, ...:                             # global placement
 return upper  → final legalization and detailed placement
 ```
 
+## Kraftwerk2
+
+| Symbol / term | Meaning |
+| --- | --- |
+| demand, supply | module area per unit area (each module at density $d_i$), and the room the chip offers |
+| $D$ | supply and demand system: demand − supply; balanced, so it adds up to zero |
+| potential $\Phi$ | solution of Poisson's equation $\nabla^2\Phi = -D$: high where crowded |
+| target point $\mathring x_i$ | $x'_i - \partial\Phi/\partial x$: where the move force pulls module $i$ |
+| net, hold, move force | the wire springs; their opposite at the start of an iteration; springs to the target points |
+| $\mathring w_i$, $\mathring C$ | move-force stiffness of module $i$; the diagonal table of them |
+| $(C + \mathring C)\Delta x = -\mathring C\,\Phi_x$ | the core system, one per axis per iteration (eq. 30) |
+| $\mu$, $\mu_T$ | average module movement in an iteration; its target, set by the user |
+| $\kappa$ | quality-control factor $1 + \tanh(\ln(\mu_T/\mu))$ applied to every $\mathring w_i$ |
+| $\Omega$ | overlap, $1 - A_\cup / A_\text{mod}$; global placement stops below 20% |
+| halo | empty space a big module claims around itself; removed by lowering its density $d_i$ (eq. 34) |
+| $t_d$ | target density: pack the modules to this density instead of over the whole chip |
+
+**Kraftwerk2 in a few lines**
+
+```
+initial placement: minimize the Bound2Bound wire cost a few times
+while overlap Ω > 20%:
+    D = demand − supply on a grid;  solve ∇²Φ = −D
+    target of each module = position − ∇Φ
+    build Bound2Bound springs C at the current positions
+    solve (C + C̊)Δx = −C̊ ∂Φ/∂x  and the same for y;  move by Δ
+    μ = average movement;  ẘ ← ẘ · κ(μ_T / μ)
+return → legalization (Tetris-like) and greedy detailed placement
+```
+
 ## Abacus
 
 | Symbol / term | Meaning |

@@ -19,7 +19,8 @@ papers themselves are not part of this repository; follow the links.
   [Quadratic placement](foundations/03-quadratic-placement.md).
 - **Kraftwerk2** (origin of the Bound2Bound net model). P. Spindler, U. Schlichtmann,
   F. M. Johannes. "Kraftwerk2 – A Fast Force-Directed Quadratic Placement Approach
-  Using an Accurate Net Model." *IEEE TCAD* 27(8), 1398–1411, 2008.
+  Using an Accurate Net Model." *IEEE TCAD* 27(8), 1398–1411, 2008. Guide:
+  [Kraftwerk2](global-placement/kraftwerk2/README.md).
 - **NTUplace.** T.-C. Chen, T.-C. Hsu, Z.-W. Jiang, Y.-W. Chang. "NTUplace: A Ratio
   Partitioning Based Placement Algorithm for Large-Scale Mixed-Size Designs."
   *ISPD* 2005.

@@ -14,6 +14,7 @@ so each chapter notes the section of that paper it covers.
 | 3 | [Quadratic placement](03-quadratic-placement.md) | wires as springs, the linear system $Q\vec x = \vec b$, a worked example, why everything collapses |
 | 4 | [Solving a million equations](04-solving-linear-systems.md) | Jacobi, conjugate gradient, condition number, preconditioning |
 | 5 | [Net models: clique, star and Bound2Bound](05-net-models.md) | turning a many-pin net into springs; Bound2Bound measures HPWL exactly |
+| 6 | [Density, potentials and Poisson's equation](06-density-and-potentials.md) | demand and supply on a grid, a potential landscape, Poisson's equation, solving it with cosine waves |
 
 Chapter 2 is the longest; read it slowly, and come back to its notation table
 (§2.1) whenever a formula looks unfamiliar. Readers who know linear algebra can skip
@@ -25,6 +26,7 @@ flowchart LR
     f2["2 · Math toolkit"]:::found --> f3
     f3 --> f5["5 · Net models"]:::found
     f3 --> f4["4 · Solving linear systems"]:::found
+    f3 --> f6["6 · Density and potentials"]:::found
     classDef io fill:#fef3c7,stroke:#d97706,color:#451a03
     classDef stage fill:#ccfbf1,stroke:#0f766e,color:#042f2e
     classDef found fill:#e0e7ff,stroke:#4f46e5,color:#1e1b4b
