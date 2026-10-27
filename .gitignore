@@ -19,6 +19,11 @@ build-static/
 output/
 out.pl
 
+# Local copies of the papers the guides follow. They are the publishers'
+# copyrighted PDFs, so they stay out of this public repository; docs/references.md
+# links each one.
+/papers/
+
 # Run transcript
 ktplace.log
 *.log
