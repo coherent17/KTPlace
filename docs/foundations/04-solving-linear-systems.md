@@ -35,6 +35,14 @@ $$
 It converges for diagonally dominant matrices, but slowly: information travels
 one edge per iteration, so a chain of 1000 cells needs thousands of rounds.
 
+Watch it on a chain. Every cell starts at 0, the position of the left pin, so
+after one step only the last cell, the one tied to the pin at 10, has moved. The news that the right pin
+exists then travels one cell per step up the chain, and it takes many more steps to
+straighten the chain onto the dashed answer. Add cells with the slider and the
+number of steps grows much faster than the chain.
+
+<div class="kt-widget" data-widget="jacobi"></div>
+
 ### 4.3 Downhill, and why plain downhill zigzags
 
 The cost $\Phi$ is a bowl. **Steepest descent** steps in the downhill direction
@@ -83,6 +91,13 @@ to wall and creeps along the valley floor very slowly.
   [![Steepest descent and CG](images/descent-paths.svg)](images/descent-paths.svg)
   <figcaption>Real iterations on two 2-unknown bowls. On a round bowl (κ = 1) one steepest-descent step lands on the bottom. On a valley ten times steeper one way (κ = 10) steepest descent zigzags; conjugate gradient needs exactly two steps (§4.4).</figcaption>
 </figure>
+
+Try it on a bowl you control. *κ* stretches the valley, *tilt* turns it, and the
+white dot is the starting point. The red path is steepest descent, the teal path
+conjugate gradient ([§4.4](#44-conjugate-gradient-cg)). The *Precondition* switch is explained in
+[§4.5](#45-condition-number-and-preconditioning).
+
+<div class="kt-widget" data-widget="descent"></div>
 
 ### 4.4 Conjugate gradient (CG)
 
@@ -144,6 +159,12 @@ cell on fifty nets a huge one; dividing by the diagonal puts all rows on an equa
 footing. The more diagonally dominant $Q$ is, the better $P^{-1}Q$ is conditioned,
 which is why the anchors in [SimPL chapter 3](../global-placement/simpl/03-anchors-and-convergence.md), which only add to the diagonal, also speed up
 CG.
+
+Turn on *Precondition* in the widget of [§4.3](#43-downhill-and-why-plain-downhill-zigzags) to see this. With tilt 0 the
+valley lies along an axis, the diagonal holds all of its shape, and dividing by
+the diagonal makes the bowl perfectly round: one step. Tilt the valley to 45° and
+the diagonal entries become equal, so dividing by them changes nothing. Placement
+matrices are mostly the first kind, which is why such a cheap preconditioner helps.
 
 > [!IMPORTANT]
 > **Key takeaways**

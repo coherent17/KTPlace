@@ -80,6 +80,12 @@ reports it.
   <figcaption>The example net: its bounding box is 3 wide and 4 tall, so HPWL = 7.</figcaption>
 </figure>
 
+Try it: drag the pins. Only the pins on the edge of the box decide HPWL; a pin
+anywhere inside the box can move freely without changing it. With two pins, HPWL
+is the length of the teal walk along the grid.
+
+<div class="kt-widget" data-widget="hpwl"></div>
+
 > [!WARNING]
 > **The difficulty.** HPWL is built from `max`, `min` and absolute values. These
 > have sharp corners (think of the graph of $|x|$, a V shape), and the fast

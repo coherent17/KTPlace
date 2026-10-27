@@ -93,6 +93,14 @@ bounds, and the lengths, differ in each direction.
   avoided that cost; SimPL accepts it because the rebuild is cheap compared with
   the gain in accuracy.
 
+Compare them on one net. Drag the pins and switch models. Under Clique and Star the
+squared cost is just a number with no relation to HPWL. Under Bound2Bound it equals
+HPWL, but only until a pin moves: the weights were computed for the old positions.
+Press *Rebuild* to recompute them, which is what SimPL does at every iteration.
+Add pins to see the clique's edge count explode.
+
+<div class="kt-widget" data-widget="net-model"></div>
+
 > [!IMPORTANT]
 > **Key takeaways**
 >
