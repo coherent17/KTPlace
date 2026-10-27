@@ -100,9 +100,17 @@ void registerCommands() {
                      return tcl::Value{};
                  });
     registerStep({.name = "legalize_placement",
-                  .usage = "legalize_placement",
-                  .summary = "legalize: Abacus, or the multi-row legalizer when cells span rows"},
-                 {}, Needs::Design, getAction(&FlowMgr::legalize));
+                  .usage = "legalize_placement [abacus|tetris]",
+                  .summary = "legalize (default: the flow legalizer option); the multi-row "
+                             "legalizer when cells span rows"},
+                 {.min = 0, .max = 1}, Needs::Design, [](FlowMgr &flow, const Words &words) {
+                     if (!words.empty()) {
+                         OptionDb::getInstance().set(Component::Flow, "legalizer",
+                                                     OptionValue{words.front()});
+                     }
+                     flow.legalize();
+                     return tcl::Value{};
+                 });
     registerStep(
         {.name = "detail_place", .usage = "detail_place", .summary = "detailed placement (FastDP)"},
         {}, Needs::Design, getAction(&FlowMgr::detailPlace));

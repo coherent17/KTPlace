@@ -54,6 +54,7 @@ public:
     /// tell which stage produced the placement.
     void setAbacusSolution(const abacusSolution &solution);
     void setMultiRowSolution(const multiRowSolution &solution);
+    void setTetrisSolution(const tetrisSolution &solution);
     void setFastdpSolution(const fastdpSolution &solution);
 
 
