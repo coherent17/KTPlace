@@ -203,6 +203,7 @@ std::string Visualizer::getHeading(const std::string &note) const {
         {"ntuplace1", "Global placement - NTUPlace"},
         {"legalize", "Legalization - Abacus"},
         {"legalize_multi", "Legalization - multi-row"},
+        {"legalize_tetris", "Legalization - Tetris"},
         {"detailplace", "Detailed placement - FastDP"},
     };
     const auto found = titles.find(stage.stage);
