@@ -6,6 +6,8 @@
 #include "adaptor/kt_inputReader.h"
 #include "datamodel/kt_dm.h"
 #include "datamodel/kt_optionDb.h"
+#include "detailPlacer/abcdplace/abcdplace_dm.h"
+#include "detailPlacer/abcdplace/abcdplace_flowMgr.h"
 #include "detailPlacer/fastdp/fastdp_dm.h"
 #include "detailPlacer/fastdp/fastdp_flowMgr.h"
 #include "globalPlacer/ntuplace1/ntuplace1_dm.h"
@@ -43,6 +45,7 @@ namespace {
 
 enum class GlobalPlacer { Simpl, Ntuplace1 };
 enum class Legalizer { Abacus, Tetris };
+enum class DetailedPlacer { Fastdp, Abcdplace };
 
 std::string getSnapshotFile(const std::string &plotDir) {
     return (std::filesystem::path(plotDir) / "snapshots.ktsnap").string();
@@ -74,6 +77,20 @@ Legalizer getChosenLegalizer() {
         return Legalizer::Tetris;
     }
     ktlog.fatal("unknown legalizer '{}'; expected abacus or tetris", legalizer);
+}
+
+DetailedPlacer getChosenDetailedPlacer() {
+    const std::string placer = OptionDb::getInstance()
+                                   .getComponentOption(Component::Flow)
+                                   .get<std::string>("detailed_placer")
+                                   .value_or("fastdp");
+    if (placer == "fastdp") {
+        return DetailedPlacer::Fastdp;
+    }
+    if (placer == "abcdplace") {
+        return DetailedPlacer::Abcdplace;
+    }
+    ktlog.fatal("unknown detailed placer '{}'; expected fastdp or abcdplace", placer);
 }
 
 std::vector<float> getCellCoordinates(const Graph &graph, double Point::*axis) {
@@ -487,6 +504,13 @@ void FlowMgr::Impl::runLegalization() {
 void FlowMgr::Impl::runDetailedPlacement() {
     ScopedTimer timer("detailed placement", true);
     preparePlots();
+    if (getChosenDetailedPlacer() == DetailedPlacer::Abcdplace) {
+        abcdplace::flowMgr stage(*db);
+        recordStage(stage.getDm(), snapshots.get(), observer,
+                    {.stage = "detailplace_abcd", .subdir = "", .cadence = 0});
+        runStage(stage, &ktDM::setAbcdplaceSolution, "detailed placement");
+        return;
+    }
     fastdp::flowMgr stage(*db);
     recordStage(stage.getDm(), snapshots.get(), observer,
                 {.stage = "detailplace", .subdir = "", .cadence = 0});

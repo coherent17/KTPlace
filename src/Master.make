@@ -291,6 +291,9 @@ TEST_BINS += $(BIN_DIR)/test_geometry
 TEST_tetris := legalizer/tetris/test/test_tetris.cc
 TEST_BINS += $(BIN_DIR)/test_tetris
 
+TEST_abcdplace := detailPlacer/abcdplace/test/test_abcdplace.cc
+TEST_BINS += $(BIN_DIR)/test_abcdplace
+
 # Builds the test binaries without running them. `make coverage` needs this:
 # the coverage driver wants to run the binaries itself, once, under the
 # instrumented build, rather than have make run them before gcov is ready.
@@ -359,6 +362,10 @@ $(BIN_DIR)/test_abacus: $(TEST_abacus) $(LIB_OBJS) $(BUNDLED_LIBS) | dirs
 $(BIN_DIR)/test_tetris: $(TEST_tetris) $(LIB_OBJS) $(BUNDLED_LIBS) | dirs
 	@echo "  Building test_tetris..."
 	@$(CXX) $(CXXFLAGS) $(INCLUDES) $(TEST_INCLUDES) -o $@ $(TEST_tetris) $(LIB_OBJS) $(LIBS) $(COVERAGE_LDFLAGS) $(TEST_LIBS)
+
+$(BIN_DIR)/test_abcdplace: $(TEST_abcdplace) $(LIB_OBJS) $(BUNDLED_LIBS) | dirs
+	@echo "  Building test_abcdplace..."
+	@$(CXX) $(CXXFLAGS) $(INCLUDES) $(TEST_INCLUDES) -o $@ $(TEST_abcdplace) $(LIB_OBJS) $(LIBS) $(COVERAGE_LDFLAGS) $(TEST_LIBS)
 
 # The Tcl tests read the example scripts next to them, so the source tree's
 # location is compiled in rather than guessed from the working directory the

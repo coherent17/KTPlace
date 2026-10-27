@@ -40,4 +40,8 @@ struct fastdpSolution {
     std::vector<Point> positions;
 };
 
+struct abcdplaceSolution {
+    std::vector<Point> positions;
+};
+
 }  // namespace ktplace

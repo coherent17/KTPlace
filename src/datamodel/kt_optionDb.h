@@ -27,12 +27,14 @@ enum class Component : std::uint8_t {
     MultiRow,
     Tetris,
     FastDp,
+    AbcdPlace,
     Visualizer,
     Flow
 };
 
-inline constexpr std::array<std::string_view, 8> componentNames{
-    "simpl", "ntuplace1", "abacus", "multirow", "tetris", "fastdp", "visualizer", "flow"};
+inline constexpr std::array<std::string_view, 9> componentNames{"simpl",     "ntuplace1",  "abacus",
+                                                                "multirow",  "tetris",     "fastdp",
+                                                                "abcdplace", "visualizer", "flow"};
 
 static_assert(componentNames.size() == std::to_underlying(Component::Flow) + 1);
 

@@ -205,6 +205,7 @@ std::string Visualizer::getHeading(const std::string &note) const {
         {"legalize_multi", "Legalization - multi-row"},
         {"legalize_tetris", "Legalization - Tetris"},
         {"detailplace", "Detailed placement - FastDP"},
+        {"detailplace_abcd", "Detailed placement - ABCDPlace"},
     };
     const auto found = titles.find(stage.stage);
     return found != titles.end() ? found->second : stage.stage;

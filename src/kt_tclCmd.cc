@@ -111,9 +111,17 @@ void registerCommands() {
                      flow.legalize();
                      return tcl::Value{};
                  });
-    registerStep(
-        {.name = "detail_place", .usage = "detail_place", .summary = "detailed placement (FastDP)"},
-        {}, Needs::Design, getAction(&FlowMgr::detailPlace));
+    registerStep({.name = "detail_place",
+                  .usage = "detail_place [fastdp|abcdplace]",
+                  .summary = "detailed placement (default: the flow detailed_placer option)"},
+                 {.min = 0, .max = 1}, Needs::Design, [](FlowMgr &flow, const Words &words) {
+                     if (!words.empty()) {
+                         OptionDb::getInstance().set(Component::Flow, "detailed_placer",
+                                                     OptionValue{words.front()});
+                     }
+                     flow.detailPlace();
+                     return tcl::Value{};
+                 });
     registerStep({.name = "place_design",
                   .usage = "place_design",
                   .summary = "gplace_design, legalize_placement and detail_place"},

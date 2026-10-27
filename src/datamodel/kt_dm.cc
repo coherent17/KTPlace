@@ -471,6 +471,11 @@ void ktDM::setFastdpSolution(const fastdpSolution &solution) {
     checkPlacement();
 }
 
+void ktDM::setAbcdplaceSolution(const abcdplaceSolution &solution) {
+    commitCells(graph, solution);
+    checkPlacement();
+}
+
 double ktDM::getHpwl() const {
     // The one HPWL, in kt_solution.cc. This used to be a second implementation of
     // the same arithmetic, alongside the ones in SimplePlacer and FastDP; it is
