@@ -100,7 +100,7 @@ void registerCommands() {
                      return tcl::Value{};
                  });
     registerStep({.name = "legalize_placement",
-                  .usage = "legalize_placement [abacus|tetris]",
+                  .usage = "legalize_placement [abacus|tetris|ripplelg]",
                   .summary = "legalize (default: the flow legalizer option); the multi-row "
                              "legalizer when cells span rows"},
                  {.min = 0, .max = 1}, Needs::Design, [](FlowMgr &flow, const Words &words) {

@@ -68,7 +68,7 @@ everything it does, and why.
 ## Highlights
 
 - **A complete flow.** SimPL (B2B net model, look-ahead legalization) or NTUPlace for global
-  placement, Abacus, Tetris or a multi-row legalizer, FastDP detailed placement, and an independent
+  placement, Abacus, Tetris, RippleLG or a multi-row legalizer, FastDP detailed placement, and an independent
   legality check (overlaps, die, fences) after every stage.
 - **Fences and multi-row cells.** Region constraints from ISPD 2015 and cells taller than a row.
 - **Bookshelf and LEF/DEF.** The format is detected from the directory; gzipped files are read directly.
@@ -133,7 +133,7 @@ write_placement                ;# <work-dir>/placed.pl, or write_placement <file
 | --- | --- |
 | `read_design [dir]` | load a Bookshelf or LEF/DEF design (default: the opened or given design) |
 | `gplace_design [simpl\|ntuplace1]` | global placement (default: `flow algorithm`) |
-| `legalize_placement [abacus\|tetris]` | legalization (default: `flow legalizer`); the multi-row legalizer when cells span rows |
+| `legalize_placement [abacus\|tetris\|ripplelg]` | legalization (default: `flow legalizer`); the multi-row legalizer when cells span rows, unless `ripplelg` is chosen |
 | `detail_place` | FastDP |
 | `place_design` | the three above, in order |
 | `write_placement [file]` | write the `.pl` |
@@ -225,7 +225,7 @@ keys and defaults are in its `*_options.h`.
 | component | key | effect (default) |
 | --- | --- | --- |
 | `flow` | `algorithm` | global placer: `simpl` or `ntuplace1` (`simpl`) |
-| `flow` | `legalizer` | legalizer for single-row designs: `abacus` or `tetris` (`abacus`); designs with cells taller than a row always use the multi-row legalizer |
+| `flow` | `legalizer` | `abacus` or `tetris` for single-row designs (`abacus`), whose designs with cells taller than a row use the multi-row legalizer; `ripplelg` legalizes mixed-cell-height designs itself |
 | `visualizer` | `plot` | draw anything at all: frames, GIF, final still; `0` draws nothing (`1`) |
 | `visualizer` | `anim` | record frames and assemble the GIF (`1`) |
 | `visualizer` | `anim_max_frames` | frame budget for the run (`1200`) |
@@ -247,6 +247,7 @@ keys and defaults are in its `*_options.h`.
 | `abacus` | `max_row_dist`, `min_subrow_sites` | legalizer settings |
 | `abacus`, `tetris`, `multirow` | `frames` | frames while legalizing, showing the cells placed so far at their legal positions; `0` keeps only the first and last (`24`) |
 | `tetris` | `width_factor`, `left_factor`, `y_weight` | the patent's settings: cells are taken in order of x minus `width_factor` times their width (`0.5`); a cell's candidates start at x minus `left_factor` times the widest cell (`1`); the cost is dx² plus `y_weight` times dy² (`1`) |
+| `ripplelg` | `max_rows`, `window_width`, `window_rows`, `window_growth`, `pg_alignment`, `matching`, `delta0`, `matching_group`, `fixed_order`, `frames` | cells up to `max_rows` rows tall are legalized by RippleLG, taller ones placed first nearest-fit (`4`); initial MGL window half-width in row heights (`8`) and half-height in rows (`2`), doubled up to `window_growth` times (`8`); even-height cells on even rows (`1`); the max-displacement matching (`1`) with its tolerated displacement in rows (`4`) and group size (`128`); the fixed-row, fixed-order min-cost flow (`1`) |
 | `multirow` | `macro_rows` | cells spanning more rows than this are legalized first as blocks, before the standard cells are legalized around them (`3`) |
 | `fastdp` | `window`, `wt1`, `wt2`, `max_iterations`, `min_improvement` | detailed placer: local re-ordering window (`3`), overlap penalty weights (`0.1`, `1`), iteration limit and stop threshold |
 
@@ -259,7 +260,7 @@ Each stage follows a published paper; [`docs/`](docs/README.md) explains them fr
 | stage | algorithm |
 | --- | --- |
 | Global placement | SimPL (Kim, Lee, Markov, CACM 2013; IEEE TCAD 2012), or NTUPlace (Chen, Hsu, Jiang, Chang, ISPD 2005); [`docs/global-placement/simpl/`](docs/global-placement/simpl/README.md) is a step-by-step guide to the paper |
-| Legalization | Abacus (Spindler, Schlichtmann, Johannes, ISPD 2008), or Tetris (D. Hill, US patent 6,370,673, 2002), and a multi-row legalizer for cells taller than a row |
+| Legalization | Abacus (Spindler, Schlichtmann, Johannes, ISPD 2008), or Tetris (D. Hill, US patent 6,370,673, 2002), and a multi-row legalizer for cells taller than a row, or RippleLG (Li, Chow, Chen, Young, Yu, DAC 2018) for mixed-cell-height designs |
 | Detailed placement | FastDP (Pan, Viswanathan, Chu, ICCAD 2005) |
 | Checking | an independent placement check (overlaps, die, fences) after every stage |
 

@@ -16,6 +16,8 @@
 #include "legalizer/abacus/abacus_flowMgr.h"
 #include "legalizer/multirow/multirow_dm.h"
 #include "legalizer/multirow/multirow_flowMgr.h"
+#include "legalizer/ripplelg/ripplelg_dm.h"
+#include "legalizer/ripplelg/ripplelg_flowMgr.h"
 #include "legalizer/tetris/tetris_dm.h"
 #include "legalizer/tetris/tetris_flowMgr.h"
 #include "tcl/kt_tclMgr.h"
@@ -42,7 +44,7 @@ namespace ktplace {
 namespace {
 
 enum class GlobalPlacer { Simpl, Ntuplace1 };
-enum class Legalizer { Abacus, Tetris };
+enum class Legalizer { Abacus, Tetris, RippleLg };
 
 std::string getSnapshotFile(const std::string &plotDir) {
     return (std::filesystem::path(plotDir) / "snapshots.ktsnap").string();
@@ -73,7 +75,10 @@ Legalizer getChosenLegalizer() {
     if (legalizer == "tetris") {
         return Legalizer::Tetris;
     }
-    ktlog.fatal("unknown legalizer '{}'; expected abacus or tetris", legalizer);
+    if (legalizer == "ripplelg") {
+        return Legalizer::RippleLg;
+    }
+    ktlog.fatal("unknown legalizer '{}'; expected abacus, tetris or ripplelg", legalizer);
 }
 
 std::vector<float> getCellCoordinates(const Graph &graph, double Point::*axis) {
@@ -453,6 +458,13 @@ void FlowMgr::Impl::runLegalization() {
         snapshots->holdBack(0);
     }
     const Legalizer legalizer = getChosenLegalizer();
+    if (legalizer == Legalizer::RippleLg) {
+        ripplelg::flowMgr stage(*db);
+        recordStage(stage.getDm(), snapshots.get(), observer,
+                    {.stage = "legalize_ripple", .subdir = "", .cadence = 0});
+        runStage(stage, &ktDM::setRipplelgSolution, "legalization");
+        return;
+    }
 
     if (const std::size_t tall = db->getMultiRowCells(); tall > 0) {
         multirow::flowMgr stage(*db);
@@ -474,6 +486,8 @@ void FlowMgr::Impl::runLegalization() {
             runStage(stage, &ktDM::setAbacusSolution, "legalization");
             break;
         }
+        case Legalizer::RippleLg:
+            break;
         case Legalizer::Tetris: {
             tetris::flowMgr stage(*db);
             recordStage(stage.getDm(), snapshots.get(), observer,

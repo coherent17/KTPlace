@@ -55,6 +55,7 @@ public:
     void setAbacusSolution(const abacusSolution &solution);
     void setMultiRowSolution(const multiRowSolution &solution);
     void setTetrisSolution(const tetrisSolution &solution);
+    void setRipplelgSolution(const ripplelgSolution &solution);
     void setFastdpSolution(const fastdpSolution &solution);
 
 

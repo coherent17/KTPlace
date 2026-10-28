@@ -15,7 +15,8 @@ OBJ_DIR ?= ../../build/obj/legalizer
 SRCS := abacus/abacus_legalizer.cc abacus/abacus_dm.cc \
         abacus/abacus_flowMgr.cc multirow/multirow_legalizer.cc multirow/multirow_dm.cc \
         multirow/multirow_flowMgr.cc tetris/tetris_legalizer.cc tetris/tetris_dm.cc \
-        tetris/tetris_flowMgr.cc
+        tetris/tetris_flowMgr.cc ripplelg/ripplelg_legalizer.cc ripplelg/ripplelg_flow.cc \
+        ripplelg/ripplelg_dm.cc ripplelg/ripplelg_flowMgr.cc
 
 EXISTING_SRCS := $(foreach src,$(SRCS),$(if $(wildcard $(src)),$(src),))
 

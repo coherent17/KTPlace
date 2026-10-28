@@ -466,6 +466,11 @@ void ktDM::setTetrisSolution(const tetrisSolution &solution) {
     checkPlacement();
 }
 
+void ktDM::setRipplelgSolution(const ripplelgSolution &solution) {
+    commitCells(graph, solution);
+    checkPlacement();
+}
+
 void ktDM::setFastdpSolution(const fastdpSolution &solution) {
     commitCells(graph, solution);
     checkPlacement();
